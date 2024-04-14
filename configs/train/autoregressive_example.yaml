@@ -1,0 +1,69 @@
+experiment:
+  name: AR
+  seed: [1]
+  device_map: null # auto, cuda, cpu
+
+distributed:
+  enabled: true
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD, FULL_SHARD
+  wrap_policy: SIZE_BAZED # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  name: AR
+  load_in_8bit: false
+  load_in_4bit: false
+  use_bf16: false
+  rnn:
+  out_head:
+    
+
+
+
+
+dataset:
+  name: commonsense_qa
+  root_dir: null # if null it uses the default cache path set for huggingface
+  batch_size: 128
+  test_batch_size: 128
+  num_workers: 2
+  supervised: true # if false it appends "\nA: The answer is " else "\nA: The answer is <(a) correct answer>"
+  prompt_path: null # prompts/commonsenseQA_SP.txt # path to a text file where the prompts are stored
+  max_padding_length: 130
+  target_type: SEQ2SEQ
+  output_fields: !!python/tuple ["input_ids", "attention_mask", "labels"]
+  force_download: false
+
+optimizers: !!python/tuple
+  - optimizer: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: 0.00005
+      weight_decay: 0.0
+      gradient_norm_clipping: 0.1
+      schedulers: !!python/tuple
+        - name: torch.optim.lr_scheduler.StepLR
+          step_size: 5
+          gamma: 0.8
+          step_type: epoch
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16
+  epochs: 40
+  gradient_accumulation_steps: 2
+  detect_anomaly: false
+  save_every: 2
+  best_metric: ppl
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: reasoningschema.utils.param_scheduler.PeriodicScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: beta_scheduler_kl_rws
+    - name: reasoningschema.utils.param_scheduler.ExponentialSchedulerGumbel
+      label: temperature_scheduler_rws
+      init_temperature: 1
+      min_temperature: 0.5
+      training_fraction_to_reach_min: 0.7

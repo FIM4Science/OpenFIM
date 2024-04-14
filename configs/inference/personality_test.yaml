@@ -1,0 +1,34 @@
+evaluation_type: qa
+device_map: auto
+output_path: evaluations/ipp50_qa/7b-chat
+
+generation:
+  answer_pattern: '\(([a-eA-E]?)\)'
+  max_new_tokens: 100
+  do_sample: false
+
+tokenizer:
+  name: meta-llama/Llama-2-7b-chat-hf
+  cache_dir: null
+  padding_side: left # left or right
+  add_pad_token: true
+
+dataset:
+  name: ipp50_qa
+  root_dir: null # if null it uses the default cache path set for huggingface
+  batch_size: 4
+  split: train # train, validation, test
+  num_workers: 2
+  prompt_path: null #prompts/commonsenseQA_SP.txt # path to a text file where the prompts are stored
+  wrap_prompt_as: null # instruction, context, null
+  max_padding_length: 300
+  output_fields: ["id", "input_ids", "attention_mask"]
+  force_download: true
+
+model:
+  name: LLMCausal
+  backbone: meta-llama/Llama-2-7b-chat-hf
+  backbone_path: null # if null it uses the default cache path set for huggingface
+  load_in_8bit: false
+  load_in_4bit: false
+  use_bf16: false

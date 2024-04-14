@@ -1,0 +1,38 @@
+evaluation_type: qa_supervised
+device_map: auto
+output_path: evaluations/commonsense_qa/7b-chat-SP-test
+
+generation:
+  answer_pattern: '\(([a-eA-E]?)\)'
+  max_new_tokens: 100
+  do_sample: false
+
+define: &backbone meta-llama/Llama-2-7b-chat-hf
+
+tokenizer:
+  name: *backbone
+  cache_dir: null
+  padding_side: left # left or right
+  add_pad_token: true
+
+dataset:
+  name: commonsense_qa
+  root_dir: null # if null it uses the default cache path set for huggingface
+  batch_size: 128
+  split: validation # train, validation, test
+  num_workers: 2
+  supervised: False # if false it appends "\nA: The answer is " else "\nA: The answer is <(a) correct answer>"
+  prompt_path: prompts/commonsenseQA_SP.txt # path to a text file where the prompts are stored
+  wrap_prompt_as: null # instruction, context, null
+  max_padding_length: 700
+  output_fields:
+    !!python/tuple ["id", "input_ids", "attention_mask", "answerKey"]
+  force_download: true
+
+model:
+  name: LLMCausal
+  backbone: *backbone
+  backbone_path: null # if null it uses the default cache path set for huggingface
+  load_in_8bit: false
+  load_in_4bit: false
+  use_bf16: false
