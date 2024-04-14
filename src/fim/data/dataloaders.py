@@ -3,20 +3,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Union
 
-from fim.utils.collate import pad_data_collator
 import pandas as pd
 import torch
 import torch.distributed as dist
 from datasets import get_dataset_split_names, load_dataset_builder
 from torch.utils.data.dataloader import DataLoader
-from transformers import default_data_collator
 
+from fim.utils.collate import pad_data_collator
 from fim.utils.helper import verify_str_arg
 
 from ..data.datasets import BaseDataset
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
-
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
@@ -39,7 +37,7 @@ class BaseDataLoader:
     def __init__(
         self,
         path: Union[str, Path],
-        name: Optional[str] = None,
+        ds_name: Optional[str] = None,
         split: Optional[str] = None,
         batch_size: Optional[int] = 32,
         test_batch_size: Optional[int] = 32,
@@ -53,11 +51,11 @@ class BaseDataLoader:
         self.loader_kwargs = loader_kwargs
         self.iter = {}
         self.path = path
-        self.name = name
+        self.name = ds_name
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
 
-        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, name) + [None])
+        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
 
         if self.split is not None:
             self.dataset = {self.split: BaseDataset(self.path, self.name, self.split, **self.dataset_kwargs)}
@@ -180,4 +178,4 @@ class DataLoaderFactory:
             raise ValueError("Invalid object type!")
 
 
-DataLoaderFactory.register("BaseDataLoader", BaseDataLoader)
+DataLoaderFactory.register("base_dataloader", BaseDataLoader)

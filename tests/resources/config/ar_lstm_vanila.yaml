@@ -18,13 +18,13 @@ model:
     dropout: 0.0
     bidirectional: false
     batch_first: true
-    input_size: 2
+    input_size: 3
 
   output_head:
     name: fim.models.blocks.Mlp
-    in_features: 2
+    in_features: 768
     out_features: 2
-    hidden_layers: !!python/tuple [768, 768]
+    hidden_layers: !!python/tuple [256, 256]
     hidden_act:
       name: torch.nn.ReLU
     output_act:
@@ -40,18 +40,15 @@ model:
     lora_dropout: 0.05
     inference_mode: false
 
-
 dataset:
-  name: commonsense_qa
-  root_dir: null # if null it uses the default cache path set for huggingface
+  name: base_dataloader
+  path: monash_tsf
+  ds_name: cif_2016 # if null it uses the default cache path set for huggingface
   batch_size: 128
   test_batch_size: 256
-  num_workers: 2
-  supervised: true # if false it appends "\nA: The answer is " else "\nA: The answer is <(a) correct answer>"
-  prompt_path: null # prompts/commonsenseQA_SP.txt # path to a text file where the prompts are stored
-  max_padding_length: 130
-  output_fields: !!python/tuple ["input_ids", "attention_mask", "labels"]
-  force_download: false
+  output_fields: !!python/tuple ["target", "time_feat"]
+  loader_kwargs:
+    num_workers: 2
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
@@ -67,20 +64,20 @@ optimizers: !!python/tuple
 
 trainer:
   name: Trainer
-  debug_iterations: null
+  debug_iterations: 2
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: 40
   detect_anomaly: false
   save_every: 1
   gradient_accumulation_steps: 2
-  best_metric: ppl
+  best_metric: rmse
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
   schedulers: !!python/tuple
-    - name: reasoningschema.utils.param_scheduler.PeriodicScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: beta_scheduler_kl_rws
-    - name: reasoningschema.utils.param_scheduler.ExponentialSchedulerGumbel
-      label: temperature_scheduler_rws
+    - name: fim.utils.param_scheduler.PeriodicScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: beta_scheduler
+    - name: fim.utils.param_scheduler.ExponentialSchedulerGumbel
+      label: temperature_scheduler
       init_temperature: 1
       min_temperature: 0.5
       training_fraction_to_reach_min: 0.7

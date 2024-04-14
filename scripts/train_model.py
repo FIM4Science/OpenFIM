@@ -20,6 +20,7 @@ from fim.trainers.utils import cleanup, clear_gpu_cache, setup, setup_environ_fl
 from fim.utils.helper import GenericConfig, expand_params, load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
+
 setup_logging()
 
 warnings.filterwarnings("ignore", module="matplotlib")
@@ -73,13 +74,10 @@ def train_distributed(config: List[GenericConfig], resume: bool):
         setup_environ_flags(rank)
         device_map = config.experiment.device_map
 
-        tokenizer = load_tokenizer(**config.tokenizer.__dict__)
-        dataloader = DataLoaderFactory.create(**config.dataset.__dict__, tokenizer=tokenizer)
-        num_added_tokens = len(tokenizer.added_tokens_decoder)
+        dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
+
         model = ModelFactory.create(
             **config.model.to_dict(),
-            pad_token_id=tokenizer.pad_token_id,
-            num_added_tokens=num_added_tokens,
             device_map=device_map,
             resume=resume,
         )
@@ -99,13 +97,9 @@ def train_single(config: List[GenericConfig], resume: bool):
 
     device_map = config.experiment.device_map
 
-    tokenizer = load_tokenizer(**config.tokenizer.to_dict())
-    dataloader = DataLoaderFactory.create(**config.dataset.to_dict(), tokenizer=tokenizer)
-    num_added_tokens = len(tokenizer.added_tokens_decoder)
+    dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
     model = ModelFactory.create(
         **config.model.to_dict(),
-        pad_token_id=tokenizer.pad_token_id,
-        num_added_tokens=num_added_tokens,
         device_map=device_map,
         resume=resume,
     )
@@ -115,5 +109,4 @@ def train_single(config: List[GenericConfig], resume: bool):
 
 if __name__ == "__main__":
     # pylint: disable=no-value-for-parameter
-    main()
     main()

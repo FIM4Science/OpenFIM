@@ -15,8 +15,10 @@ class TestBaseDataLoader:
 
     @pytest.fixture(scope="module")
     def dataloader(self):
-        BaseDataset(path="monash_tsf", name="cif_2016", split="test", download_mode=DownloadMode.FORCE_REDOWNLOAD)
-        return BaseDataLoader(path=self.path, name=self.name, batch_size=self.batch_size, test_batch_size=8, output_fields=self.out_fields)
+        BaseDataset(path="monash_tsf", ds_name="cif_2016", split="test", download_mode=DownloadMode.FORCE_REDOWNLOAD)
+        return BaseDataLoader(
+            path=self.path, ds_name=self.name, batch_size=self.batch_size, test_batch_size=8, output_fields=self.out_fields
+        )
 
     def test_init(self, dataloader):
         assert dataloader.batch_size == self.batch_size

@@ -7,10 +7,11 @@ from typing import Any, Dict, Optional
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from fim.utils.helper import create_class_instance
 from peft.tuners import PrefixEncoder, PromptEmbedding, PromptEncoder
 from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy, size_based_auto_wrap_policy, transformer_auto_wrap_policy
 from transformers import BitsAndBytesConfig
+
+from fim.utils.helper import create_class_instance
 
 from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
@@ -40,23 +41,6 @@ class AModel(nn.Module, ABC):
     @abstractmethod
     def metric(self, y: Any, y_target: Any) -> Dict:
         raise NotImplementedError("The metric method is not implemented in your class!")
-
-    @abstractmethod
-    def train_step(self, batch: dict, optimizers: dict = None, schedulers: dict = None, gradient_accumulation_steps: int = 1) -> Dict:
-        raise NotImplementedError("The train_step method is not implemented in your class!")
-
-    @abstractmethod
-    def validate_step(self, batch: Any) -> Dict:
-        raise NotImplementedError("The validate_step method is not implemented in your class!")
-
-    def validate_epoch(self, dataloader: Any = None, epoch: int = 1) -> Dict:
-        """
-        This is performed only once every
-            save_after_epoch: 10
-            and usually accounts for global validation metrics, like the evaluation of the full graph etc
-        :return:
-        """
-        return {}
 
     def fsdp_wrap_policy(self):
         return None
@@ -146,12 +130,28 @@ class AR(AModel):
         (logits, hidden_state)
         Notation. B: batch size; T: seq len (== fix_len); D: hidden dimension
         """
+        import torch.nn.utils.rnn as rnn_utils
 
-        out = self.backbone(**batch)
-        return {"losses": {"loss": out.loss, "nll-loss": out.loss}, "logits": out.logits}
+        input = torch.cat([batch["target"][..., :-1, :], batch["time_feat"][..., 1:, :]], dim=-1)
+        packed_input = rnn_utils.pack_padded_sequence(input, batch["seq_len"].cpu() - 1, batch_first=True, enforce_sorted=False)
+
+        h, _ = self.rnn(packed_input)
+
+        h, _ = rnn_utils.pad_packed_sequence(h, batch_first=True)
+
+        out = self.output_head(h)
+
+        losses = self.loss(out, batch["target"])
+        return {"losses": losses, "predictions": out}
 
     def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> Dict:
-        return {"loss": torch.tensor(0.0)}
+        import torch.nn.functional as F
+
+        shifted_targets = targets[..., 1:, :].contiguous()
+        mse = F.mse_loss(predictions[..., 0:1], shifted_targets)
+        rmse = torch.sqrt(mse)
+
+        return {"rmse": rmse, "mse": mse, "loss": rmse}
 
     def generate(self, input_ids, attention_mask=None, max_new_tokens: int = 20, do_sample: bool = False):
         """
@@ -177,12 +177,6 @@ class AR(AModel):
         returns a dictionary with metrics
         """
 
-        return {}
-
-    def train_step(self, batch: Any, optimizers: Any = None, schedulers: Any = None, gradient_accumulation_steps: int = 1):
-        return {}
-
-    def validate_step(self, batch: Any):
         return {}
 
     def new_metric_stats(self) -> Dict:
@@ -243,10 +237,4 @@ class AR(AModel):
         return self.peft is not None and self.peft["method"] is not None
 
 
-ModelFactory.register("AR", AR)
-ModelFactory.register("AR", AR)
-ModelFactory.register("AR", AR)
-ModelFactory.register("AR", AR)
-ModelFactory.register("AR", AR)
-ModelFactory.register("AR", AR)
 ModelFactory.register("AR", AR)

@@ -17,6 +17,7 @@ from tqdm.auto import tqdm
 
 from fim.utils.logging import RankLoggerAdapter
 
+
 logger = RankLoggerAdapter(logging.getLogger("__main__"))
 
 
@@ -716,7 +717,7 @@ def load_peft_pretrained_model(model, path: Path):
 
 
 def byte2gb(x):
-    return int(x / 2**30)
+    return float(x / 2**30)
 
 
 # This context manager is used to track the peak memory usage of the process
@@ -774,9 +775,9 @@ class GPUMemoryTrace:
         cpu_peaked = byte2gb(self.cpu_peak - self.cpu_begin)
 
         if self.rank == 0:
-            self.__logger.info("Max CUDA memory allocated was %d GB", peak)
-            self.__logger.info("Max CUDA memory reserved was %d GB", max_reserved)
-            self.__logger.info("Peak active CUDA memory was %d GB", peak_active_gb)
+            self.__logger.info("Max CUDA memory allocated was %.2f GB", peak)
+            self.__logger.info("Max CUDA memory reserved was %.2f GB", max_reserved)
+            self.__logger.info("Peak active CUDA memory was %.2f GB", peak_active_gb)
             self.__logger.info("Cuda Malloc retires : %d", cuda_malloc_retires)
             self.__logger.info("CPU Total Peak Memory consumed during the train (max): %d GB", cpu_peaked + self.cpu_begin)
 

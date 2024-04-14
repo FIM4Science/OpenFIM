@@ -33,7 +33,7 @@ class BaseDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         path: Union[str, Path],
-        name: Optional[str] = None,
+        ds_name: Optional[str] = None,
         split: Optional[str] = "train",
         download_mode: Optional[DownloadMode | str] = None,
         **kwargs,
@@ -41,16 +41,17 @@ class BaseDataset(torch.utils.data.Dataset):
         super().__init__()
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
-        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, name) + [None])
+        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
         self.path = path
-        self.name = name
-        self.logger.debug(f"Loading dataset from {path} with name {name} and split {split}.")
-        self.data: DatasetDict = load_dataset(path, name, split=split, download_mode=download_mode, **kwargs)
+        self.name = ds_name
+        self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
+        self.data: DatasetDict = load_dataset(path, ds_name, split=split, download_mode=download_mode, **kwargs)
         self.logger.debug("Dataset loaded successfully.")
 
     def __getitem__(self, idx):
         out = self.data[idx]
-        out["target"] = out["target"].unsqueeze(-1)
+        if isinstance(out["target"], torch.Tensor):
+            out["target"] = out["target"].unsqueeze(-1)
         return out | {"seq_len": len(out["target"])}
 
     def map(self, function, **kwargs):
