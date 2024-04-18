@@ -31,7 +31,7 @@ model:
       name: torch.nn.ReLU
 
   peft:
-    method: null # null, lora, ...
+    method: null # null, lora
     r: 32
     lora_alpha: 32
     # target_modules: !!python/tuple ["c_attn", "c_proj", "c_fc"]

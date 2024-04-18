@@ -19,6 +19,7 @@ import torch
 import yaml
 from scipy import linalg as la
 
+
 T = TypeVar("T", str, bytes)
 
 
@@ -216,13 +217,13 @@ def dict_set_nested(d, keys, value):
             if "#" in key:
                 key, _id = key.split("#")
                 if key not in node:
-                    node[key] = dict()
+                    node[key] = {}
                     node = node[key][int(_id)]
                 else:
                     node = node[key][int(_id)]
             else:
                 if key not in node:
-                    node[key] = dict()
+                    node[key] = {}
                     node = node[key]
                 else:
                     node = node[key]
@@ -449,7 +450,9 @@ def iterable_to_str(iterable: Iterable) -> str:
     return "'" + "', '".join([str(item) for item in iterable]) + "'"
 
 
-def verify_str_arg(value: T, arg: Optional[str] = None, valid_values: Optional[Iterable[T]] = None, custom_msg: Optional[str] = None) -> T:
+def verify_str_arg(
+    value: T, arg: Optional[str] = None, valid_values: Optional[Iterable[T]] = None, custom_msg: Optional[str] = None
+) -> T:
     """Code taken from torchvision library."""
 
     if not isinstance(value, (str, bytes, type(None))):
@@ -475,7 +478,11 @@ def verify_str_arg(value: T, arg: Optional[str] = None, valid_values: Optional[I
 
 
 def verify_int_arg(
-    value: T, arg: Optional[str] = None, min_value: Optional[T] = None, max_value: Optional[T] = None, custom_msg: Optional[str] = None
+    value: T,
+    arg: Optional[str] = None,
+    min_value: Optional[T] = None,
+    max_value: Optional[T] = None,
+    custom_msg: Optional[str] = None,
 ) -> T:
     """Code taken from torchvision library."""
 
@@ -494,7 +501,9 @@ def verify_int_arg(
         if custom_msg is not None:
             msg = custom_msg
         else:
-            msg = "Value '{value}' for argument {arg} not in range. Valid values are between {min_value} and {max_value}."
+            msg = (
+                "Value '{value}' for argument {arg} not in range. Valid values are between {min_value} and {max_value}."
+            )
             msg = msg.format(value=value, arg=arg, min_value=min_value, max_value=max_value)
         raise ValueError(msg)
 
@@ -570,7 +579,9 @@ def create_schedulers(schedulers_config: dict, max_steps: int, steps_in_epoch: i
     for scheduler_config in schedulers_config_:
         scheduler_config = scheduler_config.to_dict()
         label = scheduler_config.pop("label")
-        scheduler_config["max_steps"] = max_steps if scheduler_config.pop("max_steps_type", "full") == "full" else steps_in_epoch
+        scheduler_config["max_steps"] = (
+            max_steps if scheduler_config.pop("max_steps_type", "full") == "full" else steps_in_epoch
+        )
         schedulers[label] = create_class_instance(scheduler_config.pop("name"), scheduler_config)
 
     return schedulers
