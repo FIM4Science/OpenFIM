@@ -14,15 +14,17 @@ from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 
 from ..data.dataloaders import BaseDataLoader
 from ..models.models import AModel
-from ..utils.helper import (GenericConfig, create_optimizers,
-                            create_schedulers, verify_str_arg)
+from ..utils.helper import GenericConfig, create_optimizers, create_schedulers, verify_str_arg
 from ..utils.logging import RankLoggerAdapter
-from .checkpoint import (TrainCheckpoint, TrainCheckpointFSDPFullStateDict,
-                         apply_fsdp_checkpointing)
+from .checkpoint import TrainCheckpoint, TrainCheckpointFSDPFullStateDict, apply_fsdp_checkpointing
 from .mixed_precision import fp16_mixed, is_bfloat_supported, precisions_types
-from .utils import (GPUMemoryTrace, StepProgressBarFactory,
-                    TrainingTimePerformanceTracker, TrainLogging,
-                    TrainLossTracker)
+from .utils import (
+    GPUMemoryTrace,
+    StepProgressBarFactory,
+    TrainingTimePerformanceTracker,
+    TrainLogging,
+    TrainLossTracker,
+)
 
 
 class Trainer:
@@ -36,7 +38,9 @@ class Trainer:
         self.training_logger = TrainLogging(self.experiment_dir, self.config.trainer.logging_format, self.rank)
         self.training_loss_tracker = TrainLossTracker()
         self.validation_loss_tracker = TrainLossTracker()
-        self.max_steps = self.dataloader.n_train_batches * self.config.trainer.epochs // self.gradient_accumulation_steps
+        self.max_steps = (
+            self.dataloader.n_train_batches * self.config.trainer.epochs // self.gradient_accumulation_steps
+        )
         self.steps_in_epoch = self.dataloader.n_train_batches // self.gradient_accumulation_steps
         self.schedulers: dict = create_schedulers(config.trainer.schedulers, self.max_steps, self.steps_in_epoch)
         self._prepare_model(model, config, resume)
@@ -84,7 +88,7 @@ class Trainer:
 
     def _setup_variables(self):
         self.rank = 0
-        self.local_rank = 0
+        self.local_rank = 0 if torch.cuda.is_available() and self.config.experiment.device_map else "cpu"
         if self.is_distributed:
             self.rank = int(os.environ["RANK"])
             self.local_rank = int(os.environ["LOCAL_RANK"])
@@ -101,7 +105,9 @@ class Trainer:
         self._auto_cast_type = torch.float16
         if is_bfloat_supported() and self._use_mixeprecision:
             if self.rank == 0:
-                self.logger.warning("MIXED_PRECISION: There is bfloat16 support on your system. bfloat16 will be used instead of float16!")
+                self.logger.warning(
+                    "MIXED_PRECISION: There is bfloat16 support on your system. bfloat16 will be used instead of float16!"
+                )
             self._auto_cast_type = torch.bfloat16
         self.grad_scaler = None
         if self._use_mixeprecision and not self.is_distributed:
@@ -151,7 +157,9 @@ class Trainer:
         if self.config.distributed.wrap_policy == "MODEL_SPECIFIC":
             wrap_policy = model.get_fsdp_policy(int(float(self.config.distributed.min_num_params)))
         else:
-            wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=int(float(self.config.distributed.min_num_params)))
+            wrap_policy = functools.partial(
+                size_based_auto_wrap_policy, min_num_params=int(float(self.config.distributed.min_num_params))
+            )
 
         return wrap_policy
 
@@ -178,7 +186,8 @@ class Trainer:
 
         time_trace = TrainingTimePerformanceTracker(self.rank)
         for epoch in range(self.start_epoch, self.n_epochs):
-            mem_trace = GPUMemoryTrace(self.rank)
+            if torch.cuda.is_available() and self.config.experiment.device_map != "cpu":
+                mem_trace = GPUMemoryTrace(self.rank)
             time_trace.start_epoch()
             train_epoch_stats = self._train_epoch(epoch)
             time_trace.stop_epoch()
@@ -191,7 +200,8 @@ class Trainer:
             self.checkpointer.save_checkpoint(epoch, train_epoch_stats, validation_epoch_stats)
             time_trace.stop_timer("Checkpoint")
             p_bar.update_and_set_postfix(1, train_epoch_stats, validation_epoch_stats, ["loss", "ppl"])
-            mem_trace.print_summary()
+            if torch.cuda.is_available() and self.config.experiment.device_map != "cpu":
+                mem_trace.print_summary()
             time_trace.print_elapsed_time("Epoch")
             time_trace.print_elapsed_time("Validation")
             time_trace.print_elapsed_time("Checkpoint")
@@ -220,15 +230,17 @@ class Trainer:
 
     def _train_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
-        with torch.cuda.amp.autocast(enabled=self._use_mixeprecision, dtype=self._auto_cast_type):
+        with torch.cuda.amp.autocast(
+            enabled=self._use_mixeprecision and torch.cuda.is_available(), dtype=self._auto_cast_type
+        ):
             stats = self.model(batch, schedulers=self.schedulers, step=step)
             losses = stats["losses"]
             loss = losses["loss"]
             loss = loss / self.gradient_accumulation_steps
-        losses = dict([(k, v.detach().float()) for k, v in losses.items()])
+        losses = {k: v.detach().float() for k, v in losses.items()}
         histograms = {}
         if "histograms" in stats:
-            histograms = dict([(k, v.detach().float()) for k, v in stats["histograms"].items()])
+            histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
 
         lrs = self._model_update_step(step, loss)
 
@@ -236,7 +248,9 @@ class Trainer:
 
     def _model_update_step(self, step: int, loss: torch.Tensor):
         lrs = {}
-        update_gradients = ((step + 1) % self.gradient_accumulation_steps == 0) or ((step + 1) == self.dataloader.n_train_batches)
+        update_gradients = ((step + 1) % self.gradient_accumulation_steps == 0) or (
+            (step + 1) == self.dataloader.n_train_batches
+        )
         if self.precision or self.config.model.use_bf16:
             self.grad_scaler.scale(loss).backward()
             if update_gradients:
@@ -274,7 +288,9 @@ class Trainer:
     def _validation_epoch(self, epoch: int) -> dict:
         self.model.eval()
         with torch.no_grad():
-            p_bar = StepProgressBarFactory.create_validation_progress_bar(self.dataloader.n_validation_batches, self.rank)
+            p_bar = StepProgressBarFactory.create_validation_progress_bar(
+                self.dataloader.n_validation_batches, self.rank
+            )
             data_it = self.dataloader.validation_it
             if self.debug_mode:
                 data_it = islice(data_it, self.number_of_debug_iterations)
@@ -292,10 +308,10 @@ class Trainer:
     def _validation_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
         stats = self.model(batch)
-        losses = dict([(k, v.detach().float()) for k, v in stats["losses"].items()])
+        losses = {k: v.detach().float() for k, v in stats["losses"].items()}
         histograms = {}
         if "histograms" in stats:
-            histograms = dict([(k, v.detach().float()) for k, v in stats["histograms"].items()])
+            histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
         return {"losses": losses, "histograms": histograms}
 
     def _update_learning_rates(self, call_place: str):

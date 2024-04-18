@@ -1,7 +1,7 @@
 experiment:
   name: AR_LSTM_VANILA_TEST
   seed: [1]
-  device_map: cuda # auto, cuda, cpu
+  device_map: cpu # auto, cuda, cpu
 
 distributed:
   enabled: false
@@ -14,7 +14,7 @@ model:
   recurrent_module:
     name: torch.nn.LSTM
     num_layers: 1
-    hidden_size: 128
+    hidden_size: &hidden_size 128
     dropout: 0.1
     bidirectional: false
     batch_first: true
@@ -22,7 +22,7 @@ model:
 
   output_head:
     name: fim.models.blocks.Mlp
-    in_features: 128
+    in_features: *hidden_size
     out_features: 2
     hidden_layers: !!python/tuple [256, 256]
     hidden_act:
