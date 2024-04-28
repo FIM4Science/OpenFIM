@@ -1,0 +1,83 @@
+experiment:
+  name: DecoderOnly_Test
+  seed: [1]
+  device_map: cpu # auto, cuda, cpu
+
+distributed:
+  enabled: false
+
+model:
+  name: DecoderOnly
+  load_in_8bit: false
+  load_in_4bit: false
+  use_bf16: false
+  residual_block_input:
+    name: fim.models.blocks.ResidualBlock
+    in_features: 33
+    hidden_features: !!python/tuple [128]
+    out_features: &latent_dim 128
+    hidden_act:
+      name: torch.nn.ReLU
+    output_act:
+      name: torch.nn.Identity
+    dropout: 0.1
+
+  # decoder_block:
+  #   name: fim.models.blocks.DecoderBlock
+  #   number_decoder_blocks: 1
+  #   in_features: *latent_dim
+
+  residual_block_output:
+    name: fim.models.blocks.ResidualBlock
+    in_features: 128
+    hidden_features: !!python/tuple [128]
+    out_features: &prediction_len 16
+    hidden_act:
+      name: torch.nn.ReLU
+    output_act:
+      name: torch.nn.Identity
+    dropout: 0.1
+
+dataset:
+  name: contextualized_dataloader
+  path: monash_tsf
+  ds_name: cif_2016 # if null it uses the default cache path set for huggingface
+  batch_size: 32
+  test_batch_size: 256
+  output_fields: !!python/tuple ["target", "time_feat"]
+  loader_kwargs:
+    num_workers: 1
+  max_context_len: 33
+  prediction_len: *prediction_len
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: 0.0001
+      weight_decay: 0.0
+      gradient_norm_clipping: null
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.StepLR
+      #     step_size: 1
+      #     gamma: 0.8
+      #     step_type: epoch
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: 400
+  detect_anomaly: false
+  save_every: 1
+  gradient_accumulation_steps: 1
+  best_metric: rmse
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.PeriodicScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: beta_scheduler
+    - name: fim.utils.param_scheduler.ExponentialSchedulerGumbel
+      label: temperature_scheduler
+      init_temperature: 1
+      min_temperature: 0.5
+      training_fraction_to_reach_min: 0.7

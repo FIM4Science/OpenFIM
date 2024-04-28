@@ -12,7 +12,7 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import verify_str_arg
 
-from ..data.datasets import BaseDataset
+from ..data.datasets import BaseDataset, ContextualizedDataset
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 
@@ -60,12 +60,10 @@ class BaseDataLoader:
         if self.split is not None:
             self.dataset = {self.split: BaseDataset(self.path, self.name, self.split, **self.dataset_kwargs)}
         else:
-            self.dataset = dict(
-                [
-                    (split_, BaseDataset(self.path, self.name, split_, **self.dataset_kwargs))
-                    for split_ in get_dataset_split_names(self.path, self.name)
-                ]
-            )
+            self.dataset = {
+                split_: BaseDataset(self.path, self.name, split_, **self.dataset_kwargs)
+                for split_ in get_dataset_split_names(self.path, self.name)
+            }
         for dataset in self.dataset.values():
             dataset.map(transform_start_field_to_time_features, batched=True)
             dataset.data.set_format(type="torch", columns=output_fields)
@@ -76,7 +74,9 @@ class BaseDataLoader:
         for n, d in dataset.items():
             sampler = None
             if is_distributed():
-                sampler = DistributedSampler(d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train")
+                sampler = DistributedSampler(
+                    d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train"
+                )
             batch_size = self.batch_size
             if n != "train":
                 batch_size = self.test_batch_size
@@ -143,6 +143,55 @@ class BaseDataLoader:
         return len(self.test)
 
 
+class ContextualizedDataLoader(BaseDataLoader):
+    def __init__(
+        self,
+        path: Union[str, Path],
+        ds_name: Optional[str] = None,
+        split: Optional[str] = None,
+        batch_size: Optional[int] = 32,
+        test_batch_size: Optional[int] = 32,
+        output_fields: Optional[List[str]] = None,
+        loader_kwargs: Optional[dict] = {},
+        dataset_kwargs: Optional[dict] = {},
+        max_context_len: Optional[int] = None,
+        prediction_len: Optional[int] = 1,
+    ):
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        self.dataset_kwargs = dataset_kwargs
+        self.loader_kwargs = loader_kwargs
+        self.iter = {}
+        self.path = path
+        self.name = ds_name
+        self.max_context_len = max_context_len
+        self.prediction_len = prediction_len
+
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+
+        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
+
+        if self.split is not None:
+            self.dataset = {self.split: ContextualizedDataset(self.path, self.name, self.split, **self.dataset_kwargs)}
+        else:
+            self.dataset = {
+                split_: ContextualizedDataset(
+                    self.path,
+                    self.name,
+                    split_,
+                    max_context_len=max_context_len,
+                    prediction_len=prediction_len,
+                    **self.dataset_kwargs,
+                )
+                for split_ in get_dataset_split_names(self.path, self.name)
+            }
+        for dataset in self.dataset.values():
+            dataset.map(transform_start_field_to_time_features, batched=True)
+            dataset.data.set_format(type="torch", columns=output_fields)
+
+        self._init_dataloaders(self.dataset)
+
+
 class DataLoaderFactory:
     """Dataloader factory class."""
 
@@ -179,3 +228,4 @@ class DataLoaderFactory:
 
 
 DataLoaderFactory.register("base_dataloader", BaseDataLoader)
+DataLoaderFactory.register("contextualized_dataloader", ContextualizedDataLoader)
