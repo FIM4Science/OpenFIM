@@ -12,7 +12,7 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import verify_str_arg
 
-from ..data.datasets import BaseDataset, ContextualizedDataset
+from ..data.datasets import BaseDataset, PatchedDataset
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 
@@ -27,8 +27,8 @@ def convert_to_pandas_data_range(date: List[datetime], periods: List[int], freq:
     return month_and_year_pairs
 
 
-def transform_start_field_to_time_features(batch: dict, freq: str = "1M"):
-    periods = list(map(len, batch["target"]))
+def transform_start_field_to_time_features(batch: dict, freq: str = "1M", key: str = "target"):
+    periods = list(map(len, batch[key]))
     batch["time_feat"] = convert_to_pandas_data_range(batch["start"], periods, freq)
     return batch
 
@@ -143,7 +143,7 @@ class BaseDataLoader:
         return len(self.test)
 
 
-class ContextualizedDataLoader(BaseDataLoader):
+class PatchedDataLoader(BaseDataLoader):
     def __init__(
         self,
         path: Union[str, Path],
@@ -155,7 +155,8 @@ class ContextualizedDataLoader(BaseDataLoader):
         loader_kwargs: Optional[dict] = {},
         dataset_kwargs: Optional[dict] = {},
         max_context_len: Optional[int] = None,
-        prediction_len: Optional[int] = 1,
+        patch_len_in: Optional[int] = 32,
+        patch_len_out: Optional[int] = 1,
     ):
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size
@@ -165,31 +166,53 @@ class ContextualizedDataLoader(BaseDataLoader):
         self.path = path
         self.name = ds_name
         self.max_context_len = max_context_len
-        self.prediction_len = prediction_len
+        self.patch_len_out = patch_len_out
+        self.patch_len_in = patch_len_in
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
 
         self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
 
         if self.split is not None:
-            self.dataset = {self.split: ContextualizedDataset(self.path, self.name, self.split, **self.dataset_kwargs)}
+            self.dataset = {self.split: PatchedDataset(self.path, self.name, self.split, **self.dataset_kwargs)}
         else:
             self.dataset = {
-                split_: ContextualizedDataset(
+                split_: PatchedDataset(
                     self.path,
                     self.name,
                     split_,
                     max_context_len=max_context_len,
-                    prediction_len=prediction_len,
+                    patch_len_in=patch_len_in,
+                    patch_len_out=patch_len_out,
                     **self.dataset_kwargs,
                 )
                 for split_ in get_dataset_split_names(self.path, self.name)
             }
         for dataset in self.dataset.values():
-            dataset.map(transform_start_field_to_time_features, batched=True)
+            dataset.map(transform_start_field_to_time_features, batched=True, fn_kwargs={"key": "input"})
             dataset.data.set_format(type="torch", columns=output_fields)
 
         self._init_dataloaders(self.dataset)
+
+    def _init_dataloaders(self, dataset):
+        for n, d in dataset.items():
+            sampler = None
+            if is_distributed():
+                sampler = DistributedSampler(
+                    d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train"
+                )
+            batch_size = self.batch_size
+            if n != "train":
+                batch_size = self.test_batch_size
+            self.iter[n] = DataLoader(
+                d,
+                drop_last=False,
+                sampler=sampler,
+                shuffle=sampler is None,
+                batch_size=batch_size,
+                # collate_fn=pad_data_collator,
+                **self.loader_kwargs,
+            )
 
 
 class DataLoaderFactory:
@@ -228,4 +251,4 @@ class DataLoaderFactory:
 
 
 DataLoaderFactory.register("base_dataloader", BaseDataLoader)
-DataLoaderFactory.register("contextualized_dataloader", ContextualizedDataLoader)
+DataLoaderFactory.register("patched_dataloader", PatchedDataLoader)

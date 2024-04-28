@@ -8,7 +8,12 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from peft.tuners import PrefixEncoder, PromptEmbedding, PromptEncoder
-from torch.distributed.fsdp.wrap import _or_policy, lambda_auto_wrap_policy, size_based_auto_wrap_policy, transformer_auto_wrap_policy
+from torch.distributed.fsdp.wrap import (
+    _or_policy,
+    lambda_auto_wrap_policy,
+    size_based_auto_wrap_policy,
+    transformer_auto_wrap_policy,
+)
 from transformers import BitsAndBytesConfig
 
 from fim.utils.helper import create_class_instance
@@ -62,7 +67,11 @@ class ModelFactory:
     model_types = {}
 
     @classmethod
-    def register(cls, model_type: str, model_class: AModel):
+    def register(
+        cls,
+        model_type: str,
+        model_class: AModel,
+    ):
         cls.model_types[model_type] = model_class
 
     @classmethod
@@ -96,12 +105,18 @@ class AR(AModel):
         if load_in_8bit and load_in_4bit:
             raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
         elif load_in_8bit or load_in_4bit:
-            self._quantization_config = BitsAndBytesConfig(load_in_8bit=load_in_8bit, load_in_4bit=load_in_4bit)
+            self._quantization_config = BitsAndBytesConfig(
+                load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
+            )
             self._device_map = "auto"
         if use_bf16 and is_bfloat_supported:
             self._torch_dtype = torch.float16
 
-        self._create_model(recurrent_module, output_head)
+        self._create_model(
+            recurrent_module,
+            output_head,
+        )
         if self.rank == 0:
             self.logger.info("=" * 50)
             self.logger.info(f"AR Model: {get_peft_trainable_parameters(self)} parameters")
@@ -110,13 +125,28 @@ class AR(AModel):
             self.logger.info("=" * 50)
         self.to(self._device_map)
 
-    def _create_model(self, recurrent_module: dict, output_head: dict):
-        self.rnn = create_class_instance(recurrent_module.pop("name"), recurrent_module)
-        self.output_head = create_class_instance(output_head.pop("name"), output_head)
+    def _create_model(
+        self,
+        recurrent_module: dict,
+        output_head: dict,
+    ):
+        self.rnn = create_class_instance(
+            recurrent_module.pop("name"),
+            recurrent_module,
+        )
+        self.output_head = create_class_instance(
+            output_head.pop("name"),
+            output_head,
+        )
         # self.rnn.to(self._device_map)
         # self.output_head.to(self._device_map)
 
-    def forward(self, batch, schedulers: Optional[dict] = None, step: Optional[int] = None):
+    def forward(
+        self,
+        batch,
+        schedulers: Optional[dict] = None,
+        step: Optional[int] = None,
+    ):
         """
         Forward step of the  language model.
 
@@ -132,28 +162,62 @@ class AR(AModel):
         """
         import torch.nn.utils.rnn as rnn_utils
 
-        input = torch.cat([batch["target"][..., :-1, :], batch["time_feat"][..., 1:, :]], dim=-1)
-        packed_input = rnn_utils.pack_padded_sequence(input, batch["seq_len"].cpu() - 1, batch_first=True, enforce_sorted=False)
+        input = torch.cat(
+            [
+                batch["target"][..., :-1, :],
+                batch["time_feat"][..., 1:, :],
+            ],
+            dim=-1,
+        )
+        packed_input = rnn_utils.pack_padded_sequence(
+            input,
+            batch["seq_len"].cpu() - 1,
+            batch_first=True,
+            enforce_sorted=False,
+        )
 
         h, _ = self.rnn(packed_input)
 
-        h, _ = rnn_utils.pad_packed_sequence(h, batch_first=True)
+        (
+            h,
+            _,
+        ) = rnn_utils.pad_packed_sequence(h, batch_first=True)
 
         out = self.output_head(h)
 
         losses = self.loss(out, batch["target"])
-        return {"losses": losses, "predictions": out}
+        return {
+            "losses": losses,
+            "predictions": out,
+        }
 
-    def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def loss(
+        self,
+        predictions: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> Dict:
         import torch.nn.functional as F
 
         shifted_targets = targets[..., 1:, :].contiguous()
-        mse = F.mse_loss(predictions[..., 0:1], shifted_targets)
+        mse = F.mse_loss(
+            predictions[..., 0:1],
+            shifted_targets,
+        )
         rmse = torch.sqrt(mse)
 
-        return {"rmse": rmse, "mse": mse, "loss": rmse}
+        return {
+            "rmse": rmse,
+            "mse": mse,
+            "loss": rmse,
+        }
 
-    def generate(self, input_ids, attention_mask=None, max_new_tokens: int = 20, do_sample: bool = False):
+    def generate(
+        self,
+        input_ids,
+        attention_mask=None,
+        max_new_tokens: int = 20,
+        do_sample: bool = False,
+    ):
         """
         Forward step of the  language model.
 
@@ -168,11 +232,21 @@ class AR(AModel):
         Notation. B: batch size; T: seq len (== fix_len); D: hidden dimension
         """
 
-        out = self.backbone.generate(input_ids, attention_mask=attention_mask, max_new_tokens=max_new_tokens, do_sample=do_sample)
+        out = self.backbone.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            do_sample=do_sample,
+        )
 
         return out
 
-    def metric(self, y: Any, y_target: Any, seq_len=None):
+    def metric(
+        self,
+        y: Any,
+        y_target: Any,
+        seq_len=None,
+    ):
         """
         returns a dictionary with metrics
         """
@@ -180,7 +254,7 @@ class AR(AModel):
         return {}
 
     def new_metric_stats(self) -> Dict:
-        stats = dict()
+        stats = {}
         return stats
 
     def fsdp_activation_check_fn(self):
@@ -203,18 +277,45 @@ class AR(AModel):
 
     def fsdp_wrap_policy(self):
         transformer_layers = self.get_transformer_layers()
-        return functools.partial(transformer_auto_wrap_policy, transformer_layer_cls=transformer_layers)
+        return functools.partial(
+            transformer_auto_wrap_policy,
+            transformer_layer_cls=transformer_layers,
+        )
 
     def fsdp_peft_wrap_policy(self):
         def lambda_policy_fn(module):
-            return len(list(module.named_children())) == 0 and getattr(module, "weight", None) is not None and module.weight.requires_grad
+            return (
+                len(list(module.named_children())) == 0
+                and getattr(
+                    module,
+                    "weight",
+                    None,
+                )
+                is not None
+                and module.weight.requires_grad
+            )
 
         transformer_layers = self.get_transformer_layers()
-        lambda_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=lambda_policy_fn)
-        transformer_wrap_policy = functools.partial(
-            transformer_auto_wrap_policy, transformer_layer_cls={PrefixEncoder, PromptEncoder, PromptEmbedding} | transformer_layers
+        lambda_policy = functools.partial(
+            lambda_auto_wrap_policy,
+            lambda_fn=lambda_policy_fn,
         )
-        auto_wrap_policy = functools.partial(_or_policy, policies=[lambda_policy, transformer_wrap_policy])
+        transformer_wrap_policy = functools.partial(
+            transformer_auto_wrap_policy,
+            transformer_layer_cls={
+                PrefixEncoder,
+                PromptEncoder,
+                PromptEmbedding,
+            }
+            | transformer_layers,
+        )
+        auto_wrap_policy = functools.partial(
+            _or_policy,
+            policies=[
+                lambda_policy,
+                transformer_wrap_policy,
+            ],
+        )
         return auto_wrap_policy
         # return functools.partial(transformer_auto_wrap_policy, transformer_layer_cls=transformer_layers)
 
@@ -226,11 +327,14 @@ class AR(AModel):
                 wrap_policy = self.fsdp_wrap_policy()
         except ValueError:
             self.logger.warning("The model does not have custom wrapping policy. Size based auto policy will be used!")
-            wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=min_num_params)
+            wrap_policy = functools.partial(
+                size_based_auto_wrap_policy,
+                min_num_params=min_num_params,
+            )
         return wrap_policy
 
     def new_stats(self) -> Dict:
-        stats = dict()
+        stats = {}
         return stats
 
     def is_peft(self) -> bool:
@@ -238,3 +342,154 @@ class AR(AModel):
 
 
 ModelFactory.register("AR", AR)
+
+
+class DecoderOnly(AModel):
+    """
+    Based on the paper: "A decoder-only foundation model for time-series forecasting" by Das, A. et. al.
+    """
+
+    def __init__(
+        self,
+        residual_block_input: dict,
+        positional_encoding: dict,
+        decoder_block: dict,
+        residual_block_output: dict,
+        load_in_8bit: bool = False,
+        load_in_4bit: bool = False,
+        use_bf16: bool = False,
+        device_map: Optional[str] = None,
+        resume: bool = False,
+        peft: Optional[dict] = None,
+    ):
+        super(DecoderOnly, self).__init__()
+        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+        self._device_map = device_map
+        self._torch_dtype = None
+        self._quantization_config = None
+        self.resume = resume
+        self.peft = peft
+        if load_in_8bit and load_in_4bit:
+            raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
+        elif load_in_8bit or load_in_4bit:
+            self._quantization_config = BitsAndBytesConfig(
+                load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
+            )
+            self._device_map = "auto"
+        if use_bf16 and is_bfloat_supported:
+            self._torch_dtype = torch.float16
+
+        self._create_model(
+            residual_block_input=residual_block_input,
+            positional_encoding=positional_encoding,
+            decoder_block=decoder_block,
+            residual_block_output=residual_block_output,
+        )
+        if self.rank == 0:
+            self.logger.info("=" * 50)
+            self.logger.info(f"DecoderOnly Model: {get_peft_trainable_parameters(self)} parameters")
+            self.logger.info("=" * 50)
+            self.logger.info(self)
+            self.logger.info("=" * 50)
+        self.to(self._device_map)
+
+    def _create_model(
+        self,
+        residual_block_input: dict,
+        decoder_block: dict,
+        positional_encoding: dict,
+        residual_block_output: dict,
+    ):
+        self.residual_block_input = create_class_instance(
+            residual_block_input.pop("name"),
+            residual_block_input,
+        )
+
+        self.positional_encoding = create_class_instance(
+            positional_encoding.pop("name"),
+            positional_encoding,
+        )
+
+        self.transformer_blocks = nn.ModuleList()
+        decoder_block_name = decoder_block.pop("name")
+        for _ in range(decoder_block.pop("number_decoder_blocks")):
+            self.transformer_blocks.append(create_class_instance(decoder_block_name, decoder_block))
+
+        self.residual_block_output = create_class_instance(
+            residual_block_output.pop("name"),
+            residual_block_output,
+        )
+
+    def forward(
+        self,
+        batch,
+        schedulers: Optional[dict] = None,
+        step: Optional[int] = None,
+    ):
+        """
+        Forward step of the DecoderOnly model.
+
+        Args:
+            batch: input batch with keys
+                - input_values: the input sequence, patched and padded; [batch_size, seq_len, patch_len_in]
+                - mask: the mask for the input sequence; [batch_size, seq_len, patch_len_in]. (1=masked, 0=unmasked)
+                - output_values: the output sequence, patched and padded; [batch_size, patch_len_out]
+                - seq_len: the sequence length, i.e. the number of patches; [batch_size]
+                - time_feat: the time features; [batch_size, seq_len, time_feat_dim]
+            schedulers: optional schedulers
+            step: optional step
+        """
+        input_token = self.residual_block_input(batch["input_values"] * (~batch["mask"]))
+        # add positional encoding
+        token = self.positional_encoding(input_token)
+
+        # decoder blocks
+        for block in self.transformer_blocks:
+            token = block(token, batch["mask"])
+
+        # map to model's output
+        output_token = self.residual_block_output(token)
+
+        losses = self.loss(output_token, batch["output_values"])
+        return {
+            "losses": losses,
+            "predictions": output_token,
+        }
+
+    def loss(
+        self,
+        predictions: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> Dict:
+        import torch.nn.functional as F
+
+        shifted_targets = targets[..., 1:, :].contiguous()
+        mse = F.mse_loss(
+            predictions[..., 0:1],
+            shifted_targets,
+        )
+        rmse = torch.sqrt(mse)
+
+        return {
+            "rmse": rmse,
+            "mse": mse,
+            "loss": rmse,
+        }
+
+    def metric(
+        self,
+        y: Any,
+        y_target: Any,
+        seq_len=None,
+    ):
+        raise NotImplementedError("The metric method is not implemented in class DecoderOnly!")
+
+    def new_stats(self) -> Dict:
+        raise NotImplementedError("The new_stats method is not implemented in class DecoderOnly!")
+
+    def is_peft(self) -> bool:
+        return self.peft is not None and self.peft["method"] is not None
+
+
+ModelFactory.register("DecoderOnly", DecoderOnly)

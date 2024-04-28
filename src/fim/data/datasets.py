@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Optional, Union
+import random
 
 import torch
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset, Dataset
@@ -64,9 +65,9 @@ class BaseDataset(torch.utils.data.Dataset):
         return len(self.data)
 
 
-class ContextualizedDataset(BaseDataset):
+class PatchedDataset(BaseDataset):
     """
-    Present data so that each entry is a time series snippet of length max_context_len + prediction_len.
+    Split each time series into sequence of patches. Store corresponding target (horizon) values.
     """
 
     def __init__(
@@ -75,43 +76,92 @@ class ContextualizedDataset(BaseDataset):
         ds_name: Optional[str] = None,
         split: Optional[str] = "train",
         download_mode: Optional[DownloadMode | str] = None,
+        patch_len_in: Optional[int] = 32,
         max_context_len: Optional[int] = None,
-        prediction_len: Optional[int] = 1,
+        patch_len_out: Optional[int] = 1,
         **kwargs,
     ):
         super().__init__(path, ds_name, split, download_mode, **kwargs)
 
         self.max_context_len = max_context_len
-        self.prediction_len = prediction_len
+        self.patch_len_out = patch_len_out
+        self.patch_len_in = patch_len_in
 
-        start = []
-        context_and_horizon_windows = []
+        max_nr_patches_per_context_window = max_context_len // patch_len_in
+        new_data = []
+
+        # split time series into patches
         for row in self.data:
-            for i in range(len(row["target"]) - max_context_len - prediction_len + 1):
-                context_and_horizon_windows.append(row["target"][i : i + max_context_len + prediction_len])
-                start.append(row["start"])
-        self.data = Dataset.from_dict({"start": start, "target": context_and_horizon_windows})
+            time_series = row["target"]
+            patches = [
+                time_series[i : i + patch_len_in]
+                for i in range(0, len(time_series) - patch_len_in - patch_len_out, patch_len_in)
+            ]
+            predictions = [
+                time_series[i : i + patch_len_out]
+                for i in range(patch_len_in, len(time_series) - patch_len_out, patch_len_in)
+            ]
+            # TODO treat test / validation differently ?
+            for context_id in range(len(patches) - max_nr_patches_per_context_window + 1):
+                for nr_patches in range(1, max_nr_patches_per_context_window):
+                    # include padding
+                    cur_patches = patches[context_id : context_id + nr_patches] + [[0] * patch_len_in] * (
+                        max_nr_patches_per_context_window - nr_patches
+                    )
+                    cur_predictions = predictions[context_id + nr_patches - 1]
+
+                    # create mask: mask out random first r values of first patch + padded patches
+                    r = random.randint(0, patch_len_in - 1)
+                    mask = (
+                        [[True] * r + [False] * (patch_len_in - r)]
+                        + [[False] * patch_len_in] * (nr_patches - 1)
+                        + [[True] * patch_len_in] * (max_nr_patches_per_context_window - nr_patches)
+                    )
+
+                    # TODO: fix "start" if time feature is ever relevant
+                    new_data.append(
+                        {"start": row["start"], "input": cur_patches, "output": cur_predictions, "mask": mask}
+                    )
+        self.data = Dataset.from_list(new_data)
 
     def __str__(self):
-        return f"""ContextualizedDataset(
+        return f"""PatchedDataset(
                 path={self.path},
                 name={self.name},
                 split={self.split},
+                patch_len_in={self.patch_len_in},
                 max_context_len={self.max_context_len},
-                prediction_len={self.prediction_len},
+                patch_len_out={self.patch_len_out},
                 dataset={self.data}
                 )"""
 
     def __getitem__(self, idx):
-        item, _ = super().__getitem__(idx)
-        input_values = item["target"][: -self.prediction_len]
-        target_values = item["target"][-self.prediction_len :]
+        """
+        Get item at index `idx`.
+
+        Args:
+            idx (int): The index of the item.
+
+        Returns:
+            dict: The item at the given index with keys
+                - "input_values" (List[List[float]]): The input values as sequence of patches; [n_patches, patch_len_in]
+                - "output_values" (List[float]): The output values; [patch_len_out]
+                - "start" (int): The start of the time series.
+                - "seq_len" (int): The sequence length, i.e. the number of patches.
+                - "mask"
+        """
+        # TODO check for dimensions!
+        item = self.data[idx]
+        input_values = item["input"]
+        output_values = item["output"]
         sequence_length = len(input_values)
+        mask = item["mask"]
         return {
             "input_values": input_values,
-            "target_values": target_values,
-            "start": item["start"],
+            "output_values": output_values,
+            "time_feat": item["time_feat"],
             "seq_len": sequence_length,
+            "mask": mask,
         }
 
     def __len__(self):
