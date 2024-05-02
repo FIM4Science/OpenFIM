@@ -433,20 +433,21 @@ class DecoderOnly(AModel):
         Args:
             batch: input batch with keys
                 - input_values: the input sequence, patched and padded; [batch_size, seq_len, patch_len_in]
-                - mask: the mask for the input sequence; [batch_size, seq_len, patch_len_in]. (1=masked, 0=unmasked)
+                - mask_point_level: the mask on point level; [batch_size, seq_len, patch_len_in], (1: masked, 0: not masked)
+                - mask_token_level: the mask on token level; [batch_size, seq_len], (1: masked, 0: not masked)
                 - output_values: the output sequence, patched and padded; [batch_size, patch_len_out]
                 - seq_len: the sequence length, i.e. the number of patches; [batch_size]
                 - time_feat: the time features; [batch_size, seq_len, time_feat_dim]
             schedulers: optional schedulers
             step: optional step
         """
-        input_token = self.residual_block_input(batch["input_values"] * (~batch["mask"]))
+        input_token = self.residual_block_input(batch["input_values"] * (~batch["mask_point_level"]))
         # add positional encoding
         token = self.positional_encoding(input_token)
 
         # decoder blocks
         for block in self.transformer_blocks:
-            token = block(token, batch["mask"])
+            token = block(token, batch["mask_token_level"])
 
         # map to model's output
         output_token = self.residual_block_output(token)
@@ -464,17 +465,24 @@ class DecoderOnly(AModel):
     ) -> Dict:
         import torch.nn.functional as F
 
-        shifted_targets = targets[..., 1:, :].contiguous()
+        prediction = predictions[..., 0, :]
+
         mse = F.mse_loss(
-            predictions[..., 0:1],
-            shifted_targets,
+            prediction,
+            targets,
         )
         rmse = torch.sqrt(mse)
+
+        mae = F.l1_loss(
+            prediction,
+            targets,
+        )
 
         return {
             "rmse": rmse,
             "mse": mse,
-            "loss": rmse,
+            "mae": mae,
+            "loss": mse,
         }
 
     def metric(

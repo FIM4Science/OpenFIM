@@ -1,5 +1,5 @@
 experiment:
-  name: DecoderOnly_Test
+  name: DecoderOnly_Test_04-30-2
   seed: [1]
   device_map: cpu # auto, cuda, cpu
 
@@ -26,7 +26,7 @@ model:
   positional_encoding:
     name: fim.models.blocks.PositionalEncoding
     d_model: *latent_dim
-    max_len: 32
+    max_len: 100
 
   decoder_block:
     name: fim.models.blocks.DecoderBlock
@@ -39,7 +39,7 @@ model:
     name: fim.models.blocks.ResidualBlock
     in_features: 128
     hidden_features: !!python/tuple [128]
-    out_features: &prediction_len 16
+    out_features: &prediction_len 32
     hidden_act:
       name: torch.nn.ReLU
     output_act:
@@ -51,8 +51,8 @@ dataset:
   path: monash_tsf
   ds_name: cif_2016 # if null it uses the default cache path set for huggingface
   batch_size: 32
-  test_batch_size: 256
-  output_fields: !!python/tuple ["input", "output", "mask", "time_feat"]
+  test_batch_size: 100
+  output_fields: !!python/tuple ["input", "output", "mask_point_level", "mask_token_level", "time_feat"]
   loader_kwargs:
     num_workers: 1
   max_context_len: 32

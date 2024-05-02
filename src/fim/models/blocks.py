@@ -244,7 +244,7 @@ class DecoderBlock(nn.Module):
         self.layer_norm = nn.LayerNorm(d_model)
 
     def forward(self, x, mask):
-        x = self.self_attn(x, x, x, attn_mask=mask, is_causal=True, need_weights=False)[0]
+        x = self.self_attn(x, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)[0]
         x = self.mlp(x)
         x = self.dropout(x)
         x = self.layer_norm(x)

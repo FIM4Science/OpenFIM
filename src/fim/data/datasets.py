@@ -110,17 +110,25 @@ class PatchedDataset(BaseDataset):
                     )
                     cur_predictions = predictions[context_id + nr_patches - 1]
 
-                    # create mask: mask out random first r values of first patch + padded patches
+                    # create mask on time-point level: mask out random first r values of first patch + padded patches
                     r = random.randint(0, patch_len_in - 1)
-                    mask = (
+                    mask_point_level = (
                         [[True] * r + [False] * (patch_len_in - r)]
                         + [[False] * patch_len_in] * (nr_patches - 1)
                         + [[True] * patch_len_in] * (max_nr_patches_per_context_window - nr_patches)
                     )
 
+                    # create mask on token level: mask out tokens that are completely masked out by mask_point_level
+                    mask_token_level = [all(m) for m in mask_point_level]
                     # TODO: fix "start" if time feature is ever relevant
                     new_data.append(
-                        {"start": row["start"], "input": cur_patches, "output": cur_predictions, "mask": mask}
+                        {
+                            "start": row["start"],
+                            "input": cur_patches,
+                            "output": cur_predictions,
+                            "mask_point_level": mask_point_level,
+                            "mask_token_level": mask_token_level,
+                        }
                     )
         self.data = Dataset.from_list(new_data)
 
@@ -150,18 +158,16 @@ class PatchedDataset(BaseDataset):
                 - "seq_len" (int): The sequence length, i.e. the number of patches.
                 - "mask"
         """
-        # TODO check for dimensions!
         item = self.data[idx]
         input_values = item["input"]
-        output_values = item["output"]
         sequence_length = len(input_values)
-        mask = item["mask"]
         return {
             "input_values": input_values,
-            "output_values": output_values,
+            "output_values": item["output"],
             "time_feat": item["time_feat"],
             "seq_len": sequence_length,
-            "mask": mask,
+            "mask_point_level": item["mask_point_level"],
+            "mask_token_level": item["mask_token_level"],
         }
 
     def __len__(self):
