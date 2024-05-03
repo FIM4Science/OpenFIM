@@ -154,9 +154,6 @@ class PatchedDataLoader(BaseDataLoader):
         output_fields: Optional[List[str]] = None,
         loader_kwargs: Optional[dict] = {},
         dataset_kwargs: Optional[dict] = {},
-        max_context_len: Optional[int] = None,
-        patch_len_in: Optional[int] = 32,
-        patch_len_out: Optional[int] = 1,
     ):
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size
@@ -165,9 +162,6 @@ class PatchedDataLoader(BaseDataLoader):
         self.iter = {}
         self.path = path
         self.name = ds_name
-        self.max_context_len = max_context_len
-        self.patch_len_out = patch_len_out
-        self.patch_len_in = patch_len_in
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
 
@@ -181,9 +175,6 @@ class PatchedDataLoader(BaseDataLoader):
                     self.path,
                     self.name,
                     split_,
-                    max_context_len=max_context_len,
-                    patch_len_in=patch_len_in,
-                    patch_len_out=patch_len_out,
                     **self.dataset_kwargs,
                 )
                 for split_ in get_dataset_split_names(self.path, self.name)
@@ -210,7 +201,6 @@ class PatchedDataLoader(BaseDataLoader):
                 sampler=sampler,
                 shuffle=sampler is None,
                 batch_size=batch_size,
-                # collate_fn=pad_data_collator,
                 **self.loader_kwargs,
             )
 

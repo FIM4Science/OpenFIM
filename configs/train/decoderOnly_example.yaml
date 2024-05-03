@@ -1,5 +1,5 @@
 experiment:
-  name: DecoderOnly_Test_04-30-2
+  name: DecoderOnly_Test_05-03-1555
   seed: [1]
   device_map: cpu # auto, cuda, cpu
 
@@ -15,8 +15,8 @@ model:
   residual_block_input:
     name: fim.models.blocks.ResidualBlock
     in_features: &patch_len_in 16
-    hidden_features: !!python/tuple [128]
-    out_features: &latent_dim 128
+    hidden_features: !!python/tuple [16]
+    out_features: &latent_dim 16
     hidden_act:
       name: torch.nn.ReLU
     output_act:
@@ -37,9 +37,9 @@ model:
 
   residual_block_output:
     name: fim.models.blocks.ResidualBlock
-    in_features: 128
-    hidden_features: !!python/tuple [128]
-    out_features: &prediction_len 32
+    in_features: 16
+    hidden_features: !!python/tuple [16]
+    out_features: &prediction_len 8
     hidden_act:
       name: torch.nn.ReLU
     output_act:
@@ -50,14 +50,16 @@ dataset:
   name: patched_dataloader
   path: monash_tsf
   ds_name: cif_2016 # if null it uses the default cache path set for huggingface
-  batch_size: 32
-  test_batch_size: 100
+  batch_size: 50
+  test_batch_size: 10
   output_fields: !!python/tuple ["input", "output", "mask_point_level", "mask_token_level", "time_feat"]
   loader_kwargs:
     num_workers: 1
-  max_context_len: 32
-  patch_len_out: *prediction_len
-  patch_len_in: *patch_len_in
+  dataset_kwargs:
+    max_context_len: 48
+    patch_len_out: *prediction_len
+    patch_len_in: *patch_len_in
+    overlap_context_windows: 10
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
