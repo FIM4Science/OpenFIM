@@ -465,7 +465,7 @@ class DecoderOnly(AModel):
     ) -> Dict:
         import torch.nn.functional as F
 
-        prediction = predictions[..., 0, :]
+        prediction = predictions[..., -1, :]
 
         mse = F.mse_loss(
             prediction,

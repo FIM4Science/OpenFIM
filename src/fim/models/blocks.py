@@ -218,12 +218,22 @@ class PositionalEncoding(torch.nn.Module):
     def __init__(self, d_model: int, max_len: int):
         super(PositionalEncoding, self).__init__()
 
-        self.encoding = torch.zeros(max_len, d_model)
+        # note: this implementation works only with even d_model.
+        # if d_model is odd, we add an additional dimension to the encoding and remove it
+        #  after the calculation of the encoding
+        if d_model % 2 != 0:
+            self.encoding = torch.zeros(max_len, d_model + 1)
+        else:
+            self.encoding = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
 
         self.encoding[:, 0::2] = torch.sin(position * div_term)
         self.encoding[:, 1::2] = torch.cos(position * div_term)
+
+        if d_model % 2 != 0:
+            self.encoding = self.encoding[:, :-1]
+
         self.encoding = self.encoding.unsqueeze(0).transpose(0, 1)
 
     def forward(self, x):
