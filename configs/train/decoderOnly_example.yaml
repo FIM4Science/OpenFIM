@@ -1,5 +1,5 @@
 experiment:
-  name: DecoderOnly_Test_05-03-1651
+  name: DecoderOnly_Test_05-08-1127
   seed: [1]
   device_map: cpu # auto, cuda, cpu
 
@@ -55,6 +55,7 @@ dataset:
   output_fields: !!python/tuple ["input", "output", "mask_point_level", "mask_token_level", "time_feat"]
   loader_kwargs:
     num_workers: 1
+  # split: "train"
   dataset_kwargs:
     max_context_len: 48
     patch_len_out: *prediction_len
