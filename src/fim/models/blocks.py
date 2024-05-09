@@ -212,35 +212,47 @@ class ResidualBlock(Block):
         return out_final
 
 
-class PositionalEncoding(torch.nn.Module):
+class PositionalEncoding(Block):
     """Positional encoding as defined in 'Vaswani, A. et al. Attention is all you need'."""
 
     def __init__(self, d_model: int, max_len: int):
+        """
+        Args:
+            d_model (int): Dimension of the model.
+                note: this implementation works only with even d_model.
+                if d_model is odd, we add an additional dimension to the encoding and remove it
+                after the calculation of the encoding
+            max_len (int): Maximum length of the input sequence. (including train and test iteration!)
+        """
         super(PositionalEncoding, self).__init__()
 
-        # note: this implementation works only with even d_model.
-        # if d_model is odd, we add an additional dimension to the encoding and remove it
-        #  after the calculation of the encoding
         if d_model % 2 != 0:
-            self.encoding = torch.zeros(max_len, d_model + 1)
+            encoding = torch.zeros(max_len, d_model + 1)
         else:
-            self.encoding = torch.zeros(max_len, d_model)
+            encoding = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
 
-        self.encoding[:, 0::2] = torch.sin(position * div_term)
-        self.encoding[:, 1::2] = torch.cos(position * div_term)
+        encoding[:, 0::2] = torch.sin(position * div_term)
+        encoding[:, 1::2] = torch.cos(position * div_term)
 
         if d_model % 2 != 0:
-            self.encoding = self.encoding[:, :-1]
+            encoding = encoding[:, :-1]
 
-        self.encoding = self.encoding.unsqueeze(0).transpose(0, 1)
+        encoding = encoding.unsqueeze(0).transpose(0, 1)
+
+        # register the encoding as buffer to make it available on all devices
+        self.register_buffer("encoding", encoding, persistent=False)
+
+    @property
+    def device(self):
+        return self.encoding.device
 
     def forward(self, x):
         return x + self.encoding[: x.size(0), :]
 
 
-class DecoderBlock(nn.Module):
+class DecoderBlock(Block):
     """Consists of causal self-attention block and feed-forward network and layer normalization"""
 
     def __init__(self, d_model: int, num_heads: int, dropout: float, batch_first: bool = True):
