@@ -1,5 +1,5 @@
 experiment:
-  name: DecoderOnly_Test_05-08-1127
+  name: DecoderOnly_synthData_05-10-1730
   seed: [1]
   device_map: cuda # auto, cuda, cpu
 
@@ -14,7 +14,7 @@ model:
 
   residual_block_input:
     name: fim.models.blocks.ResidualBlock
-    in_features: &patch_len_in 16
+    in_features: &patch_len_in 64
     hidden_features: !!python/tuple [&latent_dim 20]
     out_features: *latent_dim
     hidden_act:
@@ -39,7 +39,7 @@ model:
     name: fim.models.blocks.ResidualBlock
     in_features: *latent_dim
     hidden_features: !!python/tuple [*latent_dim]
-    out_features: &prediction_len 8
+    out_features: &prediction_len 128
     hidden_act:
       name: torch.nn.ReLU
     output_act:
@@ -48,19 +48,21 @@ model:
 
 dataset:
   name: patched_dataloader
-  path: monash_tsf
-  ds_name: cif_2016 # if null it uses the default cache path set for huggingface
-  batch_size: 17
-  test_batch_size: 19
+  path: /cephfs_projects/foundation_models/forecasting_data/function_samples_datasets/8M_gp_rbf_periodic_cheby_log_exp_sins/
+  ds_name:  # if null it uses the default cache path set for huggingface
+  synthetic_data: true
+  batch_size: 32
+  test_batch_size: 64
   output_fields: !!python/tuple ["input", "output", "mask_point_level", "mask_token_level", "time_feat"]
   loader_kwargs:
     num_workers: 1
-  split: "train"
+  # split: "train"
   dataset_kwargs:
-    max_context_len: 48
+    max_context_len: 256
     patch_len_out: *prediction_len
     patch_len_in: *patch_len_in
     overlap_context_windows: 0
+    noise_param: 0.01
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer

@@ -1,16 +1,13 @@
 import logging
 from pathlib import Path
 from typing import Optional, Union
-import random
-import math
-from itertools import pairwise
-from datetime import timedelta
 
 import torch
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset, Dataset
 
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
+from .tokenizers import PatcherDecoderOnlyStyle
 
 
 class BaseDataset(torch.utils.data.Dataset):
@@ -45,10 +42,10 @@ class BaseDataset(torch.utils.data.Dataset):
         super().__init__()
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
-        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
         self.path = path
         self.name = ds_name
         self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
+        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
         self.data: DatasetDict = load_dataset(path, ds_name, split=split, download_mode=download_mode, **kwargs)
         self.logger.debug("Base Dataset loaded successfully.")
 
@@ -68,24 +65,83 @@ class BaseDataset(torch.utils.data.Dataset):
         return len(self.data)
 
 
-class PatchedDataset(BaseDataset):
+class SyntheticDataset(BaseDataset):
+    def __init__(
+        self,
+        path: Union[str, Path],
+        ds_name: Optional[list[str]] = None,
+        split: Optional[str] = "train",
+        noise: Optional[tuple[float]] = None,
+        **kwargs,
+    ):
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+        self.path = path
+        self.name = ds_name
+        self.noise_params = noise
+        self.logger.debug(f"Loading dataset from {path} and split {split}.")
+        self.split = verify_str_arg(split, valid_values=["train", "test", None])
+        self.data: DatasetDict = self._load_synthetic_dataset(path, split=split, ds_name=ds_name)
+
+        self.function_types = sorted(set(self.data["function_type"]))
+
+        self.logger.debug("Synthetic Dataset loaded successfully.")
+
+    def __str__(self):
+        return f"""SyntheticDataset(
+                path={self.path},
+                name={self.name},
+                split={self.split},
+                dataset={self.data},
+                function types={self.function_types},
+                noise=N({self.noise_params}))
+                """
+
+    def _load_synthetic_dataset(self, path, split, ds_name: Optional[list[str]] = None) -> DatasetDict:
+        """
+        Custom method to load synthetic dataset from cephfs directory.
+
+        Args:
+            path: path to dataset root.
+                Expected structure: subfolders with function types / < train | test > / < function_samples_grid.pickle | function_samples_values.pickle>
+            split: 'train' or 'test'
+            ds_name: List of names of data sets aka function types. If None (default) all datasets in subfolder of given path are loaded
+
+        Returns:
+            DatasetDict with keys 'target' and 'start' and 'function_type'
+        """
+        import os
+        import pickle
+        import numpy as np
+
+        synthetic_data = []
+        # iterate over folders in path
+        for function_type in sorted(os.listdir(path)):
+            if ds_name is not None and function_type not in ds_name:
+                continue
+
+            function_path = os.path.join(path, function_type, split)
+
+            with open(os.path.join(function_path, "function_samples_values.pickle"), "rb") as f:
+                jax_data = pickle.load(f)
+
+            # convert Jax -> numpy (need copy to make it writeable) -> torch
+            np_data = np.asarray(jax_data).copy()
+            data = torch.from_numpy(np_data)  # type: torch.FloatTensor
+
+            # squeeze last dimesion -> shape: [nr_functions, len functions = 640]
+            data = data.squeeze(-1)
+
+            # TODO: load grid if ever necessary
+
+            # TODO: make larger when deploying
+            synthetic_data.extend({"target": ts, "start": 0, "function_type": function_type} for ts in data[:100])
+
+        return Dataset.from_list(synthetic_data)
+
+
+class PatchedDatasetSynthetic(SyntheticDataset):
     """
     Split each time series into (overlapping) context windows, then into patches. Store corresponding target (horizon) values.
-
-    Steps:
-    1. split time series into context + horizon windows
-    2. each context window: split into patches and corresponding target values
-    3. select training/testing input: per context window: select patch 1 & 1. prediction; 1-2 & 2. prediction; 1-3 & 3. prediction,...
-    4. create masks
-        - point level: first patch: mask first r (random) points; last patch: mask points to fill up to patch_len_in; remaining patches: not masked.
-            True indicates that the point is masked out. Bases on masking strategy of Das et al. in Decoder-only paper.
-        - token level: indicates if corresponding patch is fully masked out
-    5. resulting features of a data entry:
-        - input: sequence of patches, padded with 0 if necessary, [max_nr_patches_per_context_window, patch_len_in]
-        - output: target values subsequent to the last non-padded input value, [patch_len_out]
-        - mask_point_level: mask on point level, [max_nr_patches_per_context_window, patch_len_in]
-        - mask_token_level: mask on token level, [max_nr_patches_per_context_window]
-        - start: start time of the considered patch sequence (note: currently dummy time, needs to be fixed it ever necessary)
     """
 
     def __init__(
@@ -93,153 +149,54 @@ class PatchedDataset(BaseDataset):
         path: Union[str, Path],
         ds_name: Optional[str] = None,
         split: Optional[str] = "train",
-        download_mode: Optional[DownloadMode | str] = None,
         patch_len_in: Optional[int] = 32,
         max_context_len: Optional[int] = None,
         patch_len_out: Optional[int] = 1,
-        overlap_context_windows: Optional[int] = 0,
+        overlap_context_windows: Optional[int] = None,
+        noise_param: Optional[float] = None,
         **kwargs,
     ):
-        super().__init__(path, ds_name, split, download_mode, **kwargs)
+        super().__init__(path=path, ds_name=ds_name, split=split, **kwargs)
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
-        self.max_context_len = max_context_len
-        self.patch_len_out = patch_len_out
-        self.patch_len_in = patch_len_in
-        self.overlap_context_windows = overlap_context_windows
 
-        # TODO: fix time if ever needed. Currently: dummy time
-        self.time_units_per_step = timedelta(hours=1)
-
-        self.max_nr_patches_per_context_window = math.ceil(self.max_context_len / self.patch_len_in)
-
-        processed_data = []
-
-        for row in self.data:
-            processed_data.extend(self._process_single_time_series(time_series=row["target"], time_start=row["start"]))
-
-        self.data = Dataset.from_list(processed_data)
-        self.logger.debug("Dataset successfully divided into context windows and patches.")
-
-    def _process_single_time_series(self, time_series, time_start) -> list[dict]:
-        """Split time series into context windows and trigger patching function."""
-        if len(time_series) <= self.patch_len_out + 1:
-            return []
-
-        processed_data = []
-
-        # get start indices for each context window
-        context_start_indices = list(
-            range(
-                0,
-                len(time_series) - self.max_context_len - self.patch_len_out,
-                self.max_context_len - self.overlap_context_windows,
-            )
+        self.tokenizer = PatcherDecoderOnlyStyle(
+            max_context_len=max_context_len,
+            patch_len_in=patch_len_in,
+            patch_len_out=patch_len_out,
+            overlap_context_windows=overlap_context_windows,
         )
 
-        for context_start_id in context_start_indices:
-            processed_data.extend(
-                self._process_single_context_window(
-                    time_series[context_start_id : context_start_id + self.max_context_len + self.patch_len_out],
-                    time_start + context_start_id * self.time_units_per_step,
-                )
-            )
-        return processed_data
+        self.data = self.tokenizer.split_data(self.data)
 
-    def _split_into_patches(self, context_window) -> tuple[list[list[float]], list[list[float]]]:
+        if noise_param is not None:
+            self.noise_param = noise_param
+            # add gaussian noise to non-masked input values
+            self._add_gaussian_noise()
+
+        self.logger.debug("Dataset successfully divided into context windows and patches.")
+
+    def _add_gaussian_noise(self):
         """
-        Split a context window into patches of length `patch_len_in` and subsequent `patch_len_out` points as prediction.
-
-        Args:
-            context_window (list[float]): The context window to split.
-
-        Returns:
-            tuple[list[list[float]], list[list[float]]]: The input patches and the corresponding predictions.
+        Add Gaussian noise to the non-masked input values.
         """
-        patch_start_indices = [
-            patch_id * self.patch_len_in for patch_id in range(0, self.max_nr_patches_per_context_window)
-        ]
-        patch_start_indices.append(self.max_context_len)
-
-        patches_in = [context_window[start:end] for start, end in pairwise(patch_start_indices)]
-        patches_out = [
-            context_window[patch_end : patch_end + self.patch_len_out] for patch_end in patch_start_indices[1:]
-        ]
-
-        return patches_in, patches_out
-
-    def _process_single_context_window(self, context_window, time_start) -> list[dict]:
-        """Patch a context window, compute masks and return data entries."""
         processed_data = []
 
-        patches_in, predictions = self._split_into_patches(context_window)
+        for item in self.data:
+            input = torch.tensor(item["input"])
+            mask = torch.tensor(item["mask_point_level"])
 
-        for nr_patches in range(1, len(patches_in) + 1):
-            cur_patched_context = patches_in[:nr_patches]
-            mask_point_level, delta_start_time = self._create_mask_point_level(nr_patches, cur_patched_context)
-            # pad last patch to full length
-            if len(patches_in[nr_patches - 1]) < self.patch_len_in:
-                patches_in[nr_patches - 1].extend([0] * (self.patch_len_in - len(patches_in[nr_patches - 1])))
-            # pad patch sequence to max_nr_patches_per_context_window
-            cur_patched_context += [[0] * self.patch_len_in] * (self.max_nr_patches_per_context_window - nr_patches)
-            mask_point_level += [[True] * self.patch_len_in] * (self.max_nr_patches_per_context_window - nr_patches)
+            noise = torch.normal(mean=0, std=self.noise_param, size=input.shape)
+            input[~mask] += noise[~mask]
+            item["input"] = input
+            processed_data.append(item)
 
-            mask_token_level = self._create_mask_token_level(mask_point_level)
+        self.data = Dataset.from_list(processed_data)
 
-            processed_data.append(
-                {
-                    "input": cur_patched_context,
-                    "output": predictions[nr_patches - 1],
-                    "mask_point_level": mask_point_level,
-                    "mask_token_level": mask_token_level,
-                    "start": time_start + delta_start_time,
-                }
-            )
-        return processed_data
-
-    def _create_mask_point_level(self, nr_patches, patches_in) -> list[list[bool]]:
-        """
-        Create the mask on point level.
-
-        The first r (random number) points of the first patch are masked out & the last values of last patch if it is not of full length.
-
-        Returns:
-            list[list[bool]]: The mask on point level.
-            datetime.timedelta: The time delta to the start of the first patch (due to masking of first r points in first patch)
-        """
-        # create first patch mask
-        r = random.randint(0, self.patch_len_in - 1)
-        mask_point_level = [[True] * r + [False] * (self.patch_len_in - r)]
-
-        # create patch masks for all patches except the last one
-        if nr_patches > 2:
-            mask_point_level.extend([[False] * self.patch_len_in] * (nr_patches - 2))
-
-        # append padding mask for last patch if necessary
-        if nr_patches > 1:
-            mask_point_level.extend(
-                [[False] * len(patches_in[-1]) + [True] * (self.patch_len_in - len(patches_in[-1]))]
-            )
-
-        delta_start_time = self.time_units_per_step * r
-
-        return mask_point_level, delta_start_time
-
-    def _create_mask_token_level(self, mask_point_level) -> list[bool]:
-        """Create the mask on token level."""
-        return [all(mask) for mask in mask_point_level]
+        self.logger.debug("Gaussian Noise added.")
 
     def __str__(self):
-        return f"""PatchedDataset(
-                path={self.path},
-                name={self.name},
-                split={self.split},
-                max_context_len={self.max_context_len},
-                patch_len_in={self.patch_len_in},
-                patch_len_out={self.patch_len_out},
-                overlap_context_windows={self.overlap_context_windows},
-                dataset={self.data}
-                )"""
+        return f"""PatchedDatasetSynthetic(\n\tdata={self.data},\t\ntokenizer={self.tokenizer}\n)"""
 
     def __getitem__(self, idx):
         """
@@ -267,5 +224,62 @@ class PatchedDataset(BaseDataset):
             "mask_token_level": item["mask_token_level"],
         }
 
-    def __len__(self):
-        return len(self.data)
+
+class PatchedDatasetBase(BaseDataset):
+    def __init__(
+        self,
+        path: Union[str, Path],
+        ds_name: Optional[str] = None,
+        split: Optional[str] = "train",
+        patch_len_in: Optional[int] = 32,
+        max_context_len: Optional[int] = None,
+        patch_len_out: Optional[int] = 1,
+        overlap_context_windows: Optional[int] = None,
+        **kwargs,
+    ):
+        super().__init__(path=path, ds_name=ds_name, split=split, **kwargs)
+
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+
+        self.tokenizer = PatcherDecoderOnlyStyle(
+            max_context_len=max_context_len,
+            patch_len_in=patch_len_in,
+            patch_len_out=patch_len_out,
+            overlap_context_windows=overlap_context_windows,
+        )
+
+        self.data = self.tokenizer.split_data(self.data)
+
+        self.logger.debug("Dataset successfully divided into context windows and patches.")
+
+    def __getitem__(self, idx):
+        """
+        Get item at index `idx`.
+
+        Args:
+            idx (int): The index of the item.
+
+        Returns:
+            dict: The item at the given index with keys
+                - "input_values" (List[List[float]]): The input values as sequence of patches; [n_patches, patch_len_in]
+                - "output_values" (List[float]): The output values; [patch_len_out]
+                - "start" (int): The start of the time series.
+                - "seq_len" (int): The sequence length, i.e. the number of patches (without padding).
+                - "mask_point_level" (List[List[bool]]): The mask on point level; [n_patches, patch_len_in]
+                - "mask_token_level" (List[bool]): The mask on token level; [n_patches]
+        """
+        item = self.data[idx]
+        return {
+            "input_values": item["input"],
+            "output_values": item["output"],
+            "time_feat": item["time_feat"],
+            "seq_len": sum(~item["mask_token_level"]),
+            "mask_point_level": item["mask_point_level"],
+            "mask_token_level": item["mask_token_level"],
+        }
+
+    def __str__(self):
+        return f"""PatchedDatasetBase(
+data={self.data}
+tokenizer={self.tokenizer}
+)"""

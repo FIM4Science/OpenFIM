@@ -12,7 +12,7 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import verify_str_arg
 
-from ..data.datasets import BaseDataset, PatchedDataset
+from ..data.datasets import BaseDataset, PatchedDatasetSynthetic, PatchedDatasetBase
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 
@@ -148,6 +148,7 @@ class PatchedDataLoader(BaseDataLoader):
         self,
         path: Union[str, Path],
         ds_name: Optional[str] = None,
+        synthetic_data: Optional[bool] = False,
         split: Optional[str] = None,
         batch_size: Optional[int] = 32,
         test_batch_size: Optional[int] = 32,
@@ -167,18 +168,30 @@ class PatchedDataLoader(BaseDataLoader):
 
         self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
 
+        if synthetic_data:
+            dataset_type = PatchedDatasetSynthetic
+        else:
+            dataset_type = PatchedDatasetBase
+
         if self.split is not None:
-            self.dataset = {self.split: PatchedDataset(self.path, self.name, self.split, **self.dataset_kwargs)}
+            self.dataset = {
+                self.split: dataset_type(path=self.path, ds_name=self.name, split=self.split, **self.dataset_kwargs)
+            }
         else:
             self.dataset = {
-                split_: PatchedDataset(
-                    self.path,
-                    self.name,
-                    split_,
+                split_: dataset_type(
+                    path=self.path,
+                    ds_name=self.name,
+                    split=split_,
                     **self.dataset_kwargs,
                 )
                 for split_ in get_dataset_split_names(self.path, self.name)
             }
+        if "validation" not in self.dataset.keys() and "test" in self.dataset.keys():
+            self.dataset["validation"] = self.dataset["test"]
+            del self.dataset["test"]
+            self.logger.warn('No validation set found. Setting changing key "test" to "validation".')
+
         for dataset in self.dataset.values():
             dataset.map(transform_start_field_to_time_features, batched=True, fn_kwargs={"key": "input"})
             dataset.data.set_format(type="torch", columns=output_fields)
