@@ -3,7 +3,7 @@ from datasets import Dataset
 import math
 from itertools import pairwise
 import random
-
+from tqdm import tqdm
 
 class PatcherDecoderOnlyStyle:
     """
@@ -42,12 +42,12 @@ class PatcherDecoderOnlyStyle:
     def split_data(self, data: Dataset) -> Dataset:
         processed_data = []
 
-        for row in data:
+        for row in tqdm(data, desc="Splitting data into patches"):
             processed_data.extend(self._process_single_time_series(time_series=row["target"], time_start=row["start"]))
 
-        data = Dataset.from_list(processed_data)
+        data_final = Dataset.from_list(processed_data)
 
-        return data
+        return data_final
 
     def _process_single_time_series(self, time_series, time_start) -> list[dict]:
         """Split time series into context windows and trigger patching function."""
@@ -60,7 +60,7 @@ class PatcherDecoderOnlyStyle:
         context_start_indices = list(
             range(
                 0,
-                len(time_series) - self.max_context_len - self.patch_len_out,
+                len(time_series) - self.max_context_len - self.patch_len_out+1,
                 self.max_context_len - self.overlap_context_windows,
             )
         )

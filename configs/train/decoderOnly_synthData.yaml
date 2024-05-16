@@ -1,5 +1,5 @@
 experiment:
-  name: DecoderOnly_synthData_05-10-1730
+  name: DecoderOnly_synthData_05-16-1400
   seed: [1]
   device_map: cuda # auto, cuda, cpu
 
@@ -15,24 +15,24 @@ model:
   residual_block_input:
     name: fim.models.blocks.ResidualBlock
     in_features: &patch_len_in 64
-    hidden_features: !!python/tuple [&latent_dim 20]
+    hidden_features: !!python/tuple [&latent_dim 512]
     out_features: *latent_dim
     hidden_act:
       name: torch.nn.ReLU
     output_act:
       name: torch.nn.Identity
-    dropout: &dropout 0.1
+    dropout: &dropout 0.2
 
   positional_encoding:
     name: fim.models.blocks.PositionalEncoding
     d_model: *latent_dim
-    max_len: 100
+    max_len: 128
 
   decoder_block:
     name: fim.models.blocks.DecoderBlock
-    number_decoder_blocks: 1
+    number_decoder_blocks: 4
     d_model: *latent_dim
-    num_heads: 4
+    num_heads: 16
     dropout: *dropout
 
   residual_block_output:
@@ -51,14 +51,14 @@ dataset:
   path: /cephfs_projects/foundation_models/forecasting_data/function_samples_datasets/8M_gp_rbf_periodic_cheby_log_exp_sins/
   ds_name:  # if null it uses the default cache path set for huggingface
   synthetic_data: true
-  batch_size: 32
-  test_batch_size: 64
+  batch_size: 64
+  test_batch_size: 128
   output_fields: !!python/tuple ["input", "output", "mask_point_level", "mask_token_level", "time_feat"]
   loader_kwargs:
     num_workers: 1
   # split: "train"
   dataset_kwargs:
-    max_context_len: 256
+    max_context_len: 512
     patch_len_out: *prediction_len
     patch_len_in: *patch_len_in
     overlap_context_windows: 0
@@ -80,9 +80,9 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: 400
+  epochs: 500
   detect_anomaly: false
-  save_every: 1
+  save_every: 5
   gradient_accumulation_steps: 1
   best_metric: rmse
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"

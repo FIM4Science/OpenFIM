@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Optional, Union
+from tqdm import tqdm
 
 import torch
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset, Dataset
@@ -115,7 +116,7 @@ class SyntheticDataset(BaseDataset):
 
         synthetic_data = []
         # iterate over folders in path
-        for function_type in sorted(os.listdir(path)):
+        for function_type in tqdm(sorted(os.listdir(path)), desc=f"Loading synthetic data ({split})"):
             if ds_name is not None and function_type not in ds_name:
                 continue
 
@@ -132,9 +133,8 @@ class SyntheticDataset(BaseDataset):
             data = data.squeeze(-1)
 
             # TODO: load grid if ever necessary
-
-            # TODO: make larger when deploying
-            synthetic_data.extend({"target": ts, "start": 0, "function_type": function_type} for ts in data[:100])
+            # TODO not complete data... fix it eventually!
+            synthetic_data.extend({"target": ts, "start": 0, "function_type": function_type} for ts in data[:1000])
 
         return Dataset.from_list(synthetic_data)
 
@@ -182,7 +182,7 @@ class PatchedDatasetSynthetic(SyntheticDataset):
         """
         processed_data = []
 
-        for item in self.data:
+        for item in tqdm(self.data, desc="Adding Gaussian Noise"):
             input = torch.tensor(item["input"])
             mask = torch.tensor(item["mask_point_level"])
 
