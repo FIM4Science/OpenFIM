@@ -1,0 +1,28 @@
+train_config: "configs/train/decoderOnly_synthData.yaml"
+
+evaluation:
+  model_checkpoint_path: "results/DecoderOnly_synthData_05-10-1730-experiment-seed-1/checkpoints/epoch-367/model-checkpoint.pth"
+  output_path: "results/DecoderOnly_synthData_05-10-1730-experiment-seed-1/inference/synthetic_data"
+  evaluation_type: patched_ts
+  device_map: cuda
+
+gereration:
+  max_new_patches: 1
+
+dataset:
+  name: patched_dataloader
+  path: /cephfs_projects/foundation_models/forecasting_data/function_samples_datasets/8M_gp_rbf_periodic_cheby_log_exp_sins/
+  ds_name:  # if null it uses the default cache path set for huggingface
+  synthetic_data: true
+  batch_size: 32
+  test_batch_size: 64
+  output_fields: !!python/tuple ["input", "output", "mask_point_level", "mask_token_level", "time_feat"]
+  loader_kwargs:
+    num_workers: 1
+  split: "test"
+  dataset_kwargs:
+    max_context_len: 256
+    patch_len_out:  128
+    patch_len_in: 64
+    overlap_context_windows: 0
+    noise_param: 0.01

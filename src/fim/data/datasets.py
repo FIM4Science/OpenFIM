@@ -93,7 +93,7 @@ class SyntheticDataset(BaseDataset):
                 split={self.split},
                 dataset={self.data},
                 function types={self.function_types},
-                noise=N({self.noise_params}))
+                noise=N(0, {self.noise_params}))
                 """
 
     def _load_synthetic_dataset(self, path, split, ds_name: Optional[list[str]] = None) -> DatasetDict:
@@ -178,7 +178,7 @@ class PatchedDatasetSynthetic(SyntheticDataset):
 
     def _add_gaussian_noise(self):
         """
-        Add Gaussian noise to the non-masked input values.
+        Add Gaussian noise to the non-masked input values with mean 0 and std noise_param.
         """
         processed_data = []
 

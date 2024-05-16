@@ -26,7 +26,11 @@ class PatcherDecoderOnlyStyle:
     """
 
     def __init__(
-        self, max_context_len: int, patch_len_in: int, patch_len_out: int, overlap_context_windows: Optional[int] = None
+        self, 
+        max_context_len: int, 
+        patch_len_in: int, 
+        patch_len_out: int, 
+        overlap_context_windows: Optional[int] = None
     ):
         self.max_context_len = max_context_len
         self.patch_len_in = patch_len_in
@@ -35,7 +39,7 @@ class PatcherDecoderOnlyStyle:
 
         self.max_nr_patches_per_context_window = math.ceil(self.max_context_len / self.patch_len_in)
 
-    def split_data(self, data) -> Dataset:
+    def split_data(self, data: Dataset) -> Dataset:
         processed_data = []
 
         for row in data:

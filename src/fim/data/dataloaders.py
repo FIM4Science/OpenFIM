@@ -187,7 +187,7 @@ class PatchedDataLoader(BaseDataLoader):
                 )
                 for split_ in get_dataset_split_names(self.path, self.name)
             }
-        if "validation" not in self.dataset.keys() and "test" in self.dataset.keys():
+        if "validation" not in self.dataset.keys() and "test" in self.dataset.keys() and "train" in self.dataset.keys():
             self.dataset["validation"] = self.dataset["test"]
             del self.dataset["test"]
             self.logger.warn('No validation set found. Setting changing key "test" to "validation".')
