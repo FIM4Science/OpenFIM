@@ -134,7 +134,7 @@ class SyntheticDataset(BaseDataset):
 
             # TODO: load grid if ever necessary
             # TODO not complete data... fix it eventually!
-            synthetic_data.extend({"target": ts, "start": 0, "function_type": function_type} for ts in data[:1000])
+            synthetic_data.extend({"target": ts, "start": 0, "function_type": function_type} for ts in data)
 
         return Dataset.from_list(synthetic_data)
 
