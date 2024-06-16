@@ -1,11 +1,13 @@
 import copy
 import logging
 
+import torch
 import torch.nn as nn
 from peft import LoraConfig, PeftConfig
 from transformers import PreTrainedModel
 
 from ..utils.logging import RankLoggerAdapter
+
 
 logger = RankLoggerAdapter(logging.getLogger("__main__"))
 
@@ -53,3 +55,11 @@ def freeze_transformer_layers(model: nn.Module, num_layers: int = 0):
         if num_layers == -1 or i < num_layers:
             for param in layer.parameters():
                 param.requires_grad = False
+
+
+class SinActivation(nn.Module):
+    # def __init__(self):
+    #     super(SinActivation, self).__init__()
+
+    def forward(self, x):
+        return torch.sin(x)

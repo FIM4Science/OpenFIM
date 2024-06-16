@@ -1,10 +1,9 @@
 import logging
+import math
 import os
 from pathlib import Path
 from typing import List, Optional
-import math
 
-from fim.utils.helper import create_class_instance
 import torch
 from torch import nn
 from transformers import (
@@ -13,10 +12,12 @@ from transformers import (
     TimeSeriesTransformerForPrediction,
 )
 
+from fim.utils.helper import create_class_instance
+
 from ..trainers.mixed_precision import is_bfloat_supported
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
-from .utils import add_peft_adapter, freeze_transformer_layers
+from .utils import SinActivation, add_peft_adapter, freeze_transformer_layers
 
 
 class Block(nn.Module):
@@ -271,3 +272,47 @@ class DecoderBlock(Block):
         x = self.dropout(x)
         x = self.layer_norm(x)
         return x
+
+
+class TimeEncoding(Block):
+    """
+    Implements the time encoding as described in "Multi-time attention networks for irregularly sampled time series, Shukla & Marlin, 2020".
+
+    Each time point t is encoded as a vector of dimension d_time:
+        - first element: linear embedding of t: w_0*t + b_0
+        - remaining elements: sinusoidal embedding of t with different frequencies: sin(w_i*t + b_i) for i in {1, ..., d_time-1}
+    w_j and b_j are learnable parameters.
+    """
+
+    def __init__(self, d_time: int, dropout_rate: float = 0.0):
+        """
+        Args:
+            d_time (int): Dimension of the time representation
+            dropout_rate (float): Dropout rate
+        """
+        super(TimeEncoding, self).__init__()
+
+        self.d_time = d_time
+
+        self.linear_embedding = nn.Linear(1, 1, bias=True)
+        self.periodic_embedding = nn.Sequential(nn.Linear(1, d_time - 1, bias=True), SinActivation())
+
+    def forward(self, grid: torch.Tensor, mask: Optional[torch.Tensor] = None):
+        """
+        Args:
+            grid (torch.Tensor): Grid of time points, shape (batch_size, seq_len, 1)
+            mask (torch.Tensor): Mask for the grid, shape (batch_size, seq_len)
+                where 1 indicates that the time point is masked out.
+
+        Returns:
+            torch.Tensor: Time encoding, shape (batch_size, seq_len, d_time)
+        """
+        if mask is None:
+            mask = torch.zeros_like(grid)
+
+        grid = grid * (1 - mask)
+
+        linear = self.linear_embedding(grid)
+        periodic = self.periodic_embedding(grid)
+
+        return torch.cat([linear, periodic], dim=-1)
