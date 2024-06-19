@@ -1,3 +1,4 @@
+import copy
 import logging
 import math
 import os
@@ -78,6 +79,60 @@ class Mlp(Block):
 
     def forward(self, x):
         return self.layers(x)
+
+
+class ResidualMlp(Block):
+    """Implements a MLP with residual connections."""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        hidden_layers: List[int],
+        hidden_act: nn.Module | dict = nn.ReLU(),
+        output_act: nn.Module | dict = None,
+        skip_connections: list[int] = None,
+        **kwargs,
+    ):
+        """
+        Implements a MLP with optional skip connections and optional add+layer normalization.
+        skip_connections: list of indices of layers where skip connections should be added. If no provided, this is a standard MLP Block
+            Note: linear and activation layer are counted as one layer. Only one layer is skipped at a time.
+        """
+        super(Mlp, self).__init__(**kwargs)
+
+        if isinstance(hidden_act, dict):
+            hidden_act = create_class_instance(hidden_act.pop("name"), hidden_act)
+
+        self.skip_connections = skip_connections if skip_connections is not None else []
+
+        self.layers = nn.ModuleList()
+
+        # hidden layers
+        in_size = in_features
+        for i, h_size in enumerate(hidden_layers):
+            layer = nn.Sequential(nn.Linear(in_size, h_size), hidden_act)
+            self.layers.add_module(f"layer_{i}", layer)
+
+            in_size = h_size
+
+        # output layer
+        if output_act is not None:
+            if isinstance(output_act, dict):
+                output_act = create_class_instance(output_act.pop("name"), output_act)
+            layer = nn.Sequential(nn.Linear(hidden_layers[-1], out_features), output_act)
+        else:
+            layer = nn.Linear(hidden_layers[-1], out_features)
+        self.layers.add_module("output", layer)
+
+    def forward(self, x):
+        residual = x
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if i in self.skip_connections:
+                x += residual
+            residual = x
+        return x
 
 
 class HFBlock(Block):
@@ -284,7 +339,7 @@ class TimeEncoding(Block):
     w_j and b_j are learnable parameters.
     """
 
-    def __init__(self, d_time: int, dropout_rate: float = 0.0):
+    def __init__(self, dim_time: int):
         """
         Args:
             d_time (int): Dimension of the time representation
@@ -292,10 +347,10 @@ class TimeEncoding(Block):
         """
         super(TimeEncoding, self).__init__()
 
-        self.d_time = d_time
+        self.d_time = dim_time
 
         self.linear_embedding = nn.Linear(1, 1, bias=True)
-        self.periodic_embedding = nn.Sequential(nn.Linear(1, d_time - 1, bias=True), SinActivation())
+        self.periodic_embedding = nn.Sequential(nn.Linear(1, dim_time - 1, bias=True), SinActivation())
 
     def forward(self, grid: torch.Tensor, mask: Optional[torch.Tensor] = None):
         """
@@ -316,3 +371,69 @@ class TimeEncoding(Block):
         periodic = self.periodic_embedding(grid)
 
         return torch.cat([linear, periodic], dim=-1)
+
+
+class Transformer(Block):
+    """The encoder block of the transformer model as defined in 'Vaswani, A. et al. Attention is all you need'."""
+
+    def __init__(
+        self,
+        num_encoder_blocks: int,
+        d_model: int,
+        num_heads: int,
+        dropout: float,
+        residual_mlp: dict,
+    ):
+        super(Transformer, self).__init__()
+
+        self.encoder_blocks = nn.ModuleList(
+            [EncoderBlock(d_model, num_heads, dropout, copy.deepcopy(residual_mlp)) for _ in range(num_encoder_blocks)]
+        )
+
+        self.final_query_vector = nn.Parameter(torch.randn(1, 1, d_model))
+        self.final_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout)
+
+    def forward(self, x, mask):
+        # pass through encoder blocks
+        for encoder_block in self.encoder_blocks:
+            x = encoder_block(x, mask)
+
+        # use learnable query vector to get final embedding
+        query = self.final_query_vector.repeat(x.size(0), 1, 1)
+        # BUG shapes ??
+        attn_output, _ = self.final_attention(query, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)
+
+        return attn_output
+
+
+class EncoderBlock(Block):
+    """The encoder block of the transformer model as defined in 'Vaswani, A. et al. Attention is all you need'."""
+
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        dropout: float,
+        residual_mlp: dict,
+    ):
+        super(EncoderBlock, self).__init__()
+
+        self.self_attn = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=True)
+        self.layer_norm1 = nn.LayerNorm(d_model)
+        self.residual_mlp = create_class_instance(
+            residual_mlp.pop("name"),
+            residual_mlp,
+        )
+        self.layer_norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, mask):
+        attn_out, _ = self.self_attn(x, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)
+        attn_out = self.dropout(attn_out)
+        x = self.layer_norm1(x + attn_out)
+
+        mlp_out = self.residual_mlp(x)
+        mlp_out = self.dropout(mlp_out)
+        x = self.layer_norm2(x + mlp_out)
+
+        return x

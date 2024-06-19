@@ -501,3 +501,138 @@ class DecoderOnly(AModel):
 
 
 ModelFactory.register("DecoderOnly", DecoderOnly)
+
+
+class FIMODE(AModel):
+    def __init__(
+        self,
+        time_encoding: dict,
+        deeponet: dict,
+        init_cond_distr_net: dict,
+        vector_field_distr_net: dict,
+        load_in_8bit: bool = False,
+        load_in_4bit: bool = False,
+        use_bf16: bool = False,
+        device_map: Optional[str] = None,
+        resume: bool = False,
+        peft: Optional[dict] = None,
+    ):
+        super(FIMODE, self).__init__()
+        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+        self._device_map = device_map
+        self._torch_dtype = None
+        self._quantization_config = None
+        self.resume = resume
+        self.peft = peft
+        if load_in_8bit and load_in_4bit:
+            raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
+        elif load_in_8bit or load_in_4bit:
+            self._quantization_config = BitsAndBytesConfig(
+                load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
+            )
+            self._device_map = "auto"
+        if use_bf16 and is_bfloat_supported:
+            self._torch_dtype = torch.float16
+
+        self._create_model(
+            time_encoding,
+            deeponet,
+            init_cond_distr_net,
+            vector_field_distr_net,
+        )
+
+        self.to(self._device_map)
+
+    def _create_model(
+        self,
+        time_encoding: dict,
+        trunk_net: dict,
+        branch_net: dict,
+        combiner_net: dict,
+        init_cond_mean_net: dict,
+        init_cond_var_net: dict,
+        vector_field_mean_net: dict,
+        vector_field_var_net: dict,
+    ):
+        self.time_encoding = create_class_instance(
+            time_encoding.pop("name"),
+            time_encoding,
+        )
+
+        self.trunk_net = create_class_instance(
+            trunk_net.pop("name"),
+            trunk_net,
+        )
+
+        self.branch_net = create_class_instance(
+            branch_net.pop("name"),
+            branch_net,
+        )
+
+        self.combiner_net = create_class_instance(
+            combiner_net.pop("name"),
+            combiner_net,
+        )
+
+        self.vector_fiel_mean_net, = create_class_instance(
+            vector_field_mean_net.pop("name"),
+            vector_field_mean_net,
+        )
+
+        self.vector_fiel_var_net, = create_class_instance(
+            vector_field_var_net.pop("name"),
+            vector_field_var_net,
+        )
+
+        self.init_cond_mean_net = create_class_instance(
+            init_cond_mean_net.pop("name"),
+            init_cond_mean_net,
+        )
+
+        self.init_cond_var_net = create_class_instance(
+            init_cond_var_net.pop("name"),
+            init_cond_var_net,
+        )
+
+    def forward(
+        self,
+        batch,
+        schedulers: Optional[dict] = None,
+        step: Optional[int] = None,
+    ):
+        # TODO: normalize values & times
+
+        # sample target
+        location_times, location_values = self.sample_locations(batch["fine_grid"], batch["fine_grid_values"])
+        # encode time
+        observation_times = self.time_encoding(batch["obs_times"])
+        # pass through deeoOnet
+        branch_out = self.branch_net(observation_times, batch["obs_values"])
+        trunk_out = self.trunk_net(location_times)
+
+        combined_out = self.combiner_net(trunk_out, branch_out)
+
+        # compute mean and log variance of the vector field
+        vector_field_mean = self.vector_fiel_mean_net(combined_out)
+        vector_field_var = self.vector_fiel_var_net(combined_out)
+
+
+        # compute mean and log variance of the initial condition
+        init_condition_mean = self.init_cond_mean_net(branch_out)
+        init_condition_var = self.init_cond_var_net(branch_out)
+
+        # TODO denormalize
+
+        # TODO compute loss
+
+        # TODO setup return value
+
+        torch.nn.SELU()
+
+    def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> Dict:
+        raise NotImplementedError("The loss method is not implemented in class FIMODE!")
+
+    def sample_locations(self, fine_grid, fine_grid_values):
+        # TODO: implement
+        raise NotImplementedError("The sample_locations method is not implemented in class FIMODE!")
