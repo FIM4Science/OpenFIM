@@ -58,6 +58,7 @@ class Mlp(Block):
         hidden_layers: List[int],
         hidden_act: nn.Module | dict = nn.ReLU(),
         output_act: nn.Module | dict = None,
+        dropout: float = 0.0,
         **kwargs,
     ):
         super(Mlp, self).__init__(**kwargs)
@@ -71,11 +72,19 @@ class Mlp(Block):
             self.layers.add_module(f"linear_{i}", nn.Linear(in_size, h_size))
             self.layers.add_module(f"activation_{i}", hidden_act)
             in_size = h_size
+
+        # if no hidden layers are provided, the output layer is directly connected to the input layer
+        if len(hidden_layers) == 0:
+            hidden_layers = [in_features]
         self.layers.add_module("output", nn.Linear(hidden_layers[-1], out_features))
+
         if output_act is not None:
             if isinstance(output_act, dict):
                 output_act = create_class_instance(output_act.pop("name"), output_act)
             self.layers.add_module("output_activation", output_act)
+
+        if dropout > 0:
+            self.layers.add_module("dropout", nn.Dropout(dropout))
 
     def forward(self, x):
         return self.layers(x)
@@ -343,7 +352,6 @@ class TimeEncoding(Block):
         """
         Args:
             d_time (int): Dimension of the time representation
-            dropout_rate (float): Dropout rate
         """
         super(TimeEncoding, self).__init__()
 
@@ -388,7 +396,10 @@ class Transformer(Block):
         super(Transformer, self).__init__()
 
         self.encoder_blocks = nn.ModuleList(
-            [EncoderBlock(d_model, num_heads, dropout, copy.deepcopy(residual_mlp), batch_first=batch_first) for _ in range(num_encoder_blocks)]
+            [
+                EncoderBlock(d_model, num_heads, dropout, copy.deepcopy(residual_mlp), batch_first=batch_first)
+                for _ in range(num_encoder_blocks)
+            ]
         )
 
         self.final_query_vector = nn.Parameter(torch.randn(1, 1, d_model))
@@ -401,7 +412,7 @@ class Transformer(Block):
 
         # use learnable query vector to get final embedding
         query = self.final_query_vector.repeat(x.size(0), 1, 1)
-        attn_output, _ = self.final_attention(query, x, x,key_padding_mask=mask, is_causal=False, need_weights=False)
+        attn_output, _ = self.final_attention(query, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)
 
         return attn_output
 
