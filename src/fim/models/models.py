@@ -628,7 +628,6 @@ class FIMODE(AModel):
 
         # TODO setup return value
 
-        torch.nn.SELU()
 
     def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> Dict:
         raise NotImplementedError("The loss method is not implemented in class FIMODE!")

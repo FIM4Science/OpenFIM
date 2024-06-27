@@ -383,15 +383,16 @@ class Transformer(Block):
         num_heads: int,
         dropout: float,
         residual_mlp: dict,
+        batch_first: bool = True,
     ):
         super(Transformer, self).__init__()
 
         self.encoder_blocks = nn.ModuleList(
-            [EncoderBlock(d_model, num_heads, dropout, copy.deepcopy(residual_mlp)) for _ in range(num_encoder_blocks)]
+            [EncoderBlock(d_model, num_heads, dropout, copy.deepcopy(residual_mlp), batch_first=batch_first) for _ in range(num_encoder_blocks)]
         )
 
         self.final_query_vector = nn.Parameter(torch.randn(1, 1, d_model))
-        self.final_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout)
+        self.final_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=batch_first)
 
     def forward(self, x, mask):
         # pass through encoder blocks
@@ -400,8 +401,7 @@ class Transformer(Block):
 
         # use learnable query vector to get final embedding
         query = self.final_query_vector.repeat(x.size(0), 1, 1)
-        # BUG shapes ??
-        attn_output, _ = self.final_attention(query, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)
+        attn_output, _ = self.final_attention(query, x, x,key_padding_mask=mask, is_causal=False, need_weights=False)
 
         return attn_output
 
@@ -415,10 +415,11 @@ class EncoderBlock(Block):
         num_heads: int,
         dropout: float,
         residual_mlp: dict,
+        batch_first: bool = True,
     ):
         super(EncoderBlock, self).__init__()
 
-        self.self_attn = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=True)
+        self.self_attn = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=batch_first)
         self.layer_norm1 = nn.LayerNorm(d_model)
         self.residual_mlp = create_class_instance(
             residual_mlp.pop("name"),
