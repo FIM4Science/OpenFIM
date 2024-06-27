@@ -507,9 +507,13 @@ class FIMODE(AModel):
     def __init__(
         self,
         time_encoding: dict,
-        deeponet: dict,
-        init_cond_distr_net: dict,
-        vector_field_distr_net: dict,
+        trunk_net: dict,
+        branch_net: dict,
+        combiner_net: dict,
+        init_cond_mean_net: dict,
+        init_cond_var_net: dict,
+        vector_field_mean_net: dict,
+        vector_field_var_net: dict,
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
         use_bf16: bool = False,
@@ -537,9 +541,13 @@ class FIMODE(AModel):
 
         self._create_model(
             time_encoding,
-            deeponet,
-            init_cond_distr_net,
-            vector_field_distr_net,
+            trunk_net,
+            branch_net,
+            combiner_net,
+            vector_field_mean_net,
+            vector_field_var_net,
+            init_cond_mean_net,
+            init_cond_var_net,
         )
 
         self.to(self._device_map)
@@ -575,12 +583,12 @@ class FIMODE(AModel):
             combiner_net,
         )
 
-        self.vector_fiel_mean_net, = create_class_instance(
+        self.vector_field_mean_net = create_class_instance(
             vector_field_mean_net.pop("name"),
             vector_field_mean_net,
         )
 
-        self.vector_fiel_var_net, = create_class_instance(
+        self.vector_fiel_var_net = create_class_instance(
             vector_field_var_net.pop("name"),
             vector_field_var_net,
         )
@@ -601,37 +609,165 @@ class FIMODE(AModel):
         schedulers: Optional[dict] = None,
         step: Optional[int] = None,
     ):
-        # TODO: normalize values & times
+        normalized_obs_values, normalized_obs_times, obs_values_norm_params, obs_times_norm_params = (
+            self.normalize_input(batch["obs_values"], batch["obs_times"], batch["obs_mask"])
+        )
 
         # sample target
         location_times, location_values = self.sample_locations(batch["fine_grid"], batch["fine_grid_values"])
+        # TODO: normalize locations_values and location_times?
+
         # encode time
-        observation_times = self.time_encoding(batch["obs_times"])
+        observation_times = self.time_encoding(normalized_obs_times)
         # pass through deeoOnet
-        branch_out = self.branch_net(observation_times, batch["obs_values"])
+        branch_out = self.branch_net(observation_times, normalized_obs_values)
         trunk_out = self.trunk_net(location_times)
 
         combined_out = self.combiner_net(trunk_out, branch_out)
 
         # compute mean and log variance of the vector field
-        vector_field_mean = self.vector_fiel_mean_net(combined_out)
+        vector_field_mean = self.vector_field_mean_net(combined_out)
         vector_field_var = self.vector_fiel_var_net(combined_out)
-
 
         # compute mean and log variance of the initial condition
         init_condition_mean = self.init_cond_mean_net(branch_out)
         init_condition_var = self.init_cond_var_net(branch_out)
 
-        # TODO denormalize
+        #  renormalize concept & initial condition distribution parameters
+        vector_field_mean, vector_field_var = self.renormalize_concept_dist_params(
+            (vector_field_mean, vector_field_var), obs_values_norm_params, obs_times_norm_params
+        )
+        init_condition_mean, init_condition_var = self.renormalize_init_condition_params(
+            (init_condition_mean, init_condition_var), obs_values_norm_params
+        )
 
         # TODO compute loss
 
         # TODO setup return value
 
+        return {
+            "vector_field": (vector_field_mean, vector_field_var),
+            "init_condition": (init_condition_mean, init_condition_var),
+        }
 
     def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> Dict:
         raise NotImplementedError("The loss method is not implemented in class FIMODE!")
 
     def sample_locations(self, fine_grid, fine_grid_values):
         # TODO: implement
-        raise NotImplementedError("The sample_locations method is not implemented in class FIMODE!")
+        print(
+            "The sample_locations method is not implemented in class FIMODE!, return first 10 of fine grid per batch entry."
+        )
+        return fine_grid[:, :10], fine_grid_values[:, :10]
+
+    def normalize_input(self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor) -> tuple:
+        """
+        Apply min-max scaling to observation values and times.
+
+        Args:
+            obs_values (torch.Tensor): observation values
+            obs_times (torch.Tensor): observation times
+            obs_mask (torch.Tensor); observation mask
+
+        Returns:
+            tuple: normalized observation values (torch.Tensor),
+                   normalized observation times (torch.Tensor),
+                   normalization parameters for values (tuple),
+                   normalization parameters for times (tuple)
+        """
+
+        def get_norm_params(values: torch.Tensor, mask: torch.Tensor) -> tuple:
+            """
+            Compute normalization parameters for min-max scaling.
+
+            Args:
+                values (torch.Tensor): observation values [P, T, D]
+                mask (torch.Tensor): observation mask [P, T, 1]
+
+            Returns:
+                tuple: min (torch.Tensor, [D]), range (torch.Tensor, [D])
+            """
+            # get min and max values for each feature dimension
+            min_values = torch.amin(values.masked_fill(mask, float("inf")), dim=(0, 1))
+            max_values = torch.amax(values.masked_fill(mask, float("-inf")), dim=(0, 1))
+
+            # compute range, add small value to avoid division by zero
+            values_range = max_values - min_values + 1e-6
+
+            return min_values, values_range
+
+        def normalize(values: torch.Tensor, norm_params: tuple) -> torch.Tensor:
+            """
+            Normalize values using min-max scaling.
+
+            Args:
+                values (torch.Tensor): observation values [P, T, D]
+                norm_params (tuple): min and range of the values ([D], [D])
+
+            Returns:
+                torch.Tensor: normalized values [P, T, D]
+            """
+            min_values, values_range = norm_params
+
+            return (values - min_values) / values_range
+
+        obs_values_norm_params = get_norm_params(obs_values, obs_mask)
+        obs_times_norm_params = get_norm_params(obs_times, obs_mask)
+
+        normalized_obs_values = normalize(obs_values, obs_values_norm_params)
+        normalized_obs_times = normalize(obs_times, obs_times_norm_params)
+
+        return normalized_obs_values, normalized_obs_times, obs_values_norm_params, obs_times_norm_params
+
+    def renormalize_concept_dist_params(
+        self, concept_dist_params: tuple, obs_values_norm_params: tuple, obs_times_norm_params: tuple
+    ) -> tuple:
+        """
+        Rescale concepts based on observation values and observation times normalization parameters.
+
+        Args:
+            concept_dist_params (tuple): mean and variance of the concept distribution ([T, D], [T, D])
+            obs_values_norm_params (tuple): mean and variance of the observation values ([D], [D])
+            obs_times_norm_params (tuple): mean and variance of the observation times ([T], [T])
+
+        Returns:
+            tuple: rescaled mean and log standard deviation of the concept distribution
+        """
+        drift_mean, drift_log_std = concept_dist_params
+        _, values_range = obs_values_norm_params
+        _, times_range = obs_times_norm_params
+
+        # rescale mean and log std
+        drift_mean = drift_mean * values_range / times_range
+        drift_log_std = drift_log_std + torch.log(values_range) - torch.log(times_range)
+
+        return drift_mean, drift_log_std
+
+    def renormalize_init_condition_params(self, init_cond_dist_params: tuple, obs_values_norm_params: tuple) -> tuple:
+        """
+        Rescale the initial condition based on observation values normalization parameters.
+
+        Args:
+            init_cond_dist_params (tuple): mean and variance of the initial condition ([D], [D])
+            obs_values_norm_params (tuple): mean and variance of the observation values ([D], [D])
+
+        Returns:
+            tuple: rescaled mean and log standard deviation of the initial condition
+        """
+        init_cond_mean, init_cond_log_std = init_cond_dist_params
+        obs_values_min, obs_values_range = obs_values_norm_params
+
+        # rescale mean and log std
+        init_cond_mean = init_cond_mean * obs_values_range + obs_values_min
+        init_cond_log_std = init_cond_log_std + torch.log(obs_values_range)
+
+        return init_cond_mean, init_cond_log_std
+
+    def metric(self, y: Any, y_target: Any, seq_len=None):
+        raise NotImplementedError("The metric method is not implemented in class FIMODE!")
+
+    def new_stats(self) -> Dict:
+        raise NotImplementedError("The new_stats method is not implemented in class FIMODE!")
+
+
+ModelFactory.register("FIMODE", FIMODE)
