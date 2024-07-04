@@ -578,6 +578,11 @@ class FIMODE(AModel):
             branch_net,
         )
 
+        if combiner_net.get("in_features") != 2 * combiner_net.get("out_features"):
+            raise ValueError(
+                "The number of input features for the combiner_net must be twice the number of output features (latent dim)."
+            )
+
         self.combiner_net = create_class_instance(
             combiner_net.pop("name"),
             combiner_net,
@@ -609,32 +614,78 @@ class FIMODE(AModel):
         schedulers: Optional[dict] = None,
         step: Optional[int] = None,
     ):
-        normalized_obs_values, normalized_obs_times, obs_values_norm_params, obs_times_norm_params = (
-            self.normalize_input(batch["obs_values"], batch["obs_times"], batch["obs_mask"])
-        )
+        """
+        Args:
+            batch (dict): input batch with entries (each torch.Tensor)
+                 obs_values [B, T, D] observation values
+                 obs_times [B, T, 1] observation times
+                 obs_mask [B, T, 1] observation mask (1: masked, 0: not masked)
+                 fine_grid_times [B, L, 1] time points of fine grid on which the vector field is evaluated
+                 fine_grid_values [B, L, D] values of the fine grid
+                with B: batch size, T: number of observation times, D: process dimension, L: number of fine grid points (locations)
+        """
+        obs_mask = batch["obs_mask"]
+        obs_values = batch["obs_values"]
+        obs_times = batch["obs_times"]
 
-        # sample target
-        location_times, location_values = self.sample_locations(batch["fine_grid"], batch["fine_grid_values"])
-        # TODO: normalize locations_values and location_times?
+        fine_grid = batch["fine_grid_times"]
+        fine_grid_values = batch["fine_grid_values"]
 
-        # encode time
-        observation_times = self.time_encoding(normalized_obs_times)
-        # pass through deeoOnet
-        branch_out = self.branch_net(observation_times, normalized_obs_values)
-        trunk_out = self.trunk_net(location_times)
+        batch_size, max_sequence_length, process_dim = obs_values.shape  # defines B, T, D
+        self.process_dim = process_dim
 
-        combined_out = self.combiner_net(trunk_out, branch_out)
+        # TODO: sample locations?
+        loc_times, location_values = fine_grid, fine_grid_values
 
-        # compute mean and log variance of the vector field
-        vector_field_mean = self.vector_field_mean_net(combined_out)
-        vector_field_var = self.vector_fiel_var_net(combined_out)
+        (
+            obs_values,  # [B, T, D]
+            obs_times,  # [B, T, 1]
+            obs_values_norm_params,  # ([B, D], [B, D])
+            obs_times_norm_params,  # ([B, 1], [B, 1])
+            loc_times,  # [B, M, 1]
+        ) = self.normalize_input(obs_times=obs_times, obs_values=obs_values, obs_mask=obs_mask, loc_times=loc_times)
+
+        # encode times
+        obs_times = self.time_encoding(obs_times)  # Shape [B, T, dim_time]
+        loc_times = self.time_encoding(loc_times)  # Shape [B, L, dim_time]
+
+        # concatenate time encoding with normalized observation values. Use that dimensions are uncoupled.
+        # first: reshape observation times & values to match shapewise
+        obs_input = torch.cat(
+            [
+                obs_times.repeat_interleave(process_dim, 0),  # Shape [D*B, T, dim_time],
+                obs_values.reshape(batch_size * process_dim, max_sequence_length, 1),  # Shape [D*B, T, 1]
+            ],
+            dim=-1,
+        )  # Shape [D*B, T, dim_time + 1]
+
+        # repeat obs_mask to match obs_input
+        obs_mask = obs_mask.repeat(process_dim, 1, 1)  # Shape [D*B, T, 1]
+
+        # pass through deepOnet
+        branch_out = self.branch_net(obs_input, obs_mask)  # Shape [D*B, 1, dim_latent]
+        trunk_out = self.trunk_net(loc_times)  # Shape [B, M, dim_latent]
+
+        # concat branch and trunk output: append branch output to each time step of trunk output
+        combiner_in = torch.cat(
+            [
+                trunk_out.repeat(process_dim, 1, 1),  # Shape [D*B, M, dim_latent]
+                branch_out.repeat(1, trunk_out.shape[1], 1),  # Shape [D*B, M, dim_latent]
+            ],
+            dim=-1,
+        )  # Shape [D*B, M, 2*dim_latent]
+        combiner_out = self.combiner_net(combiner_in)  # Shape [D*B, M, dim_latent]
+
+        # compute mean and log variance of the vector field at every location
+        vector_field_mean = self.vector_field_mean_net(combiner_out)  # Shape [D*B, M, 1]
+        vector_field_var = self.vector_fiel_var_net(combiner_out)  # Shape [D*B, M, 1]
 
         # compute mean and log variance of the initial condition
-        init_condition_mean = self.init_cond_mean_net(branch_out)
-        init_condition_var = self.init_cond_var_net(branch_out)
+        init_condition_mean = self.init_cond_mean_net(branch_out)  # Shape [D*B, 1, 1]
+        init_condition_var = self.init_cond_var_net(branch_out)  # Shape [D*B, 1, 1]
 
-        #  renormalize concept & initial condition distribution parameters
-        vector_field_mean, vector_field_var = self.renormalize_concept_dist_params(
+        # renormalize vector field & initial condition distribution parameters
+        vector_field_concepts = self.renormalize_concept_dist_params(
             (vector_field_mean, vector_field_var), obs_values_norm_params, obs_times_norm_params
         )
         init_condition_mean, init_condition_var = self.renormalize_init_condition_params(
@@ -642,38 +693,65 @@ class FIMODE(AModel):
         )
 
         # TODO compute loss
+        return {
+            **self.loss(
+                vector_field_concepts=vector_field_concepts,
+                init_condition_concepts=(init_condition_mean, init_condition_var),
+                targets=location_values,
+            ),
+            "vector_field_concepts": vector_field_concepts,
+            "init_condition_concepts": (init_condition_mean, init_condition_var),
+        }
 
         # TODO setup return value
 
+    def loss(self, vector_field_concepts: tuple, init_condition_concepts: tuple, targets: torch.Tensor) -> Dict:
+        """
+        Compute the loss function of the FIMODE model: supervised and unsupervised loss.
+
+        Args:
+            vector_field_concepts (tuple): mean and log standard deviation of the vector field concepts ([T, D], [T, D])
+            init_condition_concepts (tuple): mean and log standard deviation of the initial condition concepts ([D], [D])
+            targets (torch.Tensor): target values [P, T, D]
+
+        Returns:
+            dict: supervised loss, unsupervised loss, (total) loss
+        """
+        # supervised loss: maximize log-likelihood of values taken by vector field at observation times
+        mu, log_std = vector_field_concepts
+        std = torch.exp(log_std)
+        # TODO check if shapes are correct
+        supervised_loss = torch.sum(
+            -1 / 2 * torch.log(2 * torch.pi) - log_std - 1 / 2 * (targets - mu) ** 2 / std**2, dim=-1
+        )
+
+        # unsupervised loss: minimize one-step ahead reconstrucion error of integrated solution
+        unsupervised_loss = None
+
         return {
-            "vector_field": (vector_field_mean, vector_field_var),
-            "init_condition": (init_condition_mean, init_condition_var),
+            "supervised_loss": supervised_loss,
+            "unsupervised_loss": unsupervised_loss,
+            "loss": -supervised_loss + unsupervised_loss,
         }
 
-    def loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> Dict:
-        raise NotImplementedError("The loss method is not implemented in class FIMODE!")
-
-    def sample_locations(self, fine_grid, fine_grid_values):
-        # TODO: implement
-        print(
-            "The sample_locations method is not implemented in class FIMODE!, return first 10 of fine grid per batch entry."
-        )
-        return fine_grid[:, :10], fine_grid_values[:, :10]
-
-    def normalize_input(self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor) -> tuple:
+    def normalize_input(
+        self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor
+    ) -> tuple:
         """
         Apply min-max scaling to observation values and times.
 
         Args:
             obs_values (torch.Tensor): observation values
             obs_times (torch.Tensor): observation times
-            obs_mask (torch.Tensor); observation mask
+            obs_mask (torch.Tensor): observation mask
+            loc_times (torch.Tensor): location times
 
         Returns:
             tuple: normalized observation values (torch.Tensor),
                    normalized observation times (torch.Tensor),
                    normalization parameters for values (tuple),
                    normalization parameters for times (tuple)
+                   normalized location times (torch.Tensor)
         """
 
         def get_norm_params(values: torch.Tensor, mask: torch.Tensor) -> tuple:
@@ -681,15 +759,15 @@ class FIMODE(AModel):
             Compute normalization parameters for min-max scaling.
 
             Args:
-                values (torch.Tensor): observation values [P, T, D]
-                mask (torch.Tensor): observation mask [P, T, 1]
+                values (torch.Tensor): observation values [B, T, D]
+                mask (torch.Tensor): observation mask [B, T, 1]
 
             Returns:
-                tuple: min (torch.Tensor, [D]), range (torch.Tensor, [D])
+                tuple: min (torch.Tensor, [B, D]), range (torch.Tensor, [B, D])
             """
-            # get min and max values for each feature dimension
-            min_values = torch.amin(values.masked_fill(mask, float("inf")), dim=(0, 1))
-            max_values = torch.amax(values.masked_fill(mask, float("-inf")), dim=(0, 1))
+            # get min and max values for each feature dimension per batch entry
+            min_values = torch.amin(values.masked_fill(mask, float("inf")), dim=1)  # Shape [B, D]
+            max_values = torch.amax(values.masked_fill(mask, float("-inf")), dim=1)  # Shape [B, D]
 
             # compute range, add small value to avoid division by zero
             values_range = max_values - min_values + 1e-6
@@ -701,23 +779,34 @@ class FIMODE(AModel):
             Normalize values using min-max scaling.
 
             Args:
-                values (torch.Tensor): observation values [P, T, D]
-                norm_params (tuple): min and range of the values ([D], [D])
+                values (torch.Tensor): observation values [B, T, D]
+                norm_params (tuple): min and range of the values ([B, D], [B, D])
 
             Returns:
-                torch.Tensor: normalized values [P, T, D]
+                torch.Tensor: normalized values [B, T, D]
             """
             min_values, values_range = norm_params
 
+            # unsqueeze to allow broadcasting
+            min_values = min_values.unsqueeze(1)  # Shape [B, 1, D]
+            values_range = values_range.unsqueeze(1)  # Shape [B, 1, D]
+
             return (values - min_values) / values_range
 
-        obs_values_norm_params = get_norm_params(obs_values, obs_mask)
-        obs_times_norm_params = get_norm_params(obs_times, obs_mask)
+        obs_values_norm_params = get_norm_params(obs_values, obs_mask)  # ([B, D], [B, D])
+        obs_times_norm_params = get_norm_params(obs_times, obs_mask)  # ([B, 1], [B, 1])
 
-        normalized_obs_values = normalize(obs_values, obs_values_norm_params)
-        normalized_obs_times = normalize(obs_times, obs_times_norm_params)
+        normalized_obs_values = normalize(obs_values, obs_values_norm_params)  # [B, T, D]
+        normalized_obs_times = normalize(obs_times, obs_times_norm_params)  # [B, T, 1]
+        normalized_loc_times = normalize(loc_times, obs_times_norm_params)  # [B, M, 1]
 
-        return normalized_obs_values, normalized_obs_times, obs_values_norm_params, obs_times_norm_params
+        return (
+            normalized_obs_values,
+            normalized_obs_times,
+            obs_values_norm_params,
+            obs_times_norm_params,
+            normalized_loc_times,
+        )
 
     def renormalize_concept_dist_params(
         self, concept_dist_params: tuple, obs_values_norm_params: tuple, obs_times_norm_params: tuple
@@ -726,40 +815,53 @@ class FIMODE(AModel):
         Rescale concepts based on observation values and observation times normalization parameters.
 
         Args:
-            concept_dist_params (tuple): mean and variance of the concept distribution ([T, D], [T, D])
-            obs_values_norm_params (tuple): mean and variance of the observation values ([D], [D])
-            obs_times_norm_params (tuple): mean and variance of the observation times ([T], [T])
+            concept_dist_params (tuple): mean and variance of the concept distribution (learnt) ([B*D, T, 1], [B*D, T, 1])
+            obs_values_norm_params (tuple): mean and variance of the observation values ([B, D], [B, D])
+            obs_times_norm_params (tuple): mean and variance of the observation times ([B, 1], [B, 1])
 
         Returns:
-            tuple: rescaled mean and log standard deviation of the concept distribution
+            tuple: rescaled mean and log standard deviation of the concept distribution ([B*D, M, 1], [B*D, M, 1])
         """
-        drift_mean, drift_log_std = concept_dist_params
-        _, values_range = obs_values_norm_params
-        _, times_range = obs_times_norm_params
+        learnt_drift_mean, learnt_drift_log_std = concept_dist_params  # [D*B, M, 1], [D*B, M, 1]
+        _, obs_values_range = obs_values_norm_params  # [B, D]
+        _, obs_times_range = obs_times_norm_params  # [B, 1]
 
+        # reshape (and repeat) values_range to match drift_mean
+        values_range_view = obs_values_range.reshape(-1, 1, 1).expand(learnt_drift_mean.shape)  # Shape [D*B, M, 1]
+        times_range_view = (
+            obs_times_range.unsqueeze(1).repeat(self.process_dim, 1, 1).expand(learnt_drift_mean.shape)
+        )  # Shape [D*B, M, 1]
         # rescale mean and log std
-        drift_mean = drift_mean * values_range / times_range
-        drift_log_std = drift_log_std + torch.log(values_range) - torch.log(times_range)
+        learnt_drift_mean = learnt_drift_mean * values_range_view / times_range_view  # Shape [D*B, M, 1]
+        learnt_drift_log_std = (
+            learnt_drift_log_std + torch.log(values_range_view) - torch.log(times_range_view)
+        )  # Shape [D*B, M, 1]
 
-        return drift_mean, drift_log_std
+        return learnt_drift_mean, learnt_drift_log_std
 
     def renormalize_init_condition_params(self, init_cond_dist_params: tuple, obs_values_norm_params: tuple) -> tuple:
         """
         Rescale the initial condition based on observation values normalization parameters.
 
         Args:
-            init_cond_dist_params (tuple): mean and variance of the initial condition ([D], [D])
-            obs_values_norm_params (tuple): mean and variance of the observation values ([D], [D])
+            init_cond_dist_params (tuple): mean and variance of the initial condition ([B*D, 1, 1], [B*D, 1, 1])
+            obs_values_norm_params (tuple): mean and variance of the observation values ([B, D], [B, D])
 
         Returns:
-            tuple: rescaled mean and log standard deviation of the initial condition
+            tuple: rescaled mean and log standard deviation of the initial condition ([D*B, 1], [D*B, 1])
         """
-        init_cond_mean, init_cond_log_std = init_cond_dist_params
-        obs_values_min, obs_values_range = obs_values_norm_params
+        init_cond_mean, init_cond_log_std = init_cond_dist_params  # [B*D, 1, 1], [B*D, 1, 1]
+        obs_values_min, obs_values_range = obs_values_norm_params  # [B, D], [B, D]
+
+        # reshape so that they match
+        init_cond_mean = init_cond_mean.squeeze(-1)
+        init_cond_log_std = init_cond_log_std.squeeze(-1)
+        obs_values_min = obs_values_min.reshape(-1, 1)
+        obs_values_range = obs_values_range.reshape(-1, 1)
 
         # rescale mean and log std
-        init_cond_mean = init_cond_mean * obs_values_range + obs_values_min
-        init_cond_log_std = init_cond_log_std + torch.log(obs_values_range)
+        init_cond_mean = init_cond_mean * obs_values_range + obs_values_min  # Shape [D*B, 1]
+        init_cond_log_std = init_cond_log_std + torch.log(obs_values_range)  # Shape [D*B, 1]
 
         return init_cond_mean, init_cond_log_std
 

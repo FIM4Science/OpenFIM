@@ -323,7 +323,12 @@ class DecoderBlock(Block):
     def __init__(self, d_model: int, num_heads: int, dropout: float, batch_first: bool = True):
         super(DecoderBlock, self).__init__()
 
-        self.self_attn = nn.MultiheadAttention(d_model, num_heads, batch_first=batch_first, dropout=dropout)
+        self.self_attn = nn.MultiheadAttention(
+            d_model,
+            num_heads,
+            batch_first=batch_first,
+            dropout=dropout,
+        )
 
         # ffn layer
         self.mlp = Mlp(d_model, d_model, [d_model], nn.ReLU())
@@ -331,7 +336,16 @@ class DecoderBlock(Block):
         self.layer_norm = nn.LayerNorm(d_model)
 
     def forward(self, x, mask):
-        x = self.self_attn(x, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)[0]
+        if mask.dim() == 3:
+            mask = mask.squeeze(-1)
+        x, _ = self.self_attn(
+            x,
+            x,
+            x,
+            key_padding_mask=mask,
+            is_causal=False,
+            need_weights=False,
+        )
         x = self.mlp(x)
         x = self.dropout(x)
         x = self.layer_norm(x)
@@ -387,7 +401,8 @@ class Transformer(Block):
     def __init__(
         self,
         num_encoder_blocks: int,
-        d_model: int,
+        dim_model: int,
+        dim_time: int,
         num_heads: int,
         dropout: float,
         residual_mlp: dict,
@@ -395,17 +410,22 @@ class Transformer(Block):
     ):
         super(Transformer, self).__init__()
 
+        self.lin_layer = nn.Linear(dim_time + 1, dim_model)
+
         self.encoder_blocks = nn.ModuleList(
             [
-                EncoderBlock(d_model, num_heads, dropout, copy.deepcopy(residual_mlp), batch_first=batch_first)
-                for _ in range(num_encoder_blocks)
+                EncoderBlock(dim_model, num_heads, dropout, copy.deepcopy(residual_mlp), batch_first=batch_first)
+                for _ in range(num_encoder_blocks - 1)
             ]
         )
 
-        self.final_query_vector = nn.Parameter(torch.randn(1, 1, d_model))
-        self.final_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=batch_first)
+        self.final_query_vector = nn.Parameter(torch.randn(1, 1, dim_model))
+        self.final_attention = nn.MultiheadAttention(dim_model, num_heads, dropout=dropout, batch_first=batch_first)
 
     def forward(self, x, mask):
+        if mask.dim() == 3:
+            mask = mask.squeeze(-1)
+        x = self.lin_layer(x)
         # pass through encoder blocks
         for encoder_block in self.encoder_blocks:
             x = encoder_block(x, mask)
@@ -440,7 +460,14 @@ class EncoderBlock(Block):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, mask):
-        attn_out, _ = self.self_attn(x, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)
+        attn_out, _ = self.self_attn(
+            x,
+            x,
+            x,
+            key_padding_mask=mask,
+            is_causal=False,
+            need_weights=False,
+        )
         attn_out = self.dropout(attn_out)
         x = self.layer_norm1(x + attn_out)
 
