@@ -13,6 +13,7 @@ import click
 import numpy as np
 import torch
 import torch.distributed as dist
+
 from fim.data.dataloaders import DataLoaderFactory
 from fim.models import ModelFactory
 from fim.trainers.trainer import TrainerFactory
@@ -103,7 +104,13 @@ def train_single(config: List[GenericConfig], resume: bool):
         device_map=device_map,
         resume=resume,
     )
-    trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
+    trainer = TrainerFactory.create(
+        config.trainer.name,
+        model=model,
+        dataloader=dataloader,
+        config=config,
+        resume=resume,
+    )
     trainer.train()
 
 

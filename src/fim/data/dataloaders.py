@@ -12,9 +12,10 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import verify_str_arg
 
-from ..data.datasets import BaseDataset, PatchedDatasetSynthetic, PatchedDatasetBase
+from ..data.datasets import BaseDataset, DummyDataset, PatchedDatasetBase, PatchedDatasetSynthetic, SyntheticDataset
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
+
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
@@ -43,6 +44,7 @@ class BaseDataLoader:
         test_batch_size: Optional[int] = 32,
         output_fields: Optional[List[str]] = None,
         loader_kwargs: Optional[dict] = {},
+        dataset_type_name: Optional[str] = "base",
         dataset_kwargs: Optional[dict] = {},
     ):
         self.batch_size = batch_size
@@ -55,17 +57,31 @@ class BaseDataLoader:
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
 
-        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
+        if dataset_type_name == "dummy":
+            dataset_split_names = ["train", "test", "validation", None]
+        else:
+            dataset_split_names = get_dataset_split_names(path + "/" + ds_name) + [None]
+
+        self.split = verify_str_arg(split, arg="split", valid_values=dataset_split_names)
+
+        match dataset_type_name:
+            case "base":
+                DataSet = BaseDataset
+            case "synthetic":
+                DataSet = SyntheticDataset
+            case "dummy":
+                DataSet = DummyDataset
+            case _:
+                raise ValueError(f"Unknown dataset type: {dataset_type_name}")
 
         if self.split is not None:
-            self.dataset = {self.split: BaseDataset(self.path, self.name, self.split, **self.dataset_kwargs)}
+            self.dataset = {self.split: DataSet(self.path, self.name, self.split, **self.dataset_kwargs)}
         else:
             self.dataset = {
-                split_: BaseDataset(self.path, self.name, split_, **self.dataset_kwargs)
-                for split_ in get_dataset_split_names(self.path, self.name)
+                split_: DataSet(self.path, self.name, split_, **self.dataset_kwargs) for split_ in dataset_split_names
             }
         for dataset in self.dataset.values():
-            dataset.map(transform_start_field_to_time_features, batched=True)
+            # dataset.map(transform_start_field_to_time_features, batched=True)
             dataset.data.set_format(type="torch", columns=output_fields)
 
         self._init_dataloaders(self.dataset)

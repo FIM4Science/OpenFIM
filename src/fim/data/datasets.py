@@ -1,10 +1,10 @@
 import logging
 from pathlib import Path
 from typing import Optional, Union
-from tqdm import tqdm
 
 import torch
-from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset, Dataset
+from datasets import Dataset, DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
+from tqdm import tqdm
 
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
@@ -73,6 +73,7 @@ class SyntheticDataset(BaseDataset):
         ds_name: Optional[list[str]] = None,
         split: Optional[str] = "train",
         noise: Optional[tuple[float]] = None,
+        debugging_cut_off: Optional[int] = None,
         **kwargs,
     ):
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
@@ -81,7 +82,9 @@ class SyntheticDataset(BaseDataset):
         self.noise_params = noise
         self.logger.debug(f"Loading dataset from {path} and split {split}.")
         self.split = verify_str_arg(split, valid_values=["train", "test", None])
-        self.data: DatasetDict = self._load_synthetic_dataset(path, split=split, ds_name=ds_name)
+        self.data: DatasetDict = self._load_synthetic_dataset(
+            path, split=split, ds_name=ds_name, debugging_cut_off=debugging_cut_off
+        )
 
         self.function_types = sorted(set(self.data["function_type"]))
 
@@ -93,11 +96,17 @@ class SyntheticDataset(BaseDataset):
                 name={self.name},
                 split={self.split},
                 dataset={self.data},
-                function types={self.function_types},
-                noise=N(0, {self.noise_params}))
+                noise=N(0, {self.noise_params}),
+                function types={self.function_types})
                 """
 
-    def _load_synthetic_dataset(self, path, split, ds_name: Optional[list[str]] = None) -> DatasetDict:
+    def _load_synthetic_dataset(
+        self,
+        path,
+        split,
+        ds_name: Optional[list[str]] = None,
+        debugging_cut_off: Optional[int] = None,
+    ) -> DatasetDict:
         """
         Custom method to load synthetic dataset from cephfs directory.
 
@@ -105,41 +114,178 @@ class SyntheticDataset(BaseDataset):
             path: path to dataset root.
                 Expected structure: subfolders with function types / < train | test > / < function_samples_grid.pickle | function_samples_values.pickle>
             split: 'train' or 'test'
-            ds_name: List of names of data sets aka function types. If None (default) all datasets in subfolder of given path are loaded
+            ds_name: name of data set to load. If None (default) all datasets in subfolder of given path are loaded
+            debugging_cut_off: Optional cut off for debugging purposes to reduce the size of the dataset
 
         Returns:
             DatasetDict with keys 'target' and 'start' and 'function_type'
         """
         import os
         import pickle
-        import numpy as np
 
-        synthetic_data = []
+        import numpy as np
+        import pandas as pd
+        import pyarrow as pa
+        import pyarrow.dataset as ds
+        import pyarrow.parquet as pq
+
+        def read_pickle(file_path: str) -> torch.FloatTensor:
+            with open(file_path, "rb") as f:
+                jax_data = pickle.load(f)
+                # convert Jax -> numpy (need copy to make it writeable) -> torch
+                if isinstance(jax_data, tuple):
+                    # needed for concepts
+                    return (
+                        torch.from_numpy(np.asarray(jax_data[0]).copy()),
+                        torch.from_numpy(np.asarray(jax_data[1]).copy()) if jax_data[1] is not None else None,
+                    )
+
+                return torch.from_numpy(np.asarray(jax_data).copy())  # type: torch.FloatTensor
+
+        obs_times, obs_values, obs_mask = [], [], []
+        fine_grid_times, fine_grid_values, fine_grid_concept_values = [], [], []
+
         # iterate over folders in path
-        for function_type in tqdm(sorted(os.listdir(path)), desc=f"Loading synthetic data ({split})"):
+        l = len(os.listdir(path)) if ds_name is None else 1
+        for function_type in tqdm(
+            sorted(os.listdir(path)),
+            desc=f"Loading synthetic data ({split})",
+            total=l,
+            leave=True,
+        ):
             if ds_name is not None and function_type not in ds_name:
                 continue
 
             function_path = os.path.join(path, function_type, split)
 
-            with open(os.path.join(function_path, "function_samples_values.pickle"), "rb") as f:
-                jax_data = pickle.load(f)
+            obs_times.append(
+                read_pickle(
+                    os.path.join(function_path, "coarse_grid_grid.pickle"),
+                )[:debugging_cut_off]
+            )
 
-            # convert Jax -> numpy (need copy to make it writeable) -> torch
-            np_data = np.asarray(jax_data).copy()
-            data = torch.from_numpy(np_data)  # type: torch.FloatTensor
+            obs_values.append(
+                read_pickle(
+                    os.path.join(function_path, "coarse_grid_noisy_sample_paths.pickle"),
+                )[:debugging_cut_off]
+            )
+            obs_mask.append(
+                read_pickle(
+                    os.path.join(function_path, "coarse_grid_observation_mask.pickle"),
+                )[:debugging_cut_off]
+            )
+            fine_grid_times.append(
+                read_pickle(
+                    os.path.join(function_path, "fine_grid_grid.pickle"),
+                )[:debugging_cut_off]
+            )
+            fine_grid_values.append(
+                read_pickle(
+                    os.path.join(function_path, "fine_grid_noisy_sample_paths.pickle"),
+                )[:debugging_cut_off]
+            )
 
-            # squeeze last dimesion -> shape: [nr_functions, len functions = 640]
-            data = data.squeeze(-1)
+            fine_grid_concept_values.append(
+                read_pickle(
+                    os.path.join(function_path, "fine_grid_concept_values.pickle"),
+                )[0][:debugging_cut_off]
+            )
 
-            # TODO: load grid if ever necessary
-            # TODO not complete data... fix it eventually!
-            synthetic_data.extend({"target": ts, "start": 0, "function_type": function_type} for ts in data)
+        print("Data loaded successfully.", flush=True)
 
-        return Dataset.from_list(synthetic_data)
+        obs_times = torch.cat(obs_times, dim=0).tolist()
+        obs_values = torch.cat(obs_values, dim=0).tolist()
+        obs_mask = torch.cat(obs_mask, dim=0).tolist()
+        fine_grid_times = torch.cat(fine_grid_times, dim=0).tolist()
+        fine_grid_values = torch.cat(fine_grid_values, dim=0).tolist()
+        fine_grid_concept_values = torch.cat(fine_grid_concept_values, dim=0).tolist()
+
+        df = pd.DataFrame(
+            {
+                "obs_times": obs_times,
+                "obs_values": obs_values,
+                "obs_mask": obs_mask,
+                "fine_grid_times": fine_grid_times,
+                "fine_grid_values": fine_grid_values,
+                "fine_grid_concept_values": fine_grid_concept_values,
+            }
+        )
+        print("Data converted to pandas DataFrame.", flush=True)
+        table = pa.Table.from_pandas(df)
+        pq.write_table(table, "synthetic_data.parquet")
+        ds = ds.dataset("synthetic_data.parquet", format="parquet")
+        print("Dataset created.", flush=True)
+        return ds
+
+    def __getitem__(self, idx):
+        """
+        Get item at index `idx`.
+
+        Args:
+            idx (int): The index of the item.
+
+        Returns:
+            dict: The item at the given index with keys
+                - "obs_values" (List[List[float]]): observed values; [seq_len, D]
+                - "obs_times" (List[List[float]]): observed times; [seq_len, dim_time]
+                - "obs_mask" (List[bool]): mask for observed values; [seq_len]
+                - fine_grid_times (List[float]): fine grid times; [fine_grid_len]
+                - "fine_grid_values" (List[float]): fine grid values; [fine_grid_len]
+        """
+        item = self.data[idx]
+
+        non_masked_values = int(torch.sum(~torch.Tensor(item["obs_mask"]).bool()))
+
+        return item | {"seq_len": non_masked_values}
+
+
+class DummyDataset(BaseDataset):
+    """Class for simple dummy datasets to test the implementation of a model. Expects the data to be in <split>.pt files with appropriate keys."""
+
+    def __init__(self, path: str, name: str, split: Optional[str]):
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+        self.logger.warn(f"name {name} not used in Dummy Dataset")
+
+        self.path = path
+        self.logger.debug(f"Loading dataset from {path} and split {split}.")
+        self.split = verify_str_arg(split, valid_values=["train", "test", "validation", None])
+        self.data: DatasetDict = self._load_dummy_dataset(
+            path,
+            split=split,
+        )
+
+        self.logger.debug("Dummy Dataset loaded successfully.")
+
+    def _load_dummy_dataset(self, path, split) -> DatasetDict:
+        data: dict = torch.load(path + split + ".pt")
+        data["coarse_grid_observation_mask"] = data["coarse_grid_observation_mask"].bool()
+        return Dataset.from_dict(data)
+
+    def __getitem__(self, idx):
+        """
+        Get item at index `idx`.
+
+        Args:
+            idx (int): The index of the item.
+
+        Returns:
+            dict: The item at the given index with keys
+                - "obs_values" (List[List[float]]): observed values; [seq_len, D]
+                - "obs_times" (List[List[float]]): observed times; [seq_len, dim_time]
+                - "obs_mask" (List[bool]): mask for observed values; [seq_len]
+                - "fine_grid_times" (List[float]): fine grid times; [fine_grid_len]
+                - "fine_grid_values" (List[float]): fine grid values; [fine_grid_len]
+        """
+        item = self.data[idx]
+
+        # non_masked_values = int(torch.sum(~torch.Tensor(item["coarse_grid_observation_mask"]).bool()))
+        # return item | {"seq_len": non_masked_values}
+
+        return item | {"seq_len": len(item["coarse_grid_observation_mask"])}
 
 
 class PatchedDatasetSynthetic(SyntheticDataset):
+    # TODO check if still compatible
     """
     Split each time series into (overlapping) context windows, then into patches. Store corresponding target (horizon) values.
     """

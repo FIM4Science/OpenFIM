@@ -638,10 +638,10 @@ class FIMODE(AModel):
         Returns:
             dict: losses, predictions (solutions at fine grid points)
         """
-        obs_mask = batch["obs_mask"]
-        unnormalized_obs_values = batch["obs_values"]
-        unnormalized_obs_times = batch["obs_times"]
-        fine_grid_grid = batch["fine_grid_times"]
+        obs_mask = batch["coarse_grid_observation_mask"].bool()
+        unnormalized_obs_values = batch["coarse_grid_sample_paths"]
+        unnormalized_obs_times = batch["coarse_grid_grid"]
+        fine_grid_grid = batch["fine_grid_grid"]
         fine_grid_drift = batch["fine_grid_concept_values"]
 
         batch_size, max_sequence_length, self.process_dim = unnormalized_obs_values.shape  # defines B, L, D
@@ -699,7 +699,7 @@ class FIMODE(AModel):
             vector_field_concepts=renormalized_vector_field_concepts,
             init_condition_concepts=renormalized_init_condition_concepts,
             normalized_fine_grid_grid=normalized_fine_grid_grid,
-            target_drift=fine_grid_drift,
+            target_drift_fine_grid=fine_grid_drift,
             branch_out=branch_out,
             normalization_parameters=normalization_parameters,
         )
@@ -764,7 +764,7 @@ class FIMODE(AModel):
         self,
         vector_field_concepts: tuple,
         init_condition_concepts: tuple,
-        target_drift: torch.Tensor,
+        target_drift_fine_grid: torch.Tensor,
         normalized_fine_grid_grid: torch.Tensor,
         branch_out: torch.Tensor,
         normalization_parameters: dict,
@@ -775,19 +775,19 @@ class FIMODE(AModel):
         Args:
             vector_field_concepts (tuple): mean and log standard deviation of the vector field concepts (unnormalized) ([B, L, D], [B, L, D])
             init_condition_concepts (tuple): mean and log standard deviation of the initial condition concepts (unnormalized) ([B, D], [B, D])
-            target_drift (torch.Tensor): target values (unnormalized) [B, L, D]
+            target_drift_fine_grid (torch.Tensor): target values (unnormalized) [B, L, D]
             normalized_fine_grid_grid (torch.Tensor): fine grid time points [B, L, 1]
             branch_out (torch.Tensor): output of the branch network (in normalized space) [B, 1, dim_latent]
 
         Returns:
-            dict: supervised loss, unsupervised loss, (total) loss, solution at fine grid points
+            dict: losses: supervised loss, unsupervised loss, (total) loss; solution at fine grid points
         """
         # supervised loss: maximize log-likelihood of values taken by vector field at observation times
         learnt_drift_fine_grid, learnt_log_std_fine_grid = vector_field_concepts
         learnt_var_fine_grid = torch.exp(learnt_log_std_fine_grid) ** 2
 
         supervised_loss = -torch.sum(
-            1 / 2 * (target_drift - learnt_drift_fine_grid) ** 2 / (2 * learnt_var_fine_grid)
+            1 / 2 * (target_drift_fine_grid - learnt_drift_fine_grid) ** 2 / (2 * learnt_var_fine_grid)
             + 1 / 2 * torch.log(learnt_var_fine_grid),
             dim=-2,
         )  # Shape [B, D]
@@ -829,9 +829,11 @@ class FIMODE(AModel):
         total_loss = torch.mean(total_loss)
 
         return {
-            "supervised_loss": supervised_loss,
-            "unsupervised_loss": unsupervised_loss,
-            "loss": total_loss,
+            "losses": {
+                "supervised_loss": supervised_loss,
+                "unsupervised_loss": unsupervised_loss,
+                "loss": total_loss,
+            },
             "solution": solution,
         }
 
@@ -861,7 +863,7 @@ class FIMODE(AModel):
         # get mid points between fine grid points
         mid_points = (fine_grid[..., 1:, :] + fine_grid[..., :-1, :]) / 2  # Shape [B, L-1, 1]
         # concat alternating fine grid points and mid points
-        super_fine_grid_grid = torch.zeros(B, 2 * L - 1, 1)
+        super_fine_grid_grid = torch.zeros(B, 2 * L - 1, 1, device=fine_grid.device, dtype=fine_grid.dtype)
         super_fine_grid_grid[:, ::2] = fine_grid
         super_fine_grid_grid[:, 1::2] = mid_points
 
@@ -1045,6 +1047,9 @@ class FIMODE(AModel):
 
     def new_stats(self) -> Dict:
         raise NotImplementedError("The new_stats method is not implemented in class FIMODE!")
+
+    def is_peft(self) -> bool:
+        return self.peft is not None and self.peft["method"] is not None
 
 
 ModelFactory.register("FIMODE", FIMODE)

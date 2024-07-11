@@ -1,6 +1,7 @@
 import functools
 import logging
 import os
+from datetime import datetime
 from itertools import islice
 from pathlib import Path
 
@@ -164,7 +165,12 @@ class Trainer:
         return wrap_policy
 
     def _prepare_experiment_dirs(self) -> None:
-        name = self.config.experiment.name
+        if self.config.experiment.name_add_date:
+            date = "_" + datetime.now().strftime("%m-%d-%H%M")
+        else:
+            date = ""
+        name = self.config.experiment.name + date
+
         if len(name) > 200:
             name = "_".join([i if i.isdigit() else i[0:3] for i in name.split("_")])
         # start_time = datetime.now().strftime("%d%m%y_%H%M%S")
@@ -188,12 +194,18 @@ class Trainer:
         for epoch in range(self.start_epoch, self.n_epochs):
             if torch.cuda.is_available() and self.config.experiment.device_map != "cpu":
                 mem_trace = GPUMemoryTrace(self.rank)
+
+            # train step
             time_trace.start_epoch()
-            train_epoch_stats = self._train_epoch(epoch)
+            train_epoch_stats =  self._train_epoch(epoch)
             time_trace.stop_epoch()
+
+            # validation step
             time_trace.start_timer("Validation")
             validation_epoch_stats = self._validation_epoch(epoch)
             time_trace.stop_timer("Validation")
+
+            # handle & save current checkpoint
             self._update_learning_rates("epoch")
             self.training_logger.log_epoch(epoch, train_epoch_stats, validation_epoch_stats)
             time_trace.start_timer("Checkpoint")
@@ -206,6 +218,7 @@ class Trainer:
             time_trace.print_elapsed_time("Validation")
             time_trace.print_elapsed_time("Checkpoint")
             time_trace.print_epochs_time_statistics()
+
         self.training_logger.clear_logging_resources()
         p_bar.close()
         return None
@@ -296,8 +309,8 @@ class Trainer:
                 data_it = islice(data_it, self.number_of_debug_iterations)
             for batch_idx, batch in enumerate(data_it):
                 batch_stats = self._validation_batch(batch_idx, batch)
-                self.validation_loss_tracker.add_batch_losses(batch_stats["losses"])
-                self.validation_loss_tracker.add_batch_histograms(batch_stats["histograms"])
+                self.validation_loss_tracker.add_batch_losses(batch_stats.get("losses"))
+                self.validation_loss_tracker.add_batch_histograms(batch_stats.get("histograms"))
                 p_bar.update_and_set_postfix(1, batch_stats["losses"])
             self.validation_loss_tracker.summarize_epoch()
 
