@@ -58,11 +58,11 @@ class BaseDataLoader:
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
 
         if dataset_type_name == "dummy":
-            dataset_split_names = ["train", "test", "validation", None]
+            dataset_split_names = ["train", "test", "validation"]
         else:
-            dataset_split_names = get_dataset_split_names(path + "/" + ds_name) + [None]
+            dataset_split_names = get_dataset_split_names(path + "/" + ds_name)
 
-        self.split = verify_str_arg(split, arg="split", valid_values=dataset_split_names)
+        self.split = verify_str_arg(split, arg="split", valid_values=dataset_split_names + [None])
 
         match dataset_type_name:
             case "base":

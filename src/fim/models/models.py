@@ -786,13 +786,26 @@ class FIMODE(AModel):
         learnt_drift_fine_grid, learnt_log_std_fine_grid = vector_field_concepts
         learnt_var_fine_grid = torch.exp(learnt_log_std_fine_grid) ** 2
 
-        supervised_loss = -torch.sum(
-            1 / 2 * (target_drift_fine_grid - learnt_drift_fine_grid) ** 2 / (2 * learnt_var_fine_grid)
-            + 1 / 2 * torch.log(learnt_var_fine_grid),
-            dim=-2,
-        )  # Shape [B, D]
+        learnt_init_cond_mean, learnt_init_cond_log_std = init_condition_concepts
+        learnt_init_cond_var = torch.exp(learnt_init_cond_log_std) ** 2
 
-        # unsupervised loss: minimize one-step ahead reconstrucion error of integrated solution
+        nllh_drift_avg = torch.mean(
+            torch.sum(
+                1 / 2 * (target_drift_fine_grid - learnt_drift_fine_grid) ** 2 / (2 * learnt_var_fine_grid)
+                + 1 / 2 * torch.log(learnt_var_fine_grid),
+                dim=-2,
+            )
+        )
+
+        nllh_init_cond_avg = torch.mean(
+            torch.sum(
+                1 / 2 * (target_drift_fine_grid[..., 0, :] - learnt_init_cond_mean) ** 2 / (2 * learnt_init_cond_var)
+                + 1 / 2 * torch.log(learnt_init_cond_var),
+                dim=-1,
+            )
+        )
+
+        # unsupervised loss
         solution = self.get_solution(
             normalized_fine_grid_grid,
             init_condition_concepts[0],
@@ -806,33 +819,25 @@ class FIMODE(AModel):
         )
 
         # unsupervised_loss[i] = (solution[i]-solution[i-1] - drift[i-1]*step_size)^2
-        unsupervised_loss = torch.sum(
-            (
-                solution[..., 1:, :]
-                - solution[..., :-1, :]
-                - learnt_drift_fine_grid[..., :-1, :] * step_size_fine_grid_renormalized
+        unsupervised_loss = torch.mean(
+            torch.sum(
+                (
+                    solution[..., 1:, :]
+                    - solution[..., :-1, :]
+                    - learnt_drift_fine_grid[..., :-1, :] * step_size_fine_grid_renormalized
+                )
+                ** 2,
+                dim=-2,
             )
-            ** 2,
-            dim=-2,
-        )  # shape [B, D]
+        )
 
-        total_loss = supervised_loss + unsupervised_loss
-
-        # average over process dim
-        supervised_loss = torch.mean(supervised_loss, dim=-1)
-        unsupervised_loss = torch.mean(unsupervised_loss, dim=-1)
-        total_loss = torch.mean(total_loss, dim=-1)
-
-        # average over batch dim
-        supervised_loss = torch.mean(supervised_loss)
-        unsupervised_loss = torch.mean(unsupervised_loss)
-        total_loss = torch.mean(total_loss)
-
+        # TODO: add scales in total_loss ?
         return {
             "losses": {
-                "supervised_loss": supervised_loss,
+                "llh_drift": nllh_drift_avg,
+                "llh_init_cond": nllh_init_cond_avg,
                 "unsupervised_loss": unsupervised_loss,
-                "loss": total_loss,
+                "loss": nllh_drift_avg + nllh_init_cond_avg + unsupervised_loss,
             },
             "solution": solution,
         }
@@ -1043,6 +1048,7 @@ class FIMODE(AModel):
         return grid_grid
 
     def metric(self, y: Any, y_target: Any, seq_len=None):
+        # want RMSE, RMAE, R1 score
         raise NotImplementedError("The metric method is not implemented in class FIMODE!")
 
     def new_stats(self) -> Dict:
