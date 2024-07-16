@@ -17,10 +17,12 @@ from torch.distributed.fsdp.wrap import (
 from transformers import BitsAndBytesConfig
 
 from fim.utils.helper import create_class_instance
+from fim.utils.metrics import compute_metrics
 
 from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
 from .utils import get_peft_trainable_parameters
+
 
 
 def is_distributed() -> bool:
@@ -514,13 +516,14 @@ class FIMODE(AModel):
         init_cond_var_net: dict,
         vector_field_mean_net: dict,
         vector_field_var_net: dict,
-        ode_solver: str,
+        loss_configs: dict,
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
         use_bf16: bool = False,
         device_map: Optional[str] = None,
         resume: bool = False,
         peft: Optional[dict] = None,
+        training: bool = False,
     ):
         super(FIMODE, self).__init__()
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
@@ -529,6 +532,7 @@ class FIMODE(AModel):
         self._quantization_config = None
         self.resume = resume
         self.peft = peft
+        self.training = training
         if load_in_8bit and load_in_4bit:
             raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
         elif load_in_8bit or load_in_4bit:
@@ -549,7 +553,7 @@ class FIMODE(AModel):
             vector_field_var_net,
             init_cond_mean_net,
             init_cond_var_net,
-            ode_solver,
+            loss_configs,
         )
 
         self.to(self._device_map)
@@ -564,7 +568,7 @@ class FIMODE(AModel):
         init_cond_var_net: dict,
         vector_field_mean_net: dict,
         vector_field_var_net: dict,
-        ode_solver: str,
+        loss_configs: dict,
     ):
         self.time_encoding = create_class_instance(
             time_encoding.pop("name"),
@@ -611,13 +615,17 @@ class FIMODE(AModel):
             init_cond_var_net,
         )
 
-        match ode_solver:
+        match loss_configs.get("ode_solver"):
             case "rk4":
                 from fim.models.utils import rk4
 
                 self.ode_solver = rk4
             case _:
-                raise ValueError(f"ODE solver {ode_solver} not supported.")
+                raise ValueError(f"ODE solver {loss_configs.get('ode_solver')} not supported.")
+
+        self.loss_scale_drift = loss_configs.pop("loss_scale_drift")
+        self.loss_scale_init_cond = loss_configs.pop("loss_scale_init_cond")
+        self.loss_scale_unsuperv_loss = loss_configs.pop("loss_scale_unsuperv_loss")
 
     def forward(
         self,
@@ -643,6 +651,7 @@ class FIMODE(AModel):
         unnormalized_obs_times = batch["coarse_grid_grid"]
         fine_grid_grid = batch["fine_grid_grid"]
         fine_grid_drift = batch["fine_grid_concept_values"]
+        fine_grid_sample_paths = batch["fine_grid_sample_paths"]
 
         batch_size, max_sequence_length, self.process_dim = unnormalized_obs_values.shape  # defines B, L, D
 
@@ -695,14 +704,38 @@ class FIMODE(AModel):
         renormalized_init_condition_concepts = self._renormalize_init_condition_params(
             init_condition_concepts, normalization_parameters
         )
-        return self.loss(
+
+        losses = self.loss(
             vector_field_concepts=renormalized_vector_field_concepts,
             init_condition_concepts=renormalized_init_condition_concepts,
             normalized_fine_grid_grid=normalized_fine_grid_grid,
             target_drift_fine_grid=fine_grid_drift,
-            branch_out=branch_out,
             normalization_parameters=normalization_parameters,
+            fine_grid_sample_paths=fine_grid_sample_paths,
         )
+
+        avg_init_cond_diff = torch.mean(
+            torch.abs(
+                renormalized_init_condition_concepts[0] - fine_grid_sample_paths[..., 0, :]
+            )
+        )
+        if not self.training:
+            solution = self.get_solution(
+                normalized_fine_grid_grid,
+                init_condition_concepts[0],
+                branch_out,
+                normalization_parameters=normalization_parameters,
+            )  # [B, L, D] (unnormalized space)
+
+            metrics = self.metric(
+                y=solution,
+                y_target=fine_grid_drift,
+            )
+            evaluations_dict = {"solution": solution} | {"metrics": metrics}
+        else:
+            evaluations_dict = {}
+
+        return {"losses": losses | {"avg_init_cond_diff": avg_init_cond_diff} } | evaluations_dict | {"avg_init_cond_diff": avg_init_cond_diff}
 
     def _get_vector_field_concepts(
         self,
@@ -765,8 +798,8 @@ class FIMODE(AModel):
         vector_field_concepts: tuple,
         init_condition_concepts: tuple,
         target_drift_fine_grid: torch.Tensor,
+        fine_grid_sample_paths: torch.Tensor,
         normalized_fine_grid_grid: torch.Tensor,
-        branch_out: torch.Tensor,
         normalization_parameters: dict,
     ) -> dict:
         """
@@ -777,7 +810,7 @@ class FIMODE(AModel):
             init_condition_concepts (tuple): mean and log standard deviation of the initial condition concepts (unnormalized) ([B, D], [B, D])
             target_drift_fine_grid (torch.Tensor): target values (unnormalized) [B, L, D]
             normalized_fine_grid_grid (torch.Tensor): fine grid time points [B, L, 1]
-            branch_out (torch.Tensor): output of the branch network (in normalized space) [B, 1, dim_latent]
+            normalization_parameters (dict): normalization parameters for time and values
 
         Returns:
             dict: losses: supervised loss, unsupervised loss, (total) loss; solution at fine grid points
@@ -805,25 +838,18 @@ class FIMODE(AModel):
             )
         )
 
-        # unsupervised loss
-        solution = self.get_solution(
-            normalized_fine_grid_grid,
-            init_condition_concepts[0],
-            branch_out,
-            normalization_parameters=normalization_parameters,
-        )  # [B, L, D] (unnormalized space)
-
+        # unsupervised loss (unnormalized space)
         fine_grid_grid_renormalized = self._renormalize_time(normalized_fine_grid_grid, normalization_parameters)
         step_size_fine_grid_renormalized = (
             fine_grid_grid_renormalized[..., 1:, :] - fine_grid_grid_renormalized[..., :-1, :]
         )
 
-        # unsupervised_loss[i] = (solution[i]-solution[i-1] - drift[i-1]*step_size)^2
+        # unsupervised_loss[i] = (target_path[i]-target_path[i-1] - drift[i-1]*step_size)^2
         unsupervised_loss = torch.mean(
             torch.sum(
                 (
-                    solution[..., 1:, :]
-                    - solution[..., :-1, :]
+                    fine_grid_sample_paths[..., 1:, :]
+                    - fine_grid_sample_paths[..., :-1, :]
                     - learnt_drift_fine_grid[..., :-1, :] * step_size_fine_grid_renormalized
                 )
                 ** 2,
@@ -831,15 +857,17 @@ class FIMODE(AModel):
             )
         )
 
-        # TODO: add scales in total_loss ?
+        total_loss = (
+            self.loss_scale_drift * nllh_drift_avg
+            + self.loss_scale_init_cond * nllh_init_cond_avg
+            + self.loss_scale_unsuperv_loss * unsupervised_loss
+        )
+
         return {
-            "losses": {
-                "llh_drift": nllh_drift_avg,
-                "llh_init_cond": nllh_init_cond_avg,
-                "unsupervised_loss": unsupervised_loss,
-                "loss": nllh_drift_avg + nllh_init_cond_avg + unsupervised_loss,
-            },
-            "solution": solution,
+            "llh_drift": nllh_drift_avg,
+            "llh_init_cond": nllh_init_cond_avg,
+            "unsupervised_loss": unsupervised_loss,
+            "loss": total_loss,
         }
 
     def get_solution(
@@ -1047,9 +1075,10 @@ class FIMODE(AModel):
 
         return grid_grid
 
-    def metric(self, y: Any, y_target: Any, seq_len=None):
-        # want RMSE, RMAE, R1 score
-        raise NotImplementedError("The metric method is not implemented in class FIMODE!")
+    def metric(self, y: Any, y_target: Any) -> Dict:
+        # compute MSE, RMSE, MAE, R2 score
+        metrics = compute_metrics(y, y_target)
+        return metrics
 
     def new_stats(self) -> Dict:
         raise NotImplementedError("The new_stats method is not implemented in class FIMODE!")

@@ -1,31 +1,31 @@
 """metrics used throughout the project."""
 
-import numpy as np
+import torch
 
 
-def r2_score_mean(prediction: np.ndarray, ground_truth: np.ndarray) -> float:
+def r2_score_mean(prediction: torch.Tensor, ground_truth: torch.Tensor) -> torch.Tensor:
     """
     Compute the R2 score of a prediction. The score is normalized with respect to the mean of the ground truth.
 
     Note: only for  a single prediction window.
 
     Args:
-        prediction: the predicted values
-        ground_truth: the true values
+        prediction: the predicted values. Shape [B, T, D]
+        ground_truth: the true values. Shape [B, T, D]
 
     Returns:
-        the R2 score, averaged over the dimensions
+        the R2 score, averaged over the dimensions. Shape [B]
     """
 
-    ground_truth_mean = np.mean(ground_truth, axis=0)
-    ss_res = np.sum((ground_truth - prediction) ** 2, axis=0)
-    ss_tot = np.sum((ground_truth - ground_truth_mean) ** 2, axis=0)
-    r2 = 1 - ss_res / ss_tot
+    ground_truth_mean = torch.mean(ground_truth, axis=1)  #  [B, D]
+    ss_res = torch.sum((ground_truth - prediction) ** 2, axis=1)  # [B, D]
+    ss_tot = torch.sum((ground_truth - ground_truth_mean.unsqueeze(1)) ** 2, axis=1)  # [B, D]
+    r2 = 1 - ss_res / ss_tot  # [B, D]
 
-    return np.mean(r2)
+    return torch.mean(r2, axis=1)  # [B]
 
 
-def compute_metrics(predictions: np.ndarray, ground_truth: np.ndarray) -> dict:
+def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor) -> dict:
     """
     Compute the metrics of a prediction given the ground truth.
 
@@ -48,10 +48,10 @@ def compute_metrics(predictions: np.ndarray, ground_truth: np.ndarray) -> dict:
         )
 
     metrics = {
-        "r2_score": r2_score_mean(predictions, ground_truth),
-        "mae": np.mean(np.mean(np.abs(ground_truth - predictions), axis=1)),
-        "mse": np.mean(np.mean((ground_truth - predictions) ** 2, axis=1)),
+        "r2_score": torch.mean(r2_score_mean(predictions, ground_truth)),
+        "mae": torch.mean(torch.mean(torch.abs(ground_truth - predictions), axis=1)),
+        "mse": torch.mean(torch.mean((ground_truth - predictions) ** 2, axis=1)),
     }
-    metrics["rmse"] = np.sqrt(metrics["mse"])
+    metrics["rmse"] = torch.sqrt(metrics["mse"])
 
     return metrics

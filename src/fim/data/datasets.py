@@ -259,6 +259,7 @@ class DummyDataset(BaseDataset):
     def _load_dummy_dataset(self, path, split) -> DatasetDict:
         data: dict = torch.load(path + split + ".pt")
         data["coarse_grid_observation_mask"] = data["coarse_grid_observation_mask"].bool()
+        data["fine_grid_sample_paths"] = data["coarse_grid_sample_paths"]
         return Dataset.from_dict(data)
 
     def __getitem__(self, idx):
@@ -275,6 +276,7 @@ class DummyDataset(BaseDataset):
                 - "obs_mask" (List[bool]): mask for observed values; [seq_len]
                 - "fine_grid_times" (List[float]): fine grid times; [fine_grid_len]
                 - "fine_grid_values" (List[float]): fine grid values; [fine_grid_len]
+                - "fine_grid_sample_paths" (List[float]): fine grid sample paths, ie. ground truth solution; [fine_grid_len]
         """
         item = self.data[idx]
 
