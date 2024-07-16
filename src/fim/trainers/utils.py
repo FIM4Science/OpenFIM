@@ -36,8 +36,10 @@ class TrainLossTracker:
         self.batch_losses = defaultdict(float)
         self.batch_losses_counter = defaultdict(int)
         self.batch_histograms = {}
+        self.batch_line_plots = []
         self.epoch_losses = defaultdict(list)
         self.epoch_histograms = defaultdict(list)
+        self.epoch_line_plots = []
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         if is_distributed():
             self.world_size = dist.get_world_size()
@@ -94,10 +96,14 @@ class TrainLossTracker:
         """
         for name, value in histograms.items():
             self.add_batch_histogram(name, value)
+    
+    def add_batch_line_plots(self, line_plots: dict):
+        self.batch_line_plots.append(line_plots)
 
     def add_batch_stats(self, stats: dict):
         self.add_batch_losses(stats["losses"])
         self.add_batch_histograms(stats["histograms"])
+        self.add_batch_line_plots(stats["line_plots"])
 
     def summarize_epoch(self):
         """
@@ -127,6 +133,9 @@ class TrainLossTracker:
 
             self.epoch_histograms[name].append(histogram)
             self.batch_histograms[name] = 0.0
+        
+        for line_plot in self.batch_line_plots:
+            self.epoch_line_plots.append(line_plot)
 
     def get_batch_losses(self, loss_name=None):
         """
@@ -168,6 +177,7 @@ class TrainLossTracker:
         return {
             "losses": dict([(k, v[-1]) for k, v in self.epoch_losses.items()]),
             "histograms": dict([(k, v[-1]) for k, v in self.epoch_histograms.items()]),
+            "line_plots": self.epoch_line_plots[-1:]
         }
 
     def get_total_batch_loss(self, loss_name):
@@ -256,7 +266,13 @@ class StepProgressBar:
     ):
         if rank == 0:
             self.pbar = tqdm(
-                total=total_steps, desc=description, unit=unit, colour=color, position=position, leave=leave, initial=starting_step
+                total=total_steps,
+                desc=description,
+                unit=unit,
+                colour=color,
+                position=position,
+                leave=leave,
+                initial=starting_step,
             )
         self.rank = rank
 
@@ -537,10 +553,14 @@ class TrainLogging:
             batch_id (int): Index of the current batch.
             batch_stats (dict): Statistics of the current batch.
         """
-        sb = " ".join([f"{k}: {v:.6f}" for k, v in batch_stats.items()])
+        if 'losses' in batch_stats:
+            losses = batch_stats.get('losses')
+        else:
+            losses = batch_stats
+        sb = " ".join([f"{k}: {v:.6f}" for k, v in losses.items()])
         self.file_logger.info("Epoch %s - %s - Minibatch %s: %s", epoch, step_type.upper(), batch_id, sb)
         if self.rank == 0:
-            self._log_tensorboard("BATCH/" + step_type.upper() + "/", {"losses": batch_stats})
+            self._log_tensorboard("BATCH/" + step_type.upper() + "/", batch_stats)
 
     def log_epoch(self, epoch: int, train_stats: dict, validation_stats: dict):
         """
@@ -570,11 +590,19 @@ class TrainLogging:
         self._log_tensorboard_scalars(label, statistics["losses"])
         if "histograms" in statistics:
             self._log_tensorboard_histograms(label, statistics["histograms"])
+        if "line_plots" in statistics:
+            self._log_tensorboard_line_plots(label, statistics["line_plots"])
         self.__tensorboard_global_step += 1
 
     def _log_tensorboard_scalars(self, label, statistics):
         for k, v in statistics.items():
-            self.tensorboard_logger.add_scalar(label + k.upper(), v.float(), self.__tensorboard_global_step, new_style=True)
+            # if v is not a scalar: continue
+            if v.numel() != 1:
+                continue
+
+            self.tensorboard_logger.add_scalar(
+                label + k.upper(), v.float(), self.__tensorboard_global_step, new_style=True
+            )
 
     def _log_tensorboard_histograms(self, label, histograms):
         for k, v in histograms.items():
@@ -584,6 +612,31 @@ class TrainLogging:
                 self.tensorboard_logger.add_figure(label + k.upper(), fig, self.__tensorboard_global_step)
             else:
                 self.tensorboard_logger.add_histogram(label + k.upper(), v.float(), self.__tensorboard_global_step)
+
+    def _log_tensorboard_line_plots(self, label, line_plot_data):
+        if isinstance(line_plot_data, dict):
+            line_plot_data = [line_plot_data]
+            
+        for k, v in line_plot_data[0].items():
+            if not v: 
+                continue
+            fig, ax = plt.subplots()
+            ax.plot(v["times"], v["target"], label="ground truth", alpha=0.4, color="orange")
+            ax.scatter(v["observation_times"], v["observation_values"], label="observations", marker="x", s=4, color="orange")
+
+            ax.plot(v["times"], v["prediction"], label="prediction", color="blue")
+            ax.fill_between(
+                v["times"],
+                v["prediction"] - v["certainty"],
+                v["prediction"] + v["certainty"],
+                alpha=0.3,
+                color="blue",
+                label="certainty"
+            )
+            ax.legend()
+            fig.tight_layout()
+
+            self.tensorboard_logger.add_figure(tag=label+"_"+str(k), figure=fig, global_step=self.__tensorboard_global_step)
 
     def add_model_graph(self, model, input: Any) -> None:
         """Writes the model graph in tensorboard.
@@ -779,7 +832,9 @@ class GPUMemoryTrace:
             self.__logger.info("Max CUDA memory reserved was %.2f GB", max_reserved)
             self.__logger.info("Peak active CUDA memory was %.2f GB", peak_active_gb)
             self.__logger.info("Cuda Malloc retires : %d", cuda_malloc_retires)
-            self.__logger.info("CPU Total Peak Memory consumed during the train (max): %d GB", cpu_peaked + self.cpu_begin)
+            self.__logger.info(
+                "CPU Total Peak Memory consumed during the train (max): %d GB", cpu_peaked + self.cpu_begin
+            )
 
 
 class TrainingTimePerformanceTracker:

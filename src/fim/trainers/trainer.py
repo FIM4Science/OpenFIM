@@ -197,7 +197,7 @@ class Trainer:
 
             # train step
             time_trace.start_epoch()
-            train_epoch_stats =  self._train_epoch(epoch)
+            train_epoch_stats = self._train_epoch(epoch)
             time_trace.stop_epoch()
 
             # validation step
@@ -235,7 +235,7 @@ class Trainer:
             batch_stats = self._train_batch(step, batch)
             self.training_loss_tracker.add_batch_stats(batch_stats)
             p_bar.update_and_set_postfix(1, batch_stats["losses"])
-            self.training_logger.log_train_batch(epoch, batch_idx, batch_stats["losses"])
+            self.training_logger.log_train_batch(epoch, batch_idx, batch_stats)
         self.training_loss_tracker.summarize_epoch()
         p_bar.close()
         del p_bar
@@ -246,7 +246,7 @@ class Trainer:
         with torch.cuda.amp.autocast(
             enabled=self._use_mixeprecision and torch.cuda.is_available(), dtype=self._auto_cast_type
         ):
-            stats = self.model(batch, schedulers=self.schedulers, step=step)
+            stats = self.model(batch, training=True, schedulers=self.schedulers, step=step)
             losses = stats["losses"]
             loss = losses["loss"]
             loss = loss / self.gradient_accumulation_steps
@@ -255,9 +255,13 @@ class Trainer:
         if "histograms" in stats:
             histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
 
+        line_plots = {}
+        if "line_plots" in stats:
+            line_plots = {k: v.detach().float() for k, v in stats["line_plots"].items()}
+
         lrs = self._model_update_step(step, loss)
 
-        return {"losses": losses | lrs, "histograms": histograms}
+        return {"losses": losses | lrs, "histograms": histograms, "line_plots": line_plots}
 
     def _model_update_step(self, step: int, loss: torch.Tensor):
         lrs = {}
@@ -311,6 +315,7 @@ class Trainer:
                 batch_stats = self._validation_batch(batch_idx, batch)
                 self.validation_loss_tracker.add_batch_losses(batch_stats.get("losses"))
                 self.validation_loss_tracker.add_batch_histograms(batch_stats.get("histograms"))
+                self.validation_loss_tracker.add_batch_line_plots(batch_stats.get("line_plots"))
                 p_bar.update_and_set_postfix(1, batch_stats["losses"])
             self.validation_loss_tracker.summarize_epoch()
 
@@ -320,12 +325,12 @@ class Trainer:
 
     def _validation_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
-        stats = self.model(batch)
+        stats = self.model(batch, training=False)
         losses = {k: v.detach().float() for k, v in stats["losses"].items()}
         histograms = {}
         if "histograms" in stats:
             histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
-        return {"losses": losses, "histograms": histograms}
+        return {"losses": losses, "histograms": histograms, "line_plots": stats.get("line_plots", {})}
 
     def _update_learning_rates(self, call_place: str):
         verify_str_arg(call_place, "call_place", ["epoch", "minibatch"])

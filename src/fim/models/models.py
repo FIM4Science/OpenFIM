@@ -24,7 +24,6 @@ from ..utils.logging import RankLoggerAdapter
 from .utils import get_peft_trainable_parameters
 
 
-
 def is_distributed() -> bool:
     return dist.is_initialized()
 
@@ -523,7 +522,6 @@ class FIMODE(AModel):
         device_map: Optional[str] = None,
         resume: bool = False,
         peft: Optional[dict] = None,
-        training: bool = False,
     ):
         super(FIMODE, self).__init__()
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
@@ -532,7 +530,6 @@ class FIMODE(AModel):
         self._quantization_config = None
         self.resume = resume
         self.peft = peft
-        self.training = training
         if load_in_8bit and load_in_4bit:
             raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
         elif load_in_8bit or load_in_4bit:
@@ -632,6 +629,7 @@ class FIMODE(AModel):
         batch,
         schedulers: Optional[dict] = None,
         step: Optional[int] = None,
+        training: bool = False,
     ) -> dict:
         """
         Args:
@@ -714,28 +712,21 @@ class FIMODE(AModel):
             fine_grid_sample_paths=fine_grid_sample_paths,
         )
 
-        avg_init_cond_diff = torch.mean(
-            torch.abs(
-                renormalized_init_condition_concepts[0] - fine_grid_sample_paths[..., 0, :]
-            )
-        )
-        if not self.training:
-            solution = self.get_solution(
-                normalized_fine_grid_grid,
-                init_condition_concepts[0],
-                branch_out,
+        if not training:
+            stats = self.new_stats(
+                normalized_fine_grid_grid=normalized_fine_grid_grid,
+                init_condition_concepts=init_condition_concepts,
+                branch_out=branch_out,
                 normalization_parameters=normalization_parameters,
-            )  # [B, L, D] (unnormalized space)
-
-            metrics = self.metric(
-                y=solution,
-                y_target=fine_grid_drift,
+                fine_grid_drift=fine_grid_drift,
+                fine_grid_sample_path=fine_grid_sample_paths,
+                fine_grid_log_std=learnt_drift_log_std,
+                observation_mask=obs_mask,
             )
-            evaluations_dict = {"solution": solution} | {"metrics": metrics}
         else:
-            evaluations_dict = {}
+            stats = {}
 
-        return {"losses": losses | {"avg_init_cond_diff": avg_init_cond_diff} } | evaluations_dict | {"avg_init_cond_diff": avg_init_cond_diff}
+        return {"losses": losses} | stats
 
     def _get_vector_field_concepts(
         self,
@@ -784,7 +775,6 @@ class FIMODE(AModel):
     def _get_init_condition_concepts(self, branch_out: torch.Tensor) -> tuple:
         """Compute mean and log standard deviation of the initial condition"""
         init_condition_mean = self.init_cond_mean_net(branch_out)  # Shape [D*B, 1, 1]
-        # TODO init cond. var ever used?
         init_condition_var = self.init_cond_var_net(branch_out)  # Shape [D*B, 1, 1]
 
         # reshape to [B, D]
@@ -1080,8 +1070,58 @@ class FIMODE(AModel):
         metrics = compute_metrics(y, y_target)
         return metrics
 
-    def new_stats(self) -> Dict:
-        raise NotImplementedError("The new_stats method is not implemented in class FIMODE!")
+    def new_stats(
+        self,
+        normalized_fine_grid_grid: torch.Tensor,
+        init_condition_concepts: tuple,
+        branch_out: torch.Tensor,
+        normalization_parameters: dict,
+        fine_grid_drift: torch.Tensor,
+        fine_grid_sample_path: torch.Tensor,
+        fine_grid_log_std: torch.Tensor,
+        observation_mask: torch.Tensor,
+    ) -> Dict:
+        # get solution
+        solution = self.get_solution(
+            normalized_fine_grid_grid,
+            init_condition_concepts[0],
+            branch_out,
+            normalization_parameters=normalization_parameters,
+        )  # [B, L, D] (unnormalized space)
+
+        # get metrics
+        metrics = self.metric(
+            y=solution,
+            y_target=fine_grid_drift,
+        )
+
+        # prepare line plots
+        plot_data = {}
+        dim = 0
+        # get a random sample
+        sample_id = torch.randint(0, solution.shape[0], (1,)).item()
+
+        observation_values = (
+            fine_grid_sample_path[sample_id][observation_mask[sample_id].squeeze()][:, dim].detach().cpu()
+        )
+        observation_times = (
+            normalized_fine_grid_grid[sample_id][observation_mask[sample_id].squeeze()].squeeze(-1).detach().cpu()
+        )
+        plot_data["sample"] = {
+            "prediction": solution[sample_id, :, dim].detach().cpu(),  # [L]
+            "certainty": torch.exp(fine_grid_log_std[sample_id, :, dim]).detach().cpu(),  # [L]
+            "target": fine_grid_sample_path[sample_id, :, dim].detach().cpu(),  # [L]
+            "times": normalized_fine_grid_grid[sample_id, :].squeeze(1).detach().cpu(),  # [L]
+            "observation_values": observation_values,  # [# observed points]
+            "observation_times": observation_times,  # [# observed points]
+        }
+
+        stats_dict = {
+            "metrics": metrics,
+            "line_plots": plot_data,
+            "solutions": solution,
+        }
+        return stats_dict
 
     def is_peft(self) -> bool:
         return self.peft is not None and self.peft["method"] is not None
