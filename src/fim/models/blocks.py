@@ -410,7 +410,9 @@ class Transformer(Block):
     ):
         super(Transformer, self).__init__()
 
-        self.lin_layer = nn.Linear(dim_time + 1, dim_model)
+        self.num_heads = num_heads
+
+        self.input_projection = nn.Linear(dim_time + 1, dim_model)
 
         self.encoder_blocks = nn.ModuleList(
             [
@@ -422,19 +424,67 @@ class Transformer(Block):
         self.final_query_vector = nn.Parameter(torch.randn(1, 1, dim_model))
         self.final_attention = nn.MultiheadAttention(dim_model, num_heads, dropout=dropout, batch_first=batch_first)
 
-    def forward(self, x, mask):
-        if mask.dim() == 3:
-            mask = mask.squeeze(-1)
-        x = self.lin_layer(x)
+    def forward(self, x, key_padding_mask):
+        """
+        Args:
+            x (torch.Tensor): Input tensor, shape (batch_size, seq_len, dim_time)
+            mask (torch.Tensor): Mask for the input tensor, shape (batch_size, seq_len) with 1 indicating that the time point is masked out.
+        """
+        # prepare masks: create attention masks and ensure, both are of type float
+        if key_padding_mask.dim() == 3:
+            key_padding_mask = key_padding_mask.squeeze(-1)  #  (batch_size, seq_len)#
+
+        attn_mask = self._pad2attn_mask(key_padding_mask)  # (batch_size * num_heads, seq_len, seq_len)
+        attn_mask_summarizing_query = self._pad2attn_mask(
+            key_padding_mask, target_seq_len=1
+        )  # (batch_size * num_heads, 1, seq_len)
+        key_padding_mask = key_padding_mask.float().masked_fill(key_padding_mask, float("-inf"))
+
+        x = self.input_projection(x)  # (batch_size, seq_len, dim_model)
+
         # pass through encoder blocks
         for encoder_block in self.encoder_blocks:
-            x = encoder_block(x, mask)
+            x = encoder_block(x, key_padding_mask, attn_mask)
 
         # use learnable query vector to get final embedding
         query = self.final_query_vector.repeat(x.size(0), 1, 1)
-        attn_output, _ = self.final_attention(query, x, x, key_padding_mask=mask, is_causal=False, need_weights=False)
+
+        attn_output, _ = self.final_attention(
+            query,
+            x,
+            x,
+            key_padding_mask=key_padding_mask,
+            attn_mask=attn_mask_summarizing_query,
+            is_causal=False,
+            need_weights=False,
+        )  # (batch_size, 1, dim_model)
 
         return attn_output
+
+    def _pad2attn_mask(self, key_padding_mask, target_seq_len: Optional[int] = None):
+        """
+        Args:
+            key_padding_mask (torch.Tensor): Mask for the input tensor, shape (batch_size, seq_len) with 1 indicating that the time point is masked out.
+            target_seq_len (int): Target sequence length. If None, the sequence length is the same as the input sequence length.
+
+        Returns:
+            torch.Tensor: Attention mask, float valued, shape (batch_size * num_heads, seq_len, seq_len)
+        """
+        batch_size, seq_len = key_padding_mask.size()
+        if target_seq_len is None:
+            target_seq_len = seq_len
+
+        expanded_mask = (
+            key_padding_mask.unsqueeze(1).unsqueeze(2).expand(-1, self.num_heads, target_seq_len, -1)
+        )  # Shape: (B, num_heads, seq_len, seq_len)
+
+        # Reshape to (batch_size * num_heads, target_seq_len, seq_len)
+        attention_mask = expanded_mask.reshape(batch_size * self.num_heads, target_seq_len, seq_len)
+
+        # Convert boolean mask to float mask (1 -> -inf)
+        attention_mask = attention_mask.float().masked_fill(attention_mask, float("-inf"))
+
+        return attention_mask
 
 
 class EncoderBlock(Block):
@@ -459,12 +509,13 @@ class EncoderBlock(Block):
         self.layer_norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, mask):
+    def forward(self, x, padding_mask, attention_mask):
         attn_out, _ = self.self_attn(
             x,
             x,
             x,
-            key_padding_mask=mask,
+            key_padding_mask=padding_mask,
+            attn_mask=attention_mask,
             is_causal=False,
             need_weights=False,
         )
