@@ -374,20 +374,14 @@ class TimeEncoding(Block):
         self.linear_embedding = nn.Linear(1, 1, bias=True)
         self.periodic_embedding = nn.Sequential(nn.Linear(1, dim_time - 1, bias=True), SinActivation())
 
-    def forward(self, grid: torch.Tensor, mask: Optional[torch.Tensor] = None):
+    def forward(self, grid: torch.Tensor):
         """
         Args:
             grid (torch.Tensor): Grid of time points, shape (batch_size, seq_len, 1)
-            mask (torch.Tensor): Mask for the grid, shape (batch_size, seq_len)
-                where 1 indicates that the time point is masked out.
 
         Returns:
             torch.Tensor: Time encoding, shape (batch_size, seq_len, d_time)
         """
-        if mask is None:
-            mask = torch.zeros_like(grid)
-
-        grid = grid * (1 - mask)
 
         linear = self.linear_embedding(grid)
         periodic = self.periodic_embedding(grid)
@@ -434,17 +428,13 @@ class Transformer(Block):
         if key_padding_mask.dim() == 3:
             key_padding_mask = key_padding_mask.squeeze(-1)  #  (batch_size, seq_len)#
 
-        attn_mask = self._pad2attn_mask(key_padding_mask)  # (batch_size * num_heads, seq_len, seq_len)
-        attn_mask_summarizing_query = self._pad2attn_mask(
-            key_padding_mask, target_seq_len=1
-        )  # (batch_size * num_heads, 1, seq_len)
-        key_padding_mask = key_padding_mask.float().masked_fill(key_padding_mask, float("-inf"))
-
         x = self.input_projection(x)  # (batch_size, seq_len, dim_model)
 
         # pass through encoder blocks
         for encoder_block in self.encoder_blocks:
-            x = encoder_block(x, key_padding_mask, attn_mask)
+            x = encoder_block(x, 
+                              key_padding_mask,
+                              )
 
         # use learnable query vector to get final embedding
         query = self.final_query_vector.repeat(x.size(0), 1, 1)
@@ -454,7 +444,6 @@ class Transformer(Block):
             x,
             x,
             key_padding_mask=key_padding_mask,
-            attn_mask=attn_mask_summarizing_query,
             is_causal=False,
             need_weights=False,
         )  # (batch_size, 1, dim_model)
@@ -509,13 +498,12 @@ class EncoderBlock(Block):
         self.layer_norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, padding_mask, attention_mask):
+    def forward(self, x, padding_mask):
         attn_out, _ = self.self_attn(
             x,
             x,
             x,
             key_padding_mask=padding_mask,
-            attn_mask=attention_mask,
             is_causal=False,
             need_weights=False,
         )

@@ -1,7 +1,7 @@
 experiment:
-  name: fim_ode_example
+  name: debug_fim_ode_example_onlyDrift_withoutNormalization
   name_add_date: true # if true, the current date & time will be added to the experiment name
-  seed: [1]
+  seed: [10]
   device_map: cuda # auto, cuda, cpu
 
 distributed:
@@ -15,19 +15,19 @@ model:
 
   loss_configs:
     ode_solver: rk4
-    loss_scale_drift: 0.0
-    loss_scale_init_cond: 1.0
+    loss_scale_drift: 1.0
+    loss_scale_init_cond: 0.0
     loss_scale_unsuperv_loss: 0.0
 
   time_encoding:
     name: fim.models.blocks.TimeEncoding
-    dim_time: &dim_time 128
+    dim_time: &dim_time 256
 
   trunk_net:
     name: fim.models.blocks.Mlp
     in_features: *dim_time
-    out_features: &dim_latent 128
-    hidden_layers: !!python/tuple [&hidden_dim_mlp 128, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+    out_features: &dim_latent 512
+    hidden_layers: !!python/tuple [&hidden_dim_mlp 512, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
       name: torch.nn.SELU
     output_act:
@@ -53,7 +53,7 @@ model:
   
   combiner_net:
     name: fim.models.blocks.Mlp
-    in_features: 256  # needs to be the sum of the output dimensions of trunk_net and branch_net => =2* latent_dim
+    in_features: 1024  # needs to be the sum of the output dimensions of trunk_net and branch_net => =2* latent_dim
     out_features: *dim_latent
     hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
@@ -62,54 +62,36 @@ model:
       name: torch.nn.SELU
     dropout: *dropout
 
-  vector_field_mean_net:
+  vector_field_net:
     name: fim.models.blocks.Mlp
     in_features: *dim_latent
-    out_features: 1
-    hidden_layers: !!python/tuple []
+    out_features: 2
+    hidden_layers: !!python/tuple [*hidden_dim_mlp]
+    hidden_act:
+      name: torch.nn.SELU
     output_act:
       name: torch.nn.Identity
     dropout: *dropout
 
-  vector_field_var_net:
+  init_cond_net:
     name: fim.models.blocks.Mlp
     in_features: *dim_latent
-    out_features: 1
-    hidden_layers: !!python/tuple []
+    out_features: 2
+    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+    hidden_act:
+      name: torch.nn.SELU
     output_act:
       name: torch.nn.Identity
-    dropout: *dropout
-    
-  init_cond_mean_net:
-    name: fim.models.blocks.Mlp
-    in_features: *dim_latent
-    out_features: 1
-    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
-    hidden_act:
-      name: torch.nn.SELU
-    output_act:
-      name: torch.nn.SELU
-    dropout: *dropout
-  
-  init_cond_var_net:
-    name: fim.models.blocks.Mlp
-    in_features: *dim_latent
-    out_features: 1
-    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
-    hidden_act:
-      name: torch.nn.SELU
-    output_act:
-      name: torch.nn.SELU
     dropout: *dropout
 
 
 dataset:
   name: base_dataloader
-  path: data/only_sinusoidal/
+  path: data/only_sinusoidal_tiny/
   ds_name: ""
   dataset_type_name: "dummy"
-  batch_size: 64
-  test_batch_size: 128
+  batch_size: 512
+  test_batch_size: 1024
   output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
   loader_kwargs:
     num_workers: 1
@@ -131,8 +113,8 @@ optimizers: !!python/tuple
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: 500
+  precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: 200
   detect_anomaly: false
   save_every: 5
   gradient_accumulation_steps: 1
