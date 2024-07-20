@@ -1,6 +1,5 @@
 import copy
 import logging
-import math
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -51,6 +50,12 @@ class Block(nn.Module):
 
 
 class Mlp(Block):
+    """
+    Implement a multi-layer perceptron (MLP) with optional dropout.
+
+    If defined dropout will be applied after each hidden layer but the final hidden and the output layer.
+    """
+
     def __init__(
         self,
         in_features: int,
@@ -68,9 +73,12 @@ class Mlp(Block):
 
         self.layers = nn.Sequential()
         in_size = in_features
+        nr_hidden_layers = len(hidden_layers)
         for i, h_size in enumerate(hidden_layers):
             self.layers.add_module(f"linear_{i}", nn.Linear(in_size, h_size))
             self.layers.add_module(f"activation_{i}", hidden_act)
+            if dropout != 0 and i < nr_hidden_layers - 1:
+                self.layers.add_module(f"dropout_{i}", nn.Dropout(dropout))
             in_size = h_size
 
         # if no hidden layers are provided, the output layer is directly connected to the input layer
@@ -83,65 +91,8 @@ class Mlp(Block):
                 output_act = create_class_instance(output_act.pop("name"), output_act)
             self.layers.add_module("output_activation", output_act)
 
-        if dropout > 0:
-            self.layers.add_module("dropout", nn.Dropout(dropout))
-
     def forward(self, x):
         return self.layers(x)
-
-
-class ResidualMlp(Block):
-    """Implements a MLP with residual connections."""
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        hidden_layers: List[int],
-        hidden_act: nn.Module | dict = nn.ReLU(),
-        output_act: nn.Module | dict = None,
-        skip_connections: list[int] = None,
-        **kwargs,
-    ):
-        """
-        Implements a MLP with optional skip connections and optional add+layer normalization.
-        skip_connections: list of indices of layers where skip connections should be added. If no provided, this is a standard MLP Block
-            Note: linear and activation layer are counted as one layer. Only one layer is skipped at a time.
-        """
-        super(Mlp, self).__init__(**kwargs)
-
-        if isinstance(hidden_act, dict):
-            hidden_act = create_class_instance(hidden_act.pop("name"), hidden_act)
-
-        self.skip_connections = skip_connections if skip_connections is not None else []
-
-        self.layers = nn.ModuleList()
-
-        # hidden layers
-        in_size = in_features
-        for i, h_size in enumerate(hidden_layers):
-            layer = nn.Sequential(nn.Linear(in_size, h_size), hidden_act)
-            self.layers.add_module(f"layer_{i}", layer)
-
-            in_size = h_size
-
-        # output layer
-        if output_act is not None:
-            if isinstance(output_act, dict):
-                output_act = create_class_instance(output_act.pop("name"), output_act)
-            layer = nn.Sequential(nn.Linear(hidden_layers[-1], out_features), output_act)
-        else:
-            layer = nn.Linear(hidden_layers[-1], out_features)
-        self.layers.add_module("output", layer)
-
-    def forward(self, x):
-        residual = x
-        for i, layer in enumerate(self.layers):
-            x = layer(x)
-            if i in self.skip_connections:
-                x += residual
-            residual = x
-        return x
 
 
 class HFBlock(Block):
@@ -260,96 +211,20 @@ class ResidualBlock(Block):
             hidden_features,
             hidden_act,
             output_act,
+            dropout,
             **kwargs,
         )
-        self.dropout = nn.Dropout(dropout)
         self.skip_connection = nn.Linear(in_features, out_features)
         self.layer_norm = nn.LayerNorm(out_features)
 
     def forward(self, x):
         out_mlp = self.mlp(x)
-        out_mlp = self.dropout(out_mlp)
         out_skip = self.skip_connection(x)
 
         out_final = out_mlp + out_skip
         out_final = self.layer_norm(out_final)
 
         return out_final
-
-
-class PositionalEncoding(Block):
-    """Positional encoding as defined in 'Vaswani, A. et al. Attention is all you need'."""
-
-    def __init__(self, d_model: int, max_len: int):
-        """
-        Args:
-            d_model (int): Dimension of the model.
-                note: this implementation works only with even d_model.
-                if d_model is odd, we add an additional dimension to the encoding and remove it
-                after the calculation of the encoding
-            max_len (int): Maximum length of the input sequence. (including train and test iteration!)
-        """
-        super(PositionalEncoding, self).__init__()
-
-        if d_model % 2 != 0:
-            encoding = torch.zeros(max_len, d_model + 1)
-        else:
-            encoding = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-
-        encoding[:, 0::2] = torch.sin(position * div_term)
-        encoding[:, 1::2] = torch.cos(position * div_term)
-
-        if d_model % 2 != 0:
-            encoding = encoding[:, :-1]
-
-        encoding = encoding.unsqueeze(0).transpose(0, 1)
-
-        # register the encoding as buffer to make it available on all devices
-        self.register_buffer("encoding", encoding, persistent=False)
-
-    @property
-    def device(self):
-        return self.encoding.device
-
-    def forward(self, x):
-        return x + self.encoding[: x.size(0), :]
-
-
-class DecoderBlock(Block):
-    """Consists of causal self-attention block and feed-forward network and layer normalization"""
-
-    def __init__(self, d_model: int, num_heads: int, dropout: float, batch_first: bool = True):
-        super(DecoderBlock, self).__init__()
-
-        self.self_attn = nn.MultiheadAttention(
-            d_model,
-            num_heads,
-            batch_first=batch_first,
-            dropout=dropout,
-        )
-
-        # ffn layer
-        self.mlp = Mlp(d_model, d_model, [d_model], nn.ReLU())
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(d_model)
-
-    def forward(self, x, mask):
-        if mask.dim() == 3:
-            mask = mask.squeeze(-1)
-        x, _ = self.self_attn(
-            x,
-            x,
-            x,
-            key_padding_mask=mask,
-            is_causal=False,
-            need_weights=False,
-        )
-        x = self.mlp(x)
-        x = self.dropout(x)
-        x = self.layer_norm(x)
-        return x
 
 
 class TimeEncoding(Block):
@@ -382,7 +257,6 @@ class TimeEncoding(Block):
         Returns:
             torch.Tensor: Time encoding, shape (batch_size, seq_len, d_time)
         """
-
         linear = self.linear_embedding(grid)
         periodic = self.periodic_embedding(grid)
 
@@ -432,9 +306,10 @@ class Transformer(Block):
 
         # pass through encoder blocks
         for encoder_block in self.encoder_blocks:
-            x = encoder_block(x, 
-                              key_padding_mask,
-                              )
+            x = encoder_block(
+                x,
+                key_padding_mask,
+            )
 
         # use learnable query vector to get final embedding
         query = self.final_query_vector.repeat(x.size(0), 1, 1)
@@ -496,9 +371,9 @@ class EncoderBlock(Block):
             residual_mlp,
         )
         self.layer_norm2 = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, padding_mask):
+        # TODO ? Need attention mask?
         attn_out, _ = self.self_attn(
             x,
             x,
@@ -507,11 +382,9 @@ class EncoderBlock(Block):
             is_causal=False,
             need_weights=False,
         )
-        attn_out = self.dropout(attn_out)
         x = self.layer_norm1(x + attn_out)
 
         mlp_out = self.residual_mlp(x)
-        mlp_out = self.dropout(mlp_out)
         x = self.layer_norm2(x + mlp_out)
 
         return x
