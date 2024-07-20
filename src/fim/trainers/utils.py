@@ -96,7 +96,7 @@ class TrainLossTracker:
         """
         for name, value in histograms.items():
             self.add_batch_histogram(name, value)
-    
+
     def add_batch_line_plots(self, line_plots: dict):
         self.batch_line_plots.append(line_plots)
 
@@ -133,7 +133,7 @@ class TrainLossTracker:
 
             self.epoch_histograms[name].append(histogram)
             self.batch_histograms[name] = 0.0
-        
+
         for line_plot in self.batch_line_plots:
             self.epoch_line_plots.append(line_plot)
 
@@ -175,9 +175,9 @@ class TrainLossTracker:
         """
 
         return {
-            "losses": dict([(k, v[-1]) for k, v in self.epoch_losses.items()]),
-            "histograms": dict([(k, v[-1]) for k, v in self.epoch_histograms.items()]),
-            "line_plots": self.epoch_line_plots[-1:]
+            "losses": dict((k, v[-1]) for k, v in self.epoch_losses.items()),
+            "histograms": dict((k, v[-1]) for k, v in self.epoch_histograms.items()),
+            "line_plots": self.epoch_line_plots[-1],
         }
 
     def get_total_batch_loss(self, loss_name):
@@ -553,8 +553,8 @@ class TrainLogging:
             batch_id (int): Index of the current batch.
             batch_stats (dict): Statistics of the current batch.
         """
-        if 'losses' in batch_stats:
-            losses = batch_stats.get('losses')
+        if "losses" in batch_stats:
+            losses = batch_stats.get("losses")
         else:
             losses = batch_stats
         sb = " ".join([f"{k}: {v:.6f}" for k, v in losses.items()])
@@ -614,29 +614,75 @@ class TrainLogging:
                 self.tensorboard_logger.add_histogram(label + k.upper(), v.float(), self.__tensorboard_global_step)
 
     def _log_tensorboard_line_plots(self, label, line_plot_data):
-        if isinstance(line_plot_data, dict):
-            line_plot_data = [line_plot_data]
-            
-        for k, v in line_plot_data[0].items():
-            if not v: 
-                continue
-            fig, ax = plt.subplots()
-            ax.plot(v["times"], v["target"], label="ground truth", alpha=0.4, color="orange")
-            ax.scatter(v["observation_times"], v["observation_values"], label="observations", marker="x", s=4, color="orange")
+        """
 
-            ax.plot(v["times"], v["prediction"], label="prediction", color="blue")
-            ax.fill_between(
-                v["times"],
-                v["prediction"] - v["certainty"],
-                v["prediction"] + v["certainty"],
-                alpha=0.3,
-                color="blue",
-                label="certainty"
-            )
-            ax.legend()
-            fig.tight_layout()
+        Expect data to be detached and on cpu.
 
-            self.tensorboard_logger.add_figure(tag=label+"_"+str(k), figure=fig, global_step=self.__tensorboard_global_step)
+        Args:
+            label: str: Label for the tensorboard plot
+            line_plot_data: dict: Dictionary containing the line plot data for 1 sample
+                "observation_times": torch.Tensor: Times for the coarse grid
+                "observation_values": torch.Tensor: Sample paths for the coarse grid
+                "learnt_solution": torch.Tensor: Learnt solution for the fine grid
+                "target_path": torch.Tensor: Target path for the fine grid (sample path)
+                "fine_grid_times": torch.Tensor: Times for the fine grid
+                "target_drift": torch.Tensor: Target drift for the fine grid
+                "learnt_drift": torch.Tensor: Learnt drift for the fine grid
+                "learnt_std_drift": torch.Tensor: Learnt std drift for the fine grid = certainty
+        """
+        assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
+        if len(line_plot_data) == 0:
+            return
+
+        # create drift plot
+        fig, axes = plt.subplots(ncols=2, figsize=(12, 4))
+        axes[0] = axes[0]
+        axes[0].plot(line_plot_data["fine_grid_times"], line_plot_data["target_drift"], label="target", color="orange")
+        axes[0].plot(line_plot_data["fine_grid_times"], line_plot_data["learnt_drift"], label="inference", color="blue")
+        axes[0].fill_between(
+            line_plot_data["fine_grid_times"],
+            line_plot_data["learnt_drift"] - line_plot_data["learnt_std_drift"],
+            line_plot_data["learnt_drift"] + line_plot_data["learnt_std_drift"],
+            alpha=0.3,
+            color="blue",
+            label="certainty",
+        )
+        axes[0].legend()
+        axes[0].set_title("Drift")
+        fig.tight_layout()
+
+        axes[1].plot(
+            line_plot_data["fine_grid_times"],
+            line_plot_data["target_path"],
+            label="sample path",
+            alpha=0.4,
+            color="orange",
+        )
+        axes[1].scatter(
+            line_plot_data["observation_times"],
+            line_plot_data["observation_values"],
+            label="observations",
+            marker="x",
+            s=7,
+            color="orange",
+        )
+        # learnt solution
+        axes[1].plot(line_plot_data["fine_grid_times"], line_plot_data["learnt_solution"], label="inference", color="blue")
+        axes[1].fill_between(
+            line_plot_data["fine_grid_times"],
+            line_plot_data["learnt_solution"] - line_plot_data["learnt_std_drift"],
+            line_plot_data["learnt_solution"] + line_plot_data["learnt_std_drift"],
+            alpha=0.3,
+            color="blue",
+            label="certainty",
+        )
+        axes[1].legend()
+        axes[1].set_title("Solution")
+        fig.tight_layout()
+
+        self.tensorboard_logger.add_figure(
+            tag=label + "_drift_solution", figure=fig, global_step=self.__tensorboard_global_step
+        )
 
     def add_model_graph(self, model, input: Any) -> None:
         """Writes the model graph in tensorboard.

@@ -703,6 +703,8 @@ class FIMODE(AModel):
                 normalization_parameters=normalization_parameters,
                 fine_grid_sample_path=fine_grid_sample_paths,
                 observation_mask=obs_mask,
+                learnt_drift=learnt_vector_field_concepts[0],
+                target_drift=fine_grid_drift,
             )
         else:
             stats = {}
@@ -1079,6 +1081,8 @@ class FIMODE(AModel):
         normalization_parameters: dict,
         fine_grid_sample_path: torch.Tensor,
         observation_mask: torch.Tensor,
+        target_drift: torch.Tensor, 
+        learnt_drift: torch.Tensor,
     ) -> Dict:
         """
         Get
@@ -1120,6 +1124,12 @@ class FIMODE(AModel):
             "times": normalized_fine_grid_grid[sample_id, :].squeeze(1).detach().cpu(),  # [L]
             "observation_values": observation_values,  # [# observed points]
             "observation_times": observation_times,  # [# observed points]
+            "learnt_solution": solution[sample_id, :, dim].detach().cpu(),  # [L]
+            "target_path": fine_grid_sample_path[sample_id, :, dim].detach().cpu(),  # [L]
+            "fine_grid_times": normalized_fine_grid_grid[sample_id, :].squeeze(1).detach().cpu(),  # [L]
+            "target_drift": target_drift[sample_id, :, dim].detach().cpu(),  # [L]
+            "learnt_drift": learnt_drift[sample_id, :, dim].detach().cpu(),  # [L]
+            "learnt_std_drift": certainty_solution[sample_id, :, dim].detach().cpu(),  # [L]
         }
 
         stats_dict = {
