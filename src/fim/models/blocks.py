@@ -373,7 +373,8 @@ class EncoderBlock(Block):
         self.layer_norm2 = nn.LayerNorm(d_model)
 
     def forward(self, x, padding_mask):
-        # TODO ? Need attention mask?
+        # TODO ? Need attention mask? 
+        # x shape: B, sequence length, d_model, padding_mask shape: B, sequence length
         attn_out, _ = self.self_attn(
             x,
             x,

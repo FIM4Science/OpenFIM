@@ -1,5 +1,5 @@
 experiment:
-  name: debug_fim_ode_example_onlyDrift_withoutNormalization
+  name: zzz_debug_fim_ode_example_onlyDrift_
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu
@@ -21,18 +21,18 @@ model:
 
   time_encoding:
     name: fim.models.blocks.TimeEncoding
-    dim_time: &dim_time 256
+    dim_time: &dim_time 64
 
   trunk_net:
     name: fim.models.blocks.Mlp
     in_features: *dim_time
     out_features: &dim_latent 512
-    hidden_layers: !!python/tuple [&hidden_dim_mlp 512, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+    hidden_layers: !!python/tuple [&hidden_dim_mlp 1024, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
       name: torch.nn.SELU
     output_act:
       name: torch.nn.SELU
-    dropout: &dropout 0.1
+    dropout: &dropout 0.0
   
   branch_net:
     name: fim.models.blocks.Transformer
@@ -45,11 +45,12 @@ model:
       name: fim.models.blocks.Mlp
       in_features: *dim_latent
       out_features: *dim_latent
-      hidden_layers: !!python/tuple [128]
+      hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
       hidden_act:
         name: torch.nn.SELU 
       output_act:
         name: torch.nn.SELU
+      dropout: *dropout
   
   combiner_net:
     name: fim.models.blocks.Mlp
@@ -59,7 +60,7 @@ model:
     hidden_act:
       name: torch.nn.SELU
     output_act:
-      name: torch.nn.SELU
+      name: torch.nn.Identity
     dropout: *dropout
 
   vector_field_net:
@@ -87,11 +88,11 @@ model:
 
 dataset:
   name: base_dataloader
-  path: data/only_sinusoidal_tiny/
+  path: data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
   ds_name: ""
   dataset_type_name: "dummy"
-  batch_size: 512
-  test_batch_size: 1024
+  batch_size: 1
+  test_batch_size: 1
   output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
   loader_kwargs:
     num_workers: 1
@@ -101,9 +102,9 @@ dataset:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.000001
+      lr: 0.0001
       weight_decay: 0.0
-      gradient_norm_clipping: null
+      gradient_norm_clipping: 100
       # schedulers: !!python/tuple
       #   - name: torch.optim.lr_scheduler.StepLR
       #     step_size: 1
@@ -114,14 +115,14 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: 200
-  detect_anomaly: false
+  epochs: 100
+  detect_anomaly: true
   save_every: 5
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
-  schedulers: !!python/tuple
+  schedulers:  !!python/tuple
     - name: fim.utils.param_scheduler.PeriodicScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: beta_scheduler
     - name: fim.utils.param_scheduler.ExponentialSchedulerGumbel

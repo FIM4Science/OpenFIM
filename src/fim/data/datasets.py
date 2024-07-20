@@ -257,9 +257,15 @@ class DummyDataset(BaseDataset):
         self.logger.debug("Dummy Dataset loaded successfully.")
 
     def _load_dummy_dataset(self, path, split) -> DatasetDict:
+        split = "train"
         data: dict = torch.load(path + split + ".pt")
-        data["coarse_grid_observation_mask"] = data["coarse_grid_observation_mask"].bool()
+        data["coarse_grid_observation_mask"] = ~data["coarse_grid_observation_mask"].bool()
         data["fine_grid_sample_paths"] = data["coarse_grid_sample_paths"]
+        if len(data["fine_grid_concept_values"]) > 1:
+            data["fine_grid_concept_values"] = data["fine_grid_concept_values"][0]
+
+        for k, v in data.items():
+            data[k] = v[:3].tolist()
         return Dataset.from_dict(data)
 
     def __getitem__(self, idx):

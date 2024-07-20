@@ -635,10 +635,15 @@ class FIMODE(AModel):
         fine_grid_drift = batch["fine_grid_concept_values"]
         fine_grid_sample_paths = batch["fine_grid_sample_paths"]  # unnormalized
 
-        batch_size, max_sequence_length, self.process_dim = unnormalized_obs_values.shape  # defines B, L, D
+        batch_size, max_sequence_length, process_dim = unnormalized_obs_values.shape  # defines B, L, D=1
+
+        if process_dim != 1:
+            raise ValueError("Process dimension must be 1 in FIMODE Base model.")
+
+        assert not obs_mask.all(), "Not allowed to have all values masked out."
 
         (
-            normalized_obs_values,  # [B, T, D]
+            normalized_obs_values,  # [B, T, 1]
             normalized_obs_times,  # [B, T, 1]
             normalized_fine_grid_grid,  # [B, L, 1]
             normalization_parameters,
@@ -656,18 +661,16 @@ class FIMODE(AModel):
         # first: reshape observation times & values to match shapewise
         obs_input_latent = torch.cat(
             [
-                encoded_obs_times.repeat_interleave(self.process_dim, 0),  # Shape [D*B, T, dim_time],
-                normalized_obs_values.reshape(
-                    batch_size * self.process_dim, max_sequence_length, 1
-                ),  # Shape [D*B, T, 1]
+                encoded_obs_times,  # Shape [B, T, dim_time],
+                normalized_obs_values,  # Shape [B, T, 1]
             ],
             dim=-1,
-        )  # Shape [D*B, T, dim_time + 1]
+        )  # Shape [B, T, dim_time + 1]
 
         # repeat obs_mask to match obs_input
-        obs_mask = obs_mask.repeat(self.process_dim, 1, 1)  # Shape [D*B, T, 1]
+        # obs_mask = obs_mask.repeat_interleave(self.process_dim, 1, 1)  # Shape [D*B, T, 1]
 
-        branch_out = self.branch_net(x=obs_input_latent, key_padding_mask=obs_mask)  # Shape [D*B, 1, dim_latent]
+        branch_out = self.branch_net(x=obs_input_latent, key_padding_mask=obs_mask)  # Shape [B, 1, dim_latent]
 
         learnt_vector_field_concepts = self._get_vector_field_concepts(
             grid_grid=normalized_fine_grid_grid, branch_out=branch_out
@@ -695,7 +698,9 @@ class FIMODE(AModel):
             fine_grid_sample_paths=fine_grid_sample_paths,
         )
 
-        if not training:
+        # if not training:
+        # TODO change when deploying
+        if True:
             stats = self.new_stats(
                 normalized_fine_grid_grid=normalized_fine_grid_grid,
                 init_condition_concepts=learnt_init_condition_concepts,
@@ -743,41 +748,39 @@ class FIMODE(AModel):
         # concat branch and trunk output: append branch output to each time step of trunk output
         combiner_in = torch.cat(
             [
-                trunk_out.repeat(self.process_dim, 1, 1),  # Shape [D*B, L, dim_latent]
-                branch_out.repeat(1, trunk_out.shape[1], 1),  # Shape [D*B, L, dim_latent]
+                trunk_out,  # Shape [B, L, dim_latent]
+                branch_out.repeat(1, trunk_out.shape[1], 1),  # Shape [B, L, dim_latent]
             ],
             dim=-1,
-        )  # Shape [D*B, L, 2*dim_latent]
-        combiner_out = self.combiner_net(combiner_in)  # Shape [D*B, L, dim_latent]
+        )  # Shape [B, L, 2*dim_latent]
+        combiner_out = self.combiner_net(combiner_in)  # Shape [B, L, dim_latent]
 
         # compute mean and log variance of the vector field at every location
-        vector_field_concepts = self.vector_field_net(combiner_out)  # Shape [D*B, L, 2]
+        vector_field_concepts = self.vector_field_net(combiner_out)  # Shape [B, L, 2]
 
         # split into mean and log variance
-        vector_field_mean, vector_field_log_std = torch.split(
-            vector_field_concepts, 1, dim=-1
-        )  # Shape each [D*B, L, 1]
+        vector_field_mean, vector_field_log_std = torch.split(vector_field_concepts, 1, dim=-1)  # Shape each [B, L, 1]
 
-        # reshape to [B, L, D]
-        vector_field_mean = vector_field_mean.reshape((*trunk_out.shape[:2], self.process_dim))
-        vector_field_var = vector_field_log_std.reshape((*trunk_out.shape[:2], self.process_dim))
+        # TODO reshape to [B, L, D] B*D, L, 1 -> B, D, L, 1 -> B, L, D
+        # vector_field_mean = vector_field_mean.reshape((*trunk_out.shape[:2], self.process_dim))
+        # vector_field_var = vector_field_log_std.reshape((*trunk_out.shape[:2], self.process_dim))
 
-        return vector_field_mean, vector_field_var
+        return vector_field_mean, vector_field_log_std
 
     def _get_init_condition_concepts(self, branch_out: torch.Tensor) -> tuple:
         """Compute mean and log standard deviation of the initial condition"""
-        init_condition_concepts = self.init_cond_net(branch_out)  # Shape [D*B, 1, 2]
+        init_condition_concepts = self.init_cond_net(branch_out)  # Shape [B, 1, 2]
 
         # split into mean and log variance
         init_condition_mean, init_condition_log_std = torch.split(
             init_condition_concepts, 1, dim=-1
-        )  # Shape each [D*B, 1, 1]
+        )  # Shape each [B, 1, 1]
 
         # reshape to [B, D]
-        init_condition_mean = init_condition_mean.reshape(-1, self.process_dim)
-        init_condition_var = init_condition_log_std.reshape(-1, self.process_dim)
+        # init_condition_mean = init_condition_mean.reshape(-1, self.process_dim)
+        # init_condition_var = init_condition_log_std.reshape(-1, self.process_dim)
 
-        return init_condition_mean, init_condition_var
+        return init_condition_mean, init_condition_log_std
 
     def loss(
         self,
@@ -814,7 +817,6 @@ class FIMODE(AModel):
                 dim=-2,
             )
         )
-
         nllh_init_cond_avg = torch.mean(
             (fine_grid_sample_paths[..., 0, :] - learnt_mean_init_cond) ** 2 / (2 * learnt_var_init_cond)
             + learnt_log_std_init_cond
@@ -872,7 +874,8 @@ class FIMODE(AModel):
             normalization_parameters (dict): normalization parameters for time and values
 
         Returns:
-            torch.Tensor: solution at fine grid points [B, L, D] (unnormalized space)
+            solution: torch.Tensor: solution at fine grid points [B, L, D] (unnormalized space)
+            certainty: torch.Tensor: certainty of the solution at fine grid points (exp(learnt log std of drift)) [B, L, D]
         """
         B, L = fine_grid.shape[:-1]
 
@@ -1036,19 +1039,19 @@ class FIMODE(AModel):
         Rescale the initial condition based on observation values normalization parameters.
 
         Args:
-            init_cond_dist_params (tuple): mean and variance of the initial condition ([B,D], [B, D])
+            init_cond_dist_params (tuple): mean and variance of the initial condition ([B,1], [B, 1])
             normalization_parameters (dict): holding all normalization parameters including obs_values_min and obs_values_range
 
         Returns:
-            tuple: rescaled mean and log standard deviation of the initial condition ([D*B, 1], [D*B, 1])
+            tuple: rescaled mean and log standard deviation of the initial condition ([B, 1], [B, 1])
         """
-        init_cond_mean, init_cond_log_std = init_cond_dist_params  # [B,D], [B, D]
-        obs_values_min = normalization_parameters.get("obs_values_min")  # [B, D]
-        obs_values_range = normalization_parameters.get("obs_values_range")  # [B, D]
+        init_cond_mean, init_cond_log_std = init_cond_dist_params  # [B,1], [B, 1]
+        obs_values_min = normalization_parameters.get("obs_values_min")  # [B, 1]
+        obs_values_range = normalization_parameters.get("obs_values_range")  # [B, 1]
 
         # rescale mean and log std
-        init_cond_mean = init_cond_mean * obs_values_range + obs_values_min  # Shape [D*B, 1]
-        init_cond_log_std = init_cond_log_std + torch.log(obs_values_range)  # Shape [D*B, 1]
+        init_cond_mean = init_cond_mean * obs_values_range + obs_values_min  # Shape [B, 1]
+        init_cond_log_std = init_cond_log_std + torch.log(obs_values_range)  # Shape [B, 1]
 
         return init_cond_mean, init_cond_log_std
 
@@ -1081,7 +1084,7 @@ class FIMODE(AModel):
         normalization_parameters: dict,
         fine_grid_sample_path: torch.Tensor,
         observation_mask: torch.Tensor,
-        target_drift: torch.Tensor, 
+        target_drift: torch.Tensor,
         learnt_drift: torch.Tensor,
     ) -> Dict:
         """
@@ -1105,9 +1108,7 @@ class FIMODE(AModel):
         )
 
         # prepare line plots
-        plot_data = {}
         dim = 0
-        # get a random sample
         sample_id = torch.randint(0, solution.shape[0], (1,)).item()
 
         # note: in mask: True indicates that the value is masked out
@@ -1117,11 +1118,7 @@ class FIMODE(AModel):
         observation_times = (
             normalized_fine_grid_grid[sample_id][~observation_mask[sample_id].squeeze()].squeeze(-1).detach().cpu()
         )
-        plot_data["sample"] = {
-            "prediction": solution[sample_id, :, dim].detach().cpu(),  # [L]
-            "certainty": certainty_solution[sample_id, :, dim].detach().cpu(),  # [L]
-            "target": fine_grid_sample_path[sample_id, :, dim].detach().cpu(),  # [L]
-            "times": normalized_fine_grid_grid[sample_id, :].squeeze(1).detach().cpu(),  # [L]
+        plot_data = {
             "observation_values": observation_values,  # [# observed points]
             "observation_times": observation_times,  # [# observed points]
             "learnt_solution": solution[sample_id, :, dim].detach().cpu(),  # [L]
@@ -1131,7 +1128,6 @@ class FIMODE(AModel):
             "learnt_drift": learnt_drift[sample_id, :, dim].detach().cpu(),  # [L]
             "learnt_std_drift": certainty_solution[sample_id, :, dim].detach().cpu(),  # [L]
         }
-
         stats_dict = {
             "metrics": metrics,
             "line_plots": plot_data,
