@@ -1,0 +1,21 @@
+
+train_config: results/fim_ode_example_50samples-experiment-seed-0_07-23-1222/train_parameters.yaml
+
+evaluation:
+  model_checkpoint_path: /home/koerner/FIM/results/fim_ode_example_50samples-experiment-seed-0_07-23-1222/checkpoints/best-model/model-checkpoint.pth
+  output_path: results/fim_ode_example_50samples-experiment-seed-0_07-23-1222/inference/
+  evaluation_type: ts
+  device_map: cuda
+
+dataset:
+  name: base_dataloader
+  path: data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  ds_name: ""
+  dataset_type_name: "dummy"
+  batch_size: 5
+  test_batch_size: 5
+  output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
+  loader_kwargs:
+    num_workers: 1
+  split: "train"
+  # dataset_kwargs:

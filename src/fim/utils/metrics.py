@@ -7,7 +7,7 @@ def r2_score_mean(prediction: torch.Tensor, ground_truth: torch.Tensor) -> torch
     """
     Compute the R2 score of a prediction. The score is normalized with respect to the mean of the ground truth.
 
-    Note: only for  a single prediction window.
+    Note: only for a single prediction window.
 
     Args:
         prediction: the predicted values. Shape [B, T, D]
@@ -16,7 +16,6 @@ def r2_score_mean(prediction: torch.Tensor, ground_truth: torch.Tensor) -> torch
     Returns:
         the R2 score, averaged over the dimensions. Shape [B]
     """
-
     ground_truth_mean = torch.mean(ground_truth, axis=1)  #  [B, D]
     ss_res = torch.sum((ground_truth - prediction) ** 2, axis=1)  # [B, D]
     ss_tot = torch.sum((ground_truth - ground_truth_mean.unsqueeze(1)) ** 2, axis=1)  # [B, D]
@@ -48,9 +47,9 @@ def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor) -> di
         )
 
     metrics = {
-        "r2_score": torch.mean(r2_score_mean(predictions, ground_truth)),
-        "mae": torch.mean(torch.mean(torch.abs(ground_truth - predictions), axis=1)),
-        "mse": torch.mean(torch.mean((ground_truth - predictions) ** 2, axis=1)),
+        "r2_score": r2_score_mean(predictions, ground_truth),
+        "mae": torch.mean(torch.abs(ground_truth - predictions), axis=1).flatten(),
+        "mse": torch.mean((ground_truth - predictions) ** 2, axis=1).flatten(),
     }
     metrics["rmse"] = torch.sqrt(metrics["mse"])
 

@@ -263,7 +263,9 @@ class Trainer:
 
         line_plots = {}
         if "line_plots" in stats:
-            line_plots = {k: v.detach().float() for k, v in stats["line_plots"].items()}
+            sample_id = 0
+            line_plots = stats["line_plots"][sample_id]
+
 
         lrs = self._model_update_step(step, loss)
 

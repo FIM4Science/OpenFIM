@@ -1108,26 +1108,27 @@ class FIMODE(AModel):
         )
 
         # prepare line plots
-        dim = 0
-        sample_id = torch.randint(0, solution.shape[0], (1,)).item()
-
         # note: in mask: True indicates that the value is masked out
-        observation_values = (
-            fine_grid_sample_path[sample_id][~observation_mask[sample_id].squeeze()][:, dim].detach().cpu()
-        )
-        observation_times = (
-            normalized_fine_grid_grid[sample_id][~observation_mask[sample_id].squeeze()].squeeze(-1).detach().cpu()
-        )
-        plot_data = {
-            "observation_values": observation_values,  # [# observed points]
-            "observation_times": observation_times,  # [# observed points]
-            "learnt_solution": solution[sample_id, :, dim].detach().cpu(),  # [L]
-            "target_path": fine_grid_sample_path[sample_id, :, dim].detach().cpu(),  # [L]
-            "fine_grid_times": normalized_fine_grid_grid[sample_id, :].squeeze(1).detach().cpu(),  # [L]
-            "target_drift": target_drift[sample_id, :, dim].detach().cpu(),  # [L]
-            "learnt_drift": learnt_drift[sample_id, :, dim].detach().cpu(),  # [L]
-            "learnt_std_drift": certainty_solution[sample_id, :, dim].detach().cpu(),  # [L]
-        }
+        plot_data = []
+        for sample_id in range(len(fine_grid_sample_path)):
+            observation_values = (
+            fine_grid_sample_path[sample_id][~observation_mask[sample_id].squeeze()].detach().cpu().squeeze()
+            )
+            observation_times = (
+                    normalized_fine_grid_grid[sample_id][~observation_mask[sample_id]].squeeze(-1).detach().cpu()
+                )
+            for dim in range(fine_grid_sample_path.shape[-1]):
+                # plot data for all samples
+                plot_data.append( {
+                    "observation_values": observation_values,  # [# observed points]
+                    "observation_times": observation_times,  # [# observed points]
+                    "learnt_solution": solution[sample_id,:,dim].detach().cpu(),  # [L]
+                    "target_path": fine_grid_sample_path[sample_id, :, dim].detach().cpu(),  # [L]
+                    "fine_grid_times": normalized_fine_grid_grid[sample_id].squeeze(1).detach().cpu(),  # [L]
+                    "target_drift": target_drift[sample_id, :, dim].detach().cpu(),  # [L]
+                    "learnt_drift": learnt_drift[sample_id, :, dim].detach().cpu(),  # [L]
+                    "learnt_std_drift": certainty_solution[sample_id, :, dim].detach().cpu(),  # [L]
+                })
         stats_dict = {
             "metrics": metrics,
             "line_plots": plot_data,

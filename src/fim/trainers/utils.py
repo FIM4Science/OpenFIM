@@ -630,6 +630,9 @@ class TrainLogging:
                 "learnt_drift": torch.Tensor: Learnt drift for the fine grid
                 "learnt_std_drift": torch.Tensor: Learnt std drift for the fine grid = certainty
         """
+        if isinstance(line_plot_data, list):
+            line_plot_data = line_plot_data[0]
+    
         assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
         if len(line_plot_data) == 0:
             return

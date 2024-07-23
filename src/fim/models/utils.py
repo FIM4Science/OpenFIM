@@ -129,6 +129,8 @@ def rk4(
         return increments
 
     increments = get_rk4_increments(super_fine_grid_grid, super_fine_grid_drift)  # [B, L-1, D]
+    if initial_condition.dim() == 2:
+        initial_condition = initial_condition.unsqueeze(1)
     # concat with initial condition to get summands
     summands = torch.cat([initial_condition, increments], dim=1)  # [B, L, D]
     # calculate solution by cumulative sum over summands

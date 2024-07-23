@@ -4,10 +4,11 @@ from pathlib import Path
 from typing import Optional, Union
 
 import numpy as np
-from tqdm.auto import tqdm
 import torch
+from tqdm.auto import tqdm
 
 from fim.data.dataloaders import DataLoaderFactory
+
 from ..models import ModelFactory
 from .helper import export_list_of_dicts_to_jsonl, export_list_of_lists_to_csv
 
@@ -347,3 +348,183 @@ class PatchedTimeSeriesEvaluation(Evaluation):
 
 
 EvaluationFactory.register("patched_ts", PatchedTimeSeriesEvaluation)
+
+
+class TimeSeriesEvaluation(Evaluation):
+    """Patched Time Series Evaluation."""
+
+    def __init__(
+        self,
+        device_map: str,
+        output_path: Union[Path, str],
+        dataset_param: dict,
+        model_param: dict,
+        model_checkpoint_path: str,
+        max_new_tokens: int = 1,
+    ) -> None:
+        super().__init__(device_map, output_path, dataset_param, model_param, model_checkpoint_path)
+
+        self.metrics = []
+
+        self.local_rank = 0 if torch.cuda.is_available() and self.device else "cpu"
+
+    def evaluate(self):
+        """
+        Run evaluation of model on given data.
+
+        Want per sample
+            - metrics
+            - prediction (for visualization) & target
+        """
+        dataset = getattr(self.dataloader, self.dataset_param["split"] + "_it")
+
+        for x in tqdm(dataset, desc="Evaluating"):
+            self._move_batch_to_local_rank(x)
+            with torch.no_grad():
+                model_output = self.model(x, training=False)
+
+            for idx in range(len(model_output["line_plots"])):
+                entry_metrics = {}
+                for key, value in model_output["metrics"].items():
+                    entry_metrics[key] = value[idx].cpu().flatten().item()
+                self.metrics.append(entry_metrics)
+
+                entry_plots = {}
+                for k, v in model_output["line_plots"][idx].items(): 
+                    entry_plots[k] = v.cpu().flatten().tolist()
+                self.predictions.append(entry_plots)
+
+    def _move_batch_to_local_rank(self, batch):
+        for key in batch.keys():
+            batch[key] = batch[key].to(self.local_rank)
+
+    def save(self):
+        """Save prediction results"""
+        self.output_path.mkdir(parents=True, exist_ok=True)
+        export_list_of_dicts_to_jsonl(self.predictions, self.output_path / "predictions.jsonl")
+        export_list_of_dicts_to_jsonl(self.metrics, self.output_path / "metrics.jsonl")
+
+    def visualize_solutions(self, indices: Optional[list[int]] = None, save_dir: Optional[Path] = None):
+        """
+        Visualize the predicted solution: plot input sequence & target & prediction.
+
+        Args:
+            indices (list[int]): indices of the predictions to visualize. If None, 16 random predictions will be visualized.
+            save_dir (Path): path to save the plots. If None, the plots will be shown.
+
+        Returns:
+            fig, axes: matplotlib figure and axes
+        """
+        import matplotlib.pyplot as plt
+
+        if indices is None:
+            indices = np.random.choice(len(self.predictions), 16)
+
+        # prediction keys : dict_keys(['observation_values', 'observation_times', 'learnt_solution', 'target_path', 'fine_grid_times', 'target_drift', 'learnt_drift', 'learnt_std_drift'])
+        num_plots = int(np.ceil(len(indices) ** 0.5))
+        fig, axes = plt.subplots(num_plots, num_plots, figsize=(20, 20))
+        for i, ax in zip(indices, axes.flatten()):
+            sample_data = self.predictions[i]
+
+            # ground truth
+            ax.plot(
+                sample_data["fine_grid_times"],
+                sample_data["target_path"],
+                label="Ground truth path",
+                alpha=0.4,
+                color="orange",
+            )
+            ax.scatter(
+                sample_data["observation_times"],
+                sample_data["observation_values"],
+                marker="x",
+                label="Observations",
+                color="orange",
+            )
+
+            # prediction
+            ax.plot(
+                sample_data["fine_grid_times"], sample_data["learnt_solution"], label="Inference path", color="blue"
+            )
+            ax.fill_between(
+                sample_data["fine_grid_times"],
+                np.array(sample_data["learnt_solution"]) - np.array(sample_data["learnt_std_drift"]),
+                np.array(sample_data["learnt_solution"]) + np.array(sample_data["learnt_std_drift"]),
+                alpha=0.3,
+                color="blue",
+                label="Certainty",
+            )
+            ax.legend()
+            ax.spines[["top", "right"]].set_visible(False)
+
+        # remove not used axes
+        for i in range(len(indices), num_plots**2):
+            fig.delaxes(axes.flatten()[i])
+
+        fig.suptitle("Solutions")
+        fig.tight_layout()
+
+        if save_dir:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_dir / "solutions.png")
+
+        return fig, axes
+
+    def visualize_drift(self, indices: Optional[list[int]] = None, save_dir: Optional[Path] = None):
+        """
+        Visualize the predicted drift: plot input sequence & target & prediction.
+
+        Args:
+            indices (list[int]): indices of the predictions to visualize. If None, 16 random predictions will be visualized.
+            save_dir (Path): path to save the plots. If None, the plots will be shown.
+
+        Returns:
+            fig, axes: matplotlib figure and axes
+        """
+        import matplotlib.pyplot as plt
+
+        if indices is None:
+            indices = np.random.choice(len(self.predictions), 16)
+
+        num_plots = int(np.ceil(len(indices) ** 0.5))
+        fig, axes = plt.subplots(num_plots, num_plots, figsize=(20, 20))
+        for i, ax in zip(indices, axes.flatten()):
+            sample_data = self.predictions[i]
+
+            # ground truth
+            ax.plot(
+                sample_data["fine_grid_times"],
+                sample_data["target_drift"],
+                label="Ground truth path",
+                alpha=0.4,
+                color="orange",
+            )
+
+            # prediction
+            ax.plot(sample_data["fine_grid_times"], sample_data["learnt_drift"], label="Inference path", color="blue")
+            ax.fill_between(
+                sample_data["fine_grid_times"],
+                np.array(sample_data["learnt_drift"]) - np.array(sample_data["learnt_std_drift"]),
+                np.array(sample_data["learnt_drift"]) + np.array(sample_data["learnt_std_drift"]),
+                alpha=0.3,
+                color="blue",
+                label="Certainty",
+            )
+            ax.legend()
+            ax.spines[["top", "right"]].set_visible(False)
+
+        # remove not used axes
+        for i in range(len(indices), num_plots**2):
+            fig.delaxes(axes.flatten()[i])
+
+        fig.suptitle("Drift")
+        fig.tight_layout()
+
+        if save_dir:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_dir / "drift.png")
+
+        return fig, axes
+
+
+EvaluationFactory.register("ts", TimeSeriesEvaluation)
