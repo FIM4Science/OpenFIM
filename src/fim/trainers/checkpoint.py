@@ -224,8 +224,9 @@ class TrainCheckpoint:
         for name, optimizer in self.optimizers.items():
             if name in checkpoint:
                 optimizer["opt"].load_state_dict(checkpoint[name]["opt"])
-                for ix, (_, scheduler) in enumerate(optimizer["schedulers"]):
-                    scheduler.load_state_dict(checkpoint[name]["schedulers"][ix])
+                if optimizer['schedulers'] is not None:
+                    for ix, (_, scheduler) in enumerate(optimizer["schedulers"]):
+                        scheduler.load_state_dict(checkpoint[name]["schedulers"][ix])
                 self.__logger.info("Loaded optimizer state for %s.", name)
             else:
                 self.__logger.warning("Optimizer state for %s not found in checkpoint.", name)

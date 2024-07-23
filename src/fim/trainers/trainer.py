@@ -165,11 +165,17 @@ class Trainer:
         return wrap_policy
 
     def _prepare_experiment_dirs(self) -> None:
-        if self.config.experiment.name_add_date:
+        name = self.config.experiment.name
+        if self.resume:
+            # remove "-seed-n" at end
+            name = name[: name.rfind("-experiment-seed-")]
+            date = ""
+        elif self.config.experiment.name_add_date:
+            # add date as string if wanted
             date = "_" + datetime.now().strftime("%m-%d-%H%M")
         else:
             date = ""
-        name = self.config.experiment.name + date
+        name = name + date
 
         if len(name) > 200:
             name = "_".join([i if i.isdigit() else i[0:3] for i in name.split("_")])
