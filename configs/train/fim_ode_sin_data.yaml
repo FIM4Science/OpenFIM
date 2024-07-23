@@ -1,7 +1,7 @@
 experiment:
-  name: zzz_debug_fim_ode_example_onlyDrift_
-  name_add_date: true # if true, the current date & time will be added to the experiment name
-  seed: [10]
+  name: fim_ode_example_allsamples
+  name_add_date: True # if true, the current date & time will be added to the experiment name
+  seed: [0]
   device_map: cuda # auto, cuda, cpu
 
 distributed:
@@ -16,12 +16,12 @@ model:
   loss_configs:
     ode_solver: rk4
     loss_scale_drift: 1.0
-    loss_scale_init_cond: 0.0
-    loss_scale_unsuperv_loss: 0.0
+    loss_scale_init_cond: 10.0
+    loss_scale_unsuperv_loss: 0
 
   time_encoding:
     name: fim.models.blocks.TimeEncoding
-    dim_time: &dim_time 64
+    dim_time: &dim_time 512
 
   trunk_net:
     name: fim.models.blocks.Mlp
@@ -32,7 +32,7 @@ model:
       name: torch.nn.SELU
     output_act:
       name: torch.nn.SELU
-    dropout: &dropout 0.0
+    dropout: &dropout 0.1
   
   branch_net:
     name: fim.models.blocks.Transformer
@@ -91,8 +91,8 @@ dataset:
   path: data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
   ds_name: ""
   dataset_type_name: "dummy"
-  batch_size: 1
-  test_batch_size: 1
+  batch_size: 128
+  test_batch_size: 128
   output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
   loader_kwargs:
     num_workers: 1
@@ -102,8 +102,8 @@ dataset:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.0001
-      weight_decay: 0.0
+      lr: 0.000001
+      weight_decay: 0.001
       gradient_norm_clipping: 100
       # schedulers: !!python/tuple
       #   - name: torch.optim.lr_scheduler.StepLR
@@ -115,8 +115,8 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: 100
-  detect_anomaly: true
+  epochs: 3000
+  detect_anomaly: false
   save_every: 5
   gradient_accumulation_steps: 1
   best_metric: loss

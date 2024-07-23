@@ -257,16 +257,51 @@ class DummyDataset(BaseDataset):
         self.logger.debug("Dummy Dataset loaded successfully.")
 
     def _load_dummy_dataset(self, path, split) -> DatasetDict:
-        split = "train"
+        import pandas as pd
+        import pyarrow as pa
+        import pyarrow.dataset as ds
+        import pyarrow.parquet as pq
+
+        c1, c2 = 0, 10000
+        # split = "train"
+        self.logger.debug(f"only taking samples from {c1} to {c2}")
+
         data: dict = torch.load(path + split + ".pt")
         data["coarse_grid_observation_mask"] = ~data["coarse_grid_observation_mask"].bool()
         data["fine_grid_sample_paths"] = data["coarse_grid_sample_paths"]
         if len(data["fine_grid_concept_values"]) > 1:
             data["fine_grid_concept_values"] = data["fine_grid_concept_values"][0]
 
+        self.logger.debug(
+            "avg. number of masked values: "
+            + str(torch.mean(torch.sum(data["coarse_grid_observation_mask"][c1:c2], dim=1).float()).item())
+        )
+
+        # get indices of obs_mask rows where sum of dim 1  = 128
+        indices = torch.where(torch.sum(data["coarse_grid_observation_mask"][c1:c2], dim=1) == 128)[0].tolist()
+        self.logger.debug(f"number of dropped observations: {len(indices)}")
+
+        indices.insert(c1, 0)
+        indices.append(c2)
         for k, v in data.items():
-            data[k] = v[:3].tolist()
-        return Dataset.from_dict(data)
+            data[k] = torch.concat([v[s1 + 1 : s2] for s1, s2 in zip(indices, indices[1:])], dim=0)
+
+        df = pd.DataFrame(
+            {
+                "coarse_grid_grid": data["coarse_grid_grid"].tolist(),
+                "coarse_grid_sample_paths": data["coarse_grid_sample_paths"].tolist(),
+                "coarse_grid_observation_mask": data["coarse_grid_observation_mask"].tolist(),
+                "fine_grid_grid": data["fine_grid_grid"].tolist(),
+                "fine_grid_sample_paths": data["fine_grid_sample_paths"].tolist(),
+                "fine_grid_concept_values": data["fine_grid_concept_values"].tolist(),
+            }
+        )
+
+        print("Data converted to pandas DataFrame.", flush=True)
+        table = pa.Table.from_pandas(df)
+        pq.write_table(table, "synthetic_data.parquet")
+        ds = ds.dataset("synthetic_data.parquet", format="parquet")
+        return Dataset.from_parquet("synthetic_data.parquet")
 
     def __getitem__(self, idx):
         """
