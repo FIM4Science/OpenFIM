@@ -3,10 +3,13 @@
 import os
 
 import matplotlib.pyplot as plt
+import torch
 
 from fim.utils.evaluation import EvaluationFactory
 from fim.utils.helper import load_yaml
 
+
+torch.manual_seed(4)
 
 os.chdir("/home/koerner/FIM")
 
@@ -23,10 +26,14 @@ evaluation = EvaluationFactory.create(**config_inference["evaluation"])
 
 evaluation.evaluate()
 
-fig, axes = evaluation.visualize_solutions()
-plt.show()
+# fig, axes = evaluation.visualize_solutions(save_dir=evaluation.output_path)
+# plt.show()
 
-fig, axes = evaluation.visualize_drift()
+# fig, axes = evaluation.visualize_drift(save_dir=evaluation.output_path)
+# plt.show()
+
+indices = [73, 3771, 3903, 4832]  #  5543, 6774, 6956, 7527, 9357]
+fig, axes = evaluation.visualize(indices=indices, save_dir=evaluation.output_path)
 plt.show()
 
 evaluation.save()
