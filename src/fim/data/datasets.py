@@ -48,6 +48,8 @@ class BaseDataset(torch.utils.data.Dataset):
         self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
         self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
         self.data: DatasetDict = load_dataset(path, ds_name, split=split, download_mode=download_mode, **kwargs)
+
+    def __post_init__(self):
         self.logger.debug("Base Dataset loaded successfully.")
 
     def __getitem__(self, idx):
@@ -66,7 +68,52 @@ class BaseDataset(torch.utils.data.Dataset):
         return len(self.data)
 
 
+class TimeSeriesDataset(BaseDataset):
+    """
+    Base class for time series datasets.
+
+    Args:
+        path (Union[str, Path]): The path to the dataset.
+        name (Optional[str]): The name of the dataset. Defaults to None.
+        split (Optional[str]): The split of the dataset. Defaults to "train".
+        **kwargs: Additional keyword arguments to be passed to the `load_dataset` function.
+
+    Attributes:
+        logger: The logger object for logging messages.
+        split (str): The split of the dataset.
+        data (DatasetDict): The loaded dataset.
+
+    Methods:
+        __getitem__(self, idx): Returns the item at the given index.
+        __str__(self): Returns a string representation of the dataset.
+
+    """
+
+    def __init__(
+        self,
+        path: Union[str, Path],
+        ds_name: Optional[str] = None,
+        split: Optional[str] = "train",
+        download_mode: Optional[DownloadMode | str] = None,
+        **kwargs,
+    ):
+        super().__init__(path=path, ds_name=ds_name, split=split, download_mode=download_mode, **kwargs)
+
+    def __post_init__(self):
+        self.logger.debug("Time Series Dataset loaded successfully.")
+
+    def __getitem__(self, idx):
+        out = self.data[idx]
+
+        return out | {"seq_len": len(out["coarse_grid_observation_mask"])}
+
+    def __str__(self):
+        return f"TimeSeriesDataset(path={self.path}, name={self.name}, split={self.split}, dataset={self.data})"
+
+
 class SyntheticDataset(BaseDataset):
+    """Class for loading synthetic data (given as pickled jax arrays) and transfer it to pyarrow dataset."""
+
     def __init__(
         self,
         path: Union[str, Path],
@@ -88,6 +135,7 @@ class SyntheticDataset(BaseDataset):
 
         self.function_types = sorted(set(self.data["function_type"]))
 
+    def __post_init__(self):
         self.logger.debug("Synthetic Dataset loaded successfully.")
 
     def __str__(self):

@@ -12,7 +12,7 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import verify_str_arg
 
-from ..data.datasets import BaseDataset, DummyDataset, PatchedDatasetBase, PatchedDatasetSynthetic, SyntheticDataset
+from ..data.datasets import BaseDataset, DummyDataset, PatchedDatasetBase, PatchedDatasetSynthetic, SyntheticDataset, TimeSeriesDataset
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 
@@ -71,6 +71,8 @@ class BaseDataLoader:
                 DataSet = SyntheticDataset
             case "dummy":
                 DataSet = DummyDataset
+            case "timeseries":
+                DataSet = TimeSeriesDataset
             case _:
                 raise ValueError(f"Unknown dataset type: {dataset_type_name}")
 
