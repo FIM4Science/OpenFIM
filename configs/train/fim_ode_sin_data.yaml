@@ -1,11 +1,16 @@
 experiment:
-  name: fim_ode_example_allsamples
+  name: fim_ode_example_10000samples_distributed
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [0]
   device_map: cuda # auto, cuda, cpu
 
 distributed:
   enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: MODEL_SPECIFIC # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
 
 model:
   name: FIMODE
@@ -16,7 +21,7 @@ model:
   loss_configs:
     ode_solver: rk4
     loss_scale_drift: 1.0
-    loss_scale_init_cond: 10.0
+    loss_scale_init_cond: 1000.0
     loss_scale_unsuperv_loss: 0
 
   time_encoding:
@@ -88,7 +93,7 @@ model:
 
 dataset:
   name: base_dataloader
-  path: data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  path: data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
   ds_name: ""
   dataset_type_name: "dummy"
   batch_size: 128
