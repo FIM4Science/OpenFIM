@@ -642,6 +642,7 @@ class TrainLogging:
         if isinstance(line_plot_data, list):
             line_plot_data = line_plot_data[0]
 
+
         assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
         if len(line_plot_data) == 0:
             return
@@ -683,13 +684,22 @@ class TrainLogging:
             line_plot_data["fine_grid_times"], line_plot_data["learnt_solution"], label="inference", color="blue"
         )
         axes[1].fill_between(
-            line_plot_data["fine_grid_times"],
+            line_plot_data["fine_grid_times"][:,0],
             line_plot_data["learnt_solution"] - line_plot_data["learnt_std_drift"],
             line_plot_data["learnt_solution"] + line_plot_data["learnt_std_drift"],
-            alpha=0.3,
             color="blue",
-            label="certainty",
+            alpha=0.4,
+            label="Certainty of initial condition",
         )
+        # certainty does not propagate to the solution
+        # axes[1].fill_between(
+        #     line_plot_data["fine_grid_times"],
+        #     line_plot_data["learnt_solution"] - line_plot_data["learnt_std_drift"],
+        #     line_plot_data["learnt_solution"] + line_plot_data["learnt_std_drift"],
+        #     alpha=0.3,
+        #     color="blue",
+        #     label="certainty",
+        # )
         axes[1].legend()
         axes[1].set_title("Solution")
         fig.tight_layout()

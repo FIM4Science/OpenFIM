@@ -22,7 +22,7 @@ __pycache__/*
 .idea
 .vscode
 tags
-results
+results*
 
 # Package files
 *.egg
@@ -54,3 +54,7 @@ MANIFEST
 .conda*/
 .python-version
 .env*
+
+# plots
+*.png
+*.jpg

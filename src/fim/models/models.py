@@ -698,9 +698,7 @@ class FIMODE(AModel):
             fine_grid_sample_paths=fine_grid_sample_paths,
         )
 
-        # if not training:
-        # TODO change when deploying
-        if True:
+        if not training:
             stats = self.new_stats(
                 normalized_fine_grid_grid=normalized_fine_grid_grid,
                 init_condition_concepts=learnt_init_condition_concepts,
@@ -711,15 +709,17 @@ class FIMODE(AModel):
                 learnt_drift=learnt_vector_field_concepts[0],
                 target_drift=fine_grid_drift,
             )
+
+            results = {
+                "init_condition_mean": renormalized_init_condition_concepts[0],
+                "init_condition_var": renormalized_init_condition_concepts[1],
+                "drift_mean": renormalized_vector_field_concepts[0],
+                "drift_var": renormalized_vector_field_concepts[1],
+            }
         else:
             stats = {}
+            results = {}
 
-        results = {
-            "init_condition_mean": renormalized_init_condition_concepts[0],
-            "init_condition_var": renormalized_init_condition_concepts[1],
-            "drift_mean": renormalized_vector_field_concepts[0],
-            "drift_var": renormalized_vector_field_concepts[1],
-        }
         return {"losses": losses} | stats | {"results": results}
 
     def _get_vector_field_concepts(
@@ -1128,6 +1128,7 @@ class FIMODE(AModel):
                     "target_drift": target_drift[sample_id, :, dim].detach().cpu(),  # [L]
                     "learnt_drift": learnt_drift[sample_id, :, dim].detach().cpu(),  # [L]
                     "learnt_std_drift": certainty_solution[sample_id, :, dim].detach().cpu(),  # [L]
+                    "learnt_std_init_cond": torch.exp(init_condition_concepts[1][sample_id]).detach().cpu(),  # [1]
                 })
         stats_dict = {
             "metrics": metrics,
