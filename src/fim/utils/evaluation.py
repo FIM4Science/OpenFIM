@@ -1,3 +1,4 @@
+import os
 import re
 from abc import abstractmethod
 from pathlib import Path
@@ -50,6 +51,7 @@ class Evaluation(object):
         self.model.load_state_dict(checkpoint["model_state"])
         print("successfully loaded model checkpoint")
         print("last epoch of model checkpoint:", checkpoint["last_epoch"])
+        self.last_epoch = checkpoint["last_epoch"]
 
     @abstractmethod
     def evaluate(self):
@@ -359,18 +361,29 @@ class TimeSeriesEvaluation(Evaluation):
     def __init__(
         self,
         device_map: str,
-        output_path: Union[Path, str],
+        experiment_dir: Union[Path, str],
         dataset_param: dict,
         model_param: dict,
-        model_checkpoint_path: str,
-        max_new_tokens: int = 1,
+        model_checkpoint: str,
         sample_indices: Optional[list[int]] = None,
     ) -> None:
-        super().__init__(device_map, output_path, dataset_param, model_param, model_checkpoint_path)
+        output_path = Path(experiment_dir) / "evaluation"
+        model_checkpoint_path = Path(experiment_dir) / "checkpoints" / model_checkpoint / "model-checkpoint.pth"
+        super().__init__(
+            device=device_map,
+            output_path=output_path,
+            dataset_param=dataset_param,
+            model_param=model_param,
+            model_checkpoint_path=model_checkpoint_path,
+        )
+
+        self.output_path = self.output_path / f"epoch-{self.last_epoch}"
+        os.makedirs(self.output_path, exist_ok=True)
 
         self.metrics = []
         self.avg_metrics = {}
         self.sample_indices = sample_indices
+        self.init_condition: list[tuple] = []  # mean, std
 
         self.local_rank = 0 if torch.cuda.is_available() and self.device else "cpu"
 
@@ -389,21 +402,30 @@ class TimeSeriesEvaluation(Evaluation):
             with torch.no_grad():
                 model_output = self.model(x, training=False)
 
-            for idx in range(len(model_output["line_plots"])):
-                entry_metrics = {}
-                for key, value in model_output["metrics"].items():
-                    entry_metrics[key] = value[idx].cpu().flatten().item()
-                    self.avg_metrics[key] = self.avg_metrics.get(key, 0) + entry_metrics[key]
-                self.metrics.append(entry_metrics)
+            for sample_id in range(len(model_output["metrics"]["mse"])):
+                metrics_entry = {key: value[sample_id].item() for key, value in model_output["metrics"].items()}
+                self.metrics.append(metrics_entry)
 
-                entry_plots = {}
-                for k, v in model_output["line_plots"][idx].items():
-                    entry_plots[k] = v.cpu().flatten().tolist()
-                self.predictions.append(entry_plots)
+                predictions_entry = {
+                    "fine_grid_grid": x["fine_grid_grid"][sample_id].cpu().flatten().tolist(),
+                    "solution": {
+                        key: value[sample_id].cpu().flatten().tolist()
+                        for key, value in model_output["visualizations"]["solution"].items()
+                    },
+                    "drift": {
+                        key: value[sample_id].cpu().flatten().tolist()
+                        for key, value in model_output["visualizations"]["drift"].items()
+                    },
+                    "init_condition": {
+                        key: value[sample_id].cpu().flatten().tolist()
+                        for key, value in model_output["visualizations"]["init_condition"].items()
+                    },
+                }
+                self.predictions.append(predictions_entry)
 
-        # compute average metric
-        for key in self.avg_metrics.keys():
-            self.avg_metrics[key] = self.avg_metrics[key] / len(self.metrics)
+        # calculate average metrics
+        for key in self.metrics[0].keys():
+            self.avg_metrics[key] = np.mean([m[key] for m in self.metrics])
 
     def _move_batch_to_local_rank(self, batch):
         for key in batch.keys():
@@ -428,7 +450,9 @@ class TimeSeriesEvaluation(Evaluation):
             fig, axes: matplotlib figure and axes
         """
         # ensure to use the same indices as in drift plot if not specified differently
-        if indices is None and self.sample_indices is None:
+        if indices is not None:
+            self.sample_indices = indices
+        elif indices is None and self.sample_indices is None:
             self.sample_indices = np.sort(np.random.choice(len(self.predictions), 9))
         elif self.sample_indices is None:
             self.sample_indices = indices
@@ -438,36 +462,33 @@ class TimeSeriesEvaluation(Evaluation):
         fig, axes = plt.subplots(num_plots, num_plots, figsize=(10, 10))
         for i, ax in zip(self.sample_indices, axes.flatten()):
             sample_data = self.predictions[i]
+            fine_grid_grid = sample_data["fine_grid_grid"]
+            obs_mask = sample_data.get("solution").get("observation_mask")
+            obs_values = [
+                v for masked, v in zip(obs_mask, sample_data.get("solution").get("observation_values")) if not masked
+            ]
+            obs_times = [
+                v for masked, v in zip(obs_mask, sample_data.get("solution").get("observation_times")) if not masked
+            ]
 
             # ground truth
             ax.plot(
-                sample_data["fine_grid_times"],
-                sample_data["target_path"],
+                fine_grid_grid,
+                sample_data.get("solution").get("target"),
                 label="Ground truth path",
                 alpha=0.4,
                 color="orange",
             )
             ax.scatter(
-                sample_data["observation_times"],
-                sample_data["observation_values"],
+                obs_times,
+                obs_values,
                 marker="x",
                 label="Observations",
                 color="orange",
             )
 
             # prediction
-            ax.plot(
-                sample_data["fine_grid_times"], sample_data["learnt_solution"], label="Inference path", color="blue"
-            )
-            ax.fill_between(
-                sample_data["fine_grid_times"],
-                np.array(sample_data["learnt_solution"]) - np.array(sample_data["learnt_std_drift"]),
-                np.array(sample_data["learnt_solution"]) + np.array(sample_data["learnt_std_drift"]),
-                alpha=0.3,
-                color="blue",
-                label="Certainty",
-            )
-            ax.legend()
+            ax.plot(fine_grid_grid, sample_data.get("solution").get("learnt"), label="Inference path", color="blue")
             ax.spines[["top", "right"]].set_visible(False)
 
         # remove not used axes
@@ -475,6 +496,7 @@ class TimeSeriesEvaluation(Evaluation):
             fig.delaxes(axes.flatten()[i])
 
         fig.suptitle("Solutions")
+        axes[0, 0].legend()
         fig.tight_layout()
 
         if save_dir:
@@ -485,7 +507,7 @@ class TimeSeriesEvaluation(Evaluation):
 
     def visualize_drift(self, indices: Optional[list[int]] = None, save_dir: Optional[Path] = None):
         """
-        Visualize the predicted drift: plot input sequence & target & prediction.
+        Visualize the predicted drift: plot target & prediction & certainty of prediction.
 
         Args:
             indices (list[int]): indices of the predictions to visualize. If None, 16 random predictions will be visualized.
@@ -495,7 +517,9 @@ class TimeSeriesEvaluation(Evaluation):
             fig, axes: matplotlib figure and axes
         """
         # ensure to use the same indices as in solution plot if not specified differently
-        if indices is None and self.sample_indices is None:
+        if indices is not None:
+            self.sample_indices = indices
+        elif indices is None and self.sample_indices is None:
             self.sample_indices = np.random.choice(len(self.predictions), 9)
         elif self.sample_indices is None:
             self.sample_indices = indices
@@ -504,33 +528,37 @@ class TimeSeriesEvaluation(Evaluation):
         fig, axes = plt.subplots(num_plots, num_plots, figsize=(10, 10))
         for i, ax in zip(self.sample_indices, axes.flatten()):
             sample_data = self.predictions[i]
+            fine_grid_times = sample_data["fine_grid_grid"]
 
             # ground truth
             ax.plot(
-                sample_data["fine_grid_times"],
-                sample_data["target_drift"],
-                label="Ground truth path",
+                fine_grid_times,
+                sample_data.get("drift", {}).get("target", None),
+                label="Ground truth drift",
                 alpha=0.4,
                 color="orange",
             )
 
             # prediction
-            ax.plot(sample_data["fine_grid_times"], sample_data["learnt_drift"], label="Inference path", color="blue")
+            ax.plot(
+                fine_grid_times, sample_data.get("drift", {}).get("learnt", None), label="Inference drift", color="blue"
+            )
             ax.fill_between(
-                sample_data["fine_grid_times"],
-                np.array(sample_data["learnt_drift"]) - np.array(sample_data["learnt_std_drift"]),
-                np.array(sample_data["learnt_drift"]) + np.array(sample_data["learnt_std_drift"]),
+                fine_grid_times,
+                np.array(sample_data.get("drift", {}).get("learnt", None))
+                - np.array(sample_data.get("drift", {}).get("certainty", None)),
+                np.array(sample_data.get("drift", {}).get("learnt", None))
+                + np.array(sample_data.get("drift", {}).get("certainty", None)),
                 alpha=0.3,
                 color="blue",
                 label="Certainty",
             )
-            ax.legend()
             ax.spines[["top", "right"]].set_visible(False)
 
         # remove not used axes
         for i in range(len(self.sample_indices), num_plots**2):
             fig.delaxes(axes.flatten()[i])
-
+        axes[0, 0].legend()
         fig.suptitle("Drift")
         fig.tight_layout()
 
@@ -539,10 +567,55 @@ class TimeSeriesEvaluation(Evaluation):
             fig.savefig(save_dir / "drift.png")
 
         return fig, axes
-    
+
+    def visualize_init_condition(self, indices: Optional[list[int]] = None, save_dir: Optional[Path] = None):
+        n_predictions = len(self.predictions)
+
+        if indices is None and self.sample_indices is None:
+            indices = list(range(n_predictions))
+        elif indices is None:
+            indices = self.sample_indices
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        ax.errorbar(
+            range(len(indices)),
+            [
+                self.predictions[p_id].get("init_condition").get("learnt")[0]
+                for p_id in range(n_predictions)
+                if p_id in indices
+            ],
+            yerr=[
+                self.predictions[p_id].get("init_condition").get("certainty")[0]
+                for p_id in range(n_predictions)
+                if p_id in indices
+            ],
+            fmt="o",
+            color="blue",
+            label="Inference init. condition",
+        )
+        ax.scatter(
+            range(len(indices)),
+            [
+                self.predictions[p_id].get("init_condition").get("target")[0]
+                for p_id in range(n_predictions)
+                if p_id in indices
+            ],
+            marker="x",
+            color="orange",
+            label="Ground truth init. condition",
+        )
+        ax.set_title("Initial Condition")
+        ax.spines[["top", "right"]].set_visible(False)
+
+        if save_dir:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_dir / "init_condition.png")
+        fig.legend()
+        return fig, ax
+
     def visualize(self, indices: Optional[list[int]] = None, save_dir: Optional[Path] = None):
         """
-        Visualize the predicted solution: plot input sequence & target & prediction.
+        Call visualization functions for drift, solution and initial condition.
 
         Args:
             indices (list[int]): indices of the predictions to visualize. If None, 16 random predictions will be visualized.
@@ -551,8 +624,6 @@ class TimeSeriesEvaluation(Evaluation):
         Returns:
             fig, axes: matplotlib figure and axes
         """
-        # ensure to use the same indices as in drift plot if not specified differently
-        
         if indices is not None:
             self.sample_indices = indices
         elif indices is None and self.sample_indices is None:
@@ -560,76 +631,11 @@ class TimeSeriesEvaluation(Evaluation):
         elif self.sample_indices is None:
             self.sample_indices = indices
 
-        # prediction keys : dict_keys(['observation_values', 'observation_times', 'learnt_solution', 'target_path', 'fine_grid_times', 'target_drift', 'learnt_drift', 'learnt_std_drift'])
-        num_plots = len(self.sample_indices)
-        fig, axes = plt.subplots(nrows=num_plots, ncols=2, figsize=(10, 10))
-        for i in range(len(self.sample_indices)):
-            sample_data = self.predictions[self.sample_indices[i]]
-            
-            # ground truth sample path
-            axes[i,0].plot(
-                sample_data["fine_grid_times"],
-                sample_data["target_path"],
-                label="Ground truth path",
-                alpha=0.4,
-                color="orange",
-            )
-            axes[i,0].scatter(
-                sample_data["observation_times"],
-                sample_data["observation_values"],
-                marker="x",
-                label="Observations",
-                color="orange",
-            )
+        plot_drift = self.visualize_drift(save_dir=save_dir)
+        plot_sol = self.visualize_solutions(save_dir=save_dir)
+        plot_init_cond = self.visualize_init_condition(save_dir=save_dir)
 
-            # prediction solution
-            axes[i,0].plot(
-                sample_data["fine_grid_times"], sample_data["learnt_solution"], label="Inference path", color="blue"
-            )
-            # axes[i,0].fill_between(
-            #     sample_data["fine_grid_times"],
-            #     np.array(sample_data["learnt_solution"]) - np.array(sample_data["learnt_std_drift"]),
-            #     np.array(sample_data["learnt_solution"]) + np.array(sample_data["learnt_std_drift"]),
-            #     alpha=0.3,
-            #     color="blue",
-            #     label="Certainty",
-            # )
-            axes[i,0].set_title("Solution")
-            axes[i,0].spines[["top", "right"]].set_visible(False)
+        return plot_drift, plot_sol, plot_init_cond
 
-            # ground truth drift
-            axes[i,1].plot(
-                sample_data["fine_grid_times"],
-                sample_data["target_drift"],
-                label="Ground truth drift",
-                alpha=0.4,
-                color="orange",
-            )
-
-            # prediction drift
-            axes[i,1].plot(sample_data["fine_grid_times"], sample_data["learnt_drift"], label="Inference path", color="blue")
-            axes[i,1].fill_between(
-                sample_data["fine_grid_times"],
-                np.array(sample_data["learnt_drift"]) - np.array(sample_data["learnt_std_drift"]),
-                np.array(sample_data["learnt_drift"]) + np.array(sample_data["learnt_std_drift"]),
-                alpha=0.3,
-                color="blue",
-                label="Certainty",
-            )
-            axes[i,1].spines[["top", "right"]].set_visible(False)
-            axes[i,1].set_title("Drift")
-        
-        axes[0,1].legend()
-        axes[0,0].legend()
-
-
-
-        fig.tight_layout()
-
-        if save_dir:
-            save_dir.mkdir(parents=True, exist_ok=True)
-            fig.savefig(save_dir / "solutions_drift.png")
-
-        return fig, axes
 
 EvaluationFactory.register("ts", TimeSeriesEvaluation)

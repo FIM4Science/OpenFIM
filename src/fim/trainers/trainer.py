@@ -262,14 +262,9 @@ class Trainer:
         if "histograms" in stats:
             histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
 
-        line_plots = {}
-        if "line_plots" in stats:
-            sample_id = 0
-            line_plots = stats["line_plots"][sample_id]
-
         lrs = self._model_update_step(step, loss)
 
-        return {"losses": losses | lrs, "histograms": histograms, "line_plots": line_plots}
+        return {"losses": losses | lrs, "histograms": histograms, "line_plots": stats.get('visualizations', {})}
 
     def _model_update_step(self, step: int, loss: torch.Tensor):
         lrs = {}
@@ -338,7 +333,7 @@ class Trainer:
         histograms = {}
         if "histograms" in stats:
             histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
-        return {"losses": losses, "histograms": histograms, "line_plots": stats.get("line_plots", {})}
+        return {"losses": losses, "histograms": histograms, "line_plots": stats.get("visualizations", {})}
 
     def _update_learning_rates(self, call_place: str):
         verify_str_arg(call_place, "call_place", ["epoch", "minibatch"])

@@ -646,66 +646,102 @@ class TrainLogging:
         assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
         if len(line_plot_data) == 0:
             return
+        if "solution" in line_plot_data:
+            fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
+        else:
+            fig, axes = plt.subplots(ncols=2, figsize=(12, 4))
 
-        # create drift plot
-        fig, axes = plt.subplots(ncols=2, figsize=(12, 4))
-        axes[0] = axes[0]
-        axes[0].plot(line_plot_data["fine_grid_times"], line_plot_data["target_drift"], label="target", color="orange")
-        axes[0].plot(line_plot_data["fine_grid_times"], line_plot_data["learnt_drift"], label="inference", color="blue")
+        # drift plot
+        fine_grid_times = line_plot_data["fine_grid_grid"].squeeze(-1)
+        target_drift = line_plot_data.get("drift", {}).get("target", None).squeeze(-1)
+        learnt_drift = line_plot_data.get("drift", {}).get("learnt", None).squeeze(-1)
+        certainty_drift = line_plot_data.get("drift", {}).get("certainty", None).squeeze(-1)
+
+        if fine_grid_times.dim() == 2:
+            fine_grid_times = fine_grid_times[0]
+            target_drift = target_drift[0]
+            learnt_drift = learnt_drift[0]
+            certainty_drift = certainty_drift[0]
+
+        axes[0].plot(fine_grid_times, target_drift, label="target", color="orange")
+        axes[0].plot(fine_grid_times, learnt_drift, label="learnt", color="blue")
         axes[0].fill_between(
-            line_plot_data["fine_grid_times"],
-            line_plot_data["learnt_drift"] - line_plot_data["learnt_std_drift"],
-            line_plot_data["learnt_drift"] + line_plot_data["learnt_std_drift"],
+            fine_grid_times,
+            learnt_drift - certainty_drift,
+            learnt_drift + certainty_drift,
             alpha=0.3,
             color="blue",
             label="certainty",
         )
         axes[0].legend()
+        axes[0].set_xlabel("Time")
         axes[0].set_title("Drift")
-        fig.tight_layout()
 
-        axes[1].plot(
-            line_plot_data["fine_grid_times"],
-            line_plot_data["target_path"],
-            label="sample path",
-            alpha=0.4,
-            color="orange",
-        )
+        # initial condition plot
+        target_init_cond = line_plot_data.get("init_condition", {}).get("target", None).squeeze()[:10]
+        learnt_init_cond = line_plot_data.get("init_condition", {}).get("learnt", None).squeeze()[:10]
+        certainty_init_cond = line_plot_data.get("init_condition", {}).get("certainty", None).squeeze()[:10]
         axes[1].scatter(
-            line_plot_data["observation_times"],
-            line_plot_data["observation_values"],
-            label="observations",
-            marker="x",
-            s=7,
+            list(range(len(target_init_cond))),
+            target_init_cond,
+            label="target",
             color="orange",
+            marker="x",
         )
-        # learnt solution
-        axes[1].plot(
-            line_plot_data["fine_grid_times"], line_plot_data["learnt_solution"], label="inference", color="blue"
-        )
-        axes[1].fill_between(
-            line_plot_data["fine_grid_times"][:,0],
-            line_plot_data["learnt_solution"] - line_plot_data["learnt_std_drift"],
-            line_plot_data["learnt_solution"] + line_plot_data["learnt_std_drift"],
+        axes[1].errorbar(
+            list(range(len(learnt_init_cond))),
+            learnt_init_cond,
+            yerr=certainty_init_cond,
+            fmt="o",
             color="blue",
             alpha=0.4,
-            label="Certainty of initial condition",
+            label="Learnt init. cond. with certainty",
         )
-        # certainty does not propagate to the solution
-        # axes[1].fill_between(
-        #     line_plot_data["fine_grid_times"],
-        #     line_plot_data["learnt_solution"] - line_plot_data["learnt_std_drift"],
-        #     line_plot_data["learnt_solution"] + line_plot_data["learnt_std_drift"],
-        #     alpha=0.3,
-        #     color="blue",
-        #     label="certainty",
-        # )
         axes[1].legend()
-        axes[1].set_title("Solution")
+        axes[1].set_xlabel("Samples")
+        axes[1].set_title("Initial Condition")
+
+        if "solution" in line_plot_data:
+            target_solution = line_plot_data.get("solution", {}).get("target", None).squeeze(-1)[0]
+            learnt_solution = line_plot_data.get("solution", {}).get("learnt", None).squeeze(-1)[0]
+
+            obs_mask = line_plot_data.get("solution", {}).get("observation_mask", None).squeeze(-1)[0]
+            obs_values = line_plot_data.get("solution", {}).get("observation_values", None).squeeze(-1)[0][~obs_mask]
+            obs_times = line_plot_data.get("solution", {}).get("observation_times", None).squeeze(-1)[0][~obs_mask]
+            axes[2].plot(
+                fine_grid_times,
+                target_solution,
+                label="sample path",
+                alpha=0.4,
+                color="orange",
+            )
+            axes[2].scatter(
+                obs_times,
+                obs_values,
+                label="observations",
+                marker="x",
+                s=7,
+                color="orange",
+            )
+            axes[2].plot(fine_grid_times, learnt_solution, label="inference", color="blue")
+            # add certainty of inital condition
+            # axes[2].errorbar(
+            #     fine_grid_times[0],
+            #     learnt_init_cond,
+            #     yerr=line_plot_data.get("learnt_std_init_cond", 0),
+            #     fmt="o",
+            #     color="blue",
+            #     alpha=0.4,
+            #     label="Certainty of initial condition",
+            # )
+            axes[2].legend()
+            axes[2].set_title("Solution")
+            axes[2].set_xlabel("Time")
+
         fig.tight_layout()
 
         self.tensorboard_logger.add_figure(
-            tag=label + "_drift_solution", figure=fig, global_step=self.__tensorboard_global_step
+            tag=label + "_model_output", figure=fig, global_step=self.__tensorboard_global_step
         )
 
     def add_model_graph(self, model, input: Any) -> None:

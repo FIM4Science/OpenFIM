@@ -689,7 +689,9 @@ class FIMODE(AModel):
             learnt_init_condition_concepts, normalization_parameters
         )
 
-        losses = self.loss(
+        model_output: dict = {}
+
+        losses: dict = self.loss(
             vector_field_concepts=renormalized_vector_field_concepts,
             init_condition_concepts=renormalized_init_condition_concepts,
             normalized_fine_grid_grid=normalized_fine_grid_grid,
@@ -698,29 +700,61 @@ class FIMODE(AModel):
             fine_grid_sample_paths=fine_grid_sample_paths,
         )
 
+        model_output["losses"] = losses
+
         if not training:
-            stats = self.new_stats(
+            metrics, solution = self.new_stats(
                 normalized_fine_grid_grid=normalized_fine_grid_grid,
                 init_condition_concepts=learnt_init_condition_concepts,
                 branch_out=branch_out,
                 normalization_parameters=normalization_parameters,
                 fine_grid_sample_path=fine_grid_sample_paths,
-                observation_mask=obs_mask,
-                learnt_drift=learnt_vector_field_concepts[0],
-                target_drift=fine_grid_drift,
             )
+            model_output["metrics"] = metrics
 
-            results = {
-                "init_condition_mean": renormalized_init_condition_concepts[0],
-                "init_condition_var": renormalized_init_condition_concepts[1],
-                "drift_mean": renormalized_vector_field_concepts[0],
-                "drift_var": renormalized_vector_field_concepts[1],
+            model_output["visualizations"] = {
+                "fine_grid_grid": fine_grid_grid.detach().cpu(),
+            }
+
+
+            # visualization data of all samples
+            model_output["visualizations"]["solution"] = {
+                "learnt": solution.detach().cpu(),
+                "target": fine_grid_sample_paths.detach().cpu(),
+                "observation_times": unnormalized_obs_times.detach().cpu(),
+                "observation_values": unnormalized_obs_values.detach().cpu(),
+                "observation_mask": obs_mask.detach().cpu()
+            }
+            model_output["visualizations"]["drift"] = {
+                "learnt": learnt_vector_field_concepts[0].detach().cpu(),
+                "target": fine_grid_drift.detach().cpu(),
+                "certainty": torch.exp(learnt_vector_field_concepts[1]).detach().cpu(),
+            }
+            model_output["visualizations"]["init_condition"] = {
+                "learnt": learnt_init_condition_concepts[0].detach().cpu(),
+                "target": fine_grid_sample_paths[..., 0, :].detach().cpu(),
+                "certainty": torch.exp(learnt_init_condition_concepts[1]).detach().cpu(),
             }
         else:
-            stats = {}
-            results = {}
+            model_output["metrics"] = {}
 
-        return {"losses": losses} | stats | {"results": results}
+            # only output the drift of the first sample of the batch and init conditions of the first 10 samples
+            sample_id = 0
+            model_output["visualizations"] = {
+                "fine_grid_grid": fine_grid_grid[0].detach().cpu(),
+            }
+            model_output["visualizations"]["drift"] = {
+                "learnt": learnt_vector_field_concepts[0][sample_id].detach().cpu(),
+                "target": fine_grid_drift[sample_id].detach().cpu(),
+                "certainty": torch.exp(learnt_vector_field_concepts[1][sample_id]).detach().cpu(),
+            }
+            model_output["visualizations"]["init_condition"] = {
+                "learnt": learnt_init_condition_concepts[0][:10].detach().cpu(),
+                "target": fine_grid_sample_paths[:10, 0, :].detach().cpu(),
+                "certainty": torch.exp(learnt_init_condition_concepts[1][:10]).detach().cpu(),
+            }
+
+        return model_output
 
     def _get_vector_field_concepts(
         self,
@@ -875,7 +909,6 @@ class FIMODE(AModel):
 
         Returns:
             solution: torch.Tensor: solution at fine grid points [B, L, D] (unnormalized space)
-            certainty: torch.Tensor: certainty of the solution at fine grid points (exp(learnt log std of drift)) [B, L, D]
         """
         B, L = fine_grid.shape[:-1]
 
@@ -910,10 +943,7 @@ class FIMODE(AModel):
             initial_condition=init_condition,
         )  # [B, L, D]
 
-        # certainty = std of drift at fine grid points -> take every 2. value
-        certainty = torch.exp(super_fine_grid_log_std_renormalized[:, ::2, :])  # [B, L, D]
-
-        return solution, certainty
+        return solution
 
     def normalize_input(
         self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor
@@ -1083,18 +1113,14 @@ class FIMODE(AModel):
         branch_out: torch.Tensor,
         normalization_parameters: dict,
         fine_grid_sample_path: torch.Tensor,
-        observation_mask: torch.Tensor,
-        target_drift: torch.Tensor,
-        learnt_drift: torch.Tensor,
     ) -> Dict:
         """
         Get
             - solution
             - compute metrics between solution and target sample path
-            - line plots of one sample (solution & certainty vs target path & observation values).
         """
         # get solution
-        solution, certainty_solution = self.get_solution(
+        solution = self.get_solution(
             fine_grid=normalized_fine_grid_grid,
             init_condition=init_condition_concepts[0],
             branch_out=branch_out,
@@ -1107,35 +1133,7 @@ class FIMODE(AModel):
             y_target=fine_grid_sample_path,
         )
 
-        # prepare line plots
-        # note: in mask: True indicates that the value is masked out
-        plot_data = []
-        for sample_id in range(len(fine_grid_sample_path)):
-            observation_values = (
-            fine_grid_sample_path[sample_id][~observation_mask[sample_id].squeeze()].detach().cpu().squeeze()
-            )
-            observation_times = (
-                    normalized_fine_grid_grid[sample_id][~observation_mask[sample_id]].squeeze(-1).detach().cpu()
-                )
-            for dim in range(fine_grid_sample_path.shape[-1]):
-                # plot data for all samples
-                plot_data.append( {
-                    "observation_values": observation_values,  # [# observed points]
-                    "observation_times": observation_times,  # [# observed points]
-                    "learnt_solution": solution[sample_id,:,dim].detach().cpu(),  # [L]
-                    "target_path": fine_grid_sample_path[sample_id, :, dim].detach().cpu(),  # [L]
-                    "fine_grid_times": normalized_fine_grid_grid[sample_id].squeeze(1).detach().cpu(),  # [L]
-                    "target_drift": target_drift[sample_id, :, dim].detach().cpu(),  # [L]
-                    "learnt_drift": learnt_drift[sample_id, :, dim].detach().cpu(),  # [L]
-                    "learnt_std_drift": certainty_solution[sample_id, :, dim].detach().cpu(),  # [L]
-                    "learnt_std_init_cond": torch.exp(init_condition_concepts[1][sample_id]).detach().cpu(),  # [1]
-                })
-        stats_dict = {
-            "metrics": metrics,
-            "line_plots": plot_data,
-            "solutions": solution,
-        }
-        return stats_dict
+        return metrics, solution
 
     def is_peft(self) -> bool:
         return self.peft is not None and self.peft["method"] is not None
