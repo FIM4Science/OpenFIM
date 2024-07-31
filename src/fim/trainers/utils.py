@@ -532,6 +532,14 @@ class TrainLogging:
         _logger.addHandler(fh)
         return RankLoggerAdapter(_logger)
 
+    def convert_bfloat16_to_float(self, batch_stats):
+        for k, v in batch_stats.items():
+            if isinstance(v, torch.Tensor) and v.dtype is torch.bfloat16:
+                batch_stats[k] = v.float()
+            elif isinstance(v, dict):
+                self.convert_bfloat16_to_float(v)
+        return batch_stats
+
     def log_train_batch(self, epoch: int, batch_id: int, batch_stats: dict) -> None:
         """
         Logs details of a training step.
@@ -553,6 +561,7 @@ class TrainLogging:
             batch_id (int): Index of the current batch.
             batch_stats (dict): Statistics of the current batch.
         """
+        batch_stats = self.convert_bfloat16_to_float(batch_stats)
         if "losses" in batch_stats:
             losses = batch_stats.get("losses")
         else:
@@ -632,7 +641,7 @@ class TrainLogging:
         """
         if isinstance(line_plot_data, list):
             line_plot_data = line_plot_data[0]
-    
+
         assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
         if len(line_plot_data) == 0:
             return
@@ -670,7 +679,9 @@ class TrainLogging:
             color="orange",
         )
         # learnt solution
-        axes[1].plot(line_plot_data["fine_grid_times"], line_plot_data["learnt_solution"], label="inference", color="blue")
+        axes[1].plot(
+            line_plot_data["fine_grid_times"], line_plot_data["learnt_solution"], label="inference", color="blue"
+        )
         axes[1].fill_between(
             line_plot_data["fine_grid_times"],
             line_plot_data["learnt_solution"] - line_plot_data["learnt_std_drift"],

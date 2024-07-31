@@ -155,14 +155,15 @@ class Trainer:
         return mixed_precision
 
     def _get_wrap_policy(self, model: BaseDataLoader):
-        if self.config.distributed.wrap_policy == "MODEL_SPECIFIC":
-            wrap_policy = model.get_fsdp_policy(int(float(self.config.distributed.min_num_params)))
-        else:
-            wrap_policy = functools.partial(
-                size_based_auto_wrap_policy, min_num_params=int(float(self.config.distributed.min_num_params))
-            )
-
-        return wrap_policy
+        match self.config.distributed.wrap_policy:
+            case "MODEL_SPECIFIC":
+                return model.get_fsdp_policy(int(float(self.config.distributed.min_num_params)))
+            case "SIZE_BASED":
+                return functools.partial(
+                    size_based_auto_wrap_policy, min_num_params=int(float(self.config.distributed.min_num_params))
+                )
+            case _:
+                return None
 
     def _prepare_experiment_dirs(self) -> None:
         name = self.config.experiment.name
@@ -265,7 +266,6 @@ class Trainer:
         if "line_plots" in stats:
             sample_id = 0
             line_plots = stats["line_plots"][sample_id]
-
 
         lrs = self._model_update_step(step, loss)
 

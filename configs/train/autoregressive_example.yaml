@@ -1,5 +1,6 @@
 experiment:
   name: AR_LSTM_VANILA_TEST
+  name_add_date: True
   seed: [1]
   device_map: cpu # auto, cuda, cpu
 
@@ -10,7 +11,7 @@ model:
   name: AR
   load_in_8bit: false
   load_in_4bit: false
-  use_bf16: false
+  use_bf16: true
   recurrent_module:
     name: torch.nn.LSTM
     num_layers: 1
@@ -42,13 +43,18 @@ model:
 
 dataset:
   name: base_dataloader
+  dataset_type_name: "base"
   path: monash_tsf
-  ds_name: cif_2016 # if null it uses the default cache path set for huggingface
-  batch_size: 32
-  test_batch_size: 256
-  output_fields: !!python/tuple ["target", "time_feat"]
+  ds_name: nn5_daily # if null it uses the default cache path set for huggingface
+  batch_size: 1024
+  test_batch_size: 1024
+  output_fields: !!python/tuple ["target"]
+
   loader_kwargs:
     num_workers: 2
+
+  # dataset_kwargs:
+  #   download_mode: force_redownload
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer

@@ -12,7 +12,14 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import verify_str_arg
 
-from ..data.datasets import BaseDataset, DummyDataset, PatchedDatasetBase, PatchedDatasetSynthetic, SyntheticDataset, TimeSeriesDataset
+from ..data.datasets import (
+    BaseDataset,
+    DummyDataset,
+    PatchedDatasetBase,
+    PatchedDatasetSynthetic,
+    SyntheticDataset,
+    TimeSeriesDataset,
+)
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 
@@ -60,7 +67,7 @@ class BaseDataLoader:
         if dataset_type_name == "dummy":
             dataset_split_names = ["train", "test", "validation"]
         else:
-            dataset_split_names = get_dataset_split_names(path + "/" + ds_name)
+            dataset_split_names = get_dataset_split_names(path, ds_name)
 
         self.split = verify_str_arg(split, arg="split", valid_values=dataset_split_names + [None])
 

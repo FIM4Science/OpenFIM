@@ -10,8 +10,8 @@ fp16 = MixedPrecision(
     reduce_dtype=torch.float16,
     buffer_dtype=torch.float16,
     cast_forward_inputs=True,
-    # cast_root_forward_inputs=True
 )
+
 
 bf16 = MixedPrecision(
     param_dtype=torch.bfloat16,
@@ -24,6 +24,7 @@ bf16_mixed = MixedPrecision(
     param_dtype=torch.bfloat16,
     reduce_dtype=torch.float32,
     buffer_dtype=torch.float32,
+    cast_forward_inputs=True,
 )
 
 fp16_mixed = MixedPrecision(
@@ -49,4 +50,10 @@ def is_bfloat_supported() -> bool:
     )
 
 
-precisions_types = {"fp16": fp16, "bf16": bf16, "bf16_mixed": bf16_mixed, "fp16_mixed": fp16_mixed, "fp32_policy": fp32_policy}
+precisions_types = {
+    "fp16": fp16,
+    "bf16": bf16,
+    "bf16_mixed": bf16_mixed,
+    "fp16_mixed": fp16_mixed,
+    "fp32_policy": fp32_policy,
+}

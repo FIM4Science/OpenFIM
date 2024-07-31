@@ -5,9 +5,9 @@ experiment:
   device_map: cuda # auto, cuda, cpu
 
 distributed:
-  enabled: false
+  enabled: true
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
-  wrap_policy: MODEL_SPECIFIC # MODEL_SPECIFIC, SIZE_BAZED
+  wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BASED, NO_POLICY
   min_num_params: 1e5
   checkpoint_type: full_state # full_state, local_state
   activation_chekpoint: false
@@ -32,13 +32,19 @@ model:
     name: fim.models.blocks.Mlp
     in_features: *dim_time
     out_features: &dim_latent 512
-    hidden_layers: !!python/tuple [&hidden_dim_mlp 1024, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+    hidden_layers:
+      !!python/tuple [
+        &hidden_dim_mlp 1024,
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+      ]
     hidden_act:
       name: torch.nn.SELU
     output_act:
       name: torch.nn.SELU
     dropout: &dropout 0.1
-  
+
   branch_net:
     name: fim.models.blocks.Transformer
     num_encoder_blocks: 4
@@ -50,18 +56,30 @@ model:
       name: fim.models.blocks.Mlp
       in_features: *dim_latent
       out_features: *dim_latent
-      hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+      hidden_layers:
+        !!python/tuple [
+          *hidden_dim_mlp,
+          *hidden_dim_mlp,
+          *hidden_dim_mlp,
+          *hidden_dim_mlp,
+        ]
       hidden_act:
-        name: torch.nn.SELU 
+        name: torch.nn.SELU
       output_act:
         name: torch.nn.SELU
       dropout: *dropout
-  
+
   combiner_net:
     name: fim.models.blocks.Mlp
-    in_features: 1024  # needs to be the sum of the output dimensions of trunk_net and branch_net => =2* latent_dim
+    in_features: 1024 # needs to be the sum of the output dimensions of trunk_net and branch_net => =2* latent_dim
     out_features: *dim_latent
-    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+    hidden_layers:
+      !!python/tuple [
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+      ]
     hidden_act:
       name: torch.nn.SELU
     output_act:
@@ -83,24 +101,37 @@ model:
     name: fim.models.blocks.Mlp
     in_features: *dim_latent
     out_features: 2
-    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+    hidden_layers:
+      !!python/tuple [
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+        *hidden_dim_mlp,
+      ]
     hidden_act:
       name: torch.nn.SELU
     output_act:
       name: torch.nn.Identity
     dropout: *dropout
 
-
 dataset:
   name: base_dataloader
-  path: data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  path: /cephfs_projects/foundation_models/data/paquet_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8
   ds_name: ""
   dataset_type_name: "timeseries"
-  batch_size: 128
-  test_batch_size: 128
-  output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
+  batch_size: 1024
+  test_batch_size: 1024
+  output_fields:
+    !!python/tuple [
+      "fine_grid_grid",
+      "coarse_grid_grid",
+      "coarse_grid_sample_paths",
+      "coarse_grid_observation_mask",
+      "fine_grid_concept_values",
+      "fine_grid_sample_paths",
+    ]
   loader_kwargs:
-    num_workers: 1
+    num_workers: 8
   # split: "train"
   # dataset_kwargs:
 
@@ -119,7 +150,7 @@ optimizers: !!python/tuple
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: 3000
   detect_anomaly: false
   save_every: 5
@@ -127,7 +158,7 @@ trainer:
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
-  schedulers:  !!python/tuple
+  schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.PeriodicScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: beta_scheduler
     - name: fim.utils.param_scheduler.ExponentialSchedulerGumbel
