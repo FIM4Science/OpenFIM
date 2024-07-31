@@ -1,15 +1,15 @@
 
 evaluation:
-  experiment_dir:  results/fim_ode_sinData_onlyInitCond-experiment-seed-0_07-27-1430/ # train config, model checkpoint, output_path will be taken from here
+  experiment_dir:  results/fim_ode_example_allsamples-experiment-seed-0_07-23-1310 # train config, model checkpoint, output_path will be taken from here
   model_checkpoint: best-model # best-model or epoch-<int>
   # output_path: results/fim_ode_sinData_onlyInitCond-experiment-seed-0_07-26-1711/inference/
   evaluation_type: ts
   device_map: cuda
-  sample_indices: !!python/tuple [73, 37, 39, 48, 543, 672, 690, 757, 957]
+  sample_indices: !!python/tuple [0,1,7, 12, 34, 57, 83, 99]
   dataset_param: # all other parameters will be taken from the train config
-    split: validation
+    split: train
 #   name: base_dataloader
-#   path:  data/only_sinusoidal_lowFreq/
+    path:  data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
 #   ds_name: ""
 #   dataset_type_name: "dummy"
 #   batch_size: 1024

@@ -1,13 +1,13 @@
 experiment:
-  name: fim_ode_example_allSamples
+  name: zzz_fim_ode_1000Sample
   name_add_date: True # if true, the current date & time will be added to the experiment name
-  seed: [0]
+  seed: [10]
   device_map: cuda # auto, cuda, cpu
 
 distributed:
   enabled: true
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
-  wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BASED, NO_POLICY
+  wrap_policy: SIZE_BAZED # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
   checkpoint_type: full_state # full_state, local_state
   activation_chekpoint: false
@@ -15,58 +15,46 @@ distributed:
 model:
   name: FIMODE
   load_in_8bit: false
-  load_in_4bit: false
-  use_bf16: false
+  use_bf16: true
+  normalization: true
 
   loss_configs:
     ode_solver: rk4
     loss_scale_drift: 1.0
-    loss_scale_init_cond: 1000.0
-    loss_scale_unsuperv_loss: 0
+    loss_scale_init_cond: 100.0
+    loss_scale_unsuperv_loss: 0.0
 
   time_encoding:
     name: fim.models.blocks.TimeEncoding
-    dim_time: &dim_time 512
+    dim_time: &dim_time 32
 
   trunk_net:
     name: fim.models.blocks.Mlp
     in_features: *dim_time
     out_features: &dim_latent 512
-    hidden_layers:
-      !!python/tuple [
-        &hidden_dim_mlp 1024,
-        *hidden_dim_mlp,
-        *hidden_dim_mlp,
-        *hidden_dim_mlp,
-      ]
+    hidden_layers: !!python/tuple [&hidden_dim_mlp 512, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
       name: torch.nn.SELU
     output_act:
-      name: torch.nn.SELU
-    dropout: &dropout 0.1
-
+      name: torch.nn.Identity
+    dropout: &dropout 0.0
+  
   branch_net:
     name: fim.models.blocks.Transformer
-    num_encoder_blocks: 4
+    num_encoder_blocks: 2
     dim_model: *dim_latent
     dim_time: *dim_time
-    num_heads: 8
+    num_heads: 4
     dropout: *dropout
     residual_mlp:
       name: fim.models.blocks.Mlp
       in_features: *dim_latent
       out_features: *dim_latent
-      hidden_layers:
-        !!python/tuple [
-          *hidden_dim_mlp,
-          *hidden_dim_mlp,
-          *hidden_dim_mlp,
-          *hidden_dim_mlp,
-        ]
+      hidden_layers: !!python/tuple [*hidden_dim_mlp]
       hidden_act:
         name: torch.nn.SELU
       output_act:
-        name: torch.nn.SELU
+        name: torch.nn.Identity
       dropout: *dropout
 
   combiner_net:
@@ -90,7 +78,7 @@ model:
     name: fim.models.blocks.Mlp
     in_features: *dim_latent
     out_features: 2
-    hidden_layers: !!python/tuple [*hidden_dim_mlp]
+    hidden_layers: !!python/tuple []
     hidden_act:
       name: torch.nn.SELU
     output_act:
@@ -101,13 +89,7 @@ model:
     name: fim.models.blocks.Mlp
     in_features: *dim_latent
     out_features: 2
-    hidden_layers:
-      !!python/tuple [
-        *hidden_dim_mlp,
-        *hidden_dim_mlp,
-        *hidden_dim_mlp,
-        *hidden_dim_mlp,
-      ]
+    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
       name: torch.nn.SELU
     output_act:
@@ -119,39 +101,31 @@ dataset:
   path: /cephfs_projects/foundation_models/data/paquet_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8
   ds_name: ""
   dataset_type_name: "timeseries"
-  batch_size: 1024
-  test_batch_size: 1024
-  output_fields:
-    !!python/tuple [
-      "fine_grid_grid",
-      "coarse_grid_grid",
-      "coarse_grid_sample_paths",
-      "coarse_grid_observation_mask",
-      "fine_grid_concept_values",
-      "fine_grid_sample_paths",
-    ]
+  batch_size: 64
+  test_batch_size: 50
+  output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
   loader_kwargs:
     num_workers: 8
   # split: "train"
-  # dataset_kwargs:
+  dataset_kwargs:
+    debugging_data_range: 1000
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
-      name: torch.optim.AdamW
-      lr: 0.000001
+      name: torch.optim.Adam # AdamW
+      lr: 0.00001
       weight_decay: 0.001
-      gradient_norm_clipping: 100
+      gradient_norm_clipping: null
       # schedulers: !!python/tuple
       #   - name: torch.optim.lr_scheduler.StepLR
-      #     step_size: 1
-      #     gamma: 0.8
-      #     step_type: epoch
+      #     step_size: 100
+      #     gamma: 0.2
 
 trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: 3000
+  epochs: 2000
   detect_anomaly: false
   save_every: 5
   gradient_accumulation_steps: 1

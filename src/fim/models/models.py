@@ -514,6 +514,7 @@ class FIMODE(AModel):
         init_cond_net: dict,
         vector_field_net: dict,
         loss_configs: dict,
+        normalization: bool = False,
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
         use_bf16: bool = False,
@@ -538,6 +539,8 @@ class FIMODE(AModel):
             self._device_map = "auto"
         if use_bf16 and is_bfloat_supported:
             self._torch_dtype = torch.float16
+
+        self.normalization = normalization
 
         self._create_model(
             time_encoding=time_encoding,
@@ -631,9 +634,12 @@ class FIMODE(AModel):
         obs_mask = batch["coarse_grid_observation_mask"].bool()
         unnormalized_obs_values = batch["coarse_grid_sample_paths"]
         unnormalized_obs_times = batch["coarse_grid_grid"]
-        fine_grid_grid = batch["fine_grid_grid"]
-        fine_grid_drift = batch["fine_grid_concept_values"]
-        fine_grid_sample_paths = batch["fine_grid_sample_paths"]  # unnormalized
+        unnormalized_fine_grid_grid = batch["fine_grid_grid"]
+        unnormalized_fine_grid_drift = batch["fine_grid_concept_values"]
+        unnormalized_fine_grid_sample_paths = batch["fine_grid_sample_paths"]  # unnormalized
+
+        # TODO REMove. just for testing if obs mask changes anything
+        obs_mask = torch.zeros_like(obs_mask).bool()
 
         batch_size, max_sequence_length, process_dim = unnormalized_obs_values.shape  # defines B, L, D=1
 
@@ -642,27 +648,33 @@ class FIMODE(AModel):
 
         assert not obs_mask.all(), "Not allowed to have all values masked out."
 
-        (
-            normalized_obs_values,  # [B, T, 1]
-            normalized_obs_times,  # [B, T, 1]
-            normalized_fine_grid_grid,  # [B, L, 1]
-            normalization_parameters,
-        ) = self.normalize_input(
-            obs_times=unnormalized_obs_times,
-            obs_values=unnormalized_obs_values,
-            obs_mask=obs_mask,
-            loc_times=fine_grid_grid,
-        )
+        if self.normalization:
+            (
+                obs_values,  # [B, T, 1]
+                obs_times,  # [B, T, 1]
+                fine_grid_grid,  # [B, L, 1]
+                normalization_parameters,
+            ) = self.normalize_input(
+                obs_times=unnormalized_obs_times,
+                obs_values=unnormalized_obs_values,
+                obs_mask=obs_mask,
+                loc_times=unnormalized_fine_grid_grid,
+            )
+        else:
+            obs_values = unnormalized_obs_values
+            obs_times = unnormalized_obs_times
+            fine_grid_grid = unnormalized_fine_grid_grid
+            normalization_parameters = None
 
         # encode times
-        encoded_obs_times = self.time_encoding(grid=normalized_obs_times)  # Shape [B, T, dim_time]
+        encoded_obs_times = self.time_encoding(grid=obs_times)  # Shape [B, T, dim_time]
 
         # concatenate time encoding with normalized observation values. Use that dimensions are uncoupled.
         # first: reshape observation times & values to match shapewise
         obs_input_latent = torch.cat(
             [
                 encoded_obs_times,  # Shape [B, T, dim_time],
-                normalized_obs_values,  # Shape [B, T, 1]
+                obs_values,  # Shape [B, T, 1]
             ],
             dim=-1,
         )  # Shape [B, T, dim_time + 1]
@@ -670,69 +682,74 @@ class FIMODE(AModel):
         # repeat obs_mask to match obs_input
         # obs_mask = obs_mask.repeat_interleave(self.process_dim, 1, 1)  # Shape [D*B, T, 1]
 
-        branch_out = self.branch_net(x=obs_input_latent, key_padding_mask=obs_mask)  # Shape [B, 1, dim_latent]
+        encoded_input_sequence = self.branch_net(
+            x=obs_input_latent, key_padding_mask=obs_mask
+        )  # Shape [B, 1, dim_latent]
 
         learnt_vector_field_concepts = self._get_vector_field_concepts(
-            grid_grid=normalized_fine_grid_grid, branch_out=branch_out
+            grid_grid=fine_grid_grid, branch_out=encoded_input_sequence
         )  # Shape ([B, L, D], [B, L, D]) (normalized space)
 
         learnt_init_condition_concepts = self._get_init_condition_concepts(
-            branch_out=branch_out
-        )  # Shape ([B, D], [B, D]) (normalized space)
+            branch_out=encoded_input_sequence
+        )  # Shape ([B, 1], [B, 1]) (normalized space)
 
         # renormalize vector field & initial condition distribution parameters
-        renormalized_vector_field_concepts = self._renormalize_vector_field_params(
-            vector_field_concepts=learnt_vector_field_concepts,
-            normalization_parameters=normalization_parameters,
-        )
-        renormalized_init_condition_concepts = self._renormalize_init_condition_params(
-            learnt_init_condition_concepts, normalization_parameters
-        )
+        if self.normalization:
+            vector_field_concepts = self._renormalize_vector_field_params(
+                vector_field_concepts=learnt_vector_field_concepts,
+                normalization_parameters=normalization_parameters,
+            )
+            init_condition_concepts = self._renormalize_init_condition_params(
+                learnt_init_condition_concepts, normalization_parameters
+            )
+        else:
+            vector_field_concepts = learnt_vector_field_concepts
+            init_condition_concepts = learnt_init_condition_concepts
 
         model_output: dict = {}
 
         losses: dict = self.loss(
-            vector_field_concepts=renormalized_vector_field_concepts,
-            init_condition_concepts=renormalized_init_condition_concepts,
-            normalized_fine_grid_grid=normalized_fine_grid_grid,
-            target_drift_fine_grid=fine_grid_drift,
+            vector_field_concepts=vector_field_concepts,
+            init_condition_concepts=init_condition_concepts,
+            fine_grid_grid=fine_grid_grid,
+            target_drift_fine_grid=unnormalized_fine_grid_drift,
             normalization_parameters=normalization_parameters,
-            fine_grid_sample_paths=fine_grid_sample_paths,
+            fine_grid_sample_paths=unnormalized_fine_grid_sample_paths,
         )
 
         model_output["losses"] = losses
 
         if not training:
             metrics, solution = self.new_stats(
-                normalized_fine_grid_grid=normalized_fine_grid_grid,
+                normalized_fine_grid_grid=fine_grid_grid,
                 init_condition_concepts=learnt_init_condition_concepts,
-                branch_out=branch_out,
+                branch_out=encoded_input_sequence,
                 normalization_parameters=normalization_parameters,
-                fine_grid_sample_path=fine_grid_sample_paths,
+                fine_grid_sample_path=unnormalized_fine_grid_sample_paths,
             )
             model_output["metrics"] = metrics
 
             model_output["visualizations"] = {
-                "fine_grid_grid": fine_grid_grid.detach().cpu(),
+                "fine_grid_grid": unnormalized_fine_grid_grid.detach().cpu(),
             }
-
 
             # visualization data of all samples
             model_output["visualizations"]["solution"] = {
                 "learnt": solution.detach().cpu(),
-                "target": fine_grid_sample_paths.detach().cpu(),
+                "target": unnormalized_fine_grid_sample_paths.detach().cpu(),
                 "observation_times": unnormalized_obs_times.detach().cpu(),
                 "observation_values": unnormalized_obs_values.detach().cpu(),
-                "observation_mask": obs_mask.detach().cpu()
+                "observation_mask": obs_mask.detach().cpu(),
             }
             model_output["visualizations"]["drift"] = {
                 "learnt": learnt_vector_field_concepts[0].detach().cpu(),
-                "target": fine_grid_drift.detach().cpu(),
+                "target": unnormalized_fine_grid_drift.detach().cpu(),
                 "certainty": torch.exp(learnt_vector_field_concepts[1]).detach().cpu(),
             }
             model_output["visualizations"]["init_condition"] = {
                 "learnt": learnt_init_condition_concepts[0].detach().cpu(),
-                "target": fine_grid_sample_paths[..., 0, :].detach().cpu(),
+                "target": unnormalized_fine_grid_sample_paths[..., 0, :].detach().cpu(),
                 "certainty": torch.exp(learnt_init_condition_concepts[1]).detach().cpu(),
             }
         else:
@@ -745,12 +762,12 @@ class FIMODE(AModel):
             }
             model_output["visualizations"]["drift"] = {
                 "learnt": learnt_vector_field_concepts[0][sample_id].detach().cpu(),
-                "target": fine_grid_drift[sample_id].detach().cpu(),
+                "target": unnormalized_fine_grid_drift[sample_id].detach().cpu(),
                 "certainty": torch.exp(learnt_vector_field_concepts[1][sample_id]).detach().cpu(),
             }
             model_output["visualizations"]["init_condition"] = {
                 "learnt": learnt_init_condition_concepts[0][:10].detach().cpu(),
-                "target": fine_grid_sample_paths[:10, 0, :].detach().cpu(),
+                "target": unnormalized_fine_grid_sample_paths[:10, 0, :].detach().cpu(),
                 "certainty": torch.exp(learnt_init_condition_concepts[1][:10]).detach().cpu(),
             }
 
@@ -805,10 +822,12 @@ class FIMODE(AModel):
         """Compute mean and log standard deviation of the initial condition"""
         init_condition_concepts = self.init_cond_net(branch_out)  # Shape [B, 1, 2]
 
+        init_condition_concepts = init_condition_concepts.squeeze(1)  # Shape [B, 2]
+
         # split into mean and log variance
         init_condition_mean, init_condition_log_std = torch.split(
             init_condition_concepts, 1, dim=-1
-        )  # Shape each [B, 1, 1]
+        )  # Shape each [B, 1]
 
         # reshape to [B, D]
         # init_condition_mean = init_condition_mean.reshape(-1, self.process_dim)
@@ -822,7 +841,7 @@ class FIMODE(AModel):
         init_condition_concepts: tuple,
         target_drift_fine_grid: torch.Tensor,
         fine_grid_sample_paths: torch.Tensor,
-        normalized_fine_grid_grid: torch.Tensor,
+        fine_grid_grid: torch.Tensor,
         normalization_parameters: dict,
     ) -> dict:
         """
@@ -845,25 +864,24 @@ class FIMODE(AModel):
         learnt_mean_init_cond, learnt_log_std_init_cond = init_condition_concepts
         learnt_var_init_cond = torch.exp(learnt_log_std_init_cond) ** 2
 
+        # TODO verify that target is correct
         nllh_drift_avg = torch.mean(
-            torch.sum(
-                1 / 2 * (target_drift_fine_grid - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift,
-                dim=-2,
-            )
+                1 / 2 * (target_drift_fine_grid - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift
         )
+
+        # TODO: correct target?
         nllh_init_cond_avg = torch.mean(
-            (fine_grid_sample_paths[..., 0, :] - learnt_mean_init_cond) ** 2 / (2 * learnt_var_init_cond)
+            1 / 2 * (fine_grid_sample_paths[..., 0, :] - learnt_mean_init_cond) ** 2 / learnt_var_init_cond
             + learnt_log_std_init_cond
         )
 
         # unsupervised loss (unnormalized space)
-        fine_grid_grid_renormalized = self._renormalize_time(
-            grid_grid=normalized_fine_grid_grid,
-            normalization_parameters=normalization_parameters,
-        )
-        step_size_fine_grid_renormalized = (
-            fine_grid_grid_renormalized[..., 1:, :] - fine_grid_grid_renormalized[..., :-1, :]
-        )
+        if self.normalization:
+            fine_grid_grid = self._renormalize_time(
+                grid_grid=fine_grid_grid,
+                normalization_parameters=normalization_parameters,
+            )
+        step_size_fine_grid = fine_grid_grid[..., 1:, :] - fine_grid_grid[..., :-1, :]
 
         # unsupervised_loss[i] = (target_path[i]-target_path[i-1] - drift[i-1]*step_size)^2
         unsupervised_loss = torch.mean(
@@ -871,7 +889,7 @@ class FIMODE(AModel):
                 (
                     fine_grid_sample_paths[..., 1:, :]
                     - fine_grid_sample_paths[..., :-1, :]
-                    - learnt_mean_drift[..., :-1, :] * step_size_fine_grid_renormalized
+                    - learnt_mean_drift[..., :-1, :] * step_size_fine_grid
                 )
                 ** 2,
                 dim=-2,
@@ -926,20 +944,19 @@ class FIMODE(AModel):
         )  # [B, 2*L-1, D]
 
         # unnormalize learnt drift & underlying time grid
-        super_fine_grid_drift_renormalized, super_fine_grid_log_std_renormalized = (
-            self._renormalize_vector_field_params(
+        if self.normalization:
+            super_fine_grid_drift, _ = self._renormalize_vector_field_params(
                 normalization_parameters=normalization_parameters,
                 vector_field_concepts=(super_fine_grid_drift, super_fine_grid_log_std),
             )
-        )
-        super_fine_grid_grid_renormalized = self._renormalize_time(
-            grid_grid=super_fine_grid_grid, normalization_parameters=normalization_parameters
-        )
+            super_fine_grid_grid = self._renormalize_time(
+                grid_grid=super_fine_grid_grid, normalization_parameters=normalization_parameters
+            )
 
         # compute solution using ode solver (unnormalized space)
         solution = self.ode_solver(
-            super_fine_grid_grid=super_fine_grid_grid_renormalized,
-            super_fine_grid_drift=super_fine_grid_drift_renormalized,
+            super_fine_grid_grid=super_fine_grid_grid,
+            super_fine_grid_drift=super_fine_grid_drift,
             initial_condition=init_condition,
         )  # [B, L, D]
 

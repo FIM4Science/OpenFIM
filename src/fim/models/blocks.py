@@ -190,41 +190,41 @@ class HFBlock(Block):
         return self.backbone(**kwargs)
 
 
-class ResidualBlock(Block):
-    """Residual block as defined in 'Das, A. et al. Long-term forecasting with TiDE: Time- series dense encoder'."""
+# class ResidualBlock(Block):
+#     """Residual block as defined in 'Das, A. et al. Long-term forecasting with TiDE: Time- series dense encoder'."""
 
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        hidden_features: List[int],
-        hidden_act: nn.Module | dict = nn.ReLU(),
-        output_act: nn.Module | dict = None,
-        dropout: float = 0.0,
-        **kwargs,
-    ):
-        super(ResidualBlock, self).__init__(**kwargs)
+#     def __init__(
+#         self,
+#         in_features: int,
+#         out_features: int,
+#         hidden_features: List[int],
+#         hidden_act: nn.Module | dict = nn.ReLU(),
+#         output_act: nn.Module | dict = None,
+#         dropout: float = 0.0,
+#         **kwargs,
+#     ):
+#         super(ResidualBlock, self).__init__(**kwargs)
 
-        self.mlp = Mlp(
-            in_features,
-            out_features,
-            hidden_features,
-            hidden_act,
-            output_act,
-            dropout,
-            **kwargs,
-        )
-        self.skip_connection = nn.Linear(in_features, out_features)
-        self.layer_norm = nn.LayerNorm(out_features)
+#         self.mlp = Mlp(
+#             in_features,
+#             out_features,
+#             hidden_features,
+#             hidden_act,
+#             output_act,
+#             dropout,
+#             **kwargs,
+#         )
+#         self.skip_connection = nn.Linear(in_features, out_features)
+#         self.layer_norm = nn.LayerNorm(out_features)
 
-    def forward(self, x):
-        out_mlp = self.mlp(x)
-        out_skip = self.skip_connection(x)
+#     def forward(self, x):
+#         out_mlp = self.mlp(x)
+#         out_skip = self.skip_connection(x)
 
-        out_final = out_mlp + out_skip
-        out_final = self.layer_norm(out_final)
+#         out_final = out_mlp + out_skip
+#         out_final = self.layer_norm(out_final)
 
-        return out_final
+#         return out_final
 
 
 class TimeEncoding(Block):

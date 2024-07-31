@@ -95,9 +95,13 @@ class TimeSeriesDataset(BaseDataset):
         ds_name: Optional[str] = None,
         split: Optional[str] = "train",
         download_mode: Optional[DownloadMode | str] = None,
+        debugging_data_range: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(path=path, ds_name=ds_name, split=split, download_mode=download_mode, **kwargs)
+        # use only the first debugging_data_range time series
+        if debugging_data_range is not None:
+            self.data = self.data.select(range(debugging_data_range))
 
     def __post_init__(self):
         self.logger.debug("Time Series Dataset loaded successfully.")
@@ -310,19 +314,23 @@ class DummyDataset(BaseDataset):
         import pyarrow.dataset as ds
         import pyarrow.parquet as pq
 
-        c1, c2 = 0, 10000
+        c1, c2 = 0, 1000
         # split = "train"
         self.logger.debug(f"only taking samples from {c1} to {c2}")
 
         data: dict = torch.load(path + split + ".pt")
-        data["coarse_grid_observation_mask"] = ~data["coarse_grid_observation_mask"].bool()
+        data["coarse_grid_observation_mask"] = data["coarse_grid_observation_mask"].bool()
         data["fine_grid_sample_paths"] = data["coarse_grid_sample_paths"]
-        if len(data["fine_grid_concept_values"]) > 1:
+        if isinstance(data["fine_grid_concept_values"], tuple) and len(data["fine_grid_concept_values"]) > 1:
             data["fine_grid_concept_values"] = data["fine_grid_concept_values"][0]
 
+        for k, v in data.items():
+            if v.shape[-1] != 1:
+                data[k] = v[..., 0:1]
+
+        self.logger.debug(f'data size for {split} set: {data["coarse_grid_observation_mask"].shape}')
         self.logger.debug(
-            "avg. number of masked values: "
-            + str(torch.mean(torch.sum(data["coarse_grid_observation_mask"][c1:c2], dim=1).float()).item())
+            f"""#masked values: avg: {torch.mean(torch.sum(data['coarse_grid_observation_mask'][c1:c2], dim=1).float()).item():.2f}, max: {torch.max(torch.sum(data['coarse_grid_observation_mask'][c1:c2], dim=1).float()).item()}, min: {torch.min(torch.sum(data['coarse_grid_observation_mask'][c1:c2], dim=1).float()).item()}"""
         )
 
         # get indices of obs_mask rows where sum of dim 1  = 128

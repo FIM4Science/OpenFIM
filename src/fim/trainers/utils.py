@@ -678,9 +678,9 @@ class TrainLogging:
         axes[0].set_title("Drift")
 
         # initial condition plot
-        target_init_cond = line_plot_data.get("init_condition", {}).get("target", None).squeeze()[:10]
-        learnt_init_cond = line_plot_data.get("init_condition", {}).get("learnt", None).squeeze()[:10]
-        certainty_init_cond = line_plot_data.get("init_condition", {}).get("certainty", None).squeeze()[:10]
+        target_init_cond = line_plot_data.get("init_condition", {}).get("target", None).squeeze(-1)[:10]
+        learnt_init_cond = line_plot_data.get("init_condition", {}).get("learnt", None).squeeze(-1)[:10]
+        certainty_init_cond = line_plot_data.get("init_condition", {}).get("certainty", None).squeeze(-1)[:10]
         axes[1].scatter(
             list(range(len(target_init_cond))),
             target_init_cond,

@@ -1,5 +1,5 @@
 experiment:
-  name: fim_ode_example_10000samples_distributed
+  name: fim_ode_sinData_onlyInitCond
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [0]
   device_map: cuda # auto, cuda, cpu
@@ -20,9 +20,9 @@ model:
 
   loss_configs:
     ode_solver: rk4
-    loss_scale_drift: 1.0
-    loss_scale_init_cond: 1000.0
-    loss_scale_unsuperv_loss: 0
+    loss_scale_drift: 0.0
+    loss_scale_init_cond: 100.0
+    loss_scale_unsuperv_loss: 0.0
 
   time_encoding:
     name: fim.models.blocks.TimeEncoding
@@ -50,7 +50,7 @@ model:
       name: fim.models.blocks.Mlp
       in_features: *dim_latent
       out_features: *dim_latent
-      hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+      hidden_layers: !!python/tuple [*hidden_dim_mlp]
       hidden_act:
         name: torch.nn.SELU 
       output_act:
@@ -72,7 +72,7 @@ model:
     name: fim.models.blocks.Mlp
     in_features: *dim_latent
     out_features: 2
-    hidden_layers: !!python/tuple [*hidden_dim_mlp]
+    hidden_layers: !!python/tuple []
     hidden_act:
       name: torch.nn.SELU
     output_act:
@@ -93,11 +93,11 @@ model:
 
 dataset:
   name: base_dataloader
-  path: data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  path: data/only_sinusoidal_lowFreq/
   ds_name: ""
   dataset_type_name: "dummy"
-  batch_size: 128
-  test_batch_size: 128
+  batch_size: 64
+  test_batch_size: 256
   output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
   loader_kwargs:
     num_workers: 1
@@ -109,12 +109,14 @@ optimizers: !!python/tuple
       name: torch.optim.AdamW
       lr: 0.000001
       weight_decay: 0.001
-      gradient_norm_clipping: 100
+      gradient_norm_clipping: null 
       # schedulers: !!python/tuple
-      #   - name: torch.optim.lr_scheduler.StepLR
-      #     step_size: 1
-      #     gamma: 0.8
-      #     step_type: epoch
+      #   - name: torch.optim.lr_scheduler.ReduceLROnPlateau
+      schedulers: !!python/tuple
+        - name: torch.optim.lr_scheduler.StepLR
+          step_size: 1
+          gamma: 0.8
+          step_type: epoch
 
 trainer:
   name: Trainer
