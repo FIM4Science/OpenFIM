@@ -592,6 +592,9 @@ class TrainLogging:
         validation_log = generate_log(validation_stats["losses"])
         self.file_logger.info("Epoch %d - VALIDATION: %s", epoch, validation_log)
 
+        train_stats = self.convert_bfloat16_to_float(train_stats)
+        validation_stats = self.convert_bfloat16_to_float(validation_stats)
+
         self._log_tensorboard("EPOCH/TRAIN/", train_stats)
         self._log_tensorboard("EPOCH/VALIDATION/", validation_stats)
 
@@ -641,7 +644,6 @@ class TrainLogging:
         """
         if isinstance(line_plot_data, list):
             line_plot_data = line_plot_data[0]
-
 
         assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
         if len(line_plot_data) == 0:

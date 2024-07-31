@@ -21,30 +21,30 @@ model:
   loss_configs:
     ode_solver: rk4
     loss_scale_drift: 1.0
-    loss_scale_init_cond: 100.0
-    loss_scale_unsuperv_loss: 0.0
+    loss_scale_init_cond: 1.0
+    loss_scale_unsuperv_loss: 1.0
 
   time_encoding:
     name: fim.models.blocks.TimeEncoding
-    dim_time: &dim_time 32
+    dim_time: &dim_time 512
 
   trunk_net:
     name: fim.models.blocks.Mlp
     in_features: *dim_time
     out_features: &dim_latent 512
-    hidden_layers: !!python/tuple [&hidden_dim_mlp 512, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
+    hidden_layers: !!python/tuple [&hidden_dim_mlp 1024, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
       name: torch.nn.SELU
     output_act:
       name: torch.nn.Identity
-    dropout: &dropout 0.0
+    dropout: &dropout 0.1
   
   branch_net:
     name: fim.models.blocks.Transformer
-    num_encoder_blocks: 2
+    num_encoder_blocks: 4
     dim_model: *dim_latent
     dim_time: *dim_time
-    num_heads: 4
+    num_heads: 8
     dropout: *dropout
     residual_mlp:
       name: fim.models.blocks.Mlp
@@ -89,7 +89,7 @@ model:
     name: fim.models.blocks.Mlp
     in_features: *dim_latent
     out_features: 2
-    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp]
+    hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
       name: torch.nn.SELU
     output_act:
@@ -101,14 +101,14 @@ dataset:
   path: /cephfs_projects/foundation_models/data/paquet_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8
   ds_name: ""
   dataset_type_name: "timeseries"
-  batch_size: 64
-  test_batch_size: 50
+  batch_size: 1024
+  test_batch_size: 1024
   output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
   loader_kwargs:
     num_workers: 8
   # split: "train"
   dataset_kwargs:
-    debugging_data_range: 1000
+    debugging_data_range: null
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
@@ -125,9 +125,9 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: 2000
+  epochs: 6000
   detect_anomaly: false
-  save_every: 5
+  save_every: 10
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
