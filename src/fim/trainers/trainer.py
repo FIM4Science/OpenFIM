@@ -237,15 +237,23 @@ class Trainer:
         if self.debug_mode:
             data_it = islice(data_it, self.number_of_debug_iterations)
         step = epoch * self.steps_in_epoch
-        for batch_idx, batch in enumerate(data_it):
-            step = (step + batch_idx) // self.gradient_accumulation_steps
-            batch_stats = self._train_batch(step, batch)
-            self.training_loss_tracker.add_batch_stats(batch_stats)
-            p_bar.update_and_set_postfix(1, batch_stats["losses"])
-            self.training_logger.log_train_batch(epoch, batch_idx, batch_stats)
-        self.training_loss_tracker.summarize_epoch()
-        p_bar.close()
-        del p_bar
+        with torch.profiler.profile(
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(self.training_logger.tensorboard_dir),
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,
+        ) as prof:
+            for batch_idx, batch in enumerate(data_it):
+                prof.step()
+                step = (step + batch_idx) // self.gradient_accumulation_steps
+                batch_stats = self._train_batch(step, batch)
+                self.training_loss_tracker.add_batch_stats(batch_stats)
+                p_bar.update_and_set_postfix(1, batch_stats["losses"])
+                # self.training_logger.log_train_batch(epoch, batch_idx, batch_stats)
+            self.training_loss_tracker.summarize_epoch()
+            p_bar.close()
+            del p_bar
         return self.training_loss_tracker.get_last_epoch_stats()
 
     def _train_batch(self, step: int, batch: dict) -> dict:
@@ -259,12 +267,12 @@ class Trainer:
             loss = loss / self.gradient_accumulation_steps
         losses = {k: v.detach().float() for k, v in losses.items()}
         histograms = {}
-        if "histograms" in stats:
-            histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
+        # if "histograms" in stats:
+        #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
 
         lrs = self._model_update_step(step, loss)
-
-        return {"losses": losses | lrs, "histograms": histograms, "line_plots": stats.get('visualizations', {})}
+        # return {"losses": losses | lrs, "histograms": histograms, "line_plots": stats.get('visualizations', {})}
+        return {"losses": losses | lrs}
 
     def _model_update_step(self, step: int, loss: torch.Tensor):
         lrs = {}
@@ -317,8 +325,8 @@ class Trainer:
             for batch_idx, batch in enumerate(data_it):
                 batch_stats = self._validation_batch(batch_idx, batch)
                 self.validation_loss_tracker.add_batch_losses(batch_stats.get("losses"))
-                self.validation_loss_tracker.add_batch_histograms(batch_stats.get("histograms"))
-                self.validation_loss_tracker.add_batch_line_plots(batch_stats.get("line_plots"))
+                # self.validation_loss_tracker.add_batch_histograms(batch_stats.get("histograms"))
+                # self.validation_loss_tracker.add_batch_line_plots(batch_stats.get("line_plots"))
                 p_bar.update_and_set_postfix(1, batch_stats["losses"])
             self.validation_loss_tracker.summarize_epoch()
 
@@ -331,9 +339,10 @@ class Trainer:
         stats = self.model(batch, training=False)
         losses = {k: v.detach().float() for k, v in stats["losses"].items()}
         histograms = {}
-        if "histograms" in stats:
-            histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
-        return {"losses": losses, "histograms": histograms, "line_plots": stats.get("visualizations", {})}
+        # if "histograms" in stats:
+        #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
+        # return {"losses": losses, "histograms": histograms, "line_plots": stats.get("visualizations", {})}
+        return {"losses": losses}
 
     def _update_learning_rates(self, call_place: str):
         verify_str_arg(call_place, "call_place", ["epoch", "minibatch"])

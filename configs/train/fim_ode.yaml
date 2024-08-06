@@ -7,7 +7,7 @@ experiment:
 distributed:
   enabled: true
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
-  wrap_policy: SIZE_BAZED # MODEL_SPECIFIC, SIZE_BAZED
+  wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
   checkpoint_type: full_state # full_state, local_state
   activation_chekpoint: false
@@ -15,8 +15,8 @@ distributed:
 model:
   name: FIMODE
   load_in_8bit: false
-  use_bf16: true
-  normalization: true
+  use_bf16: false
+  normalization: false
 
   loss_configs:
     ode_solver: rk4
@@ -127,7 +127,7 @@ trainer:
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: 6000
   detect_anomaly: false
-  save_every: 10
+  save_every: 5
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"

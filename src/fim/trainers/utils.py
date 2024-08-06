@@ -102,8 +102,8 @@ class TrainLossTracker:
 
     def add_batch_stats(self, stats: dict):
         self.add_batch_losses(stats["losses"])
-        self.add_batch_histograms(stats["histograms"])
-        self.add_batch_line_plots(stats["line_plots"])
+        # self.add_batch_histograms(stats["histograms"])
+        # self.add_batch_line_plots(stats["line_plots"])
 
     def summarize_epoch(self):
         """
@@ -177,7 +177,7 @@ class TrainLossTracker:
         return {
             "losses": dict((k, v[-1]) for k, v in self.epoch_losses.items()),
             "histograms": dict((k, v[-1]) for k, v in self.epoch_histograms.items()),
-            "line_plots": self.epoch_line_plots[-1],
+            "line_plots": self.epoch_line_plots[-1] if len(self.epoch_line_plots) > 0 else {},
         }
 
     def get_total_batch_loss(self, loss_name):
@@ -534,10 +534,12 @@ class TrainLogging:
 
     def convert_bfloat16_to_float(self, batch_stats):
         for k, v in batch_stats.items():
-            if isinstance(v, torch.Tensor) and v.dtype is torch.bfloat16:
-                batch_stats[k] = v.float()
-            elif isinstance(v, dict):
+            if isinstance(v, dict):
                 self.convert_bfloat16_to_float(v)
+            v = v.detach().cpu()
+            if isinstance(v, torch.Tensor) and v.dtype is torch.bfloat16:
+                v = v.float()
+            batch_stats[k] = v
         return batch_stats
 
     def log_train_batch(self, epoch: int, batch_id: int, batch_stats: dict) -> None:
