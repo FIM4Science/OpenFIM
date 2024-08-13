@@ -2,7 +2,7 @@ import copy
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import torch
 from torch import nn
@@ -292,15 +292,16 @@ class Transformer(Block):
         self.final_query_vector = nn.Parameter(torch.randn(1, 1, dim_model))
         self.final_attention = nn.MultiheadAttention(dim_model, num_heads, dropout=dropout, batch_first=batch_first)
 
-    def forward(self, x, key_padding_mask):
+    def forward(self, x: torch.Tensor, key_padding_mask: Optional[torch.Tensor] = None):
         """
         Args:
             x (torch.Tensor): Input tensor, shape (batch_size, seq_len, dim_time)
-            mask (torch.Tensor): Mask for the input tensor, shape (batch_size, seq_len) with 1 indicating that the time point is masked out.
+            mask (torch.Tensor): Mask for the input tensor, shape (batch_size, seq_len) with 1 indicating that the time point is masked out. If None, nothing is masked.
         """
-        # prepare masks: create attention masks and ensure, both are of type float
-        if key_padding_mask.dim() == 3:
-            key_padding_mask = key_padding_mask.squeeze(-1)  #  (batch_size, seq_len)#
+        if key_padding_mask is None:
+            key_padding_mask = torch.zeros_like(x[:, :, 0])
+        elif key_padding_mask.dim() == 3:
+            key_padding_mask = key_padding_mask.squeeze(-1)  #  (batch_size, seq_len)#z
 
         x = self.input_projection(x)  # (batch_size, seq_len, dim_model)
 
@@ -373,7 +374,7 @@ class EncoderBlock(Block):
         self.layer_norm2 = nn.LayerNorm(d_model)
 
     def forward(self, x, padding_mask):
-        # TODO ? Need attention mask? 
+        # TODO ? Need attention mask?
         # x shape: B, sequence length, d_model, padding_mask shape: B, sequence length
         attn_out, _ = self.self_attn(
             x,
@@ -389,3 +390,77 @@ class EncoderBlock(Block):
         x = self.layer_norm2(x + mlp_out)
 
         return x
+
+
+### Normalization Blocks ###
+class Standardization(Block):
+    """Standardization block for normalizing input data via mean and std."""
+
+    def __init__(self, target_mean: float = 0.0, target_std: float = 1.0):
+        super(Standardization, self).__init__()
+
+        self.mean_target = target_mean
+        self.std_target = target_std
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, tuple]:
+        """
+        Args: x: (torch.Tensor), shape [B, wc, wlen, 1]
+
+        Returns:
+            normalized_x
+        """
+        if mask is None:
+            mask = torch.zeros_like(x, dtype=bool)
+
+        # invert mask
+        mask_inverted = ~mask
+
+        # get masked mean and std per window
+        mean_data = ((mask_inverted * x).sum(dim=2) / mask_inverted.sum(dim=2)).unsqueeze(2)  # shape [B, wc, 1, 1]
+        var_data = ((mask_inverted * (x - mean_data) ** 2).sum(dim=2) / mask_inverted.sum(dim=2)).unsqueeze(
+            2
+        )  # shape [B, wc, 1, 1]
+
+        normalized_x = (x - mean_data) / torch.sqrt(var_data + 1e-6) * self.std_target + self.mean_target
+        return normalized_x, (mean_data, var_data)
+
+    def revert_normalization(self, x: torch.Tensor, data_concepts: Union[tuple, torch.Tensor]):
+        if isinstance(data_concepts, tuple):
+            mean, var = data_concepts
+        elif isinstance(data_concepts, torch.Tensor) and data_concepts.shape[-1] == 2:
+            mean, var = data_concepts.split(1, dim=-1)
+        else:
+            raise ValueError("Wrong format of data concept for reverting the standardization.")
+        # BUG: Shape missmatch -> verify implementation of Standardization with paper
+        return mean + torch.sqrt(var + 1e-6) * x
+
+
+class StandardizationLearnable(Standardization):
+    """
+    Standardization following xyz: linear combination of "normal" standardization and learnable standardization.
+
+    Revertion of normalization is same as in Standardization (learnable part is ignored).
+    """
+
+    def __init__(
+        self,
+        target_mean: float = 0.0,
+        target_std: float = 1.0,
+        lin_factor: float = 0.5,
+        network: dict = {},
+    ):
+        super(StandardizationLearnable, self).__init__(target_mean, target_std)
+
+        self.linear_factor = torch.tensor(lin_factor)
+        self.lin_layer = create_class_instance(network.pop("name"), network)
+        self.layer_norm = nn.LayerNorm(1)
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, tuple]:
+        standardized_out, data_concepts = super().forward(x, mask)
+        data_concepts = torch.concat(data_concepts, dim=2).squeeze(-1)  # shape [B, wc, 2]
+        learnable_out = self.lin_layer(data_concepts).unsqueeze(-1)  # shape [B, wc, wlen, 1]
+
+        return (
+            torch.sqrt(1 - self.linear_factor) * standardized_out + torch.sqrt(self.linear_factor) * learnable_out,
+            data_concepts,
+        )

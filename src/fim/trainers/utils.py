@@ -536,10 +536,11 @@ class TrainLogging:
         for k, v in batch_stats.items():
             if isinstance(v, dict):
                 self.convert_bfloat16_to_float(v)
-            v = v.detach().cpu()
-            if isinstance(v, torch.Tensor) and v.dtype is torch.bfloat16:
-                v = v.float()
-            batch_stats[k] = v
+            elif isinstance(v, torch.Tensor):
+                v = v.detach().cpu()
+                if v.dtype is torch.bfloat16:
+                    v = v.float()
+                batch_stats[k] = v
         return batch_stats
 
     def log_train_batch(self, epoch: int, batch_id: int, batch_stats: dict) -> None:

@@ -639,7 +639,7 @@ class FIMODE(AModel):
         unnormalized_fine_grid_sample_paths = batch["fine_grid_sample_paths"]  # unnormalized
 
         # TODO REMove. just for testing if obs mask changes anything
-        obs_mask = torch.zeros_like(obs_mask).bool()
+        # obs_mask = torch.zeros_like(obs_mask).bool()
 
         batch_size, max_sequence_length, process_dim = unnormalized_obs_values.shape  # defines B, L, D=1
 
@@ -666,25 +666,9 @@ class FIMODE(AModel):
             fine_grid_grid = unnormalized_fine_grid_grid
             normalization_parameters = None
 
-        # encode times
-        encoded_obs_times = self.time_encoding(grid=obs_times)  # Shape [B, T, dim_time]
-
-        # concatenate time encoding with normalized observation values. Use that dimensions are uncoupled.
-        # first: reshape observation times & values to match shapewise
-        obs_input_latent = torch.cat(
-            [
-                encoded_obs_times,  # Shape [B, T, dim_time],
-                obs_values,  # Shape [B, T, 1]
-            ],
-            dim=-1,
-        )  # Shape [B, T, dim_time + 1]
-
-        # repeat obs_mask to match obs_input
-        # obs_mask = obs_mask.repeat_interleave(self.process_dim, 1, 1)  # Shape [D*B, T, 1]
-
-        encoded_input_sequence = self.branch_net(
-            x=obs_input_latent, key_padding_mask=obs_mask
-        )  # Shape [B, 1, dim_latent]
+        encoded_input_sequence = self._encode_input_sequence(
+            obs_values=obs_values, obs_times=obs_times, obs_mask=obs_mask
+        )  # Shape [B, D, 1]
 
         learnt_vector_field_concepts = self._get_vector_field_concepts(
             grid_grid=fine_grid_grid, branch_out=encoded_input_sequence
@@ -774,6 +758,34 @@ class FIMODE(AModel):
         model_output["visualizations"] = {}
 
         return model_output
+
+    def _encode_input_sequence(
+        self,
+        obs_times,
+        obs_values,
+        obs_mask,
+    ):
+        # encode times
+        encoded_obs_times = self.time_encoding(grid=obs_times)  # Shape [B, T, dim_time]
+
+        # concatenate time encoding with normalized observation values. Use that dimensions are uncoupled.
+        # first: reshape observation times & values to match shapewise
+        obs_input_latent = torch.cat(
+            [
+                encoded_obs_times,  # Shape [B, T, dim_time],
+                obs_values,  # Shape [B, T, 1]
+            ],
+            dim=-1,
+        )  # Shape [B, T, dim_time + 1]
+
+        # repeat obs_mask to match obs_input
+        # obs_mask = obs_mask.repeat_interleave(self.process_dim, 1, 1)  # Shape [D*B, T, 1]
+
+        encoded_input_sequence = self.branch_net(
+            x=obs_input_latent, key_padding_mask=obs_mask
+        )  # Shape [B, 1, dim_latent]
+
+        return encoded_input_sequence
 
     def _get_vector_field_concepts(
         self,
@@ -1023,10 +1035,12 @@ class FIMODE(AModel):
 
         obs_values_norm_params = get_norm_params(obs_values, obs_mask)  # ([B, D], [B, D])
         obs_times_norm_params = get_norm_params(obs_times, obs_mask)  # ([B, 1], [B, 1])
+        # TODO : Caution. Changed here.
+        locations_norm_params = get_norm_params(loc_times, torch.zeros_like(loc_times, dtype=bool))
 
         normalized_obs_values = normalize(obs_values, obs_values_norm_params)  # [B, T, D]
         normalized_obs_times = normalize(obs_times, obs_times_norm_params)  # [B, T, 1]
-        normalized_loc_times = normalize(loc_times, obs_times_norm_params)  # [B, L, 1]
+        normalized_loc_times = normalize(loc_times, locations_norm_params)  # [B, L, 1]
 
         normalization_parameters = {
             "obs_values_min": obs_values_norm_params[0],
