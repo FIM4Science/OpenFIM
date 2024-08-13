@@ -1,0 +1,59 @@
+experiment:
+  name: fim_imputation
+  name_add_date: True # if true, the current date & time will be added to the experiment name
+  seed: [10]
+  device_map: cuda # auto, cuda, cpu
+
+distributed:
+  enabled: true
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  name: fim.models.FIM_models.FIMImputation  # class name
+  fim_base: results/fim_ode_all-experiment-seed-10_08-12-1247/checkpoints/epoch-9/model-checkpoint.pth # checkpoint
+  use_fim_normalization: false
+  
+  psi_2: # transformer for combining the windows
+      name: fim.models.blocks.Transformer
+      num_encoder_blocks: 4 
+      dim_model: &dim_latent 512
+      dim_time: 1023 # 2*dim_latent -1
+      num_heads: 8
+      dropout: &dropout 0.1
+      residual_mlp:
+        name: fim.models.blocks.Mlp
+        in_features: *dim_latent
+        out_features: *dim_latent
+        hidden_layers: !!python/tuple [*dim_latent]
+        hidden_act:
+          name:  torch.nn.SELU
+        output_act:
+          name:  torch.nn.Identity
+        dropout: *dropout
+  
+  window_normalization_params:
+    name: fim.models.blocks.StandardizationLearnable
+    target_mean: 0
+    target_std: 1
+    lin_factor: 0.5
+    network:
+      name: torch.nn.Linear
+      in_features: 2
+      out_features: 128 # max sequence length
+      bias: true
+
+  
+  scale_feature_mapping:
+    name: torch.nn.Linear
+    in_features: 8
+    out_features: 512
+    bias: true
+
+
+data: null
+
+trainer: null
