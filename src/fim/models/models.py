@@ -638,9 +638,6 @@ class FIMODE(AModel):
         unnormalized_fine_grid_drift = batch["fine_grid_concept_values"]
         unnormalized_fine_grid_sample_paths = batch["fine_grid_sample_paths"]  # unnormalized
 
-        # TODO REMove. just for testing if obs mask changes anything
-        # obs_mask = torch.zeros_like(obs_mask).bool()
-
         batch_size, max_sequence_length, process_dim = unnormalized_obs_values.shape  # defines B, L, D=1
 
         if process_dim != 1:
@@ -668,11 +665,11 @@ class FIMODE(AModel):
 
         encoded_input_sequence = self._encode_input_sequence(
             obs_values=obs_values, obs_times=obs_times, obs_mask=obs_mask
-        )  # Shape [B, D, 1]
+        )  # Shape [B, 1, dim_latent]
 
         learnt_vector_field_concepts = self._get_vector_field_concepts(
             grid_grid=fine_grid_grid, branch_out=encoded_input_sequence
-        )  # Shape ([B, L, D], [B, L, D]) (normalized space)
+        )  # Shape ([B, L, 1], [B, L, 1]) (normalized space)
 
         learnt_init_condition_concepts = self._get_init_condition_concepts(
             branch_out=encoded_input_sequence
@@ -714,28 +711,28 @@ class FIMODE(AModel):
             )
             model_output["metrics"] = metrics
 
-            # model_output["visualizations"] = {
-            #     "fine_grid_grid": unnormalized_fine_grid_grid,
-            # }
+            model_output["visualizations"] = {
+                "fine_grid_grid": unnormalized_fine_grid_grid,
+            }
 
-            # # visualization data of all samples
-            # model_output["visualizations"]["solution"] = {
-            #     "learnt": solution,
-            #     "target": unnormalized_fine_grid_sample_paths,
-            #     "observation_times": unnormalized_obs_times,
-            #     "observation_values": unnormalized_obs_values,
-            #     "observation_mask": obs_mask,
-            # }
-            # model_output["visualizations"]["drift"] = {
-            #     "learnt": learnt_vector_field_concepts[0],
-            #     "target": unnormalized_fine_grid_drift,
-            #     "certainty": torch.exp(learnt_vector_field_concepts[1]),
-            # }
-            # model_output["visualizations"]["init_condition"] = {
-            #     "learnt": learnt_init_condition_concepts[0],
-            #     "target": unnormalized_fine_grid_sample_paths[..., 0, :],
-            #     "certainty": torch.exp(learnt_init_condition_concepts[1]),
-            # }
+            # visualization data of all samples
+            model_output["visualizations"]["solution"] = {
+                "learnt": solution,
+                "target": unnormalized_fine_grid_sample_paths,
+                "observation_times": unnormalized_obs_times,
+                "observation_values": unnormalized_obs_values,
+                "observation_mask": obs_mask,
+            }
+            model_output["visualizations"]["drift"] = {
+                "learnt": learnt_vector_field_concepts[0],
+                "target": unnormalized_fine_grid_drift,
+                "certainty": torch.exp(learnt_vector_field_concepts[1]),
+            }
+            model_output["visualizations"]["init_condition"] = {
+                "learnt": learnt_init_condition_concepts[0],
+                "target": unnormalized_fine_grid_sample_paths[..., 0, :],
+                "certainty": torch.exp(learnt_init_condition_concepts[1]),
+            }
         else:
             model_output["metrics"] = {}
 
@@ -755,7 +752,7 @@ class FIMODE(AModel):
             #     "certainty": torch.exp(learnt_init_condition_concepts[1][:10]),
             # }
 
-        model_output["visualizations"] = {}
+            model_output["visualizations"] = {}
 
         return model_output
 
@@ -878,12 +875,10 @@ class FIMODE(AModel):
         learnt_mean_init_cond, learnt_log_std_init_cond = init_condition_concepts
         learnt_var_init_cond = torch.exp(learnt_log_std_init_cond) ** 2
 
-        # TODO verify that target is correct
         nllh_drift_avg = torch.mean(
             1 / 2 * (target_drift_fine_grid - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift
         )
 
-        # TODO: correct target?
         nllh_init_cond_avg = torch.mean(
             1 / 2 * (fine_grid_sample_paths[..., 0, :] - learnt_mean_init_cond) ** 2 / learnt_var_init_cond
             + learnt_log_std_init_cond

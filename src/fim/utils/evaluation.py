@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from abc import abstractmethod
@@ -366,6 +367,7 @@ class TimeSeriesEvaluation(Evaluation):
         model_param: dict,
         model_checkpoint: str,
         sample_indices: Optional[list[int]] = None,
+        plot_certainty: bool = True,
     ) -> None:
         output_path = Path(experiment_dir) / "evaluation"
         model_checkpoint_path = Path(experiment_dir) / "checkpoints" / model_checkpoint / "model-checkpoint.pth"
@@ -380,6 +382,7 @@ class TimeSeriesEvaluation(Evaluation):
         self.output_path = self.output_path / f"epoch-{self.last_epoch}"
         os.makedirs(self.output_path, exist_ok=True)
 
+        self.plot_certainty = plot_certainty
         self.metrics = []
         self.avg_metrics = {}
         self.sample_indices = sample_indices
@@ -431,12 +434,19 @@ class TimeSeriesEvaluation(Evaluation):
         for key in batch.keys():
             batch[key] = batch[key].to(self.local_rank)
 
-    def save(self):
+    def save(self, save_dir: Optional[str] = None):
         """Save prediction results"""
-        self.output_path.mkdir(parents=True, exist_ok=True)
-        export_list_of_dicts_to_jsonl(self.predictions, self.output_path / "predictions.jsonl")
-        export_list_of_dicts_to_jsonl(self.metrics, self.output_path / "metrics.jsonl")
-        export_list_of_dicts_to_jsonl([self.avg_metrics], self.output_path / "avg_metrics.jsonl")
+        if save_dir is None:
+            save_dir = self.output_path
+
+        save_dir.mkdir(parents=True, exist_ok=True)
+        export_list_of_dicts_to_jsonl(self.predictions, save_dir / "predictions.jsonl")
+        export_list_of_dicts_to_jsonl(self.metrics, save_dir / "metrics.jsonl")
+        export_list_of_dicts_to_jsonl([self.avg_metrics], save_dir / "avg_metrics.jsonl")
+
+    def report(self):
+        """Print avg metrics."""
+        print(json.dumps(self.avg_metrics, indent=4))
 
     def visualize_solutions(self, indices: Optional[list[int]] = None, save_dir: Optional[Path] = None):
         """
@@ -543,16 +553,17 @@ class TimeSeriesEvaluation(Evaluation):
             ax.plot(
                 fine_grid_times, sample_data.get("drift", {}).get("learnt", None), label="Inference drift", color="blue"
             )
-            ax.fill_between(
-                fine_grid_times,
-                np.array(sample_data.get("drift", {}).get("learnt", None))
-                - np.array(sample_data.get("drift", {}).get("certainty", None)),
-                np.array(sample_data.get("drift", {}).get("learnt", None))
-                + np.array(sample_data.get("drift", {}).get("certainty", None)),
-                alpha=0.3,
-                color="blue",
-                label="Certainty",
-            )
+            if self.plot_certainty:
+                ax.fill_between(
+                    fine_grid_times,
+                    np.array(sample_data.get("drift", {}).get("learnt", None))
+                    - np.array(sample_data.get("drift", {}).get("certainty", None)),
+                    np.array(sample_data.get("drift", {}).get("learnt", None))
+                    + np.array(sample_data.get("drift", {}).get("certainty", None)),
+                    alpha=0.3,
+                    color="blue",
+                    label="Certainty",
+                )
             ax.spines[["top", "right"]].set_visible(False)
 
         # remove not used axes
@@ -634,8 +645,20 @@ class TimeSeriesEvaluation(Evaluation):
         plot_drift = self.visualize_drift(save_dir=save_dir)
         plot_sol = self.visualize_solutions(save_dir=save_dir)
         plot_init_cond = self.visualize_init_condition(save_dir=save_dir)
+        plot_init_cond_distr = self.visualize_distribution_init_conditions(save_dir=save_dir)
 
-        return plot_drift, plot_sol, plot_init_cond
+        return plot_drift, plot_sol, plot_init_cond, plot_init_cond_distr
+
+    def visualize_distribution_init_conditions(self, save_dir: Optional[str]):
+        init_conds = [p.get("init_condition").get("learnt")[0] for p in self.predictions]
+        fig, ax = plt.subplots(1, 1, figsize=(10, 4))
+        ax.hist(init_conds)
+        ax.set_title("Distribution Init. Condition")
+        ax.spines[["top", "right"]].set_visible(False)
+        if save_dir:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            fig.savefig(save_dir / "init_condition_distribtion.png")
+        return fig, ax
 
 
 EvaluationFactory.register("ts", TimeSeriesEvaluation)

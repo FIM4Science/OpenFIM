@@ -103,7 +103,7 @@ class TrainLossTracker:
     def add_batch_stats(self, stats: dict):
         self.add_batch_losses(stats["losses"])
         # self.add_batch_histograms(stats["histograms"])
-        # self.add_batch_line_plots(stats["line_plots"])
+        self.add_batch_line_plots(stats.get("line_plots"))
 
     def summarize_epoch(self):
         """
@@ -603,10 +603,11 @@ class TrainLogging:
 
     def _log_tensorboard(self, label: str, statistics: dict):
         self._log_tensorboard_scalars(label, statistics["losses"])
-        if "histograms" in statistics:
-            self._log_tensorboard_histograms(label, statistics["histograms"])
-        if "line_plots" in statistics:
-            self._log_tensorboard_line_plots(label, statistics["line_plots"])
+        if "TRAIN" not in label:
+            if "histograms" in statistics:
+                self._log_tensorboard_histograms(label, statistics["histograms"])
+            if "line_plots" in statistics:
+                self._log_tensorboard_line_plots(label, statistics["line_plots"])
         self.__tensorboard_global_step += 1
 
     def _log_tensorboard_scalars(self, label, statistics):
@@ -620,6 +621,9 @@ class TrainLogging:
             )
 
     def _log_tensorboard_histograms(self, label, histograms):
+        if histograms is None:
+            return
+
         for k, v in histograms.items():
             if k == "paths":
                 fig, ax = plt.subplots()
@@ -645,6 +649,9 @@ class TrainLogging:
                 "learnt_drift": torch.Tensor: Learnt drift for the fine grid
                 "learnt_std_drift": torch.Tensor: Learnt std drift for the fine grid = certainty
         """
+        if line_plot_data is None:
+            return
+
         if isinstance(line_plot_data, list):
             line_plot_data = line_plot_data[0]
 
