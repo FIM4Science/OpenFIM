@@ -161,7 +161,7 @@ class FIMImputation(AModel):
         self,
         fim_base: Union[FIMODE, Path, str],
         psi_2: dict,
-        window_normalization_params: dict,
+        normalization_params: dict,
         scale_feature_mapping: dict,
         use_fim_normalization: bool,
         **kwargs,
@@ -170,13 +170,13 @@ class FIMImputation(AModel):
 
         self.use_fim_normalization = use_fim_normalization
 
-        self._create_model(fim_base, psi_2, window_normalization_params, scale_feature_mapping)
+        self._create_model(fim_base, psi_2, normalization_params, scale_feature_mapping)
 
     def _create_model(
         self,
         fim_base: Union[FIMODE, Path, str],
         psi_2: dict,
-        window_normalization: dict,
+        normalization_params: dict,
         scale_feature_mapping: dict,
     ):
         if isinstance(fim_base, FIMODE):
@@ -208,9 +208,9 @@ class FIMImputation(AModel):
             psi_2,
         )
 
-        self.window_normalization = create_class_instance(
-            window_normalization.pop("name"),
-            window_normalization,
+        self.sequence_normalization = create_class_instance(
+            normalization_params.pop("name"),
+            normalization_params,
         )
 
         self.scale_feature_mapping = create_class_instance(scale_feature_mapping.pop("name"), scale_feature_mapping)
@@ -225,13 +225,13 @@ class FIMImputation(AModel):
             obs_mask = torch.zeros_like(obs_values)
         obs_times = x.get("observation_times")  # shape [B, wc, wlen, 1]
         locations = x.get("location_times")  # shape [B, wlen, 1]
-        fine_grid_grid = x.get("fine_grid_grid")
+        # fine_grid_grid = x.get("fine_grid_grid")
         init_conditions = x.get("init_conditions")  # shape [B, 1]
 
         B, wc, wlen, _ = obs_values.shape
 
         # normalize observations
-        normalized_windows, window_norm_params = self.window_normalization(obs_values, obs_mask)
+        normalized_windows, window_norm_params = self.sequence_normalization(obs_values, obs_mask)
 
         # reshape [B, wc, wlen, 1] -> [B*wc, wlen, 1] so FIMODE can handle it
         windowed_values = normalized_windows.view(B * wc, wlen, 1)
@@ -291,7 +291,7 @@ class FIMImputation(AModel):
         )
 
         # denormalize
-        denormalized_solution_paths = self.window_normalization.revert_normalization(
+        denormalized_solution_paths = self.sequence_normalization.revert_normalization(
             x=solution_paths, data_concepts=window_norm_params
         )
 

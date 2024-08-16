@@ -8,7 +8,11 @@ from torch import nn
 from fim.utils.helper import create_class_instance
 
 from ..trainers.utils import is_distributed
-from .utils import SinActivation
+from ..utils.logging import RankLoggerAdapter
+from .utils import SinActivation, add_peft_adapter, freeze_transformer_layers
+
+
+eps = 0  # 1e-6
 
 
 class Block(nn.Module):
@@ -255,15 +259,20 @@ class EncoderBlock(Block):
 class Standardization(Block):
     """Standardization block for normalizing input data via mean and std."""
 
-    def __init__(self, target_mean: float = 0.0, target_std: float = 1.0):
+    def __init__(self, mean_target: float = 0.0, std_target: float = 1.0):
         super(Standardization, self).__init__()
-
-        self.mean_target = target_mean
-        self.std_target = target_std
+        self.mean_target = mean_target
+        self.std_target = std_target if std_target != 0 else eps
 
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, tuple]:
         """
-        Args: x: (torch.Tensor), shape [B, wc, wlen, 1]
+        Change statistics of given data x to target mean and std (Default: 0 and 1) with `X^ = std_target / std_data * (x - mean_data) + mean_target`.
+
+        Standardization is applied along dim 1 (if x.dim()==3) or along dim=(1,2) (if x.dim()==4).
+
+        Args:
+            x: (torch.Tensor), shape [B, w, 1] or [B, wc, wlen, 1].
+            mask: (torch.Tensor), shape [B, w, 1] or [B, wc, wlen, 1]. 1 indicating that value is masked out. Default: no values masked out.
 
         Returns:
             normalized_x
@@ -271,32 +280,67 @@ class Standardization(Block):
         if mask is None:
             mask = torch.zeros_like(x, dtype=bool)
 
+        x_dim = x.dim()
+        if x_dim == 4:
+            B, wc, wlen, D = x.shape
+            x = x.view(B, wc * wlen, D)
+            mask = mask.view(B, wc * wlen, D)
+
         # invert mask
         mask_inverted = ~mask
 
         # get masked mean and std per window
-        mean_data = ((mask_inverted * x).sum(dim=2) / mask_inverted.sum(dim=2)).unsqueeze(2)  # shape [B, wc, 1, 1]
-        var_data = ((mask_inverted * (x - mean_data) ** 2).sum(dim=2) / mask_inverted.sum(dim=2)).unsqueeze(
-            2
-        )  # shape [B, wc, 1, 1]
+        mean_data = ((mask_inverted * x).sum(dim=1) / mask_inverted.sum(dim=1)).unsqueeze(-1)  # shape [B, 1, 1]
+        var_data = ((mask_inverted * (x - mean_data) ** 2).sum(dim=1) / mask_inverted.sum(dim=1)).unsqueeze(
+            -1
+        )  # shape [B, 1, 1]
 
-        normalized_x = (x - mean_data) / torch.sqrt(var_data + 1e-6) * self.std_target + self.mean_target
-        return normalized_x, (mean_data, var_data)
+        normalized_x = (x - mean_data) / torch.sqrt(var_data + eps) * self.std_target + self.mean_target
 
-    def revert_normalization(self, x: torch.Tensor, data_concepts: Union[tuple, torch.Tensor]):
+        if x_dim == 4:
+            normalized_x = normalized_x.view(B, wc, wlen, D)
+
+        return normalized_x, (mean_data.squeeze(-1), var_data.squeeze(-1))
+
+    def revert_normalization(self, x: torch.Tensor, data_concepts: Union[tuple, torch.Tensor]) -> torch.Tensor:
+        """
+        Revert above's standardization using the formula `X_out = std_data / std_target * (X - mean_target) + mean_data` where `X` is the input tensor.
+
+        Args:
+            x: torch.Tensor. Either 3 or 4 dimensional.
+            data_concepts: mean and std of original data (statistics of data after applying this function).
+
+        Returns:
+            x_renormalized: torch.Tensor. Data with given mean and std.
+        """
         if isinstance(data_concepts, tuple):
-            mean, var = data_concepts
+            mean_data, var = data_concepts
         elif isinstance(data_concepts, torch.Tensor) and data_concepts.shape[-1] == 2:
-            mean, var = data_concepts.split(1, dim=-1)
+            mean_data, var = data_concepts.split(1, dim=-1)
         else:
             raise ValueError("Wrong format of data concept for reverting the standardization.")
-        # BUG: Shape missmatch -> verify implementation of Standardization with paper
-        return mean + torch.sqrt(var + 1e-6) * x
+
+        std_data = torch.sqrt(var.unsqueeze(-1) + eps)
+        mean_data = mean_data.unsqueeze(-1)
+
+        x_dim = x.dim()
+        if x_dim == 4:
+            B, wc, wlen, D = x.shape
+            x = x.view(B, wc * wlen, D)
+
+        x_renormalized = std_data / self.std_target * (x - self.mean_target) + mean_data
+
+        if x_dim == 4:
+            # need to reshape
+            x_renormalized = x_renormalized.view(B, wc, wlen, D)
+        return x_renormalized
 
 
-class StandardizationLearnable(Standardization):
+class StandardizationSERIN(Standardization):
     """
-    "Statistics Embedded Reversible Instance Normalization Standardization" following xyz.
+    Standardization following "Statistics Embedding: Compensate for the Lost Part of Normalization in Time Series Forecasting" by xyz.
+
+    Idea: Fuse normalized data with embedded statistics (learnable embedding).
 
     Idea: linear combination of "normal" standardization and embedding of statistics (mean and std of input data).
     Revertion of normalization is same as in Standardization (learnable part is ignored).
@@ -304,23 +348,47 @@ class StandardizationLearnable(Standardization):
 
     def __init__(
         self,
-        target_mean: float = 0.0,
-        target_std: float = 1.0,
+        mean_target: float = 0.0,
+        std_target: float = 2.0,
         lin_factor: float = 0.5,
         network: dict = {},
     ):
-        super(StandardizationLearnable, self).__init__(target_mean, target_std)
+        std_target = 3
+        super(StandardizationSERIN, self).__init__(mean_target, std_target)
 
         self.linear_factor = torch.tensor(lin_factor)
-        self.lin_layer = create_class_instance(network.pop("name"), network)
-        self.layer_norm = nn.LayerNorm(1)
+        mlp = create_class_instance(network.pop("name"), network)
+        layer_norm = nn.LayerNorm(network.get("out_features"), elementwise_affine=False)
+        self.statistics_embedder = nn.Sequential(mlp, layer_norm)
 
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, tuple]:
-        standardized_out, data_concepts = super().forward(x, mask)
-        data_concepts = torch.concat(data_concepts, dim=2).squeeze(-1)  # shape [B, wc, 2]
-        learnable_out = self.lin_layer(data_concepts).unsqueeze(-1)  # shape [B, wc, wlen, 1]
+        """
+        Standardize data by linear combination of Standardization and linearly embedded data statistics.
 
-        return (
-            torch.sqrt(1 - self.linear_factor) * standardized_out + torch.sqrt(self.linear_factor) * learnable_out,
-            data_concepts,
+        Standardization is applied along dim 1 (if x.dim()==3) or along dim=(1,2) (if x.dim()==4).
+
+        Args:
+            x: torch.Tensor. Either 3 or 4 dimensional.
+            mask: torch.Tensor, optional, default: no values are masked out. 1 indicates that a value is masked out.
+
+        returns:
+            standardized x: torch.Tensor
+        """
+        # x can either be 3 or 4 dimensional we need 3 dim.
+        x_dim = x.dim()
+        if x_dim == 4:
+            B, wc, wlen, D = x.shape
+            x = x.view(B, wc * wlen, D)
+            mask = mask.view(B, wc * wlen, D)
+        standardized_out, statistics = super().forward(x, mask)  # shape [B, w, 1], ([B,1], [B,1])
+        embedded_statistics = self.statistics_embedder(torch.concat(statistics, dim=1)).unsqueeze(-1)  # shape [B, w, 1]
+
+        # fuse normalized x and embedded statistics
+        x_fused = (
+            torch.sqrt(1 - self.linear_factor) * standardized_out + torch.sqrt(self.linear_factor) * embedded_statistics
         )
+        if x_dim == 4:
+            # need to reshape
+            x_fused = x_fused.view(B, wc, wlen, D)
+
+        return x_fused, statistics

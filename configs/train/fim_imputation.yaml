@@ -14,7 +14,7 @@ distributed:
 
 model:
   name: fim.models.FIM_models.FIMImputation  # class name
-  fim_base: results/fim_ode_all-experiment-seed-10_08-12-1247/checkpoints/epoch-9/model-checkpoint.pth # checkpoint
+  fim_base: results/fim_ode_all-experiment-seed-10_08-14-1602/checkpoints/best-model/model-checkpoint.pth # checkpoint
   use_fim_normalization: false
   
   psi_2: # transformer for combining the windows
@@ -35,16 +35,21 @@ model:
           name:  torch.nn.Identity
         dropout: *dropout
   
-  window_normalization_params:
-    name: fim.models.blocks.StandardizationLearnable
-    target_mean: 0
-    target_std: 1
+  normalization_params:
+    name: fim.models.blocks.StandardizationSERIN
+    mean_target: 0
+    std_target: 1
     lin_factor: 0.5
     network:
-      name: torch.nn.Linear
+      name: fim.models.blocks.Mlp
       in_features: 2
-      out_features: 128 # max sequence length
-      bias: true
+      out_features: 256 # window_count * window_length
+      hidden_layers: !!python/tuple [512]
+      hidden_act:
+        name: torch.nn.SELU
+      output_act:
+        name: torch.nn.Identity
+      dropout: 0.1
 
   
   scale_feature_mapping:
