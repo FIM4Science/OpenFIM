@@ -1,5 +1,5 @@
 experiment:
-  name: fim_ode_all
+  name: fim_ode
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu
@@ -20,8 +20,8 @@ model:
 
   loss_configs:
     ode_solver: rk4
-    loss_scale_drift: 10.0
-    loss_scale_init_cond: 1.0
+    loss_scale_drift: 1.0
+    loss_scale_init_cond: 10.0
     loss_scale_unsuperv_loss: 100.0
 
   time_encoding:
@@ -87,7 +87,7 @@ model:
 
   init_cond_net:
     name: fim.models.blocks.Mlp
-    in_features: *dim_latent
+    in_features: 513 # *dim_latent +1
     out_features: 2
     hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
     hidden_act:
@@ -97,8 +97,8 @@ model:
     dropout: *dropout
 
 dataset:
-  name: base_dataloader
-  path: /cephfs_projects/foundation_models/data/paquet_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8
+  name: ts_torch_dataloader
+  path: /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/ #  /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
   ds_name: ""
   dataset_type_name: "timeseries"
   batch_size: 1024
@@ -113,8 +113,8 @@ dataset:
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: fp32_policy # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 600
+  precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 800
   detect_anomaly: false
   save_every: 5
   gradient_accumulation_steps: 1

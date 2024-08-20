@@ -643,7 +643,7 @@ class FIMODE(AModel):
         if process_dim != 1:
             raise ValueError("Process dimension must be 1 in FIMODE Base model.")
 
-        assert not obs_mask.all(), "Not allowed to have all values masked out."
+        assert not obs_mask.all(dim=1).any(), "Not allowed to have all values masked out."
 
         if self.normalization:
             (
@@ -672,7 +672,7 @@ class FIMODE(AModel):
         )  # Shape ([B, L, 1], [B, L, 1]) (normalized space)
 
         learnt_init_condition_concepts = self._get_init_condition_concepts(
-            branch_out=encoded_input_sequence
+            branch_out=encoded_input_sequence, t_0=fine_grid_grid[:, :1, :]
         )  # Shape ([B, 1], [B, 1]) (normalized space)
 
         # renormalize vector field & initial condition distribution parameters
@@ -704,7 +704,7 @@ class FIMODE(AModel):
         if not training:
             metrics, solution = self.new_stats(
                 normalized_fine_grid_grid=fine_grid_grid,
-                init_condition_concepts=learnt_init_condition_concepts,
+                init_condition_concepts=init_condition_concepts,
                 branch_out=encoded_input_sequence,
                 normalization_parameters=normalization_parameters,
                 fine_grid_sample_path=unnormalized_fine_grid_sample_paths,
@@ -724,14 +724,14 @@ class FIMODE(AModel):
                 "observation_mask": obs_mask,
             }
             model_output["visualizations"]["drift"] = {
-                "learnt": learnt_vector_field_concepts[0],
+                "learnt": vector_field_concepts[0],
                 "target": unnormalized_fine_grid_drift,
-                "certainty": torch.exp(learnt_vector_field_concepts[1]),
+                "certainty": torch.exp(vector_field_concepts[1]),
             }
             model_output["visualizations"]["init_condition"] = {
-                "learnt": learnt_init_condition_concepts[0],
+                "learnt": init_condition_concepts[0],
                 "target": unnormalized_fine_grid_sample_paths[..., 0, :],
-                "certainty": torch.exp(learnt_init_condition_concepts[1]),
+                "certainty": torch.exp(init_condition_concepts[1]),
             }
         else:
             model_output["metrics"] = {}
@@ -829,9 +829,19 @@ class FIMODE(AModel):
 
         return vector_field_mean, vector_field_log_std
 
-    def _get_init_condition_concepts(self, branch_out: torch.Tensor) -> tuple:
-        """Compute mean and log standard deviation of the initial condition"""
-        init_condition_concepts = self.init_cond_net(branch_out)  # Shape [B, 1, 2]
+    def _get_init_condition_concepts(self, branch_out: torch.Tensor, t_0: torch.Tensor) -> tuple:
+        """
+        Compute mean and log standard deviation of the initial condition.
+
+        Args:
+            branch_out (torch.Tensor): embedding of the input sequence [B, 1, dim_latent]
+            t_0 (torch.Tensor): initial time point [B, 1, 1]
+
+        Returns:
+            tuple: mean and log standard deviation of the initial condition ([B, D], [B, D])
+        """
+        init_condition_input = torch.concat([branch_out, t_0], dim=-1)  # shape [B, 1, dim_latent + 1]
+        init_condition_concepts = self.init_cond_net(init_condition_input)  # Shape [B, 1, 2]
 
         init_condition_concepts = init_condition_concepts.squeeze(1)  # Shape [B, 2]
 
@@ -1030,12 +1040,10 @@ class FIMODE(AModel):
 
         obs_values_norm_params = get_norm_params(obs_values, obs_mask)  # ([B, D], [B, D])
         obs_times_norm_params = get_norm_params(obs_times, obs_mask)  # ([B, 1], [B, 1])
-        # TODO : Caution. Changed here.
-        locations_norm_params = get_norm_params(loc_times, torch.zeros_like(loc_times, dtype=bool))
 
         normalized_obs_values = normalize(obs_values, obs_values_norm_params)  # [B, T, D]
         normalized_obs_times = normalize(obs_times, obs_times_norm_params)  # [B, T, 1]
-        normalized_loc_times = normalize(loc_times, locations_norm_params)  # [B, L, 1]
+        normalized_loc_times = normalize(loc_times, obs_times_norm_params)  # [B, L, 1]
 
         normalization_parameters = {
             "obs_values_min": obs_values_norm_params[0],
