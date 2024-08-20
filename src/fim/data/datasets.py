@@ -115,6 +115,60 @@ class TimeSeriesDataset(BaseDataset):
         return f"TimeSeriesDataset(path={self.path}, name={self.name}, split={self.split}, dataset={self.data})"
 
 
+class TimeSeriesDatasetTorch(BaseDataset):
+    """
+    Base class for time series datasets where the data is given in torch format.
+
+    Args:
+        path (Union[str, Path]): The path to the dataset.
+        name (Optional[str]): The name of the dataset. Defaults to None.
+        split (Optional[str]): The split of the dataset. Defaults to "train".
+        **kwargs: Additional keyword arguments to be passed to the `load_dataset` function.
+
+    Attributes:
+        logger: The logger object for logging messages.
+        split (str): The split of the dataset.
+        data (DatasetDict): The loaded dataset.
+
+    Methods:
+        __getitem__(self, idx): Returns the item at the given index.
+        __str__(self): Returns a string representation of the dataset.
+
+    """
+
+    def __init__(
+        self,
+        path: Union[str, Path],
+        ds_name: Optional[str] = None,
+        split: Optional[str] = "train",
+        download_mode: Optional[DownloadMode | str] = None,
+        debugging_data_range: Optional[int] = None,
+        **kwargs,
+    ):
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+        self.path = path
+        self.name = ds_name
+        self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
+        self.split = verify_str_arg(split, arg="split", valid_values= ['train', 'test', 'validation', None])
+        self.data = torch.load(path + f"{split}.pt")
+
+    def __post_init__(self):
+        self.logger.debug("Time Series Dataset Torch loaded successfully.")
+
+    def map(self, function, **kwargs):
+        self.data = self.data.map(function, **kwargs)
+
+    def __len__(self):
+        return len(self.data["coarse_grid_sample_paths"])
+
+    def __getitem__(self, idx):
+        out = {k: (v[0][idx] if isinstance(v, tuple) else v[idx]) for k, v in self.data.items()}
+        return out 
+
+    def __str__(self):
+        return f"TimeSeriesDatasetTorch(path={self.path}, name={self.name}, split={self.split}, dataset_keys={list(self.data.keys())})"
+
+
 class SyntheticDataset(BaseDataset):
     """Class for loading synthetic data (given as pickled jax arrays) and transfer it to pyarrow dataset."""
 

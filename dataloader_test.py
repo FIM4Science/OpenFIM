@@ -10,7 +10,7 @@ from fim.data.dataloaders import DataLoaderFactory
 from fim.utils.helper import expand_params, load_yaml
 
 
-if True:
+if False:
     torch.manual_seed(4)
 
     config_path = "/home/koerner/FIM/configs/train/fim_ode.yaml"
@@ -121,12 +121,12 @@ if False:
 
 # test dataloader
 if True:
-    from fim.data.dataloaders import TimeSeriesDataLoader
+    from fim.data.dataloaders import TimeSeriesDataLoaderTorch
     path = "/home/koerner/FIM/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/"
 
     batch_size = 1024
 
-    dl = TimeSeriesDataLoader(path=path, batch_size=batch_size, test_batch_size=batch_size)
+    dl = TimeSeriesDataLoaderTorch(path=path, batch_size=batch_size, test_batch_size=batch_size)
     print(dl)
     batch_sizes = []
     times = [time.time()]
@@ -146,9 +146,6 @@ if True:
     plt.hist(time_diff)
     plt.title("time differences")
     plt.show()
-    plt.plot(time_diff)
-    plt.title("time differences")
-    plt.show()
 
     print("batch sizes:")
     print("mean: ", np.mean(batch_sizes))
@@ -158,6 +155,8 @@ if True:
     print("mean: ", np.mean(time_diff))
     print("std: ", np.std(time_diff))
 
+
+    print("test")
     batch_sizes = []
     times = [time.time()]
     for batch in tqdm(dl.test_it):
@@ -166,8 +165,6 @@ if True:
 
     times = np.array(times)
     time_diff = times[1:] - times[:-1]
-
-    import matplotlib.pyplot as plt
 
     plt.hist(batch_sizes)
     plt.title("batch sizes")
