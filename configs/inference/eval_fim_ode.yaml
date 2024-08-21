@@ -1,13 +1,13 @@
 
 evaluation:
-  experiment_dir:  results/fim_ode_all-experiment-seed-10_08-14-1602 # results/fim_ode_example_allsamples-experiment-seed-0_07-23-1310 # train config, model checkpoint, output_path will be taken from here
+  experiment_dir:  results/fim_ode-experiment-seed-10_08-20-1716 # results/fim_ode_example_allsamples-experiment-seed-0_07-23-1310 # train config, model checkpoint, output_path will be taken from here
   model_checkpoint: best-model # best-model or epoch-<int>
   # output_path: results/fim_ode_sinData_onlyInitCond-experiment-seed-0_07-26-1711/inference/
   evaluation_type: ts
   device_map: cuda
   sample_indices: !!python/tuple [0,1,7, 12, 34, 57, 83, 99]
   dataset_param: # all other parameters will be taken from the train config
-    split: validation
+    split: test
 #   name: base_dataloader
 #   path:  data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
 #   ds_name: ""
@@ -18,4 +18,4 @@ evaluation:
 #   loader_kwargs:
 #     num_workers: 1
     dataset_kwargs:
-      debugging_data_range: 1000
+      debugging_data_range: 10000

@@ -58,9 +58,6 @@ def freeze_transformer_layers(model: nn.Module, num_layers: int = 0):
 
 
 class SinActivation(nn.Module):
-    # def __init__(self):
-    #     super(SinActivation, self).__init__()
-
     def forward(self, x):
         return torch.sin(x)
 

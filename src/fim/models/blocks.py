@@ -1,23 +1,14 @@
 import copy
-import logging
 import os
-from pathlib import Path
 from typing import List, Optional, Union
 
 import torch
 from torch import nn
-from transformers import (
-    BitsAndBytesConfig,
-    PreTrainedModel,
-    TimeSeriesTransformerForPrediction,
-)
 
 from fim.utils.helper import create_class_instance
 
-from ..trainers.mixed_precision import is_bfloat_supported
 from ..trainers.utils import is_distributed
-from ..utils.logging import RankLoggerAdapter
-from .utils import SinActivation, add_peft_adapter, freeze_transformer_layers
+from .utils import SinActivation
 
 
 class Block(nn.Module):
@@ -93,138 +84,6 @@ class Mlp(Block):
 
     def forward(self, x):
         return self.layers(x)
-
-
-class HFBlock(Block):
-    """
-    Hugging Face Transformer-based neural network block.
-
-    Args:
-        backbone (str): Name of the Hugging Face transformer backbone.
-        pad_token_id (int): Padding token ID.
-        num_added_tokens (int): Number of additional tokens.
-        load_in_8bit (bool): Load the model with 8-bit quantization.
-        load_in_4bit (bool): Load the model with 4-bit quantization.
-        use_bf16 (bool): Use bfloat16 data type for model weights.
-        **kwargs: Additional keyword arguments for the base class.
-
-    Attributes:
-        _torch_dtype: Torch data type for model weights (None if not used).
-        _quantization_config: Quantization configuration (None if not used).
-        backbone: Hugging Face transformer backbone model.
-        conf: AutoConfig instance.
-    """
-
-    def __init__(
-        self,
-        backbone: str | PreTrainedModel,
-        backbone_path: Optional[Path] = None,
-        load_in_8bit: bool = False,
-        load_in_4bit: bool = False,
-        use_bf16: bool = False,
-        device_map: Optional[str] = None,
-        peft: Optional[dict] = None,
-        freeze_first_n_layers: Optional[int] = None,
-        freeze_backbone: Optional[bool] = False,
-        adapter_name: Optional[str] = None,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
-        self._device_map = device_map
-        self._torch_dtype = None
-        self._quantization_config = None
-        self.is_peft = peft is not None and peft["method"] is not None
-        self.backbone = None
-        if isinstance(backbone, str):
-            self._load_backbone(backbone, backbone_path, load_in_8bit, load_in_4bit, use_bf16)
-        else:
-            self.config = backbone.config
-        if self.is_peft and (not self.resume or self.rank != 0):
-            add_peft_adapter(
-                backbone if self.backbone is None else self.backbone,
-                peft,
-                adapter_name,
-            )
-
-        assert not (freeze_backbone and freeze_first_n_layers is not None), self.logger.error(
-            "Both `freeze_backbone` and `freeze_first_n_layers` are set at the same time!"
-        )
-        if not self.is_peft and freeze_backbone:
-            for params in self.backbone.parameters():
-                params.require_grad = False
-
-        if not self.is_peft and freeze_first_n_layers is not None:
-            freeze_transformer_layers(self.backbone, freeze_first_n_layers)
-
-    def _load_backbone(
-        self,
-        backbone,
-        backbone_path,
-        load_in_8bit: bool = False,
-        load_in_4bit: bool = False,
-        use_bf16: bool = False,
-    ):
-        if load_in_8bit and load_in_4bit:
-            raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
-        elif load_in_8bit or load_in_4bit:
-            self._quantization_config = BitsAndBytesConfig(load_in_8bit=load_in_8bit, load_in_4bit=load_in_4bit)
-            self._device_map = "auto"
-        if use_bf16 and is_bfloat_supported:
-            self._torch_dtype = torch.float16
-
-        self.backbone = (
-            TimeSeriesTransformerForPrediction()
-        )  # TODO: Change this to the actual model it is just example it is not tested
-
-    def __str__(self):
-        """
-        Get a string representation of the HFBlock instance.
-
-        Returns:
-            str: A string representation of the instance.
-        """
-        return f"HFBlock(backbone={self.backbone.config.architectures[0]}, dtype={self._torch_dtype}, quantization={self._quantization_config})"
-
-    def forward(self, **kwargs):
-        return self.backbone(**kwargs)
-
-
-# class ResidualBlock(Block):
-#     """Residual block as defined in 'Das, A. et al. Long-term forecasting with TiDE: Time- series dense encoder'."""
-
-#     def __init__(
-#         self,
-#         in_features: int,
-#         out_features: int,
-#         hidden_features: List[int],
-#         hidden_act: nn.Module | dict = nn.ReLU(),
-#         output_act: nn.Module | dict = None,
-#         dropout: float = 0.0,
-#         **kwargs,
-#     ):
-#         super(ResidualBlock, self).__init__(**kwargs)
-
-#         self.mlp = Mlp(
-#             in_features,
-#             out_features,
-#             hidden_features,
-#             hidden_act,
-#             output_act,
-#             dropout,
-#             **kwargs,
-#         )
-#         self.skip_connection = nn.Linear(in_features, out_features)
-#         self.layer_norm = nn.LayerNorm(out_features)
-
-#     def forward(self, x):
-#         out_mlp = self.mlp(x)
-#         out_skip = self.skip_connection(x)
-
-#         out_final = out_mlp + out_skip
-#         out_final = self.layer_norm(out_final)
-
-#         return out_final
 
 
 class TimeEncoding(Block):
@@ -437,8 +296,9 @@ class Standardization(Block):
 
 class StandardizationLearnable(Standardization):
     """
-    Standardization following xyz: linear combination of "normal" standardization and learnable standardization.
+    "Statistics Embedded Reversible Instance Normalization Standardization" following xyz.
 
+    Idea: linear combination of "normal" standardization and embedding of statistics (mean and std of input data).
     Revertion of normalization is same as in Standardization (learnable part is ignored).
     """
 

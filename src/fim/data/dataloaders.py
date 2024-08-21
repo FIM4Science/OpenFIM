@@ -14,10 +14,6 @@ from fim.utils.helper import verify_str_arg
 
 from ..data.datasets import (
     BaseDataset,
-    DummyDataset,
-    PatchedDatasetBase,
-    PatchedDatasetSynthetic,
-    SyntheticDataset,
     TimeSeriesDataset,
     TimeSeriesDatasetTorch,
 )
@@ -76,9 +72,11 @@ class BaseDataLoader:
             case "base":
                 DataSet = BaseDataset
             case "synthetic":
-                DataSet = SyntheticDataset
+                raise ValueError("Outdated dataset type 'synthetic'.")
+                # DataSet = SyntheticDataset
             case "dummy":
-                DataSet = DummyDataset
+                raise ValueError("Outdated dataset type 'dummy'.")
+                # DataSet = DummyDataset
             case "timeseries":
                 DataSet = TimeSeriesDataset
             case _:
@@ -169,83 +167,9 @@ class BaseDataLoader:
         return len(self.test)
 
 
-class PatchedDataLoader(BaseDataLoader):
-    def __init__(
-        self,
-        path: Union[str, Path],
-        ds_name: Optional[str] = None,
-        synthetic_data: Optional[bool] = False,
-        split: Optional[str] = None,
-        batch_size: Optional[int] = 32,
-        test_batch_size: Optional[int] = 32,
-        output_fields: Optional[List[str]] = None,
-        loader_kwargs: Optional[dict] = {},
-        dataset_kwargs: Optional[dict] = {},
-    ):
-        self.batch_size = batch_size
-        self.test_batch_size = test_batch_size
-        self.dataset_kwargs = dataset_kwargs
-        self.loader_kwargs = loader_kwargs
-        self.iter = {}
-        self.path = path
-        self.name = ds_name
-
-        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
-
-        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
-
-        if synthetic_data:
-            dataset_type = PatchedDatasetSynthetic
-        else:
-            dataset_type = PatchedDatasetBase
-
-        if self.split is not None:
-            self.dataset = {
-                self.split: dataset_type(path=self.path, ds_name=self.name, split=self.split, **self.dataset_kwargs)
-            }
-        else:
-            self.dataset = {
-                split_: dataset_type(
-                    path=self.path,
-                    ds_name=self.name,
-                    split=split_,
-                    **self.dataset_kwargs,
-                )
-                for split_ in get_dataset_split_names(self.path, self.name)
-            }
-        if "validation" not in self.dataset.keys() and "test" in self.dataset.keys() and "train" in self.dataset.keys():
-            self.dataset["validation"] = self.dataset["test"]
-            del self.dataset["test"]
-            self.logger.warn('No validation set found. Setting changing key "test" to "validation".')
-
-        for dataset in self.dataset.values():
-            dataset.map(transform_start_field_to_time_features, batched=True, fn_kwargs={"key": "input"})
-            dataset.data.set_format(type="torch", columns=output_fields)
-
-        self._init_dataloaders(self.dataset)
-
-    def _init_dataloaders(self, dataset):
-        for n, d in dataset.items():
-            sampler = None
-            if is_distributed():
-                sampler = DistributedSampler(
-                    d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train"
-                )
-            batch_size = self.batch_size
-            if n != "train":
-                batch_size = self.test_batch_size
-            self.iter[n] = DataLoader(
-                d,
-                drop_last=False,
-                sampler=sampler,
-                shuffle=sampler is None,
-                batch_size=batch_size,
-                **self.loader_kwargs,
-            )
-
-
 class TimeSeriesDataLoaderTorch(BaseDataLoader):
     """Datalaoder for time series data in torch format."""
+
     def __init__(
         self,
         path: Union[str, Path],
@@ -304,7 +228,7 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
             )
 
     def __str__(self) -> str:
-        dataset_desc = {k:str(v) for k,v in self.dataset.items()}
+        dataset_desc = {k: str(v) for k, v in self.dataset.items()}
         return f"TimeSeriesDataLoaderTorch=(batch_size{self.batch_size}, test_batch_size={self.test_batch_size}, dataset={dataset_desc})"
 
     @property
@@ -392,5 +316,4 @@ class DataLoaderFactory:
 
 
 DataLoaderFactory.register("base_dataloader", BaseDataLoader)
-DataLoaderFactory.register("patched_dataloader", PatchedDataLoader)
 DataLoaderFactory.register("ts_torch_dataloader", TimeSeriesDataLoaderTorch)
