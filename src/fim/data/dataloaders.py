@@ -198,10 +198,10 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
         if self.split is not None:
             self.dataset = {
                 self.split: TimeSeriesDatasetTorch(
-                    self.path,
-                    self.name,
-                    self.split,
-                    output_fields,
+                    path=self.path,
+                    ds_name=self.name,
+                    split=self.split,
+                    output_fields=output_fields,
                     **self.dataset_kwargs,
                 )
             }

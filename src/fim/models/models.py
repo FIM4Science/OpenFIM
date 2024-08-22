@@ -85,7 +85,8 @@ class FIMODE(AModel):
         init_cond_net: dict,
         vector_field_net: dict,
         loss_configs: dict,
-        normalization: Optional[dict] = None,
+        normalization_time: Optional[dict] = None,
+        normalization_values: Optional[dict] = None,
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
         use_bf16: bool = False,
@@ -111,7 +112,7 @@ class FIMODE(AModel):
         if use_bf16 and is_bfloat_supported:
             self._torch_dtype = torch.float16
 
-        if normalization is None:
+        if normalization_time is None:
             self.apply_normalization = False
         else:
             self.apply_normalization = True
@@ -124,7 +125,8 @@ class FIMODE(AModel):
             vector_field_net=vector_field_net,
             init_cond_net=init_cond_net,
             loss_configs=loss_configs,
-            normalization=normalization,
+            normalization_time=normalization_time,
+            normalization_values=normalization_values,
         )
 
         self.to(self._device_map)
@@ -138,8 +140,19 @@ class FIMODE(AModel):
         vector_field_net: dict,
         init_cond_net: dict,
         loss_configs: dict,
-        normalization: Optional[dict] = None,
+        normalization_time: Optional[dict] = None,
+        normalization_values: Optional[dict] = None,
     ):
+        if self.apply_normalization:
+            self.normalization_time = create_class_instance(
+                normalization_time.pop("name"),
+                normalization_time,
+            )
+            self.normalization_values = create_class_instance(
+                normalization_values.pop("name"),
+                normalization_values,
+            )
+
         self.time_encoding = create_class_instance(
             time_encoding.pop("name"),
             time_encoding,
@@ -186,14 +199,6 @@ class FIMODE(AModel):
         self.loss_scale_drift = loss_configs.pop("loss_scale_drift")
         self.loss_scale_init_cond = loss_configs.pop("loss_scale_init_cond")
         self.loss_scale_unsuperv_loss = loss_configs.pop("loss_scale_unsuperv_loss")
-
-        if self.apply_normalization:
-            pass 
-            # TODO Implement later
-            # self.normalize_input = create_class_instance(
-            #     normalization.pop("name"),
-            #     normalization,
-            #     )
 
     def forward(
         self,
@@ -278,7 +283,7 @@ class FIMODE(AModel):
             learnt_vector_field_concepts_origSpace = self._renormalize_vector_field_params(
                 vector_field_concepts=learnt_vector_field_concepts_normSpace,
                 normalization_parameters=normalization_parameters,
-            )
+            )  # Shape ([B, L, 1], [B, L, 1])
             learnt_init_condition_concepts_origSpace = self._renormalize_init_condition_params(
                 learnt_init_condition_concepts_normSpace, normalization_parameters
             )
@@ -475,6 +480,12 @@ class FIMODE(AModel):
         learnt_mean_init_cond, learnt_log_std_init_cond = init_condition_concepts
         learnt_var_init_cond = torch.exp(learnt_log_std_init_cond) ** 2
 
+        target_init_cond = fine_grid_sample_paths[..., 0, :]
+
+        assert (
+            learnt_mean_init_cond.shape == target_init_cond.shape == learnt_var_init_cond.shape
+        ), "Shapes of initial condition concepts do not match. Expected ? "
+
         nllh_init_cond_avg = torch.mean(
             1 / 2 * (fine_grid_sample_paths[..., 0, :] - learnt_mean_init_cond) ** 2 / learnt_var_init_cond
             + learnt_log_std_init_cond
@@ -551,7 +562,7 @@ class FIMODE(AModel):
             )
             super_fine_grid_grid_origSpace = self._renormalize_time(
                 grid_grid=super_fine_grid_grid_normSpace,
-                normalization_parameters=normalization_parameters,
+                norm_params=normalization_parameters,
             )
         else:
             super_fine_grid_grid_origSpace = super_fine_grid_grid_normSpace
@@ -563,6 +574,7 @@ class FIMODE(AModel):
             super_fine_grid_drift=learnt_vector_field_concepts_origSpace[0],
             initial_condition=init_condition,
         )  # [B, L, D]
+        assert solution.shape == (B, L, 1)
 
         return solution
 
@@ -570,7 +582,7 @@ class FIMODE(AModel):
         self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor
     ) -> tuple:
         """
-        Apply min-max scaling to observation values and times independtly.
+        Apply normalization to observation values and times independently.
 
         Args:
             obs_values (torch.Tensor): observation values
@@ -582,7 +594,46 @@ class FIMODE(AModel):
             tuple: normalized observation values (torch.Tensor),
                    normalized observation times (torch.Tensor),
                    normalized location times (torch.Tensor),
-                   normalization parameters (dict) with keys "obs_values_min", "obs_values_range", "obs_times_min", "obs_times_range"
+                   normalization parameters (dict) with keys "norm_params_time" and "norm_params_values"
+        """
+        # normalize time
+        obs_times_normSpace, norm_params_time = self.normalization_time(obs_times, obs_mask)
+
+        # normalize location grid with same norm parameters as observation times
+        loc_times_normSpace, _ = self.normalization_time(loc_times, obs_mask, norm_params_time)
+
+        # normalize values
+        obs_values_normSpace, norm_params_values = self.normalization_values(obs_values, obs_mask)
+
+        normalization_parameters = {
+            "norm_params_time": norm_params_time,
+            "norm_params_values": norm_params_values,
+        }
+
+        return (
+            obs_values_normSpace,
+            obs_times_normSpace,
+            loc_times_normSpace,
+            normalization_parameters,
+        )
+
+    def normalize_input_old(
+        self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor
+    ) -> tuple:
+        """
+        Apply normalization to observation values and times independently.
+
+        Args:
+            obs_values (torch.Tensor): observation values
+            obs_times (torch.Tensor): observation times
+            obs_mask (torch.Tensor): observation mask
+            loc_times (torch.Tensor): location times
+
+        Returns:
+            tuple: normalized observation values (torch.Tensor),
+                   normalized observation times (torch.Tensor),
+                   normalized location times (torch.Tensor),
+                   normalization parameters (dict) with keys "norm_params_time" and "norm_params_values"
         """
 
         def get_norm_params(data: torch.Tensor, mask: torch.Tensor) -> tuple:
@@ -664,28 +715,75 @@ class FIMODE(AModel):
 
         shape = drift_mean.shape  # [B, L, 1]
 
-        # reshape (and repeat) values_range to match drift_mean
-        values_range_view = (
-            normalization_parameters["obs_values_range"].unsqueeze(1).repeat(1, shape[1], 1)
-        )  # Shape [B, L, 1]
-        times_range_view = (
-            normalization_parameters["obs_times_range"].unsqueeze(1).repeat(1, shape[1], shape[2])
-        )  # Shape [B, L, 1]
+        reversion_factor_time = self.normalization_time.get_reversion_factor(
+            normalization_parameters.get("norm_params_time")
+        )
+        reversion_factor_values = self.normalization_values.get_reversion_factor(
+            normalization_parameters.get("norm_params_values")
+        )
 
-        # rescale  mean
-        drift_mean = drift_mean * values_range_view / times_range_view  # Shape [B, L, 1]
+        # reshape (and repeat) factors to match drift_mean
+        if reversion_factor_values.dim() == 2:
+            print(" dim 2")
+            reversion_factor_values = reversion_factor_values.unsqueeze(-1)
+        if reversion_factor_time.dim() == 2:
+            print(" dim 2")
+            reversion_factor_time = reversion_factor_time.unsqueeze(-1)
+
+        reversion_factor_values_view = reversion_factor_values.repeat(1, shape[1], 1)  # Shape [B, L, 1]
+        reversion_factor_times_view = reversion_factor_time.repeat(1, shape[1], 1)  # Shape [B, L, 1]
+
+        assert reversion_factor_values_view.shape == shape == reversion_factor_times_view.shape
+
+        # rescale mean
+        drift_mean = drift_mean * reversion_factor_values_view / reversion_factor_times_view  # Shape [B, L, 1]
+
+        assert drift_mean.shape == shape
 
         # rescale log std if provided
         if drift_log_std is not None:
             learnt_drift_log_std = (
-                drift_log_std + torch.log(values_range_view) - torch.log(times_range_view)
+                drift_log_std + torch.log(reversion_factor_values_view) - torch.log(reversion_factor_times_view)
             )  # Shape [B, L, 1]
+            assert learnt_drift_log_std.shape == shape
             return drift_mean, learnt_drift_log_std
 
         else:
             return drift_mean
 
     def _renormalize_init_condition_params(self, init_cond_dist_params: tuple, normalization_parameters: dict) -> tuple:
+        """
+        Rescale the initial condition (mean and log_std) to original space based on observation values normalization parameters.
+
+        Args:
+            init_cond_dist_params (tuple): learnt mean and variance of the initial condition ([B,1], [B, 1])
+            normalization_parameters (dict): holding all normalization parameters including obs_values_min and obs_values_range
+
+        Returns:
+            tuple: rescaled mean and log standard deviation of the initial condition ([B, 1], [B, 1])
+        """
+        init_cond_mean, init_cond_log_std = init_cond_dist_params  # [B,1], [B, 1]
+        norm_params_values = normalization_parameters.get("norm_params_values")  # ([B, 1, 1], [B, 1, 1])
+
+        # rescale mean and log std
+        init_cond_mean_origSpace = self.normalization_values.revert_normalization(
+            x=init_cond_mean, data_concepts=norm_params_values
+        )  # Shape [B, 1]
+        init_cond_log_std_origSpace = self.normalization_values.revert_normalization(
+            x=init_cond_log_std, data_concepts=norm_params_values, log_scale=True
+        )  # Shape [B, 1]
+
+        assert init_cond_mean_origSpace.shape == init_cond_mean.shape
+
+        return init_cond_mean_origSpace, init_cond_log_std_origSpace
+
+    def _renormalize_time(self, grid_grid: torch.Tensor, norm_params: dict) -> torch.Tensor:
+        """Revert time normalization."""
+        return self.normalization_time.revert_normalization(grid_grid, norm_params.get("norm_params_time"))
+
+    def _renormalize_init_condition_params_old(
+        self, init_cond_dist_params: tuple, normalization_parameters: dict
+    ) -> tuple:
         """
         Rescale the initial condition (mean and log_std) to original space based on observation values normalization parameters.
 
@@ -706,7 +804,7 @@ class FIMODE(AModel):
 
         return init_cond_mean, init_cond_log_std
 
-    def _renormalize_time(self, grid_grid: torch.Tensor, normalization_parameters: dict) -> torch.Tensor:
+    def _renormalize_time_old(self, grid_grid: torch.Tensor, normalization_parameters: dict) -> torch.Tensor:
         """Revert min-max scaling of time points."""
         times_min = normalization_parameters.get("obs_times_min")
         times_range = normalization_parameters.get("obs_times_range")

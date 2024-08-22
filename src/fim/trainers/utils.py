@@ -690,9 +690,9 @@ class TrainLogging:
         axes[0].set_title("Drift")
 
         # initial condition plot
-        target_init_cond = line_plot_data.get("init_condition", {}).get("target", None).squeeze(-1)[:10]
-        learnt_init_cond = line_plot_data.get("init_condition", {}).get("learnt", None).squeeze(-1)[:10]
-        certainty_init_cond = line_plot_data.get("init_condition", {}).get("certainty", None).squeeze(-1)[:10]
+        target_init_cond = line_plot_data.get("init_condition", {}).get("target", None).flatten()[:10]
+        learnt_init_cond = line_plot_data.get("init_condition", {}).get("learnt", None).flatten()[:10]
+        certainty_init_cond = line_plot_data.get("init_condition", {}).get("certainty", None).flatten()[:10]
         axes[1].scatter(
             list(range(len(target_init_cond))),
             target_init_cond,
@@ -717,6 +717,9 @@ class TrainLogging:
             target_solution = line_plot_data.get("solution", {}).get("target", None).squeeze(-1)[0]
             learnt_solution = line_plot_data.get("solution", {}).get("learnt", None).squeeze(-1)[0]
 
+            assert len(target_solution) == 128, "Target solution should be of length 128"
+            assert len(learnt_solution) == 128, "Learnt solution should be of length 128"
+
             obs_mask = line_plot_data.get("solution", {}).get("observation_mask", None).squeeze(-1)[0]
             obs_values = line_plot_data.get("solution", {}).get("observation_values", None).squeeze(-1)[0][~obs_mask]
             obs_times = line_plot_data.get("solution", {}).get("observation_times", None).squeeze(-1)[0][~obs_mask]
@@ -735,6 +738,9 @@ class TrainLogging:
                 s=7,
                 color="orange",
             )
+            if len(learnt_solution) != 128:
+                raise ValueError("Learnt solution should be of length 128, actual length: ", len(learnt_solution))
+
             axes[2].plot(fine_grid_times, learnt_solution, label="inference", color="blue")
             # add certainty of inital condition
             # axes[2].errorbar(

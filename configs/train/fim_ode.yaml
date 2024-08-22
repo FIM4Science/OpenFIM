@@ -1,5 +1,5 @@
 experiment:
-  name: fim_ode
+  name: fim_ode_newNorm
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu
@@ -16,16 +16,37 @@ model:
   name: FIMODE
   load_in_8bit: false
   use_bf16: false
-  normalization: 
-    name: fim.models.blocks.Normalization
-    target_mean: 0.0
-    target_std: 1.0
 
   loss_configs:
     ode_solver: rk4
     loss_scale_drift: 1.0
     loss_scale_init_cond: 1.0
     loss_scale_unsuperv_loss: 10.0
+
+  normalization_time:
+    name: fim.models.blocks.MinMaxNormalization
+
+  normalization_values:
+    name: fim.models.blocks.MinMaxNormalization
+
+    # name: fim.models.blocks.Standardization
+    # mean_target: 0.5
+    # std_target: 2
+
+    # name: fim.models.blocks.StandardizationSERIN
+    # mean_target: 0.5
+    # std_target: 2
+    # network:
+    #   name: fim.models.blocks.Mlp
+    #   in_features: 2
+    #   out_features: 128 # max sequence length
+    #   hidden_layers: !!python/tuple [256]
+    #   hidden_act:
+    #     name: torch.nn.SELU
+    #   output_act:
+    #     name: torch.nn.Identity
+    #   dropout: 0.1
+
 
   time_encoding:
     name: fim.models.blocks.TimeEncoding
