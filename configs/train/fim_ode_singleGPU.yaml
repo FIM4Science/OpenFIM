@@ -2,7 +2,7 @@ experiment:
   name: debugging_fim_ode
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [10]
-  device_map: cuda # auto, cuda, cpu
+  device_map: cpu # auto, cuda, cpu
 
 distributed:
   enabled: false
@@ -100,12 +100,19 @@ model:
 
 dataset:
   name: ts_torch_dataloader
-  path: /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  path: /home/koerner/FIM/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
   ds_name: ""
-  dataset_type_name: "timeseries"
   batch_size: 1024
   test_batch_size: 1024
-  output_fields: !!python/tuple ["fine_grid_grid", "coarse_grid_grid", "coarse_grid_sample_paths", "coarse_grid_observation_mask", "fine_grid_concept_values", "fine_grid_sample_paths"]
+  output_fields:
+    !!python/tuple [
+        "fine_grid_grid", 
+        "fine_grid_concept_values", 
+        "fine_grid_sample_paths",
+        "coarse_grid_grid",
+        "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
+        "coarse_grid_observation_mask",
+      ]  
   loader_kwargs:
     num_workers: 8
   # split: "train"

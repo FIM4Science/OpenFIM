@@ -122,6 +122,7 @@ class TimeSeriesDatasetTorch(BaseDataset):
         path (Union[str, Path]): The path to the dataset.
         name (Optional[str]): The name of the dataset. Defaults to None.
         split (Optional[str]): The split of the dataset. Defaults to "train".
+        output_fields (Optional[list]): The columns to include in the output. Defaults to None i.e. all columns.
         **kwargs: Additional keyword arguments to be passed to the `load_dataset` function.
 
     Attributes:
@@ -141,6 +142,7 @@ class TimeSeriesDatasetTorch(BaseDataset):
         ds_name: Optional[str] = None,
         split: Optional[str] = "train",
         debugging_data_range: Optional[int] = None,
+        output_fields: Optional[list] = None,
         **kwargs,
     ):
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
@@ -149,6 +151,9 @@ class TimeSeriesDatasetTorch(BaseDataset):
         self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
         self.split = verify_str_arg(split, arg="split", valid_values=["train", "test", "validation", None])
         self.data = torch.load(path + f"{split}.pt")
+
+        if output_fields is not None:
+            self.data = {k: v for k, v in self.data.items() if k in output_fields}
 
         if debugging_data_range is not None:
             debugging_data_range = min(debugging_data_range, len(self))

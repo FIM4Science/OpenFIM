@@ -205,7 +205,7 @@ class FIMODE(AModel):
         """
         Args:
             batch (dict): input batch with entries (each torch.Tensor)
-                 coarse_grid_sample_paths [B, T, 1] observation values
+                 coarse_grid_(noisy_)sample_paths [B, T, 1] observation values. optionally with noise.
                  coarse_grid_grid [B, T, 1] observation times
                  coarse_grid_observation_mask [B, T, 1] observation mask, dtype: bool (0: value is observed, 1: value is masked out)
                  fine_grid_grid [B, L, 1] time points of fine grid on which the vector field is evaluated
@@ -221,7 +221,14 @@ class FIMODE(AModel):
                 dict: losses (if target drift is provided), metrics, visualizations data
         """
         obs_mask = batch.get("coarse_grid_observation_mask").bool()
-        obs_values_origSpace = batch.get("coarse_grid_sample_paths")
+
+        if "coarse_grid_noisy_sample_paths" in batch:
+            obs_values_origSpace = batch.get("coarse_grid_noisy_sample_paths")
+        elif "coarse_grid_sample_paths" in batch:
+            obs_values_origSpace = batch.get("coarse_grid_sample_paths")
+        else:
+            raise ValueError("coarse_grid_noisy_sample_paths or coarse_grid_sample_paths must be provided.")
+
         obs_times_origSpace = batch.get("coarse_grid_grid")
         fine_grid_grid_origSpace = batch.get("fine_grid_grid")
         fine_grid_sample_paths_origSpace = batch.get("fine_grid_sample_paths")

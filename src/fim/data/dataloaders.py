@@ -179,7 +179,6 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
         test_batch_size: Optional[int] = 32,
         output_fields: Optional[List[str]] = None,
         loader_kwargs: Optional[dict] = {},
-        dataset_type_name: Optional[str] = "base",
         dataset_kwargs: Optional[dict] = {},
     ):
         self.batch_size = batch_size
@@ -196,13 +195,26 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
 
         self.split = verify_str_arg(split, arg="split", valid_values=dataset_split_names + [None])
 
-        DataSet = TimeSeriesDatasetTorch
-
         if self.split is not None:
-            self.dataset = {self.split: DataSet(self.path, self.name, self.split, **self.dataset_kwargs)}
+            self.dataset = {
+                self.split: TimeSeriesDatasetTorch(
+                    self.path,
+                    self.name,
+                    self.split,
+                    output_fields,
+                    **self.dataset_kwargs,
+                )
+            }
         else:
             self.dataset = {
-                split_: DataSet(self.path, self.name, split_, **self.dataset_kwargs) for split_ in dataset_split_names
+                split_: TimeSeriesDatasetTorch(
+                    self.path,
+                    self.name,
+                    split_,
+                    output_fields=output_fields,
+                    **self.dataset_kwargs,
+                )
+                for split_ in dataset_split_names
             }
 
         self._init_dataloaders(self.dataset)
