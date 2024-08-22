@@ -262,22 +262,24 @@ class FIMImputation(AModel):
         embedded_windows = embedded_windows.view(B, wc, -1)
 
         # get scale features from non - normalized data
-        scale_feature_vectors = self._get_scale_feature_vector(obs_values=obs_values, obs_times=obs_times)  # shape [B, wc, dim_latent]
+        scale_feature_vectors = self._get_scale_feature_vector(
+            obs_values=obs_values, obs_times=obs_times
+        )  # shape [B, wc, dim_latent]
 
         obs_input = torch.concat(
             [
                 embedded_windows,
                 scale_feature_vectors,
             ],
-            dim=-1
-        ) # shape [B*wc, 1, 2*dim_latent]
+            dim=-1,
+        )  # shape [B*wc, 1, 2*dim_latent]
 
         # get summarizing embedding of input windows ($\hat{h}$)
-        embedded_input_sequence = self.psi_2(obs_input) # shape [B, 1, dim_latent]
+        embedded_input_sequence = self.psi_2(obs_input)  # shape [B, 1, dim_latent]
 
         # get drift concepts
         drift_concepts = self.fim_base._get_vector_field_concepts(
-            branch_out=embedded_input_sequence, grid_grid=locations
+            encoded_sequence=embedded_input_sequence, location_times=locations
         )
 
         # get solution
@@ -319,8 +321,8 @@ class FIMImputation(AModel):
         obs_range = max_obs_values - min_obs_values
 
         # Get first and last obs_value
-        first_obs_value = obs_values[..., 0,:]
-        last_obs_value = obs_values[..., -1,:]
+        first_obs_value = obs_values[..., 0, :]
+        last_obs_value = obs_values[..., -1, :]
 
         # Stack all features together
         scale_features = torch.concat(
@@ -335,7 +337,7 @@ class FIMImputation(AModel):
                 last_obs_value,
             ],
             dim=-1,
-        ) # shape [B, wc, 8]
+        )  # shape [B, wc, 8]
 
         # pass through lin layer to get correct size
         return self.scale_feature_mapping(scale_features)
