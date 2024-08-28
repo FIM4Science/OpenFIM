@@ -143,6 +143,7 @@ class TimeSeriesDatasetTorch(BaseDataset):
         split: Optional[str] = "train",
         debugging_data_range: Optional[int] = None,
         output_fields: Optional[list] = None,
+        loading_function: Optional[callable] = None,
         **kwargs,
     ):
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
@@ -150,7 +151,13 @@ class TimeSeriesDatasetTorch(BaseDataset):
         self.name = ds_name
         self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
         self.split = verify_str_arg(split, arg="split", valid_values=["train", "test", "validation", None])
-        self.data = torch.load(path + f"{split}.pt")
+
+        if ds_name is None:
+            ds_name = ""
+        if loading_function is None:
+            self.data = torch.load(path + ds_name + f"/{split}.pt")
+        else:
+            self.data = loading_function(path + ds_name)
 
         if output_fields is not None:
             self.data = {k: v for k, v in self.data.items() if k in output_fields}

@@ -24,6 +24,7 @@ __pycache__/*
 tags
 results*
 zzz_*
+reports/*
 
 # Package files
 *.egg

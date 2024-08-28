@@ -233,7 +233,7 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
                 d,
                 drop_last=False,
                 sampler=sampler,
-                shuffle=sampler is None,
+                shuffle=sampler is None and n == "train",
                 batch_size=batch_size,
                 collate_fn=None,
                 **self.loader_kwargs,
