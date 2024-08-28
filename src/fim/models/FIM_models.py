@@ -4,21 +4,36 @@ from typing import Dict, Union
 
 import torch
 
-from fim.models.models import FIMODE, AModel, ModelFactory
-from fim.utils.helper import create_class_instance, load_yaml
+from fim.models.utils import load_model_from_checkpoint
+from fim.utils.helper import create_class_instance
+
+from .models import FIMODE, AModel, ModelFactory
 
 
 class FIMWindowed(AModel):
     """Wrapper for FIMODE model to allow multidimensional and/or longer input sequences."""
 
-    def __init__(self, fim_model: FIMODE, window_count: int, overlap: float, **kwargs):
+    def __init__(self, fim_base: Union[str, Path], denoising_model: dict, window_count: int, overlap: float, **kwargs):
         super().__init__(**kwargs)
 
-        self.fim_model = fim_model
         self.window_count = window_count
         if not 0 <= overlap < 1:
             raise ValueError("Overlap (percentage) must be between 0 and 1.")
         self.overlap = overlap
+
+        self._create_model(
+            fim_model=fim_base,
+            denoising_model=denoising_model,
+        )
+
+    def _create_model(self, fim_model: Union[str, Path], denoising_model: dict):
+        self.denoising_model = create_class_instance(
+            denoising_model.pop("name"),
+            denoising_model,
+        )
+        self.fim_base = (
+            load_model_from_checkpoint(fim_model, module=FIMODE) if isinstance(fim_model, (str, Path)) else fim_model
+        )
 
     def forward(self, x: dict) -> dict:
         """
@@ -26,39 +41,160 @@ class FIMWindowed(AModel):
             x (dict): input data, with keys
                 `coarse_grid_sample_paths`
         """
-        batch_size, max_sequnce_length, process_dim = x["coarse_grid_sample_paths"].shape
+        noisy_observation_values = x.get("coarse_grid_noisy_sample_paths")  # shape [B, T, D]
+        observation_mask = x.get("coarse_grid_observation_mask", None)  #  shape [B, T, 1]
+        observation_times = x.get("coarse_grid_grid")  # shape [B, T, 1]
+        location_times = x.get("fine_grid_grid")  # shape [B, T, 1]
+
+        if observation_mask is None:
+            observation_mask = torch.zeros_like(observation_times)
+
+        batch_size, max_sequence_length, process_dim = noisy_observation_values.shape
         if (
-            window_size := (window_size := (math.ceil(max_sequnce_length / self.window_count)))
-            + self.overlap * window_size
+            window_size := int((ws := (math.ceil(max_sequence_length / self.window_count))) + self.overlap * ws)
         ) >= 128:
             raise ValueError(
-                "The window size is too large for the model. Please increase the number of windows or increase the overlap."
+                f"The window size ({window_size}) is too large for the model. Please increase the number of windows or increase the overlap."
             )
 
-        for k, v in x.items():
-            # make single dimensional [B, T, D] -> [B*D, T, 1]
-            v = v.view(batch_size * process_dim, max_sequnce_length, 1)
-            # split into overlapping windows [B*D, T, 1] -> [B*D*window_count, window_size+overlap_size, 1]
-            v = self._split_into_windows(v, max_sequnce_length)
-            x[k] = v
+        return_values = {
+            "target_solution_paths": x.get("fine_grid_sample_paths"),
+        }
 
-        # forward pass
-        # TODO: check output format. Need solution paths and times
-        output = self.fim_model(x)
-        paths = output["solution_paths"]
+        # make single dimensional [B, T, D] -> [B*D, T, 1]
+        noisy_observation_values_processed = torch.concat(
+            noisy_observation_values.split(1, dim=-1),
+            dim=0,
+        )
+        # repeat mask and times so that it matches process dim
+        observation_mask_processed = torch.concat([observation_mask for _ in range(process_dim)], dim=0)
+        observation_times_processed = torch.concat([observation_times for _ in range(process_dim)], dim=0)
+        location_times_processed = torch.concat([location_times for _ in range(process_dim)], dim=0)
+
+        # for k, v in x.items():
+        #     # make single dimensional [B, T, D] -> [B*D, T, 1]
+        #     if v.size(-1) > 1:
+        #         v = torch.concat(
+        #             v.split(1, dim=-1),
+        #             dim=0,
+        #         )
+        #     else:
+        #         # repeat for process_dim
+        #         v = torch.concat([v for _ in range(process_dim)], dim=0)
+        #     x[k] = v
+        #     assert v.shape == (
+        #         batch_size * process_dim,
+        #         max_sequence_length,
+        #         1,
+        #     ), f"{k} has shape {v.shape} and not {(batch_size * process_dim, max_sequence_length, 1)}"
+
+        # denoise input
+        denoised_observation_values = self.denoising_model(
+            noisy_observation_values_processed, observation_mask_processed
+        )
+        # assert denoised_observation_values.shape == (batch_size * process_dim, max_sequence_length, 1)
+
+        return_values.update(
+            {
+                "observation_times": observation_times,
+                "observation_values": noisy_observation_values,
+                "denoised_observation_values": denoised_observation_values,
+            }
+        )
+
+        # split into overlapping windows
+        denoised_observation_values = self._split_into_windows(denoised_observation_values, max_sequence_length)
+        observation_mask_processed = self._split_into_windows(observation_mask_processed, max_sequence_length)
+        observation_times_processed = self._split_into_windows(observation_times_processed, max_sequence_length)
+        location_times_processed = self._split_into_windows(location_times_processed, max_sequence_length)
+
+        # prepare data for FIMODE forward pass
+        # for k, v in x.items():
+        #     # split into overlapping windows [B*D, T, 1] -> [B*D*window_count, window_size+overlap_size, 1]
+        #     v = self._split_into_windows(v, max_sequence_length)
+        #     x[k] = v
+        assert denoised_observation_values.shape == (batch_size * process_dim * self.window_count, window_size, 1), str(
+            denoised_observation_values.shape
+        )
+        assert (
+            observation_mask_processed.shape
+            == denoised_observation_values.shape
+            == observation_times_processed.shape
+            == location_times_processed.shape
+        )
+        # forward pass for fim base model to get solution paths per window
+        fimode_input = {
+            "coarse_grid_observation_mask": observation_mask_processed,
+            "coarse_grid_noisy_sample_paths": denoised_observation_values,
+            "coarse_grid_grid": observation_times_processed,
+            "fine_grid_grid": location_times_processed,
+        }
+        output = self.fim_base(fimode_input, training=False)
+
+        paths = output["visualizations"]["solution"]["learnt"]  # shape [B*D*window_count, window_size+overlap_size, 1]
+        times = output["visualizations"]["fine_grid_grid"]  # shape [B*D*window_count, window_size+overlap_size, 1]
+
+        # separate windows: reshape to [B*D, window_count, window_size+overlap_size, 1]
+        all_samples_values = []
+        all_samples_times = []
+        for sample_id in range(batch_size * process_dim):
+            sample_values = []
+            sample_times = []
+            for w in range(self.window_count):
+                sample_values.append(paths[sample_id + w * batch_size * process_dim])
+                sample_times.append(times[sample_id + w * batch_size * process_dim])
+
+            all_samples_values.append(torch.stack(sample_values, dim=0))
+            all_samples_times.append(torch.stack(sample_times, dim=0))
+        paths_reshaped = torch.stack(all_samples_values, dim=0)
+        times_reshaped = torch.stack(all_samples_times, dim=0)
 
         # combine outputs (solution paths) by interpolation
-        combined_paths, combinded_times = self._linear_interpolation_windows(paths, max_sequnce_length, process_dim)
+        combined_paths, combined_times = self._linear_interpolation_windows(paths_reshaped, times_reshaped)
 
         # make multidimensional again
-        paths = combined_paths.view(batch_size, max_sequnce_length, process_dim)
-        times = combinded_times.view(batch_size, max_sequnce_length, 1)
+        all_samples_values = []
+        all_samples_times = []
 
-        return paths, times
+        for sample_id in range(batch_size):
+            sample_values = []
+            sample_times = []
+            for dim in range(process_dim):
+                sample_values.append(combined_paths[sample_id + dim * batch_size, :, 0])
+                sample_times.append(combined_times[sample_id + dim * batch_size, :, 0])
+            all_samples_values.append(torch.stack(sample_values, dim=-1))
+            all_samples_times.append(torch.stack(sample_times, dim=-1))
+
+        paths_merged_multi_dim = torch.stack(all_samples_values, dim=0)  # shape [B, window_count*window_size, D]
+        times_merged_multi_dim = torch.stack(all_samples_times, dim=0)
+
+        # remove padding from windowing
+        last_index = -self.padding_size_windowing_end if self.padding_size_windowing_end is not None else None
+        paths_merged_multi_dim = paths_merged_multi_dim[
+            :, self.overlap_size : last_index, :
+        ]  # shape [B, max_sequence_length, D]
+        times_merged_multi_dim = times_merged_multi_dim[
+            :, self.overlap_size : last_index, :
+        ]  # shape [B, max_sequence_length, D]
+
+        return_values.update(
+            {
+                "learnt_solution_paths": paths_merged_multi_dim,
+                "solution_times": times_merged_multi_dim,
+            }
+        )
+
+        # print("shape ground truth solution times", x.get("fine_grid_grid").shape)
+        # print("shape processed solution times", times_merged_multi_dim.shape)
+        # print("are the same ", (x.get("fine_grid_grid") == times_merged_multi_dim).all())
+
+        return return_values
 
     def _split_into_windows(self, x: torch.Tensor, max_sequence_length: int) -> torch.Tensor:
         """
-        Split the tensor into non-overlapping windows, add overlap to the left for all but the first window.
+        Split the tensor into overlapping windows.
+
+        Therefore, split first into non-overlapping windows, than add overlap to the left for all but the first window.
         Pad with 1 if the window is smaller than the window size + overlap size. (i.e. elements will be masked out)
 
         Args:
@@ -69,13 +205,14 @@ class FIMWindowed(AModel):
             torch.Tensor: tensor with shape (num_windows*batch_size*process_dim, window_size+overlap_size, 1)
         """
         # Calculate the size of each window & overlap
-        window_size = max_sequence_length // self.window_count
+        window_size = math.ceil(max_sequence_length / self.window_count)
         self.overlap_size = int(window_size * self.overlap)
 
         windows = []
 
         # Loop to extract non-overlapping windows and add overlap to the left for all but the first window
         start_idx = 0
+        self.padding_size_windowing_end = None
         for i in range(self.window_count):
             if i == 0:
                 window = x[:, start_idx : start_idx + window_size, :]
@@ -86,20 +223,54 @@ class FIMWindowed(AModel):
             else:
                 start_idx = i * window_size - self.overlap_size
                 window = x[:, start_idx : start_idx + window_size + self.overlap_size, :]
-                if window.shape[1] < window_size + self.overlap_size:
-                    # padd with 1 if necessary
+                # padd with 1 if not enough values
+                if (m_window := window.size(1)) < window_size + self.overlap_size:
                     window = torch.cat(
                         [
                             window,
-                            torch.ones_like(window[:, : self.overlap_size, :], dtype=window.dtype),
+                            torch.ones_like(
+                                window[:, : window_size + self.overlap_size - m_window, :], dtype=window.dtype
+                            ),
                         ],
                         dim=1,
                     )
+                    # needed later for padding removal
+                    self.padding_size_windowing_end = window_size + self.overlap_size - m_window
+            assert window.size(1) == window_size + self.overlap_size
             windows.append(window)
 
         return torch.concat(windows, dim=0)
 
     def _linear_interpolation_windows(
+        self, paths: torch.Tensor, times: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Combine the windows by linear interpolation of the overlapping part.
+
+        Args:
+            paths (torch.Tensor): paths of the windows with shape [B*D, window_count, window_size+overlap_size, 1]
+            times (torch.Tensor): times of the windows with shape [B*D, window_count, window_size+overlap_size, 1]
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: combined paths and times with shape [B*D, approx. window_count*window_size, 1]
+        """
+        assert paths.dim() == 4 and times.dim() == 4
+        assert paths.size(1) == self.window_count and times.size(1) == self.window_count
+
+        combined_values = paths[:, 0, :, :]
+        combined_times = times[:, 0, :, :]
+
+        for i in range(1, self.window_count):
+            values_b = paths[:, i, :, :]
+            times_b = times[:, i, :, :]
+
+            combined_values, combined_times = self._merge_two_windows(
+                combined_values, combined_times, values_b, times_b
+            )
+
+        return combined_values, combined_times
+
+    def _merge_two_windows(
         self, values_a: torch.Tensor, times_a: torch.Tensor, values_b: torch.Tensor, times_b: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -120,10 +291,11 @@ class FIMWindowed(AModel):
 
             return combined_values, combined_times
 
+        # overlap-free parts of tensors a and b
         left_window = values_a[:, : -self.overlap_size, :]
         right_window = values_b[:, self.overlap_size :, :]
 
-        # interpolation for the overlapping window
+        # interpolation for the overlapping part
         overlap_t = times_a[:, -self.overlap_size :, :]
         overlap_values_a = values_a[:, -self.overlap_size :, :]
         overlap_values_b = values_b[:, : self.overlap_size, :]
@@ -151,15 +323,12 @@ class FIMWindowed(AModel):
         )
 
 
-ModelFactory.register("FIM_windowed", FIMWindowed)
-
-
 class FIMImputation(AModel):
     """Imputation and forecasting model based on FIMODE."""
 
     def __init__(
         self,
-        fim_base: Union[FIMODE, Path, str],
+        fim_base: Union[Path, str],
         psi_2: dict,
         normalization_params: dict,
         scale_feature_mapping: dict,
@@ -174,32 +343,14 @@ class FIMImputation(AModel):
 
     def _create_model(
         self,
-        fim_base: Union[FIMODE, Path, str],
+        fim_base: Union[Path, str],
         psi_2: dict,
         normalization_params: dict,
         scale_feature_mapping: dict,
     ):
-        if isinstance(fim_base, FIMODE):
-            self.fim_base = fim_base
-        else:
-            params_dict_dir = Path(fim_base).parent / "../../train_parameters.yaml"
-            if not params_dict_dir.exists():
-                raise FileNotFoundError(f"Could not find train_parameters.yaml in {params_dict_dir}")
-            params_dict = load_yaml(params_dict_dir)
-            model_params = params_dict.get("model")
-
-            if model_params.pop("name") != "FIMODE":
-                raise ValueError("Not tested for anything but FIMODE as fim base model!")
-
-            self.fim_base = FIMODE(**model_params)
-
-            checkpoint = torch.load(fim_base)
-            self.fim_base.load_state_dict(checkpoint["model_state"])
-
-        # Ensure all parameters of fim_model do not require gradients
-        for param in self.fim_base.parameters():
-            param.requires_grad = False
-        self.fim_base.eval()
+        self.fim_base = (
+            load_model_from_checkpoint(fim_base, module=FIMODE) if isinstance(fim_base, (Path, str)) else fim_base
+        )
 
         self.fim_base.normalization = self.use_fim_normalization
 
@@ -353,3 +504,4 @@ class FIMImputation(AModel):
 
 
 ModelFactory.register("FIM_imputation", FIMImputation)
+ModelFactory.register("FIM_windowed", FIMWindowed)

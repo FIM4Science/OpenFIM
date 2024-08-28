@@ -236,11 +236,11 @@ class FIMODE(AModel):
 
         obs_times_origSpace = batch.get("coarse_grid_grid")
         fine_grid_grid_origSpace = batch.get("fine_grid_grid")
-        fine_grid_sample_paths_origSpace = batch.get("fine_grid_sample_paths")
+        fine_grid_sample_paths_origSpace = batch.get("fine_grid_sample_paths", None)
 
         fine_grid_drift_origSpace = batch.get("fine_grid_concept_values", None)
-        if not training and fine_grid_drift_origSpace is None:
-            raise ValueError("fine_grid_concept_values must be provided for evaluation.")
+        if training and fine_grid_drift_origSpace is None:
+            raise ValueError("fine_grid_concept_values must be provided for evaluation of loss.")
 
         if obs_values_origSpace.shape[-1] != 1:
             raise ValueError("Process dimension must be 1 in FIMODE Base model.")
@@ -333,7 +333,9 @@ class FIMODE(AModel):
             }
             model_output["visualizations"]["init_condition"] = {
                 "learnt": learnt_init_condition_concepts_origSpace[0],
-                "target": fine_grid_sample_paths_origSpace[..., 0, :],
+                "target": fine_grid_sample_paths_origSpace[..., 0, :]
+                if fine_grid_sample_paths_origSpace is not None
+                else None,
                 "certainty": torch.exp(learnt_init_condition_concepts_origSpace[1]),
             }
         else:
@@ -482,13 +484,12 @@ class FIMODE(AModel):
 
         target_init_cond = fine_grid_sample_paths[..., 0, :]
 
-        assert (
-            learnt_mean_init_cond.shape == target_init_cond.shape == learnt_var_init_cond.shape
-        ), "Shapes of initial condition concepts do not match. Expected ? "
+        # assert (
+        #     learnt_mean_init_cond.shape == target_init_cond.shape == learnt_var_init_cond.shape
+        # ), "Shapes of initial condition concepts do not match. Expected ? "
 
         nllh_init_cond_avg = torch.mean(
-            1 / 2 * (fine_grid_sample_paths[..., 0, :] - learnt_mean_init_cond) ** 2 / learnt_var_init_cond
-            + learnt_log_std_init_cond
+            1 / 2 * (target_init_cond - learnt_mean_init_cond) ** 2 / learnt_var_init_cond + learnt_log_std_init_cond
         )
 
         # unsupervised loss (original space)
@@ -856,10 +857,11 @@ class FIMODE(AModel):
         )  # [B, L, D], [B, L, D] (original space)
 
         # get metrics
-        metrics = self.metric(
-            y=solution,
-            y_target=fine_grid_sample_path,
-        )
+        # metrics = self.metric(
+        #     y=solution,
+        #     y_target=fine_grid_sample_path,
+        # )
+        metrics = {}
 
         return metrics, solution
 

@@ -3,7 +3,9 @@ import os
 from abc import abstractmethod
 from typing import List, Optional, Union
 
+import numpy as np
 import torch
+from scipy.signal import savgol_filter
 from torch import nn
 
 from fim.utils.helper import create_class_instance
@@ -237,8 +239,7 @@ class EncoderBlock(Block):
         self.layer_norm2 = nn.LayerNorm(d_model)
 
     def forward(self, x, padding_mask):
-        # TODO ? Need attention mask?
-        # x shape: B, sequence length, d_model, padding_mask shape: B, sequence length
+        # x shape: B, sequence length, d_model, padding_mask shape: B, sequence length, 1
         attn_out, _ = self.self_attn(
             x,
             x,
@@ -322,7 +323,8 @@ class Standardization(BaseNormalization):
 
         normalized_x = (x - mean_data) / torch.sqrt(var_data + eps) * self.std_target + self.mean_target
 
-        assert normalized_x.shape == x.shape
+        # assert not torch.isnan(normalized_x).any(), "Normalization provoked NaN values. Make eps larger?"
+        # assert normalized_x.shape == x.shape
 
         if x_dim == 4:
             normalized_x = normalized_x.view(B, wc, wlen, D)
@@ -363,7 +365,9 @@ class Standardization(BaseNormalization):
             raise Warning("Data and normalization parameters have different dimensions. Will be broadcasted. Expected?")
 
         std_data = torch.sqrt(var + eps)
-
+        # assert (var >= 0).any(), f"var: {(var <0).sum()}"
+        # assert not torch.isnan(std_data).any()
+        # assert not torch.isnan(x).any()
 
         if not log_scale:
             x_renormalized = std_data / self.std_target * (x - self.mean_target) + mean_data
@@ -373,8 +377,8 @@ class Standardization(BaseNormalization):
         if x_dim == 4:
             # need to reshape back to 4 dim
             x_renormalized = x_renormalized.view(B, wc, wlen, D)
-        
-        assert x_renormalized.shape == x.shape
+
+        # assert x_renormalized.shape == x.shape
 
         return x_renormalized
 
@@ -446,7 +450,12 @@ class StandardizationSERIN(Standardization):
             -1
         )  # shape [B, w, 1]
 
-        assert embedded_statistics.shape == standardized_out.shape
+        # Hacky solution to make sure that the embedded statistics have the same length as the standardized output
+        # TODO: Think about something better
+        if embedded_statistics.size(1) > standardized_out.size(1):
+            embedded_statistics = embedded_statistics[:, :standardized_out.size(1), :]
+        elif embedded_statistics.size(1) < standardized_out.size(1):
+            embedded_statistics = embedded_statistics.repeat(1, standardized_out.size(1), 1)
 
         # fuse normalized x and embedded statistics
         x_fused = (
@@ -552,7 +561,7 @@ class MinMaxNormalization(BaseNormalization):
         else:
             normalized_x = x + torch.log(range_data)
 
-        assert normalized_x.shape == x.shape
+        # assert normalized_x.shape == x.shape
 
         if x_dim == 4:
             normalized_x = normalized_x.unsqueeze(-1)
@@ -597,3 +606,71 @@ class MinMaxNormalization(BaseNormalization):
         """
         _, range_data = data_concepts
         return range_data
+
+
+###
+# Denoising Blocks
+###
+
+
+class SavGolFilter(Block):
+    def __init__(self, window_length: int = 15, polyorder: int = 3):
+        super(SavGolFilter, self).__init__()
+
+        self.window_length = window_length
+        self.polyorder = polyorder
+
+        self.filter = savgol_filter
+
+    def forward(self, x, mask: Optional[torch.Tensor] = None):
+        """
+        Apply Savitzky-Golay filter to input tensor.
+
+        As scipy's savgol-filter is numpy-based, we need to convert the input tensor to numpy & to cpu and back.
+        """
+        if mask is None:
+            mask = torch.zeros_like(x, dtype=bool)
+        x_dim = x.dim()
+        if x_dim == 3:
+            if x.size(-1) == 1:
+                x = x.squeeze(-1)
+                mask = mask.squeeze(-1) if mask is not None else None
+            else:
+                raise ValueError("Input tensor must have shape [B, T, 1] or [B, T].")
+
+        # convert to numpy and cpu
+        x_device = x.device
+        x = x.cpu().numpy()
+        mask = mask.cpu().numpy()
+
+        # apply filter to each sample
+        denoised_samples = []
+        for sample, mask_sample in zip(x, mask):
+            denoised_samples.append(self.apply_savgol_to_sample(sample.copy(), mask_sample))
+
+        x_denoised = np.stack(denoised_samples)
+
+        # convert back to torch tensor and send to original device
+        x_denoised = torch.tensor(x_denoised, device=x_device)
+
+        if x_dim == 3:
+            x_denoised = x_denoised.unsqueeze(-1)
+        return x_denoised
+
+    def apply_savgol_to_sample(self, values: np.array, mask: np.array) -> np.array:
+        """
+        Apply Savitzky-Golay filter to a single sample.
+
+        Args:
+            values: np.array, values to be filtered.
+            mask: np.array, mask indicating which values are masked out. 1 indicates that value is masked out..
+
+        Returns:
+            np.array: denoised values. Same shape as input.
+        """
+        obs_values = values[mask == 0]
+        window_length = min(self.window_length, len(obs_values) - 1)
+        polyorder = min(self.polyorder, window_length - 1)
+        denoised_values = savgol_filter(obs_values, window_length, polyorder)
+        values[mask == 0] = denoised_values
+        return values

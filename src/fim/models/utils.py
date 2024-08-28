@@ -1,10 +1,14 @@
 import copy
 import logging
+from pathlib import Path
+from typing import Union
 
 import torch
 import torch.nn as nn
 from peft import LoraConfig, PeftConfig
 from transformers import PreTrainedModel
+
+from fim.utils.helper import load_yaml
 
 from ..utils.logging import RankLoggerAdapter
 
@@ -67,7 +71,7 @@ def rk4(
     super_fine_grid_drift: torch.Tensor,
     initial_condition: torch.Tensor,
 ):
-    """
+    r"""
     Solve ODE using Runge-Kutta 4th order method.
 
     Args:
@@ -134,3 +138,44 @@ def rk4(
     solution = summands.cumsum(dim=1)  # [B, L, D]
 
     return solution
+
+
+def load_model_from_checkpoint(
+    checkpoint_path: Union[str, Path], module: nn.Module, for_eval: bool = True
+) -> nn.Module:
+    """
+    Load a model from a checkpoint.
+
+    Args:
+        checkpoint_path (Union[str, Path]): Path to the checkpoint. Expects key `model_state`. Further expects a `train_parameters.yaml` file two directories above the checkpoint.
+        module (nn.Module): Module to load. e.g `fim.models.FIMODE`.
+        for_eval (bool): Whether to set the model to eval mode.
+
+    Returns:
+        nn.Module: The loaded model.
+    """
+    params_dict_dir = Path(checkpoint_path).parent / "../../train_parameters.yaml"
+    if not params_dict_dir.exists():
+        raise FileNotFoundError(f"Could not find train_parameters.yaml in {params_dict_dir}")
+    params_dict = load_yaml(params_dict_dir)
+    model_params = params_dict.get("model")
+
+    if model_params.pop("name") != "FIMODE":
+        raise ValueError("Not tested for anything but FIMODE as fim base model!")
+
+    model = module(**model_params)
+
+    if torch.cuda.is_available():
+        checkpoint = torch.load(checkpoint_path)
+    else:
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
+
+    model.load_state_dict(checkpoint["model_state"])
+
+    if for_eval:
+        # Ensure all parameters of fim_model do not require gradients
+        for param in model.parameters():
+            param.requires_grad = False
+        model.eval()
+
+    return model

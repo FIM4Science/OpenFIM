@@ -25,6 +25,8 @@ tags
 results*
 zzz_*
 reports/*
+*archived*
+slurm*
 
 # Package files
 *.egg
