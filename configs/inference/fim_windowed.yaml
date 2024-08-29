@@ -1,0 +1,44 @@
+distributed:
+  enabled: true
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  name: FIM_windowed
+  # load_in_8bit: false
+  # use_bf16: false
+  window_count: 16
+  overlap: 0.25
+  # fim_base: results/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth
+  fim_base: results/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth
+
+  denoising_model: null # no denoising
+    # name: fim.models.blocks.SavGolFilter
+    # window_length: 15
+    # polyorder: 3
+
+
+dataset:
+  name: ts_torch_dataloader # base_dataloader
+  path: /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/ #  /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  ds_name: ""
+  batch_size: 1024
+  test_batch_size: 1024
+  output_fields:
+   !!python/tuple [
+      "fine_grid_grid", 
+      "fine_grid_concept_values", 
+      "fine_grid_sample_paths",
+      "coarse_grid_grid",
+      "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
+      "coarse_grid_observation_mask",
+    ]
+  loader_kwargs:
+    num_workers: 8 # 16
+  split: "test"
+  dataset_kwargs:
+    debugging_data_range: null
+

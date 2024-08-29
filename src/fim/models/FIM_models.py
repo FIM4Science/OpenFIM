@@ -11,7 +11,11 @@ from .models import FIMODE, AModel, ModelFactory
 
 
 class FIMWindowed(AModel):
-    """Wrapper for FIMODE model to allow multidimensional and/or longer input sequences."""
+    """
+    Wrapper for FIMODE model to allow multidimensional and/or longer input sequences.
+
+    Denoising model is optional. If not provided, the input is not denoised.
+    """
 
     def __init__(self, fim_base: Union[str, Path], denoising_model: dict, window_count: int, overlap: float, **kwargs):
         super().__init__(**kwargs)
@@ -26,11 +30,15 @@ class FIMWindowed(AModel):
             denoising_model=denoising_model,
         )
 
-    def _create_model(self, fim_model: Union[str, Path], denoising_model: dict):
-        self.denoising_model = create_class_instance(
-            denoising_model.pop("name"),
-            denoising_model,
-        )
+    def _create_model(self, fim_model: Union[str, Path], denoising_model: Optional[dict] = None):
+        if denoising_model is None:
+            # create dummy model that does nothing
+            self.denoising_model = lambda x, mask: x
+        else:
+            self.denoising_model = create_class_instance(
+                denoising_model.pop("name"),
+                denoising_model,
+            )
         self.fim_base = (
             load_model_from_checkpoint(fim_model, module=FIMODE) if isinstance(fim_model, (str, Path)) else fim_model
         )
