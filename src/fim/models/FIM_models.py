@@ -1,6 +1,6 @@
 import math
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 import torch
 
@@ -103,10 +103,18 @@ class FIMWindowed(AModel):
         )
 
         # split into overlapping windows
-        denoised_observation_values = self._split_into_windows(denoised_observation_values, max_sequence_length)
-        observation_mask_processed = self._split_into_windows(observation_mask_processed, max_sequence_length)
-        observation_times_processed = self._split_into_windows(observation_times_processed, max_sequence_length)
-        location_times_processed = self._split_into_windows(location_times_processed, max_sequence_length)
+        denoised_observation_values = self._split_into_windows(
+            denoised_observation_values, max_sequence_length, padding_value=1
+        )
+        observation_mask_processed = self._split_into_windows(
+            observation_mask_processed, max_sequence_length, padding_value=1
+        )
+        observation_times_processed = self._split_into_windows(
+            observation_times_processed, max_sequence_length, padding_value=1
+        )
+        location_times_processed = self._split_into_windows(
+            location_times_processed, max_sequence_length, padding_value=None
+        )
 
         # prepare data for FIMODE forward pass
         # for k, v in x.items():
@@ -190,7 +198,9 @@ class FIMWindowed(AModel):
 
         return return_values
 
-    def _split_into_windows(self, x: torch.Tensor, max_sequence_length: int) -> torch.Tensor:
+    def _split_into_windows(
+        self, x: torch.Tensor, max_sequence_length: int, padding_value: Optional[int] = 1
+    ) -> torch.Tensor:
         """
         Split the tensor into overlapping windows.
 
@@ -200,6 +210,9 @@ class FIMWindowed(AModel):
         Args:
             x (torch.Tensor): input tensor with shape (batch_size*process_dim, max_sequence_length, 1)
             max_sequence_length (int): the maximum length of the sequence
+            padding_value (int): value to pad with.
+                if None: for the first window the first value and for the last window the last value is used. (intereseting for locations)
+                else: the value is used for padding. Recommnedation to use 1 as this automatically masks the values.
 
         Returns:
             torch.Tensor: tensor with shape (num_windows*batch_size*process_dim, window_size+overlap_size, 1)
@@ -215,27 +228,32 @@ class FIMWindowed(AModel):
         self.padding_size_windowing_end = None
         for i in range(self.window_count):
             if i == 0:
+                # first window gets special treatment: no overlap hence need to padd it for full size
                 window = x[:, start_idx : start_idx + window_size, :]
-                # padd with 1 for overlap size
-                window = torch.cat(
-                    [torch.ones_like(window[:, : self.overlap_size, :], dtype=window.dtype), window], dim=1
-                )
+                if padding_value is not None:
+                    padding = padding_value * torch.ones_like(window[:, : self.overlap_size, :], dtype=window.dtype)
+                else:
+                    first_value = x[:, 0:1, :]
+                    padding = first_value.expand(-1, self.overlap_size, -1)
+                window = torch.cat([padding, window], dim=1)
             else:
                 start_idx = i * window_size - self.overlap_size
                 window = x[:, start_idx : start_idx + window_size + self.overlap_size, :]
-                # padd with 1 if not enough values
-                if (m_window := window.size(1)) < window_size + self.overlap_size:
-                    window = torch.cat(
-                        [
-                            window,
-                            torch.ones_like(
-                                window[:, : window_size + self.overlap_size - m_window, :], dtype=window.dtype
-                            ),
-                        ],
-                        dim=1,
-                    )
+                # last window might need special treatment: padding to full size
+                if (actual_window_size := window.size(1)) < window_size + self.overlap_size:
                     # needed later for padding removal
-                    self.padding_size_windowing_end = window_size + self.overlap_size - m_window
+                    self.padding_size_windowing_end = window_size + self.overlap_size - actual_window_size
+
+                    if padding_value is not None:
+                        padding = padding_value * torch.ones_like(
+                            window[:, : self.padding_size_windowing_end, :], dtype=window.dtype
+                        )
+                    else:
+                        last_value = x[:, -1:, :]
+                        padding = last_value.expand(-1, self.padding_size_windowing_end, -1)
+
+                    window = torch.cat([window, padding], dim=1)
+
             assert window.size(1) == window_size + self.overlap_size
             windows.append(window)
 
