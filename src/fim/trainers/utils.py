@@ -640,6 +640,62 @@ class TrainLogging:
         Args:
             label: str: Label for the tensorboard plot
             line_plot_data: dict: Dictionary containing the line plot data for 1 sample
+                if "imputation_window" in line_plot_data: assume that the data is for imputation
+                else: generate interpolation plots
+        """
+        if isinstance(line_plot_data, list):
+            line_plot_data = line_plot_data[0]
+        if line_plot_data is None or len(line_plot_data) == 0:
+            return
+
+        assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
+
+        if "imputation_window" in line_plot_data:
+            figs = self._generate_imputation_plots(line_plot_data)
+        else:
+            figs = self._generate_interpolation_plots(line_plot_data)
+
+        for label_fig, fig in figs:
+            self.tensorboard_logger.add_figure(
+                tag=label + label_fig, figure=fig, global_step=self.__tensorboard_global_step
+            )
+
+    def _generate_imputation_plots(self, line_plot_data):
+        """Generate a plot showing the imputation performance: plot observed values and for the imputation window the target and the learnt values."""
+        # get random sample id
+        colors = ["red", "teal", "gold", "blue"]
+        batch_size, observed_window_count, _, _ = line_plot_data["observations"]["times"].shape
+        sample_id = torch.randint(0, batch_size, (1,)).item()
+
+        fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+        imputation_times = line_plot_data["imputation_window"]["locations"][sample_id]
+        imputation_target = line_plot_data["imputation_window"]["target"][sample_id]
+        imputation_learnt = line_plot_data["imputation_window"]["learnt"][sample_id]
+
+        for i in range(observed_window_count):
+            obs_mask = line_plot_data["observations"]["mask"][sample_id, i, ...]
+            obs_times = line_plot_data["observations"]["times"][sample_id, i, ...][~obs_mask]
+            obs_values = line_plot_data["observations"]["values"][sample_id, i, ...][~obs_mask]
+
+            ax.scatter(
+                obs_times, sample_id * 0.5 + obs_values, color=colors[i], marker="x", label=f"observed window {i}"
+            )
+        ax.plot(imputation_times, sample_id * 0.5 + imputation_target, color="black", linestyle="--", label="target")
+        ax.plot(imputation_times, sample_id * 0.5 + imputation_learnt, color="blue", label="learnt")
+        ax.legend()
+        ax.set_title("Imputation")
+        ax.set_xlabel("Time")
+        fig.tight_layout()
+        # plt.savefig("data.png")
+        return [("_imputation", fig)]
+
+    def _generate_interpolation_plots(self, line_plot_data) -> tuple[str, List[plt.Figure]]:
+        """
+        Generate a plot showing the interpolation performance: plot the target and the learnt values of the drift.
+        If "solution" is in the line_plot_data, also plot the sample path and the observations.
+
+        args:
+            line_plot_data: dict: Dictionary containing the line plot data for 1 sample
                 "observation_times": torch.Tensor: Times for the coarse grid
                 "observation_values": torch.Tensor: Sample paths for the coarse grid
                 "learnt_solution": torch.Tensor: Learnt solution for the fine grid
@@ -648,16 +704,10 @@ class TrainLogging:
                 "target_drift": torch.Tensor: Target drift for the fine grid
                 "learnt_drift": torch.Tensor: Learnt drift for the fine grid
                 "learnt_std_drift": torch.Tensor: Learnt std drift for the fine grid = certainty
+
+        returns:
+            tuple[str, List[plt.Figure]]: A tuple containing the label and the list
         """
-        if line_plot_data is None:
-            return
-
-        if isinstance(line_plot_data, list):
-            line_plot_data = line_plot_data[0]
-
-        assert isinstance(line_plot_data, dict), "line plot data should be a dictionary"
-        if len(line_plot_data) == 0:
-            return
         if "solution" in line_plot_data:
             fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
         else:
@@ -757,10 +807,7 @@ class TrainLogging:
             axes[2].set_xlabel("Time")
 
         fig.tight_layout()
-
-        self.tensorboard_logger.add_figure(
-            tag=label + "_model_output", figure=fig, global_step=self.__tensorboard_global_step
-        )
+        return [("_interpolation", fig)]
 
     def add_model_graph(self, model, input: Any) -> None:
         """Writes the model graph in tensorboard.

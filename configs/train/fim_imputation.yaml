@@ -1,11 +1,11 @@
 experiment:
-  name: fim_imputation
+  name: FIMImputation/debug_fimImputation_MinMax_SERIN
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu
 
 distributed:
-  enabled: true
+  enabled: false
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -13,10 +13,15 @@ distributed:
   activation_chekpoint: false
 
 model:
-  name: fim.models.FIM_models.FIMImputation  # class name
-  fim_base: results/fim_ode_all-experiment-seed-10_08-14-1602/checkpoints/best-model/model-checkpoint.pth # checkpoint
+  name: FIM_imputation  # class name
+  fim_base: results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
   use_fim_normalization: false
-  
+
+  loss_configs:
+    loss_scale_drift: 1.0
+    loss_scale_latent_embedding: 10.0
+    loss_scale_unsuperv_loss: 10.0
+
   psi_2: # transformer for combining the windows
       name: fim.models.blocks.Transformer
       num_encoder_blocks: 4 
@@ -43,14 +48,16 @@ model:
     network:
       name: fim.models.blocks.Mlp
       in_features: 2
-      out_features: 256 # window_count * window_length
+      out_features: 172 # (window_count-1) * window_length. Needs to fit! (window_length = ceil(max_sequence_length / window_count) + overlap*(ceil(max_sequence_length / window_count)))
       hidden_layers: !!python/tuple [512]
       hidden_act:
         name: torch.nn.SELU
       output_act:
         name: torch.nn.Identity
       dropout: 0.1
-
+    
+    # name: fim.models.blocks.Standardization
+    # name: fim.models.blocks.MinMaxNormalization
   
   scale_feature_mapping:
     name: torch.nn.Linear
@@ -59,6 +66,63 @@ model:
     bias: true
 
 
-data: null
+dataset:
+  name: ts_torch_dataloader
+  path: data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask
+  ds_name: ""
+  # split: "train"
+  batch_size: 1024
+  test_batch_size: 1024
+  dataset_name: fim.data.datasets.TimeSeriesImputationDatasetTorch
+  output_fields:
+    !!python/tuple [
+      "locations",
+    ]
+  loader_kwargs:
+    num_workers: 16
+  dataset_kwargs:
+    output_fields_fimbase:
+      !!python/tuple [
+          "fine_grid_grid", 
+          "fine_grid_concept_values", 
+          "fine_grid_sample_paths",
+          "coarse_grid_grid",
+          "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
+          "coarse_grid_observation_mask",
+        ]
+    debugging_data_range: null
+    window_count: 3
+    overlap: 0
+    max_sequence_length: 256
 
-trainer: null
+trainer: 
+  name: Trainer
+  debug_iterations: null
+  precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 900
+  detect_anomaly: false
+  save_every: 5
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.PeriodicScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: beta_scheduler
+    - name: fim.utils.param_scheduler.ExponentialSchedulerGumbel
+      label: temperature_scheduler
+      init_temperature: 1
+      min_temperature: 0.5
+      training_fraction_to_reach_min: 0.7
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.Adam
+      lr: 0.00001
+      weight_decay: 0.001
+      gradient_norm_clipping: 10
+      schedulers: !!python/tuple
+        - name: torch.optim.lr_scheduler.CosineAnnealingLR
+          T_max: *epochs
+          eta_min: 0.0000001
+          last_epoch: -1

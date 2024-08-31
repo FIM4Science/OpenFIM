@@ -1,6 +1,6 @@
 experiment:
-  name: fim_ode_newNorm
-  name_add_date: True # if true, the current date & time will be added to the experiment name
+  name: fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331
+  name_add_date: False # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu
 
@@ -30,12 +30,12 @@ model:
     name: fim.models.blocks.MinMaxNormalization
 
     # name: fim.models.blocks.Standardization
-    # mean_target: 0.5
-    # std_target: 2
+    # mean_target: 0
+    # std_target: 1
 
     # name: fim.models.blocks.StandardizationSERIN
-    # mean_target: 0.5
-    # std_target: 2
+    # mean_target: 0
+    # std_target: 1
     # network:
     #   name: fim.models.blocks.Mlp
     #   in_features: 2
@@ -138,6 +138,7 @@ dataset:
   loader_kwargs:
     num_workers: 16
   # split: "train"
+  dataset_name: fim.data.datasets.TimeSeriesDatasetTorch
   dataset_kwargs:
     debugging_data_range: null
 
@@ -145,7 +146,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 800
+  epochs: &epochs 900
   detect_anomaly: false
   save_every: 5
   gradient_accumulation_steps: 1
@@ -166,7 +167,7 @@ optimizers: !!python/tuple
       name: torch.optim.Adam # AdamW
       lr: 0.00001
       weight_decay: 0.001
-      gradient_norm_clipping: 100
+      gradient_norm_clipping: 10
       schedulers: !!python/tuple
         - name: torch.optim.lr_scheduler.CosineAnnealingLR
           T_max: *epochs

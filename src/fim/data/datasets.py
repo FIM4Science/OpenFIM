@@ -1,9 +1,12 @@
 import logging
+import math
 from pathlib import Path
 from typing import Optional, Union
 
 import torch
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
+
+from fim.data.utils import split_into_windows
 
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
@@ -182,3 +185,138 @@ class TimeSeriesDatasetTorch(BaseDataset):
 
     def __str__(self):
         return f"TimeSeriesDatasetTorch(path={self.path}, name={self.name}, split={self.split}, dataset_keys={list(self.data.keys())})"
+
+
+class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
+    def __init__(
+        self,
+        path: Union[str, Path],
+        ds_name: Optional[str] = None,
+        split: Optional[str] = "train",
+        debugging_data_range: Optional[int] = None,
+        output_fields: Optional[list] = None,
+        output_fields_fimbase: Optional[list] = None,
+        loading_function: Optional[callable] = None,
+        window_count: int = 3,
+        overlap: int = 0,
+        max_sequence_length: int = 256,
+        **kwargs,
+    ):
+        super().__init__(
+            path=path,
+            ds_name=ds_name,
+            split=split,
+            debugging_data_range=debugging_data_range,
+            output_fields=output_fields_fimbase,
+            loading_function=loading_function,
+            **kwargs,
+        )
+
+        self.output_fields = output_fields
+
+        self.window_count = window_count
+        self.overlap = overlap
+        self.window_size = math.ceil(max_sequence_length / window_count)
+        self.overlap_size = int(self.window_size * overlap)
+
+        # get padding parameters:
+        # if overlap>0: the first window is padded with overlap_size many elements (in the front)
+        # last window is padded with remaining number of elements to reach window_size+overlap_size (in the back)
+        size_last_window = max_sequence_length - (self.window_count - 1) * self.window_size
+        self.padding_params = (self.overlap_size, self.window_size + self.overlap_size - size_last_window)
+
+    def __post_init__(self):
+        self.logger.debug(
+            f"Time Series Dataset (Torch) for Imputation with {self.window_count} windows and {int(100*self.overlap)}% overlap loaded successfully."
+        )
+
+    def __getitem__(self, idx):
+        item = super().__getitem__(idx)
+        for k, v in item.items():
+            if isinstance(v, torch.Tensor):
+                item[k] = v.unsqueeze(0)
+
+        # need to split into windows and provide observation part and location part
+        max_sequence_length = item["coarse_grid_grid"].size(1)
+
+        # observations. all shapes: from  [1, M, 1] to  [wc, wlen, 1]
+        observation_values, padding_params = split_into_windows(
+            item["coarse_grid_noisy_sample_paths"],
+            self.window_count,
+            self.overlap,
+            max_sequence_length=max_sequence_length,
+        )
+        assert padding_params == self.padding_params
+        observation_times, _ = split_into_windows(
+            item["coarse_grid_grid"], self.window_count, self.overlap, max_sequence_length=max_sequence_length
+        )
+        observation_mask, _ = split_into_windows(
+            item["coarse_grid_observation_mask"].bool(),
+            self.window_count,
+            self.overlap,
+            max_sequence_length=max_sequence_length,
+        )
+        # imputation window data
+        location_times, _ = split_into_windows(
+            item["fine_grid_grid"],
+            self.window_count,
+            self.overlap,
+            max_sequence_length=max_sequence_length,
+            padding_value=None,
+        )
+        target_drift, _ = split_into_windows(
+            item["fine_grid_concept_values"],
+            self.window_count,
+            self.overlap,
+            max_sequence_length=max_sequence_length,
+            padding_value=None,
+        )
+        target_sample_path, _ = split_into_windows(
+            item["fine_grid_sample_paths"],
+            self.window_count,
+            self.overlap,
+            max_sequence_length=max_sequence_length,
+            padding_value=None,
+        )
+        assert (observation_mask.size(0) == self.window_count) and (observation_mask.size(2) == 1)
+        assert (
+            observation_mask.shape
+            == observation_values.shape
+            == observation_times.shape
+            == target_drift.shape
+            == target_sample_path.shape
+            == location_times.shape
+        )
+
+        # generate window level mask: exactly one window is masked out (==1). shape: wc, 1
+        mask = torch.zeros(self.window_count, dtype=torch.bool)
+        masked_window_index = torch.randint(0, self.window_count, (1,)).item()
+        mask[masked_window_index] = True
+
+        assert mask.sum() == 1
+        assert mask.dim() == 1
+
+        # select masked out window as imputation window and observed windows as observation windows
+        # take all but masked out window
+        observation_values = observation_values[~mask]
+        observation_times = observation_times[~mask]
+        observation_mask = observation_mask[~mask]
+
+        # take only masked out window
+        location_times = location_times[mask].squeeze(0)
+        target_drift = target_drift[mask].squeeze(0)
+        target_sample_path = target_sample_path[mask].squeeze(0)
+        initial_conditions = target_sample_path[0, :]
+
+        return {
+            "observation_values": observation_values,
+            "observation_times": observation_times,
+            "observation_mask": observation_mask.bool(),
+            "location_times": location_times,
+            "target_drift": target_drift,
+            "target_sample_path": target_sample_path,
+            "initial_conditions": initial_conditions,
+        }
+
+    def __str__(self):
+        return f"TimeSeriesImputationDatasetTorch(path={self.path}, name={self.name}, split={self.split},  window_count={self.window_count}, overlap={self.overlap}, dataset_keys={self.output_fields})"

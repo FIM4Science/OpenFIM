@@ -164,7 +164,7 @@ class Transformer(Block):
             mask (torch.Tensor): Mask for the input tensor, shape (batch_size, seq_len) with 1 indicating that the time point is masked out. If None, nothing is masked.
         """
         if key_padding_mask is None:
-            key_padding_mask = torch.zeros_like(x[:, :, 0])
+            key_padding_mask = torch.zeros_like(x[:, :, 0], dtype=bool)
         elif key_padding_mask.dim() == 3:
             key_padding_mask = key_padding_mask.squeeze(-1)  #  (batch_size, seq_len)#z
 
@@ -290,7 +290,12 @@ class Standardization(BaseNormalization):
         self.mean_target = mean_target
         self.std_target = std_target if std_target != 0 else eps
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, tuple]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        norm_params: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
+    ) -> tuple[torch.Tensor, tuple]:
         """
         Change statistics of given data x to target mean and std (Default: 0 and 1) with `X^ = std_target / std_data * (x - mean_data) + mean_target`.
 
@@ -299,6 +304,8 @@ class Standardization(BaseNormalization):
         Args:
             x: (torch.Tensor), shape [B, w, 1] or [B, wc, wlen, 1].
             mask: (torch.Tensor), shape [B, w, 1] or [B, wc, wlen, 1]. 1 indicating that value is masked out. Default: no values masked out.
+            norm_params: (tuple), mean and std of original data. ([B, 1], [B, 1]). Default: None, mean and std are computed from x.
+                Used to apply normalization to other data.
 
         Returns:
             normalized_x, (mean_data, var_data): (torch.Tensor, tuple). Normalized data and statistics of original data.
@@ -311,15 +318,20 @@ class Standardization(BaseNormalization):
             B, wc, wlen, D = x.shape
             x = x.view(B, wc * wlen, D)
             mask = mask.view(B, wc * wlen, D)
+        elif x_dim == 2:
+            x.unsqueeze(-1)
 
         # invert mask
         mask_inverted = ~mask
 
         # get masked mean and std per window
-        mean_data = ((mask_inverted * x).sum(dim=1) / mask_inverted.sum(dim=1)).unsqueeze(-1)  # shape [B, 1, 1]
-        var_data = ((mask_inverted * (x - mean_data) ** 2).sum(dim=1) / mask_inverted.sum(dim=1)).unsqueeze(
-            -1
-        )  # shape [B, 1, 1]
+        if norm_params is None:
+            mean_data = ((mask_inverted * x).sum(dim=1) / mask_inverted.sum(dim=1)).unsqueeze(-1)  # shape [B, 1, 1]
+            var_data = ((mask_inverted * (x - mean_data) ** 2).sum(dim=1) / mask_inverted.sum(dim=1)).unsqueeze(
+                -1
+            )  # shape [B, 1, 1]
+        else:
+            mean_data, var_data = norm_params
 
         normalized_x = (x - mean_data) / torch.sqrt(var_data + eps) * self.std_target + self.mean_target
 
@@ -328,6 +340,8 @@ class Standardization(BaseNormalization):
 
         if x_dim == 4:
             normalized_x = normalized_x.view(B, wc, wlen, D)
+        elif x_dim == 2:
+            normalized_x = normalized_x.squeeze(-1)
 
         return normalized_x, (mean_data, var_data)  # shape [B, T, 1], ([B, 1, 1], [B, 1, 1])
 
@@ -426,7 +440,12 @@ class StandardizationSERIN(Standardization):
         layer_norm = nn.LayerNorm(network.get("out_features"), elementwise_affine=False)
         self.statistics_embedder = nn.Sequential(mlp, layer_norm)
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, tuple]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        norm_params: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
+    ) -> tuple[torch.Tensor, tuple]:
         """
         Standardize data by linear combination of Standardization and linearly embedded data statistics.
 
@@ -435,6 +454,8 @@ class StandardizationSERIN(Standardization):
         Args:
             x: torch.Tensor. Either 3 or 4 dimensional.
             mask: torch.Tensor, optional, default: no values are masked out. 1 indicates that a value is masked out.
+            norm_params: tuple, mean and std of original data. ([B, 1], [B, 1]). Default: None, mean and std are computed from x.
+                Used to apply normalization to other data.
 
         returns:
             standardized x and statistics of original data.
@@ -445,17 +466,26 @@ class StandardizationSERIN(Standardization):
             B, wc, wlen, D = x.shape
             x = x.view(B, wc * wlen, D)
             mask = mask.view(B, wc * wlen, D)
-        standardized_out, statistics = super().forward(x, mask)  # shape [B, w, 1], ([B,1, 1], [B,1, 1])
+
+        standardized_out, statistics = super().forward(x, mask, norm_params)  # shape [B, w, 1], ([B,1, 1], [B,1, 1])
+        if norm_params is not None:
+            # i.e. this was only used to normalize the data, no need to embed statistics for additional information
+            return standardized_out, statistics
+
         embedded_statistics = self.statistics_embedder(torch.concat(statistics, dim=1).squeeze(-1)).unsqueeze(
             -1
         )  # shape [B, w, 1]
 
+        if embedded_statistics.shape != standardized_out.shape:
+            raise ValueError(
+                f"The statistics are mapped to {embedded_statistics.size(1)} but expected {standardized_out.size(1)} (length of concatenated input windows)."
+            )
+
         # Hacky solution to make sure that the embedded statistics have the same length as the standardized output
-        # TODO: Think about something better
-        if embedded_statistics.size(1) > standardized_out.size(1):
-            embedded_statistics = embedded_statistics[:, :standardized_out.size(1), :]
-        elif embedded_statistics.size(1) < standardized_out.size(1):
-            embedded_statistics = embedded_statistics.repeat(1, standardized_out.size(1), 1)
+        # if embedded_statistics.size(1) > standardized_out.size(1):
+        #     embedded_statistics = embedded_statistics[:, : standardized_out.size(1), :]
+        # elif embedded_statistics.size(1) < standardized_out.size(1):
+        #     embedded_statistics = embedded_statistics.repeat(1, standardized_out.size(1), 1)
 
         # fuse normalized x and embedded statistics
         x_fused = (

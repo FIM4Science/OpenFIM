@@ -1,12 +1,20 @@
+
+
+
+import logging
 import math
 from pathlib import Path
 from typing import Dict, Optional, Union
 
 import torch
+from transformers import BitsAndBytesConfig
 
+from fim.data.utils import split_into_windows
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.helper import create_class_instance
 
+from ..trainers.mixed_precision import is_bfloat_supported
+from ..utils.logging import RankLoggerAdapter
 from .models import FIMODE, AModel, ModelFactory
 
 
@@ -359,13 +367,36 @@ class FIMImputation(AModel):
         normalization_params: dict,
         scale_feature_mapping: dict,
         use_fim_normalization: bool,
+        loss_configs: dict,
+        load_in_8bit: bool = False,
+        load_in_4bit: bool = False,
+        use_bf16: bool = False,
+        device_map: Optional[str] = None,
+        resume: bool = False,
+        peft: Optional[dict] = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super(FIMImputation, self).__init__()
+        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+        self._device_map = device_map
+        self._torch_dtype = None
+        self._quantization_config = None
+        self.resume = resume
+        self.peft = peft
+        if load_in_8bit and load_in_4bit:
+            raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
+        elif load_in_8bit or load_in_4bit:
+            self._quantization_config = BitsAndBytesConfig(
+                load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
+            )
+            self._device_map = "auto"
+        if use_bf16 and is_bfloat_supported:
+            self._torch_dtype = torch.float16
 
         self.use_fim_normalization = use_fim_normalization
 
-        self._create_model(fim_base, psi_2, normalization_params, scale_feature_mapping)
+        self._create_model(fim_base, psi_2, normalization_params, scale_feature_mapping, loss_configs)
 
     def _create_model(
         self,
@@ -373,12 +404,13 @@ class FIMImputation(AModel):
         psi_2: dict,
         normalization_params: dict,
         scale_feature_mapping: dict,
+        loss_configs: dict,
     ):
-        self.fim_base = (
+        self.fim_base: FIMODE = (
             load_model_from_checkpoint(fim_base, module=FIMODE) if isinstance(fim_base, (Path, str)) else fim_base
         )
 
-        self.fim_base.normalization = self.use_fim_normalization
+        self.fim_base.apply_normalization = self.use_fim_normalization
 
         self.psi_2 = create_class_instance(
             psi_2.pop("name"),
@@ -392,18 +424,34 @@ class FIMImputation(AModel):
 
         self.scale_feature_mapping = create_class_instance(scale_feature_mapping.pop("name"), scale_feature_mapping)
 
-    def forward(self, x: dict) -> dict:
+        self.loss_scale_latent_embedding = loss_configs.get("loss_scale_latent_embedding", 1.0)
+        self.loss_scale_drift = loss_configs.get("loss_scale_drift", 1.0)
+        self.loss_scale_unsuperv_loss = loss_configs.get("loss_scale_unsuperv_loss", 1.0)
+
+    def forward(
+        self,
+        x: dict,
+        schedulers: Optional[dict] = None,
+        step: Optional[int] = None,
+        training: bool = False,
+    ) -> dict:
         """
         Assume: Input is windowed, i.e. for example observation values shape: [B, window_count, max_window_size, 1]
         """
+        # data for input sequence (observed windows)
         obs_values = x.get("observation_values")  # shape [B, wc, wlen, 1]
         obs_mask = x.get("observation_mask", None)  # shape [B, wc, wlen, 1]
         if obs_mask is None:
-            obs_mask = torch.zeros_like(obs_values)
+            self.logger.debug("Warning: No mask provided. Assuming no missing values.")
+            obs_mask = torch.zeros_like(obs_values, dtype=bool)
         obs_times = x.get("observation_times")  # shape [B, wc, wlen, 1]
+
+        # data for imputation window
         locations = x.get("location_times")  # shape [B, wlen, 1]
         # fine_grid_grid = x.get("fine_grid_grid")
-        init_conditions = x.get("init_conditions")  # shape [B, 1]
+        init_conditions_for_impuWindow = x.get("initial_conditions")  # shape [B, 1]
+        drift_impuWindow_target = x.get("target_drift", None)  # shape [B, wlen, 1]
+        sample_path_impuWindow_target = x.get("target_sample_path", None)  # shape [B, wlen, 1]
 
         B, wc, wlen, _ = obs_values.shape
 
@@ -411,20 +459,20 @@ class FIMImputation(AModel):
         normalized_windows, window_norm_params = self.sequence_normalization(obs_values, obs_mask)
 
         # reshape [B, wc, wlen, 1] -> [B*wc, wlen, 1] so FIMODE can handle it
-        windowed_values = normalized_windows.view(B * wc, wlen, 1)
-        windowed_times = obs_times.view(B * wc, wlen, 1)
-        windowed_mask = obs_mask.view(B * wc, wlen, 1)
+        windowed_obs_values = normalized_windows.view(B * wc, wlen, 1)
+        windowed_obs_times = obs_times.view(B * wc, wlen, 1)
+        windowed_obs_mask = obs_mask.view(B * wc, wlen, 1)
 
         if self.use_fim_normalization:
             (
-                windowed_values,  # [B*wc, wlen, 1]
-                windowed_times,  # [B*wc, wlen, 1]
+                windowed_obs_values,  # [B*wc, wlen, 1]
+                windowed_obs_times,  # [B*wc, wlen, 1]
                 locations,  # [B*wc, wlen, 1]
                 normalization_parameters,
             ) = self.fim_base.normalize_input(
-                obs_times=windowed_times,
-                obs_values=windowed_values,
-                obs_mask=windowed_mask,
+                obs_times=windowed_obs_times,
+                obs_values=windowed_obs_values,
+                obs_mask=windowed_obs_mask,
                 loc_times=locations,
             )
         else:
@@ -432,7 +480,7 @@ class FIMImputation(AModel):
 
         # embedd input windows
         embedded_windows = self.fim_base._encode_input_sequence(
-            obs_values=windowed_values, obs_times=windowed_times, obs_mask=windowed_mask
+            obs_values=windowed_obs_values, obs_times=windowed_obs_times, obs_mask=windowed_obs_mask
         )  # shape [B*wc, 1, dim_latent]
 
         # reshape back to [B, wc, dim_latent]
@@ -455,24 +503,55 @@ class FIMImputation(AModel):
         embedded_input_sequence = self.psi_2(obs_input)  # shape [B, 1, dim_latent]
 
         # get drift concepts
-        drift_concepts = self.fim_base._get_vector_field_concepts(
+        drift_concepts_learnt = self.fim_base._get_vector_field_concepts(
             encoded_sequence=embedded_input_sequence, location_times=locations
         )
 
-        # get solution
-        solution_paths = self.fim_base.get_solution(
+        # get solution with dummy initial condition (normalization issues...)
+        solution_paths_learnt = self.fim_base.get_solution(
             fine_grid=locations,
-            init_condition=init_conditions,
+            init_condition=torch.zeros_like(init_conditions_for_impuWindow),
             branch_out=embedded_input_sequence,
             normalization_parameters=normalization_parameters,
         )
 
         # denormalize
-        denormalized_solution_paths = self.sequence_normalization.revert_normalization(
-            x=solution_paths, data_concepts=window_norm_params
+        denormalized_solution_paths_learnt = self.sequence_normalization.revert_normalization(
+            x=solution_paths_learnt, data_concepts=window_norm_params
         )
 
-        return denormalized_solution_paths
+        # use correct initial condition (hacky solution: subtract current initial value and add desired one -> something better?)
+        # TODO Think about: How to handle inference?
+        denormalized_solution_paths_learnt = (
+            denormalized_solution_paths_learnt
+            - denormalized_solution_paths_learnt[:, :1, :]
+            + init_conditions_for_impuWindow[:, None, :]
+        )
+        if drift_impuWindow_target is not None and sample_path_impuWindow_target is not None:
+            loss = self.loss(
+                vector_field_concepts=drift_concepts_learnt,
+                target_drift=drift_impuWindow_target,
+                target_sample_path=sample_path_impuWindow_target,
+                impu_window_grid=locations,
+                latent_embedding_impu_window=embedded_input_sequence,
+            )
+        else:
+            loss = {}
+        return {
+            "losses": loss,
+            "visualizations": {
+                "imputation_window": {
+                    "locations": locations,
+                    "learnt": denormalized_solution_paths_learnt,
+                    "target": sample_path_impuWindow_target,
+                },
+                "observations": {
+                    "values": obs_values,
+                    "mask": obs_mask,
+                    "times": obs_times,
+                },
+            },
+        }
 
     def _get_scale_feature_vector(self, obs_values: torch.Tensor, obs_times: torch.Tensor) -> torch.Tensor:
         """
@@ -522,11 +601,77 @@ class FIMImputation(AModel):
     def new_stats(self):
         pass
 
-    def loss(self, *inputs) -> Dict:
-        raise NotImplementedError
+    def loss(
+        self,
+        vector_field_concepts: tuple,
+        target_drift: torch.Tensor,
+        target_sample_path: torch.Tensor,
+        impu_window_grid: torch.Tensor,
+        latent_embedding_impu_window: torch.Tensor,
+    ) -> Dict:
+        """
+        Compute loss for model on the imputation window.
+
+        The loss constsis of three components:
+         - negative log likelihood of the vector field values at the fine grid points.
+         - unsupervised loss (one-step ahead prediction loss)
+         - the L1 loss between the learnt embedding of the imputation window and the embedding of the window as given from the fimbase model.
+
+        The total loss is a weighted sum of all losses. The weights are defined in the loss_configs. (loss_scale_drift, loss_scale_init_cond, loss_scale_unsuperv_loss)
+
+        """
+        # nllh drift
+        learnt_mean_drift, learnt_log_std_drift = vector_field_concepts
+        learnt_var_drift = torch.exp(learnt_log_std_drift) ** 2
+
+        nllh_drift_avg = torch.mean(
+            1 / 2 * (target_drift - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift
+        )
+
+        # unsupervised loss
+        step_size_fine_grid = impu_window_grid[..., 1:, :] - impu_window_grid[..., :-1, :]
+
+        # unsupervised_loss[i] = (target_path[i]-target_path[i-1] - drift[i-1]*step_size)^2
+        unsupervised_loss = torch.mean(
+            torch.sum(
+                (
+                    target_sample_path[..., 1:, :]
+                    - target_sample_path[..., :-1, :]
+                    - learnt_mean_drift[..., :-1, :] * step_size_fine_grid
+                )
+                ** 2,
+                dim=-2,
+            )
+        )
+
+        # l1 loss between learnt embedding and embedding from fimbase
+        target_embedding = self.fim_base._encode_input_sequence(
+            obs_values=target_sample_path,
+            obs_times=impu_window_grid,
+            obs_mask=torch.zeros_like(impu_window_grid, dtype=bool),
+        )
+        target_embedding = target_embedding.squeeze(1)
+
+        l1_loss_embedding = torch.mean(torch.abs(target_embedding - latent_embedding_impu_window))
+
+        total_loss = (
+            self.loss_scale_latent_embedding * l1_loss_embedding
+            + self.loss_scale_drift * nllh_drift_avg
+            + self.loss_scale_unsuperv_loss * unsupervised_loss
+        )
+
+        return {
+            "loss": total_loss,
+            "nllh_drift": nllh_drift_avg,
+            "unsupervised_loss": unsupervised_loss,
+            "l1_loss_embedding": l1_loss_embedding,
+        }
 
     def metric(self, *inputs) -> Dict:
         raise NotImplementedError
+
+    def is_peft(self) -> bool:
+        return self.peft is not None and self.peft["method"] is not None
 
 
 ModelFactory.register("FIM_imputation", FIMImputation)

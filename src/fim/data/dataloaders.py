@@ -10,7 +10,7 @@ from datasets import get_dataset_split_names, load_dataset_builder
 from torch.utils.data.dataloader import DataLoader
 
 from fim.utils.collate import pad_data_collator
-from fim.utils.helper import verify_str_arg
+from fim.utils.helper import create_class_instance, verify_str_arg
 
 from ..data.datasets import (
     BaseDataset,
@@ -179,6 +179,7 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
         test_batch_size: Optional[int] = 32,
         output_fields: Optional[List[str]] = None,
         loader_kwargs: Optional[dict] = {},
+        dataset_name: BaseDataset = TimeSeriesDatasetTorch,
         dataset_kwargs: Optional[dict] = {},
     ):
         self.batch_size = batch_size
@@ -197,22 +198,28 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
 
         if self.split is not None:
             self.dataset = {
-                self.split: TimeSeriesDatasetTorch(
-                    path=self.path,
-                    ds_name=self.name,
-                    split=self.split,
-                    output_fields=output_fields,
-                    **self.dataset_kwargs,
+                self.split: create_class_instance(
+                    dataset_name,
+                    {
+                        "path": self.path,
+                        "ds_name": self.name,
+                        "split": self.split,
+                        "output_fields": output_fields,
+                        **self.dataset_kwargs,
+                    },
                 )
             }
         else:
             self.dataset = {
-                split_: TimeSeriesDatasetTorch(
-                    self.path,
-                    self.name,
-                    split_,
-                    output_fields=output_fields,
-                    **self.dataset_kwargs,
+                split_: create_class_instance(
+                    dataset_name,
+                    {
+                        "path": self.path,
+                        "ds_name": self.name,
+                        "split": split_,
+                        "output_fields": output_fields,
+                        **self.dataset_kwargs,
+                    },
                 )
                 for split_ in dataset_split_names
             }
@@ -241,7 +248,7 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
 
     def __str__(self) -> str:
         dataset_desc = {k: str(v) for k, v in self.dataset.items()}
-        return f"TimeSeriesDataLoaderTorch=(batch_size{self.batch_size}, test_batch_size={self.test_batch_size}, dataset={dataset_desc})"
+        return f"TimeSeriesDataLoaderTorch=(batch_size={self.batch_size}, test_batch_size={self.test_batch_size}, dataset={dataset_desc})"
 
     @property
     def train(self):
