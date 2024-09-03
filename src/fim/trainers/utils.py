@@ -663,11 +663,11 @@ class TrainLogging:
     def _generate_imputation_plots(self, line_plot_data):
         """Generate a plot showing the imputation performance: plot observed values and for the imputation window the target and the learnt values."""
         # get random sample id
-        colors = ["red", "teal", "gold", "blue"]
+        colors = ["red", "teal", "gold", "green", "red", "teal", "gold", "green"]
         batch_size, observed_window_count, _, _ = line_plot_data["observations"]["times"].shape
         sample_id = torch.randint(0, batch_size, (1,)).item()
 
-        fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(10, 4))
         imputation_times = line_plot_data["imputation_window"]["locations"][sample_id]
         imputation_target = line_plot_data["imputation_window"]["target"][sample_id]
         imputation_learnt = line_plot_data["imputation_window"]["learnt"][sample_id]
@@ -677,14 +677,35 @@ class TrainLogging:
             obs_times = line_plot_data["observations"]["times"][sample_id, i, ...][~obs_mask]
             obs_values = line_plot_data["observations"]["values"][sample_id, i, ...][~obs_mask]
 
-            ax.scatter(
+            axs[0].scatter(
                 obs_times, sample_id * 0.5 + obs_values, color=colors[i], marker="x", label=f"observed window {i}"
             )
-        ax.plot(imputation_times, sample_id * 0.5 + imputation_target, color="black", linestyle="--", label="target")
-        ax.plot(imputation_times, sample_id * 0.5 + imputation_learnt, color="blue", label="learnt")
-        ax.legend()
-        ax.set_title("Imputation")
-        ax.set_xlabel("Time")
+        axs[0].plot(
+            imputation_times, sample_id * 0.5 + imputation_target, color="black", linestyle="--", label="target"
+        )
+        axs[0].plot(imputation_times, sample_id * 0.5 + imputation_learnt, color="blue", label="learnt")
+        # axs[0].legend()
+        axs[0].set_title("Imputation")
+        axs[0].set_xlabel("Time")
+
+        # plot drift
+        drift = line_plot_data["drift"]["learnt"][sample_id].squeeze(-1)
+        certainty = line_plot_data["drift"]["certainty"][sample_id].squeeze(-1)
+        target_drift = line_plot_data["drift"]["target"][sample_id].squeeze(-1)
+
+        axs[1].plot(imputation_times, drift, color="blue", label="learnt")
+        axs[1].fill_between(
+            imputation_times.squeeze(-1),
+            drift - certainty,
+            drift + certainty,
+            alpha=0.3,
+            color="blue",
+            label="certainty",
+        )
+        axs[1].plot(imputation_times, target_drift, color="black", linestyle="--", label="target")
+        axs[1].set_title("Drift")
+        axs[1].legend()
+
         fig.tight_layout()
         # plt.savefig("data.png")
         return [("_imputation", fig)]

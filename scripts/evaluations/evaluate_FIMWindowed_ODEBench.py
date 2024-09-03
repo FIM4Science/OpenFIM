@@ -246,7 +246,7 @@ if __name__ == "__main__":
     config_dir = "/home/koerner/FIM/configs/inference/fim_windowed.yaml"
     config = load_yaml(config_dir)
 
-    # denoising_model_name = config["model"].get("denoising_model", {}).get("name", None)
+    denoising_model_name = config["model"].get("denoising_model", {}).get("name", None)
 
     dims = [1, 2, 3, 4]
     sigmas = ["0.0", "0.05"]  # "0.01", "0.02", "0.03", "0.04", ]
@@ -267,8 +267,8 @@ if __name__ == "__main__":
     ):
         config["model"]["window_count"] = window_count
         config["model"]["fim_base"] = model_path
-        # if denoising_model_name is not None:
-        #     config["model"]["denoising_model"]["name"] = denoising_model_name
+        if denoising_model_name is not None:
+            config["model"]["denoising_model"]["name"] = denoising_model_name
 
         model = FIMWindowed(**config["model"])
         model.to(device_map)
@@ -276,9 +276,9 @@ if __name__ == "__main__":
 
         model_abbr = model_path  # config["model"]["fim_base"]
         if "MinMax" in model_abbr:
-            model_abbr = "MinMax"
+            model_abbr = "MinMax_SavGol_808"
         elif "RevIN" in model_abbr:
-            model_abbr = "RevIN"
+            model_abbr = "RevIN_SavGol_785"
         else:
             model_abbr = None
         # window_count = config["model"]["window_count"]

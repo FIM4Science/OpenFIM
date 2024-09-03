@@ -160,8 +160,8 @@ def load_model_from_checkpoint(
     params_dict = load_yaml(params_dict_dir)
     model_params = params_dict.get("model")
 
-    if model_params.pop("name") != "FIMODE":
-        raise ValueError("Not tested for anything but FIMODE as fim base model!")
+    if (model_name := model_params.pop("name")) != "FIMODE" or model_name != "FIMImputation":
+        logger.warn("Not tested for anything but FIMODE and FIMImputation!")
 
     model = module(**model_params)
 

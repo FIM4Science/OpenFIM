@@ -550,6 +550,12 @@ class FIMImputation(AModel):
                     "mask": obs_mask,
                     "times": obs_times,
                 },
+                "drift": {
+                    "learnt": drift_concepts_learnt[0],
+                    "certainty": torch.exp(drift_concepts_learnt[1]),
+                    "target": drift_impuWindow_target,
+                    "locations": locations,
+                },
             },
         }
 
