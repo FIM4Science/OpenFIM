@@ -200,6 +200,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         window_count: int = 3,
         overlap: int = 0,
         max_sequence_length: int = 256,
+        imputation_mask: Optional[list[bool]] = None,
         **kwargs,
     ):
         super().__init__(
@@ -218,6 +219,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         self.overlap = overlap
         self.window_size = math.ceil(max_sequence_length / window_count)
         self.overlap_size = int(self.window_size * overlap)
+        self.imputation_mask = torch.tensor(imputation_mask) if imputation_mask is not None else None
 
         # get padding parameters:
         # if overlap>0: the first window is padded with overlap_size many elements (in the front)
@@ -288,10 +290,13 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
             == location_times.shape
         )
 
-        # generate window level mask: exactly one window is masked out (==1). shape: wc, 1
-        mask = torch.zeros(self.window_count, dtype=torch.bool)
-        masked_window_index = torch.randint(0, self.window_count, (1,)).item()
-        mask[masked_window_index] = True
+        if self.imputation_mask is None:
+            # generate window level mask: exactly one window is masked out (==1). shape: wc, 1
+            mask = torch.zeros(self.window_count, dtype=torch.bool)
+            masked_window_index = torch.randint(0, self.window_count, (1,)).item()
+            mask[masked_window_index] = True
+        else:
+            mask = self.imputation_mask
 
         assert mask.sum() == 1
         assert mask.dim() == 1
