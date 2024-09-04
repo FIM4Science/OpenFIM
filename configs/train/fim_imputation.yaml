@@ -1,11 +1,11 @@
 experiment:
-  name: FIMImputation/debug_fimImputation_MinMax_SERIN
+  name: FIMImputation/5wind_No_No_fixImpMask_200samples_onlyNllhDrift
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu
 
 distributed:
-  enabled: false
+  enabled: true
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -14,13 +14,13 @@ distributed:
 
 model:
   name: FIM_imputation  # class name
-  fim_base: results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
+  fim_base: results/FIMODE/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
   use_fim_normalization: false
 
   loss_configs:
     loss_scale_drift: 1.0
-    loss_scale_latent_embedding: 10.0
-    loss_scale_unsuperv_loss: 10.0
+    loss_scale_latent_embedding: 0.0
+    loss_scale_unsuperv_loss: 0.0
 
   psi_2: # transformer for combining the windows
       name: fim.models.blocks.Transformer
@@ -40,24 +40,33 @@ model:
           name:  torch.nn.Identity
         dropout: *dropout
   
-  normalization_params:
-    name: fim.models.blocks.StandardizationSERIN
-    mean_target: 0
-    std_target: 1
-    lin_factor: 0.5
-    network:
-      name: fim.models.blocks.Mlp
-      in_features: 2
-      out_features: 172 # (window_count-1) * window_length. Needs to fit! (window_length = ceil(max_sequence_length / window_count) + overlap*(ceil(max_sequence_length / window_count)))
-      hidden_layers: !!python/tuple [512]
-      hidden_act:
-        name: torch.nn.SELU
-      output_act:
-        name: torch.nn.Identity
-      dropout: 0.1
+  normalization_values: # normalization entire time series
+    # name: fim.models.blocks.StandardizationSERIN
+    # mean_target: 0
+    # std_target: 1
+    # lin_factor: 0.5
+    # network:
+    #   name: fim.models.blocks.Mlp
+    #   in_features: 2
+    #   out_features: 208 # wc=7: 222 # wc=5: 208 # wc = 3: 172 # (window_count-1) * window_length. Needs to fit! (window_length = ceil(max_sequence_length / window_count) + overlap*(ceil(max_sequence_length / window_count)))
+    #   hidden_layers: !!python/tuple [512]
+    #   hidden_act:
+    #     name: torch.nn.SELU
+    #   output_act:
+    #     name: torch.nn.Identity
+    #   dropout: 0.1
+
+    name: fim.models.blocks.NoNormalization
     
     # name: fim.models.blocks.Standardization
+    
     # name: fim.models.blocks.MinMaxNormalization
+  
+  normalization_times: 
+    # name: fim.models.blocks.MinMaxNormalization
+
+    name: fim.models.blocks.NoNormalization
+
   
   scale_feature_mapping:
     name: torch.nn.Linear
@@ -90,9 +99,10 @@ dataset:
           "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
           "coarse_grid_observation_mask",
         ]
-    debugging_data_range: null
-    window_count: 3
+    debugging_data_range: 200
+    window_count: 5
     overlap: 0
+    imputation_mask: !!python/tuple [false, false, true, false, false] #  or null for random mask
     max_sequence_length: 256
 
 trainer: 
