@@ -239,7 +239,7 @@ class EncoderBlock(Block):
         self.layer_norm2 = nn.LayerNorm(d_model)
 
     def forward(self, x, padding_mask):
-        # x shape: B, sequence length, d_model, padding_mask shape: B, sequence length, 1
+        # x shape: [B, sequence length, d_model], padding_mask shape: [B, sequence length, 1]
         attn_out, _ = self.self_attn(
             x,
             x,
@@ -280,6 +280,32 @@ class BaseNormalization(Block):
     @abstractmethod
     def revert_normalization_drift(self, x: torch.Tensor, data_concepts: Union[tuple, torch.Tensor]):
         raise NotImplementedError
+
+
+class NoNormalization(BaseNormalization):
+    """Dummy class for no normalization."""
+
+    def __init__(self):
+        super(NoNormalization, self).__init__()
+
+    def forward(
+        self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, norm_params: Optional[dict] = None
+    ) -> tuple[torch.Tensor, tuple]:
+        return x, (torch.zeros((x.size(0), 1, 1), device=x.device), torch.ones((x.size(0), 1, 1), device=x.device))
+
+    def revert_normalization(
+        self, x: torch.Tensor, data_concepts: Union[tuple, torch.Tensor], log_scale: bool = False
+    ) -> torch.Tensor:
+        return x
+
+    def revert_normalization_drift(self, x: torch.Tensor, data_concepts: Union[tuple, torch.Tensor]) -> torch.Tensor:
+        return x
+
+    def get_reversion_factor(
+        self, data_concepts: Optional[tuple[torch.Tensor, torch.Tensor]] = None
+    ) -> Union[torch.Tensor, int]:
+        """If data concepts, return"""
+        return data_concepts[1]
 
 
 class Standardization(BaseNormalization):

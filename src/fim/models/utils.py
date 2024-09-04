@@ -160,7 +160,7 @@ def load_model_from_checkpoint(
     params_dict = load_yaml(params_dict_dir)
     model_params = params_dict.get("model")
 
-    if (model_name := model_params.pop("name")) != "FIMODE" or model_name != "FIMImputation":
+    if (model_name := model_params.pop("name")) != "FIMODE" and model_name != "FIM_imputation":
         logger.warn("Not tested for anything but FIMODE and FIMImputation!")
 
     model = module(**model_params)
@@ -171,6 +171,7 @@ def load_model_from_checkpoint(
         checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
 
     model.load_state_dict(checkpoint["model_state"])
+    logger.log(f"Model loaded. last epoch: {checkpoint['last_epoch']}")
 
     if for_eval:
         # Ensure all parameters of fim_model do not require gradients

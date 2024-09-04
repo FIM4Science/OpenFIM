@@ -50,6 +50,7 @@ def split_into_windows(
 
     Returns:
         torch.Tensor: tensor with shape (num_windows*batch_size*process_dim, window_size+overlap_size, 1)
+        tuple[int, int]: overlap_size, padding_size_window
     """
     # Calculate the size of each window & overlap
     window_size = math.ceil(max_sequence_length / window_count)
@@ -93,3 +94,69 @@ def split_into_windows(
         windows.append(window)
 
     return torch.concat(windows, dim=0), (overlap_size, padding_size_windowing_end)
+
+
+def reorder_windows_per_sample(x: torch.Tensor, window_count: int, batch_size: int, process_dim: int):
+    """
+    Rearange windows to have all windows of one sample in a row.
+
+    Follow-up function to split_into_windows. This function is needed to reorder the windows to have all windows of one sample in a row.
+
+    Args:
+        x (torch.Tensor): tensor with shape (num_windows*batch_size*process_dim, window_size+overlap_size, 1)
+        window_count (int): number of windows
+        batch_size (int): batch size (actual batch size, not multiplied with process_dim)
+        process_dim (int): process dimension
+
+    Returns:
+        torch.Tensor: tensor with shape (batch_size*process_dim, window_count, window_size+overlap_size, 1)
+    """
+    all_samples = []
+    for sample_id in range(batch_size * process_dim):
+        sample = []
+        for w in range(window_count):
+            sample.append(x[sample_id + w * batch_size * process_dim])
+
+        all_samples.append(torch.stack(sample, dim=0))
+    x_reshaped = torch.stack(all_samples, dim=0)
+
+    return x_reshaped
+
+
+def make_single_dim(x: torch.Tensor):
+    """Split last dimension of tensor in pieces of size 1 and concatenate along first dimension.
+    Args:
+        x (torch.Tensor): tensor with shape (B, ..., D)
+
+    Returns:
+        torch.Tensor: tensor with shape (B*D, ..., 1)
+    """
+    return torch.concat(
+        x.split(1, dim=-1),
+        dim=0,
+    )
+
+
+def make_multi_dim(x: torch.Tensor, batch_size: int, process_dim: int):
+    """
+    Reversion of `make_single_dim`.
+
+    Args:
+        x (torch.Tensor): tensor with shape (B*D, ..., 1)
+        batch_size (int): batch size
+        process_dim (int): process dimension
+
+    Returns:
+        torch.Tensor: tensor with shape (B, ..., D)
+    """
+    assert x.size(-1) == 1
+
+    all_samples = []
+
+    for sample_id in range(batch_size):
+        sample_values = []
+        for dim in range(process_dim):
+            sample_values.append(x[sample_id + dim * batch_size, :, 0])
+        all_samples.append(torch.stack(sample_values, dim=-1))
+
+    return torch.stack(all_samples, dim=0)

@@ -1,6 +1,3 @@
-
-
-
 import logging
 import math
 from pathlib import Path
@@ -9,7 +6,7 @@ from typing import Dict, Optional, Union
 import torch
 from transformers import BitsAndBytesConfig
 
-from fim.data.utils import split_into_windows
+from fim.data.utils import make_multi_dim, make_single_dim, reorder_windows_per_sample, split_into_windows
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.helper import create_class_instance
 
@@ -47,7 +44,7 @@ class FIMWindowed(AModel):
                 denoising_model.pop("name"),
                 denoising_model,
             )
-        self.fim_base = (
+        self.fim_base: FIMODE = (
             load_model_from_checkpoint(fim_model, module=FIMODE) if isinstance(fim_model, (str, Path)) else fim_model
         )
 
@@ -78,10 +75,7 @@ class FIMWindowed(AModel):
         }
 
         # make single dimensional [B, T, D] -> [B*D, T, 1]
-        noisy_observation_values_processed = torch.concat(
-            noisy_observation_values.split(1, dim=-1),
-            dim=0,
-        )
+        noisy_observation_values_processed = make_single_dim(noisy_observation_values)
         # repeat mask and times so that it matches process dim
         observation_mask_processed = torch.concat([observation_mask for _ in range(process_dim)], dim=0)
         observation_times_processed = torch.concat([observation_times for _ in range(process_dim)], dim=0)
@@ -119,18 +113,20 @@ class FIMWindowed(AModel):
         )
 
         # split into overlapping windows
-        denoised_observation_values = self._split_into_windows(
-            denoised_observation_values, max_sequence_length, padding_value=1
+        denoised_observation_values, padding_params = split_into_windows(
+            denoised_observation_values, self.window_count, self.overlap, max_sequence_length, padding_value=1
         )
-        observation_mask_processed = self._split_into_windows(
-            observation_mask_processed, max_sequence_length, padding_value=1
+        observation_mask_processed, _ = split_into_windows(
+            observation_mask_processed, self.window_count, self.overlap, max_sequence_length, padding_value=1
         )
-        observation_times_processed = self._split_into_windows(
-            observation_times_processed, max_sequence_length, padding_value=1
+        observation_times_processed, _ = split_into_windows(
+            observation_times_processed, self.window_count, self.overlap, max_sequence_length, padding_value=1
         )
-        location_times_processed = self._split_into_windows(
-            location_times_processed, max_sequence_length, padding_value=None
+        location_times_processed, _ = split_into_windows(
+            location_times_processed, self.window_count, self.overlap, max_sequence_length, padding_value=None
         )
+
+        self.overlap_size, self.padding_size_windowing_end = padding_params
 
         # prepare data for FIMODE forward pass
         # for k, v in x.items():
@@ -159,38 +155,58 @@ class FIMWindowed(AModel):
         times = output["visualizations"]["fine_grid_grid"]  # shape [B*D*window_count, window_size+overlap_size, 1]
 
         # separate windows: reshape to [B*D, window_count, window_size+overlap_size, 1]
-        all_samples_values = []
-        all_samples_times = []
-        for sample_id in range(batch_size * process_dim):
-            sample_values = []
-            sample_times = []
-            for w in range(self.window_count):
-                sample_values.append(paths[sample_id + w * batch_size * process_dim])
-                sample_times.append(times[sample_id + w * batch_size * process_dim])
+        paths_reordered = reorder_windows_per_sample(
+            paths, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim
+        )
+        times_reordered = reorder_windows_per_sample(
+            times, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim
+        )
 
-            all_samples_values.append(torch.stack(sample_values, dim=0))
-            all_samples_times.append(torch.stack(sample_times, dim=0))
-        paths_reshaped = torch.stack(all_samples_values, dim=0)
-        times_reshaped = torch.stack(all_samples_times, dim=0)
+        # old
+        # all_samples_values = []
+        # all_samples_times = []
+        # for sample_id in range(batch_size * process_dim):
+        #     sample_values = []
+        #     sample_times = []
+        #     for w in range(self.window_count):
+        #         sample_values.append(paths[sample_id + w * batch_size * process_dim])
+        #         sample_times.append(times[sample_id + w * batch_size * process_dim])
+
+        #     all_samples_values.append(torch.stack(sample_values, dim=0))
+        #     all_samples_times.append(torch.stack(sample_times, dim=0))
+        # paths_reshaped = torch.stack(all_samples_values, dim=0)
+        # times_reshaped = torch.stack(all_samples_times, dim=0)
 
         # combine outputs (solution paths) by interpolation
-        combined_paths, combined_times = self._linear_interpolation_windows(paths_reshaped, times_reshaped)
+        combined_paths, combined_times = self._linear_interpolation_windows(paths_reordered, times_reordered)
 
         # make multidimensional again
-        all_samples_values = []
-        all_samples_times = []
+        paths_merged_multi_dim = make_multi_dim(
+            combined_paths, batch_size, process_dim
+        )  # shape [B, window_count*window_size, D]
+        times_merged_multi_dim = make_multi_dim(
+            combined_times, batch_size, process_dim
+        )  # shape [B, window_count*window_size, D]
 
-        for sample_id in range(batch_size):
-            sample_values = []
-            sample_times = []
-            for dim in range(process_dim):
-                sample_values.append(combined_paths[sample_id + dim * batch_size, :, 0])
-                sample_times.append(combined_times[sample_id + dim * batch_size, :, 0])
-            all_samples_values.append(torch.stack(sample_values, dim=-1))
-            all_samples_times.append(torch.stack(sample_times, dim=-1))
+        assert paths_merged_multi_dim.shape == (batch_size, self.window_count * window_size, process_dim), str(
+            paths_merged_multi_dim.shape
+        )
 
-        paths_merged_multi_dim = torch.stack(all_samples_values, dim=0)  # shape [B, window_count*window_size, D]
-        times_merged_multi_dim = torch.stack(all_samples_times, dim=0)
+        # make multidimensional again (old)
+        # all_samples_values = []
+        # all_samples_times = []
+
+        # for sample_id in range(batch_size):
+        #     sample_values = []
+        #     sample_times = []
+        #     for dim in range(process_dim):
+        #         sample_values.append(combined_paths[sample_id + dim * batch_size, :, 0])
+        #         sample_times.append(combined_times[sample_id + dim * batch_size, :, 0])
+        #     all_samples_values.append(torch.stack(sample_values, dim=-1))
+        #     all_samples_times.append(torch.stack(sample_times, dim=-1))
+
+        # paths_merged_multi_dim = torch.stack(all_samples_values, dim=0)  # shape [B, window_count*window_size, D]
+        # times_merged_multi_dim = torch.stack(all_samples_times, dim=0)
 
         # remove padding from windowing
         last_index = -self.padding_size_windowing_end if self.padding_size_windowing_end is not None else None
@@ -207,73 +223,7 @@ class FIMWindowed(AModel):
                 "solution_times": times_merged_multi_dim,
             }
         )
-
-        # print("shape ground truth solution times", x.get("fine_grid_grid").shape)
-        # print("shape processed solution times", times_merged_multi_dim.shape)
-        # print("are the same ", (x.get("fine_grid_grid") == times_merged_multi_dim).all())
-
         return return_values
-
-    def _split_into_windows(
-        self, x: torch.Tensor, max_sequence_length: int, padding_value: Optional[int] = 1
-    ) -> torch.Tensor:
-        """
-        Split the tensor into overlapping windows.
-
-        Therefore, split first into non-overlapping windows, than add overlap to the left for all but the first window.
-        Pad with 1 if the window is smaller than the window size + overlap size. (i.e. elements will be masked out)
-
-        Args:
-            x (torch.Tensor): input tensor with shape (batch_size*process_dim, max_sequence_length, 1)
-            max_sequence_length (int): the maximum length of the sequence
-            padding_value (int): value to pad with.
-                if None: for the first window the first value and for the last window the last value is used. (intereseting for locations)
-                else: the value is used for padding. Recommnedation to use 1 as this automatically masks the values.
-
-        Returns:
-            torch.Tensor: tensor with shape (num_windows*batch_size*process_dim, window_size+overlap_size, 1)
-        """
-        # Calculate the size of each window & overlap
-        window_size = math.ceil(max_sequence_length / self.window_count)
-        self.overlap_size = int(window_size * self.overlap)
-
-        windows = []
-
-        # Loop to extract non-overlapping windows and add overlap to the left for all but the first window
-        start_idx = 0
-        self.padding_size_windowing_end = None
-        for i in range(self.window_count):
-            if i == 0:
-                # first window gets special treatment: no overlap hence need to padd it for full size
-                window = x[:, start_idx : start_idx + window_size, :]
-                if padding_value is not None:
-                    padding = padding_value * torch.ones_like(window[:, : self.overlap_size, :], dtype=window.dtype)
-                else:
-                    first_value = x[:, 0:1, :]
-                    padding = first_value.expand(-1, self.overlap_size, -1)
-                window = torch.cat([padding, window], dim=1)
-            else:
-                start_idx = i * window_size - self.overlap_size
-                window = x[:, start_idx : start_idx + window_size + self.overlap_size, :]
-                # last window might need special treatment: padding to full size
-                if (actual_window_size := window.size(1)) < window_size + self.overlap_size:
-                    # needed later for padding removal
-                    self.padding_size_windowing_end = window_size + self.overlap_size - actual_window_size
-
-                    if padding_value is not None:
-                        padding = padding_value * torch.ones_like(
-                            window[:, : self.padding_size_windowing_end, :], dtype=window.dtype
-                        )
-                    else:
-                        last_value = x[:, -1:, :]
-                        padding = last_value.expand(-1, self.padding_size_windowing_end, -1)
-
-                    window = torch.cat([window, padding], dim=1)
-
-            assert window.size(1) == window_size + self.overlap_size
-            windows.append(window)
-
-        return torch.concat(windows, dim=0)
 
     def _linear_interpolation_windows(
         self, paths: torch.Tensor, times: torch.Tensor
@@ -364,7 +314,8 @@ class FIMImputation(AModel):
         self,
         fim_base: Union[Path, str],
         psi_2: dict,
-        normalization_params: dict,
+        normalization_values: dict,
+        normalization_times: dict,
         scale_feature_mapping: dict,
         use_fim_normalization: bool,
         loss_configs: dict,
@@ -396,13 +347,21 @@ class FIMImputation(AModel):
 
         self.use_fim_normalization = use_fim_normalization
 
-        self._create_model(fim_base, psi_2, normalization_params, scale_feature_mapping, loss_configs)
+        self._create_model(
+            fim_base,
+            psi_2,
+            normalization_values,
+            normalization_times,
+            scale_feature_mapping,
+            loss_configs,
+        )
 
     def _create_model(
         self,
         fim_base: Union[Path, str],
         psi_2: dict,
-        normalization_params: dict,
+        normalization_values: dict,
+        normalization_times: dict,
         scale_feature_mapping: dict,
         loss_configs: dict,
     ):
@@ -417,9 +376,14 @@ class FIMImputation(AModel):
             psi_2,
         )
 
-        self.sequence_normalization = create_class_instance(
-            normalization_params.pop("name"),
-            normalization_params,
+        self.normalization_values = create_class_instance(
+            normalization_values.pop("name"),
+            normalization_values,
+        )
+
+        self.normalization_times = create_class_instance(
+            normalization_times.pop("name"),
+            normalization_times,
         )
 
         self.scale_feature_mapping = create_class_instance(scale_feature_mapping.pop("name"), scale_feature_mapping)
@@ -438,7 +402,8 @@ class FIMImputation(AModel):
         """
         Assume: Input is windowed, i.e. for example observation values shape: [B, window_count, max_window_size, 1]
         """
-        # data for input sequence (observed windows)
+        # extract data
+        # for input sequence (observed windows)
         obs_values = x.get("observation_values")  # shape [B, wc, wlen, 1]
         obs_mask = x.get("observation_mask", None)  # shape [B, wc, wlen, 1]
         if obs_mask is None:
@@ -448,39 +413,52 @@ class FIMImputation(AModel):
 
         # data for imputation window
         locations = x.get("location_times")  # shape [B, wlen, 1]
-        # fine_grid_grid = x.get("fine_grid_grid")
         init_conditions_for_impuWindow = x.get("initial_conditions")  # shape [B, 1]
         drift_impuWindow_target = x.get("target_drift", None)  # shape [B, wlen, 1]
         sample_path_impuWindow_target = x.get("target_sample_path", None)  # shape [B, wlen, 1]
 
         B, wc, wlen, _ = obs_values.shape
 
-        # normalize observations
-        normalized_windows, window_norm_params = self.sequence_normalization(obs_values, obs_mask)
+        # tor sequences apart on window level, ie. reshape [B, wc, wlen, 1] -> [B*wc, wlen, 1] so FIMODE can handle it
+        # obs_values_torn = obs_values.view(B * wc, wlen, 1)
+        # obs_times_torn = obs_times.view(B * wc, wlen, 1)
 
-        # reshape [B, wc, wlen, 1] -> [B*wc, wlen, 1] so FIMODE can handle it
-        windowed_obs_values = normalized_windows.view(B * wc, wlen, 1)
-        windowed_obs_times = obs_times.view(B * wc, wlen, 1)
-        windowed_obs_mask = obs_mask.view(B * wc, wlen, 1)
+        # normalize observation values & times per sequence
+        # TODO: discuss alternative with normalizat per window: problem: how to revert normalization in impu window?
+        obs_values_torn_normalized, norm_params_values_torn = self.normalization_values(
+            obs_values.view(B, wc * wlen, 1), obs_mask.view(B, wc * wlen, 1)
+        )
+        obs_values_torn_normalized = obs_values_torn_normalized.view(B, wc, wlen, 1).view(B * wc, wlen, 1)
+
+        obs_times_torn_normalized, norm_params_times_torn = self.normalization_times(
+            obs_times.view(B, wc * wlen, 1), obs_mask.view(B, wc * wlen, 1)
+        )
+        obs_times_torn_normalized = obs_times_torn_normalized.view(B, wc, wlen, 1).view(B * wc, wlen, 1)
+
+        obs_mask_torn = obs_mask.view(B * wc, wlen, 1)
+
+        # normalize locations
+        locations_normalized, _ = self.normalization_times(locations, norm_params=norm_params_times_torn)
 
         if self.use_fim_normalization:
+            # locations are not normalized
             (
-                windowed_obs_values,  # [B*wc, wlen, 1]
-                windowed_obs_times,  # [B*wc, wlen, 1]
-                locations,  # [B*wc, wlen, 1]
-                normalization_parameters,
+                obs_values_torn_normalized,  # [B*wc, wlen, 1]
+                obs_times_torn_normalized,  # [B*wc, wlen, 1]
+                _,
+                normalization_parameters_fimbase,
             ) = self.fim_base.normalize_input(
-                obs_times=windowed_obs_times,
-                obs_values=windowed_obs_values,
-                obs_mask=windowed_obs_mask,
-                loc_times=locations,
+                obs_times=obs_times_torn_normalized,
+                obs_values=obs_values_torn_normalized,
+                obs_mask=obs_mask_torn,
+                loc_times=torch.zeros_like(obs_times_torn_normalized),
             )
         else:
-            normalization_parameters = {}
+            normalization_parameters_fimbase = {}
 
         # embedd input windows
         embedded_windows = self.fim_base._encode_input_sequence(
-            obs_values=windowed_obs_values, obs_times=windowed_obs_times, obs_mask=windowed_obs_mask
+            obs_values=obs_values_torn_normalized, obs_times=obs_times_torn_normalized, obs_mask=obs_mask_torn
         )  # shape [B*wc, 1, dim_latent]
 
         # reshape back to [B, wc, dim_latent]
@@ -502,34 +480,47 @@ class FIMImputation(AModel):
         # get summarizing embedding of input windows ($\hat{h}$)
         embedded_input_sequence = self.psi_2(obs_input)  # shape [B, 1, dim_latent]
 
-        # get drift concepts
+        # get drift concepts of Imputation Window
         drift_concepts_learnt = self.fim_base._get_vector_field_concepts(
-            encoded_sequence=embedded_input_sequence, location_times=locations
+            encoded_sequence=embedded_input_sequence, location_times=locations_normalized
         )
 
         # get solution with dummy initial condition (normalization issues...)
         solution_paths_learnt = self.fim_base.get_solution(
-            fine_grid=locations,
+            fine_grid=locations_normalized,
             init_condition=torch.zeros_like(init_conditions_for_impuWindow),
             branch_out=embedded_input_sequence,
-            normalization_parameters=normalization_parameters,
+            normalization_parameters=normalization_parameters_fimbase,
         )
 
-        # denormalize
-        denormalized_solution_paths_learnt = self.sequence_normalization.revert_normalization(
-            x=solution_paths_learnt, data_concepts=window_norm_params
+        #  Revert FIMBase Normalization of drift if necessary
+        if self.use_fim_normalization:
+            drift_concepts_learnt = self.fim_base._renormalize_vector_field_params(
+                vector_field_concepts=drift_concepts_learnt,
+                normalization_parameters=normalization_parameters_fimbase,
+            )
+
+        # revert normalization (on input sequence level)
+        denormalized_solution_paths_learnt = self.normalization_values.revert_normalization(
+            x=solution_paths_learnt, data_concepts=norm_params_values_torn
+        )
+        denormalized_vector_field_concepts = self._renormalize_vector_field_params(
+            vector_field_concepts=drift_concepts_learnt,
+            norm_params_time=norm_params_times_torn,
+            norm_params_values=norm_params_values_torn,
         )
 
-        # use correct initial condition (hacky solution: subtract current initial value and add desired one -> something better?)
+        # move to correct initial condition (hacky solution: subtract current initial value and add desired one -> something better?)
         # TODO Think about: How to handle inference?
         denormalized_solution_paths_learnt = (
             denormalized_solution_paths_learnt
             - denormalized_solution_paths_learnt[:, :1, :]
             + init_conditions_for_impuWindow[:, None, :]
         )
+
         if drift_impuWindow_target is not None and sample_path_impuWindow_target is not None:
             loss = self.loss(
-                vector_field_concepts=drift_concepts_learnt,
+                vector_field_concepts=denormalized_vector_field_concepts,
                 target_drift=drift_impuWindow_target,
                 target_sample_path=sample_path_impuWindow_target,
                 impu_window_grid=locations,
@@ -551,8 +542,8 @@ class FIMImputation(AModel):
                     "times": obs_times,
                 },
                 "drift": {
-                    "learnt": drift_concepts_learnt[0],
-                    "certainty": torch.exp(drift_concepts_learnt[1]),
+                    "learnt": denormalized_vector_field_concepts[0],
+                    "certainty": torch.exp(denormalized_vector_field_concepts[1]),
                     "target": drift_impuWindow_target,
                     "locations": locations,
                 },
@@ -603,6 +594,47 @@ class FIMImputation(AModel):
 
         # pass through lin layer to get correct size
         return self.scale_feature_mapping(scale_features)
+
+    def _renormalize_vector_field_params(
+        self,
+        vector_field_concepts: tuple[torch.Tensor, torch.Tensor],
+        norm_params_time,
+        norm_params_values,
+    ):
+        drift_mean, drift_log_std = vector_field_concepts
+        shape = drift_mean.shape
+
+        reversion_factor_time = self.normalization_times.get_reversion_factor(norm_params_time)
+        reversion_factor_values = self.normalization_values.get_reversion_factor(norm_params_values)
+
+        # reshape (and repeat) factors to match drift_mean
+        if reversion_factor_values.dim() == 2:
+            print(" dim 2")
+            reversion_factor_values = reversion_factor_values.unsqueeze(-1)
+        if reversion_factor_time.dim() == 2:
+            print(" dim 2")
+            reversion_factor_time = reversion_factor_time.unsqueeze(-1)
+
+        reversion_factor_values_view = reversion_factor_values.repeat(1, shape[1], 1)  # Shape [B, L, 1]
+        reversion_factor_times_view = reversion_factor_time.repeat(1, shape[1], 1)  # Shape [B, L, 1]
+
+        assert reversion_factor_values_view.shape == shape == reversion_factor_times_view.shape
+
+        # rescale mean
+        drift_mean = drift_mean * reversion_factor_values_view / reversion_factor_times_view  # Shape [B, L, 1]
+
+        assert drift_mean.shape == shape
+
+        # rescale log std if provided
+        if drift_log_std is not None:
+            learnt_drift_log_std = (
+                drift_log_std + torch.log(reversion_factor_values_view) - torch.log(reversion_factor_times_view)
+            )  # Shape [B, L, 1]
+            assert learnt_drift_log_std.shape == shape
+            return drift_mean, learnt_drift_log_std
+
+        else:
+            return drift_mean
 
     def new_stats(self):
         pass
