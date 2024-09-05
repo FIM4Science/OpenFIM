@@ -154,7 +154,7 @@ def load_model_from_checkpoint(
     Returns:
         nn.Module: The loaded model.
     """
-    params_dict_dir = Path(checkpoint_path).parent / "../../train_parameters.yaml"
+    params_dict_dir = (Path(checkpoint_path).parent / "../../train_parameters.yaml").resolve()
     if not params_dict_dir.exists():
         raise FileNotFoundError(f"Could not find train_parameters.yaml in {params_dict_dir}")
     params_dict = load_yaml(params_dict_dir)
@@ -171,7 +171,7 @@ def load_model_from_checkpoint(
         checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
 
     model.load_state_dict(checkpoint["model_state"])
-    logger.log(f"Model loaded. last epoch: {checkpoint['last_epoch']}")
+    logger.warn(f"Model loaded. last epoch: {checkpoint['last_epoch']}")
 
     if for_eval:
         # Ensure all parameters of fim_model do not require gradients

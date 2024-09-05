@@ -1,6 +1,6 @@
 experiment:
-  name: FIMImputation/5wind_No_No_fixImpMask_200samples_onlyNllhDrift
-  name_add_date: True # if true, the current date & time will be added to the experiment name
+  name: FIMImputation/SynthData_5windows_SERIN_20000
+  name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu
 
@@ -14,7 +14,7 @@ distributed:
 
 model:
   name: FIM_imputation  # class name
-  fim_base: results/FIMODE/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
+  fim_base: results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
   use_fim_normalization: false
 
   loss_configs:
@@ -41,31 +41,31 @@ model:
         dropout: *dropout
   
   normalization_values: # normalization entire time series
-    # name: fim.models.blocks.StandardizationSERIN
-    # mean_target: 0
-    # std_target: 1
-    # lin_factor: 0.5
-    # network:
-    #   name: fim.models.blocks.Mlp
-    #   in_features: 2
-    #   out_features: 208 # wc=7: 222 # wc=5: 208 # wc = 3: 172 # (window_count-1) * window_length. Needs to fit! (window_length = ceil(max_sequence_length / window_count) + overlap*(ceil(max_sequence_length / window_count)))
-    #   hidden_layers: !!python/tuple [512]
-    #   hidden_act:
-    #     name: torch.nn.SELU
-    #   output_act:
-    #     name: torch.nn.Identity
-    #   dropout: 0.1
+    name: fim.models.blocks.StandardizationSERIN
+    mean_target: 0
+    std_target: 1
+    lin_factor: 0.5
+    network:
+      name: fim.models.blocks.Mlp
+      in_features: 2
+      out_features: 208 # wc=7: 222 # wc=5: 208 # wc = 3: 172 # (window_count-1) * window_length. Needs to fit! (window_length = ceil(max_sequence_length / window_count) + overlap*(ceil(max_sequence_length / window_count)))
+      hidden_layers: !!python/tuple [512]
+      hidden_act:
+        name: torch.nn.SELU
+      output_act:
+        name: torch.nn.Identity
+      dropout: 0.1
 
-    name: fim.models.blocks.NoNormalization
+    # name: fim.models.blocks.NoNormalization
     
     # name: fim.models.blocks.Standardization
     
     # name: fim.models.blocks.MinMaxNormalization
   
   normalization_times: 
-    # name: fim.models.blocks.MinMaxNormalization
+    name: fim.models.blocks.MinMaxNormalization
 
-    name: fim.models.blocks.NoNormalization
+    # name: fim.models.blocks.NoNormalization
 
   
   scale_feature_mapping:
@@ -77,7 +77,8 @@ model:
 
 dataset:
   name: ts_torch_dataloader
-  path: data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask
+  # path: data/200k_ImputationDummy
+  path:  data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask
   ds_name: ""
   # split: "train"
   batch_size: 1024
@@ -99,19 +100,19 @@ dataset:
           "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
           "coarse_grid_observation_mask",
         ]
-    debugging_data_range: 200
+    debugging_data_range: 20000
     window_count: 5
     overlap: 0
-    imputation_mask: !!python/tuple [false, false, true, false, false] #  or null for random mask
+    imputation_mask: !!python/tuple [false,  false, true, false, false] #  or null for random mask
     max_sequence_length: 256
 
 trainer: 
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 900
+  epochs: &epochs 1200
   detect_anomaly: false
-  save_every: 5
+  save_every: 10
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -128,7 +129,7 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.Adam
-      lr: 0.00001
+      lr: 0.0001
       weight_decay: 0.001
       gradient_norm_clipping: 10
       schedulers: !!python/tuple

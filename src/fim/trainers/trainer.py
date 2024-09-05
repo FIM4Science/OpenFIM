@@ -128,8 +128,8 @@ class Trainer:
             device_id=torch.cuda.current_device(),
             limit_all_gathers=True,
             sync_module_states=self.resume,
-            use_orig_params=self.model.is_peft(),
-            # ignored_states=[self.model.decoder.backbone],
+            use_orig_params=True,  # self.model.is_peft(),
+            # ignored_modules=[self.model.fim_base], # ignored_states
         )
         if self.config.distributed.activation_chekpoint:
             activation_check_fn = self.model.fsdp_activation_check_fn()
@@ -271,7 +271,7 @@ class Trainer:
         #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
 
         lrs = self._model_update_step(step, loss)
-        return {"losses": losses | lrs, "histograms": histograms, "line_plots": stats.get('visualizations', {})}
+        return {"losses": losses | lrs, "histograms": histograms, "line_plots": stats.get("visualizations", {})}
         # return {"losses": losses | lrs}
 
     def _model_update_step(self, step: int, loss: torch.Tensor):

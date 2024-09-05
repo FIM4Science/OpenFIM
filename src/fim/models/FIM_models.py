@@ -115,7 +115,7 @@ class FIMWindowed(AModel):
         # split into overlapping windows
         denoised_observation_values, padding_params = split_into_windows(
             denoised_observation_values, self.window_count, self.overlap, max_sequence_length, padding_value=1
-        )
+        )  # shape [B*D*window_count, window_size+overlap_size, 1]
         observation_mask_processed, _ = split_into_windows(
             observation_mask_processed, self.window_count, self.overlap, max_sequence_length, padding_value=1
         )
@@ -181,16 +181,8 @@ class FIMWindowed(AModel):
         combined_paths, combined_times = self._linear_interpolation_windows(paths_reordered, times_reordered)
 
         # make multidimensional again
-        paths_merged_multi_dim = make_multi_dim(
-            combined_paths, batch_size, process_dim
-        )  # shape [B, window_count*window_size, D]
-        times_merged_multi_dim = make_multi_dim(
-            combined_times, batch_size, process_dim
-        )  # shape [B, window_count*window_size, D]
-
-        assert paths_merged_multi_dim.shape == (batch_size, self.window_count * window_size, process_dim), str(
-            paths_merged_multi_dim.shape
-        )
+        paths_merged_multi_dim = make_multi_dim(combined_paths, batch_size, process_dim)
+        times_merged_multi_dim = make_multi_dim(combined_times, batch_size, process_dim)
 
         # make multidimensional again (old)
         # all_samples_values = []
@@ -216,6 +208,12 @@ class FIMWindowed(AModel):
         times_merged_multi_dim = times_merged_multi_dim[
             :, self.overlap_size : last_index, :
         ]  # shape [B, max_sequence_length, D]
+
+        assert paths_merged_multi_dim.shape == (
+            batch_size,
+            max_sequence_length,
+            process_dim,
+        ), f"got {paths_merged_multi_dim.shape}, expected {(batch_size, max_sequence_length, process_dim)}"
 
         return_values.update(
             {

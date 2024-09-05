@@ -15,16 +15,17 @@ model:
   # fim_base: results/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth
   fim_base: results/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth
 
-  denoising_model: null # no denoising
-    # name: fim.models.blocks.SavGolFilter
-    # window_length: 15
-    # polyorder: 3
+  denoising_model:  # null #  no denoising
+    name: fim.models.blocks.SavGolFilter
+    window_length: 15
+    polyorder: 3
 
 
 dataset:
   name: ts_torch_dataloader # base_dataloader
   path: /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/ #  /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
   ds_name: ""
+  dataset_name: "fim.data.datasets.TimeSeriesDatasetTorch"
   batch_size: 1024
   test_batch_size: 1024
   output_fields:

@@ -15,7 +15,6 @@ from fim.utils.helper import create_class_instance, verify_str_arg
 from ..data.datasets import (
     BaseDataset,
     TimeSeriesDataset,
-    TimeSeriesDatasetTorch,
 )
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
@@ -179,7 +178,7 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
         test_batch_size: Optional[int] = 32,
         output_fields: Optional[List[str]] = None,
         loader_kwargs: Optional[dict] = {},
-        dataset_name: BaseDataset = TimeSeriesDatasetTorch,
+        dataset_name: str = "fim.data.datasets.TimeSeriesDatasetTorch",
         dataset_kwargs: Optional[dict] = {},
     ):
         self.batch_size = batch_size
