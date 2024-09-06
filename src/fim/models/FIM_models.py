@@ -464,7 +464,7 @@ class FIMImputation(AModel):
 
         # get scale features from non - normalized data
         scale_feature_vectors = self._get_scale_feature_vector(
-            obs_values=obs_values, obs_times=obs_times
+            obs_values=obs_values, obs_times=obs_times, obs_mask=obs_mask
         )  # shape [B, wc, dim_latent]
 
         obs_input = torch.concat(
@@ -548,32 +548,49 @@ class FIMImputation(AModel):
             },
         }
 
-    def _get_scale_feature_vector(self, obs_values: torch.Tensor, obs_times: torch.Tensor) -> torch.Tensor:
+    def _get_scale_feature_vector(self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor) -> torch.Tensor:
         """
         Compute scale features per window.
 
-        Features: min & max of time points, range of time, min & max of obs_values & range, first & last obs_value
+        Features: min & max of time points, range of time, min & max of obs_values & range, first & last obs_value & difference between first and list obs_value.
 
         Args:
             obs_values (torch.Tensor): shape: [B, wc, wl, 1]
             obs_times (torch.Tensor): shape: [B, wc, wl, 1]
+            obs_mask (torch.Tensor): shape: [B, wc, wl, 1], 1 indicates masked out value
 
         Returns:
-            scale_feature_vector (torch.Tensor): shape [B, wc, 8]
+            scale_feature_vector (torch.Tensor): shape [B, wc, dim_latent]
         """
-        # Calculate min and max of time points and obs_values
-        min_time_points = obs_times.min(dim=-2)[0]
-        max_time_points = obs_times.max(dim=-2)[0]
-        min_obs_values = obs_values.min(dim=-2)[0]
-        max_obs_values = obs_values.max(dim=-2)[0]
+        # Calculate min and max of time points and obs_values considering masked values
+        min_time_points = torch.where(
+                ~obs_mask, obs_times, torch.tensor(float("inf"), device=obs_values.device),
+            ).min(dim=-2)[0]
+        max_time_points = torch.where(
+                ~obs_mask, obs_times, torch.tensor(float("-inf"), device=obs_values.device),
+            ).max(dim=-2)[0]
+        min_obs_values = torch.where(
+               ~obs_mask, obs_values, torch.tensor(float("inf"), device=obs_values.device),
+            ).min(dim=-2)[0]
+        max_obs_values = torch.where(
+                ~obs_mask, obs_values, torch.tensor(float("-inf"), device=obs_values.device),
+            ).max(dim=-2)[0]
 
         # Calculate ranges of time and obs_values
         time_range = max_time_points - min_time_points
-        obs_range = max_obs_values - min_obs_values
+        range_min_max_obs_values = max_obs_values - min_obs_values
 
-        # Get first and last obs_value
-        first_obs_value = obs_values[..., 0, :]
-        last_obs_value = obs_values[..., -1, :]
+        # Get first and last observed value based on mask
+        # get index of first observed value
+        first_obs_idx = torch.argmax((~obs_mask).int(), dim=2)
+        last_obs_idx = (~obs_mask.squeeze(-1)).cumsum(dim=2).argmax(dim=2, keepdim=True)
+        first_obs_values = obs_values.gather(
+            dim=-2, index=first_obs_idx.unsqueeze(-1).expand(-1, -1, -1, obs_values.shape[-1])
+        ).squeeze(-1)
+        last_obs_values = obs_values.gather(
+            dim=-2, index=last_obs_idx.unsqueeze(-1).expand(-1, -1, -1, obs_values.shape[-1])
+        ).squeeze(-1)
+        range_first_last_obs_values = last_obs_values - first_obs_values
 
         # Stack all features together
         scale_features = torch.concat(
@@ -583,12 +600,13 @@ class FIMImputation(AModel):
                 time_range,
                 min_obs_values,
                 max_obs_values,
-                obs_range,
-                first_obs_value,
-                last_obs_value,
+                range_min_max_obs_values,
+                first_obs_values,
+                last_obs_values,
+                range_first_last_obs_values,
             ],
             dim=-1,
-        )  # shape [B, wc, 8]
+        )  # shape [B, wc, 9]
 
         # pass through lin layer to get correct size
         return self.scale_feature_mapping(scale_features)
