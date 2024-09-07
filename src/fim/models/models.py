@@ -743,11 +743,11 @@ class FIMODE(AModel):
 
         # rescale log std if provided
         if drift_log_std is not None:
-            learnt_drift_log_std = (
+            drift_log_std = (
                 drift_log_std + torch.log(reversion_factor_values_view) - torch.log(reversion_factor_times_view)
             )  # Shape [B, L, 1]
-            assert learnt_drift_log_std.shape == shape
-            return drift_mean, learnt_drift_log_std
+            assert drift_log_std.shape == shape
+            return drift_mean, drift_log_std
 
         else:
             return drift_mean

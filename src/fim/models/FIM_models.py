@@ -12,6 +12,7 @@ from fim.utils.helper import create_class_instance
 
 from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
+from .blocks import MinMaxNormalization
 from .models import FIMODE, AModel, ModelFactory
 
 
@@ -312,8 +313,8 @@ class FIMImputation(AModel):
         self,
         fim_base: Union[Path, str],
         psi_2: dict,
-        normalization_values: dict,
-        normalization_times: dict,
+        global_normalization_values: dict,
+        global_normalization_times: dict,
         scale_feature_mapping: dict,
         use_fim_normalization: bool,
         loss_configs: dict,
@@ -344,12 +345,13 @@ class FIMImputation(AModel):
             self._torch_dtype = torch.float16
 
         self.use_fim_normalization = use_fim_normalization
+        self.loc_normalize_locations = MinMaxNormalization()
 
         self._create_model(
             fim_base,
             psi_2,
-            normalization_values,
-            normalization_times,
+            global_normalization_values,
+            global_normalization_times,
             scale_feature_mapping,
             loss_configs,
         )
@@ -358,8 +360,8 @@ class FIMImputation(AModel):
         self,
         fim_base: Union[Path, str],
         psi_2: dict,
-        normalization_values: dict,
-        normalization_times: dict,
+        global_normalization_values: dict,
+        global_normalization_times: dict,
         scale_feature_mapping: dict,
         loss_configs: dict,
     ):
@@ -374,14 +376,14 @@ class FIMImputation(AModel):
             psi_2,
         )
 
-        self.normalization_values = create_class_instance(
-            normalization_values.pop("name"),
-            normalization_values,
+        self.glob_normalize_values = create_class_instance(
+            global_normalization_values.pop("name"),
+            global_normalization_values,
         )
 
-        self.normalization_times = create_class_instance(
-            normalization_times.pop("name"),
-            normalization_times,
+        self.glob_normalize_times = create_class_instance(
+            global_normalization_times.pop("name"),
+            global_normalization_times,
         )
 
         self.scale_feature_mapping = create_class_instance(scale_feature_mapping.pop("name"), scale_feature_mapping)
@@ -400,8 +402,10 @@ class FIMImputation(AModel):
         """
         Assume: Input is windowed, i.e. for example observation values shape: [B, window_count, max_window_size, 1]
         """
+        ##
         # extract data
-        # for input sequence (observed windows)
+        ##
+
         obs_values = x.get("observation_values")  # shape [B, wc, wlen, 1]
         obs_mask = x.get("observation_mask", None)  # shape [B, wc, wlen, 1]
         if obs_mask is None:
@@ -409,7 +413,6 @@ class FIMImputation(AModel):
             obs_mask = torch.zeros_like(obs_values, dtype=bool)
         obs_times = x.get("observation_times")  # shape [B, wc, wlen, 1]
 
-        # data for imputation window
         locations = x.get("location_times")  # shape [B, wlen, 1]
         init_conditions_for_impuWindow = x.get("initial_conditions")  # shape [B, 1]
         drift_impuWindow_target = x.get("target_drift", None)  # shape [B, wlen, 1]
@@ -421,45 +424,63 @@ class FIMImputation(AModel):
         # obs_values_torn = obs_values.view(B * wc, wlen, 1)
         # obs_times_torn = obs_times.view(B * wc, wlen, 1)
 
-        # normalize observation values & times per sequence
-        # TODO: discuss alternative with normalizat per window: problem: how to revert normalization in impu window?
-        obs_values_torn_normalized, norm_params_values_torn = self.normalization_values(
+        ##
+        # normalize data (globally and optionally locally)
+        ##
+
+        obs_values_glob_normalized, glob_norm_params_values = self.glob_normalize_values(
             obs_values.view(B, wc * wlen, 1), obs_mask.view(B, wc * wlen, 1)
         )
-        obs_values_torn_normalized = obs_values_torn_normalized.view(B, wc, wlen, 1).view(B * wc, wlen, 1)
+        obs_values_glob_normalized = obs_values_glob_normalized.view(B, wc, wlen, 1).view(B * wc, wlen, 1)
 
-        obs_times_torn_normalized, norm_params_times_torn = self.normalization_times(
+        obs_times_glob_normalized, glob_norm_params_times = self.glob_normalize_times(
             obs_times.view(B, wc * wlen, 1), obs_mask.view(B, wc * wlen, 1)
         )
-        obs_times_torn_normalized = obs_times_torn_normalized.view(B, wc, wlen, 1).view(B * wc, wlen, 1)
+        obs_times_glob_normalized = obs_times_glob_normalized.view(B, wc, wlen, 1).view(B * wc, wlen, 1)
 
         obs_mask_torn = obs_mask.view(B * wc, wlen, 1)
 
-        # normalize locations
-        locations_normalized, _ = self.normalization_times(locations, norm_params=norm_params_times_torn)
+        # normalize locations analogously to observation times
+        locations_glob_normalized, _ = self.glob_normalize_times(locations, norm_params=glob_norm_params_times)
 
         if self.use_fim_normalization:
-            # locations are not normalized
             (
-                obs_values_torn_normalized,  # [B*wc, wlen, 1]
-                obs_times_torn_normalized,  # [B*wc, wlen, 1]
+                obs_values_loc_normalized,  # [B*wc, wlen, 1]
+                obs_times_loc_normalized,  # [B*wc, wlen, 1]
                 _,
-                normalization_parameters_fimbase,
+                _,
             ) = self.fim_base.normalize_input(
-                obs_times=obs_times_torn_normalized,
-                obs_values=obs_values_torn_normalized,
+                obs_times=obs_times_glob_normalized,
+                obs_values=obs_values_glob_normalized,
                 obs_mask=obs_mask_torn,
-                loc_times=torch.zeros_like(obs_times_torn_normalized),
+                loc_times=torch.zeros_like(obs_times_glob_normalized),
             )
-        else:
-            normalization_parameters_fimbase = {}
+            # normalize locations to [0, 1] as well
+            locations_loc_normalized, loc_norm_params_locations = self.loc_normalize_locations(locations)
 
-        # embedd input windows
+            # need dummy normalization parameters for values. will be implicitly learnt by model
+            loc_norm_params_locations = {
+                "norm_params_time": loc_norm_params_locations,
+                "norm_params_values": (
+                    torch.zeros_like(loc_norm_params_locations[0]),
+                    torch.ones_like(loc_norm_params_locations[1]),
+                ),
+            }
+        else:
+            obs_values_loc_normalized = obs_values_glob_normalized
+            obs_times_loc_normalized = obs_times_glob_normalized
+
+            locations_loc_normalized = locations_glob_normalized
+            loc_norm_params_locations = {}
+
+        ##
+        # embedd input sequences
+        ##
+
         embedded_windows = self.fim_base._encode_input_sequence(
-            obs_values=obs_values_torn_normalized, obs_times=obs_times_torn_normalized, obs_mask=obs_mask_torn
+            obs_values=obs_values_loc_normalized, obs_times=obs_times_loc_normalized, obs_mask=obs_mask_torn
         )  # shape [B*wc, 1, dim_latent]
 
-        # reshape back to [B, wc, dim_latent]
         embedded_windows = embedded_windows.view(B, wc, -1)
 
         # get scale features from non - normalized data
@@ -473,48 +494,51 @@ class FIMImputation(AModel):
                 scale_feature_vectors,
             ],
             dim=-1,
-        )  # shape [B*wc, 1, 2*dim_latent]
+        )  # shape [B, wc, 2*dim_latent]
 
-        # get summarizing embedding of input windows ($\hat{h}$)
         embedded_input_sequence = self.psi_2(obs_input)  # shape [B, 1, dim_latent]
 
-        # get drift concepts of Imputation Window
         drift_concepts_learnt = self.fim_base._get_vector_field_concepts(
-            encoded_sequence=embedded_input_sequence, location_times=locations_normalized
+            encoded_sequence=embedded_input_sequence, location_times=locations_loc_normalized
         )
 
-        # get solution with dummy initial condition (normalization issues...)
+        # get solution with dummy initial condition
         solution_paths_learnt = self.fim_base.get_solution(
-            fine_grid=locations_normalized,
+            fine_grid=locations_loc_normalized,
             init_condition=torch.zeros_like(init_conditions_for_impuWindow),
             branch_out=embedded_input_sequence,
-            normalization_parameters=normalization_parameters_fimbase,
+            normalization_parameters=loc_norm_params_locations,
         )
 
-        #  Revert FIMBase Normalization of drift if necessary
+        ##
+        # Denormalize
+        ##
+
         if self.use_fim_normalization:
             drift_concepts_learnt = self.fim_base._renormalize_vector_field_params(
                 vector_field_concepts=drift_concepts_learnt,
-                normalization_parameters=normalization_parameters_fimbase,
+                normalization_parameters=loc_norm_params_locations,
             )
 
-        # revert normalization (on input sequence level)
-        denormalized_solution_paths_learnt = self.normalization_values.revert_normalization(
-            x=solution_paths_learnt, data_concepts=norm_params_values_torn
+        denormalized_solution_paths_learnt = self.glob_normalize_values.revert_normalization(
+            x=solution_paths_learnt, data_concepts=glob_norm_params_values
         )
         denormalized_vector_field_concepts = self._renormalize_vector_field_params(
             vector_field_concepts=drift_concepts_learnt,
-            norm_params_time=norm_params_times_torn,
-            norm_params_values=norm_params_values_torn,
+            norm_params_time=glob_norm_params_times,
+            norm_params_values=glob_norm_params_values,
         )
 
         # move to correct initial condition (hacky solution: subtract current initial value and add desired one -> something better?)
-        # TODO Think about: How to handle inference?
         denormalized_solution_paths_learnt = (
             denormalized_solution_paths_learnt
             - denormalized_solution_paths_learnt[:, :1, :]
             + init_conditions_for_impuWindow[:, None, :]
         )
+
+        ##
+        # Loss
+        ##
 
         if drift_impuWindow_target is not None and sample_path_impuWindow_target is not None:
             loss = self.loss(
@@ -548,9 +572,11 @@ class FIMImputation(AModel):
             },
         }
 
-    def _get_scale_feature_vector(self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor) -> torch.Tensor:
+    def _get_scale_feature_vector(
+        self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor
+    ) -> torch.Tensor:
         """
-        Compute scale features per window.
+        Compute scale features per window: extract features & embedd with a linear layer.
 
         Features: min & max of time points, range of time, min & max of obs_values & range, first & last obs_value & difference between first and list obs_value.
 
@@ -564,17 +590,25 @@ class FIMImputation(AModel):
         """
         # Calculate min and max of time points and obs_values considering masked values
         min_time_points = torch.where(
-                ~obs_mask, obs_times, torch.tensor(float("inf"), device=obs_values.device),
-            ).min(dim=-2)[0]
+            ~obs_mask,
+            obs_times,
+            torch.tensor(float("inf"), device=obs_values.device),
+        ).min(dim=-2)[0]
         max_time_points = torch.where(
-                ~obs_mask, obs_times, torch.tensor(float("-inf"), device=obs_values.device),
-            ).max(dim=-2)[0]
+            ~obs_mask,
+            obs_times,
+            torch.tensor(float("-inf"), device=obs_values.device),
+        ).max(dim=-2)[0]
         min_obs_values = torch.where(
-               ~obs_mask, obs_values, torch.tensor(float("inf"), device=obs_values.device),
-            ).min(dim=-2)[0]
+            ~obs_mask,
+            obs_values,
+            torch.tensor(float("inf"), device=obs_values.device),
+        ).min(dim=-2)[0]
         max_obs_values = torch.where(
-                ~obs_mask, obs_values, torch.tensor(float("-inf"), device=obs_values.device),
-            ).max(dim=-2)[0]
+            ~obs_mask,
+            obs_values,
+            torch.tensor(float("-inf"), device=obs_values.device),
+        ).max(dim=-2)[0]
 
         # Calculate ranges of time and obs_values
         time_range = max_time_points - min_time_points
@@ -608,7 +642,7 @@ class FIMImputation(AModel):
             dim=-1,
         )  # shape [B, wc, 9]
 
-        # pass through lin layer to get correct size
+        # pass through lin layer
         return self.scale_feature_mapping(scale_features)
 
     def _renormalize_vector_field_params(
@@ -620,8 +654,8 @@ class FIMImputation(AModel):
         drift_mean, drift_log_std = vector_field_concepts
         shape = drift_mean.shape
 
-        reversion_factor_time = self.normalization_times.get_reversion_factor(norm_params_time)
-        reversion_factor_values = self.normalization_values.get_reversion_factor(norm_params_values)
+        reversion_factor_time = self.glob_normalize_times.get_reversion_factor(norm_params_time)
+        reversion_factor_values = self.glob_normalize_values.get_reversion_factor(norm_params_values)
 
         # reshape (and repeat) factors to match drift_mean
         if reversion_factor_values.dim() == 2:

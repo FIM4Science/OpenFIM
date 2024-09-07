@@ -197,6 +197,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         output_fields: Optional[list] = None,
         output_fields_fimbase: Optional[list] = None,
         loading_function: Optional[callable] = None,
+        key_mapping_fct: Optional[callable] = None,
         window_count: int = 3,
         overlap: int = 0,
         max_sequence_length: int = 256,
@@ -214,6 +215,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         )
 
         self.output_fields = output_fields
+        self.key_mapping_fct = key_mapping_fct
 
         self.window_count = window_count
         self.overlap = overlap
@@ -237,6 +239,11 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         for k, v in item.items():
             if isinstance(v, torch.Tensor):
                 item[k] = v.unsqueeze(0)
+
+        # apply key mapping function if provided
+        if self.key_mapping_fct is not None:
+            k = list(item.keys())
+            item = self.key_mapping_fct(item)
 
         # need to split into windows and provide observation part and location part
         max_sequence_length = item["coarse_grid_grid"].size(1)
