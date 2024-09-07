@@ -483,9 +483,11 @@ class FIMImputation(AModel):
 
         embedded_windows = embedded_windows.view(B, wc, -1)
 
-        # get scale features from non - normalized data
+        # get scale features from globally normalized data
         scale_feature_vectors = self._get_scale_feature_vector(
-            obs_values=obs_values, obs_times=obs_times, obs_mask=obs_mask
+            obs_values=obs_values_glob_normalized.view(B, wc, wlen, 1),
+            obs_times=obs_times_glob_normalized.view(B, wc, wlen, 1),
+            obs_mask=obs_mask,
         )  # shape [B, wc, dim_latent]
 
         obs_input = torch.concat(
@@ -588,6 +590,9 @@ class FIMImputation(AModel):
         Returns:
             scale_feature_vector (torch.Tensor): shape [B, wc, dim_latent]
         """
+        assert obs_values.shape == obs_times.shape == obs_mask.shape
+        assert obs_values.dim() == 4
+
         # Calculate min and max of time points and obs_values considering masked values
         min_time_points = torch.where(
             ~obs_mask,
