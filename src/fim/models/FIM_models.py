@@ -547,7 +547,7 @@ class FIMImputation(AModel):
                 vector_field_concepts=denormalized_vector_field_concepts,
                 target_drift=drift_impuWindow_target,
                 target_sample_path=sample_path_impuWindow_target,
-                impu_window_grid=locations,
+                impu_window_grid=locations_glob_normalized,
                 latent_embedding_impu_window=embedded_input_sequence,
             )
         else:
