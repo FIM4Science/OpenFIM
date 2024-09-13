@@ -1,2 +1,3 @@
-from .models import ModelFactory, AModel, FIMODE
-from .FIM_models import FIMWindowed, FIMImputation
+from .fim_imputation import FIMImputation
+from .fim_ode import FIMODE, FIMWindowed
+from .models import AModel, ModelFactory

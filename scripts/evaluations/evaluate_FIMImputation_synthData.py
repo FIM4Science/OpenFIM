@@ -1,9 +1,4 @@
-"""
-1. create dataloader
-2. load model [from list of dirs]
-3. evaluate model on test set -> save ground truth, observations, predictions
-4. compute metrics (only of imputation window)
-"""
+"""Evaluate FIMImputation on synthetic data. Compute metrics and save predictions."""
 
 import json
 import os
@@ -12,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from fim.data.dataloaders import TimeSeriesDataLoaderTorch
-from fim.models.FIM_models import FIMImputation
+from fim.models.fim_imputation import FIMImputation
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.metrics import compute_metrics
 
@@ -24,6 +19,10 @@ print(f"Using device: {device}")
 def evaluate_one_configuration(
     model_checkpoint_path: str, dl: TimeSeriesDataLoaderTorch, output_base_dir: str, model_abbr: str = None
 ):
+    # check if model checkpoint path ends with pth or pt
+    if not (model_checkpoint_path.endswith(".pth") or model_checkpoint_path.endswith(".pt")):
+        raise ValueError("Model checkpoint path has to point to a .pth or .pt file!")
+
     if model_abbr is None:
         # if "MinMax" in model_checkpoint_path:
         #     model_abbr = "MinMax"
@@ -70,10 +69,11 @@ def evaluate_one_configuration(
 
 
 if __name__ == "__main__":
-    # data_path = "data/200k_ImputationDummy/"
+    # data_path = "data/20k_ImputationDummy/"
     data_path = "data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
 
-    output_base_dir = "reports/FIMImpuation/SynthData/"
+    output_base_dir = "reports/FIMImpuation/SynthData/all/"
+    # output_base_dir = "reports/FIMImpuation/DummyData_20k/"
 
     batch_size = 4096
 
@@ -95,31 +95,27 @@ if __name__ == "__main__":
                 "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
                 "coarse_grid_observation_mask",
             ],
-            "debugging_data_range": None,
-            "window_count": 5,
+            "debugging_data_range": 2000,
+            "window_count": 3,
             "overlap": 0,
-            "imputation_mask": (False, False, True, False, False),
+            "imputation_mask": (False, True, False),
             "max_sequence_length": 256,
         },
     )
 
     model_chkpts = [
-        # "results/FIMImputation/FIMImputation_MinMax_ReVIN_1000_samples-experiment-seed-10_09-03-1044/checkpoints/best-model/model-checkpoint.pth"
-        # "results/FIMImputation/FIMImputation_5wind_MinMax_ReVIN_allLoss_1000samples-experiment-seed-10_09-03-1152/checkpoints/best-model/model-checkpoint.pth"
-        # "results/FIMImputation/5wind_No_SERIN_10000samples_allLoss-experiment-seed-10_09-03-1236/checkpoints/best-model/model-checkpoint.pth"
-        # "results/FIMImputation/5wind_No_SERIN_fixImpMask-experiment-seed-10_09-03-1441/checkpoints/best-model/model-checkpoint.pth"
-        # "results/FIMImputation/5wind_No_No_fixImpMask_200samples_onlyNllhDrift-experiment-seed-10_09-04-1549/checkpoints/best-model/model-checkpoint.pth"
-        # "results/FIMImputation/DEBUG_9wind_No_No_fixImpMask_2samples_onlyNllhDrift-experiment-seed-10_09-05-1010/checkpoints/best-model/model-checkpoint.pth"
-        # DUMMY DATA
-        # "/home/koerner/FIM/results/FIMImputation/dummyData_5windows_MinMax-experiment-seed-10_09-05-1037/checkpoints/epoch-1119/model-checkpoint.pth"
-        # "results/FIMImputation/dummyData_5windows_MinMax_2000k-experiment-seed-10_09-05-1233/checkpoints/best-model/model-checkpoint.pth",
-        "/home/koerner/FIM/results/FIMImputation/SynthData_5windows_SERIN_20000-experiment-seed-10_09-05-1456/checkpoints/best-model/model-checkpoint.pth",
-        "results/FIMImputation/SynthData_5windows_MinMax_20000-experiment-seed-10_09-05-1444/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_3encBlocks_fp16-experiment-seed-10_09-08-2131/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1541/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1549/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
+        "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
     ]
     model_abbrs = [
-        # "09-05-1233_epoch_test",
-        "09-05-1456",
-        "09-05-1444",
+        # "09-08-2131_epoch-_test",
+        # "09-09-1541_epoch-_test",
+        # "09-09-1549_epoch-_test",
+        # "09-13-1636_epoch-_test",
+        "09-13-1635_epoch-_test",
     ]
     for model_chkpt, model_abbr in zip(model_chkpts, model_abbrs):
         evaluate_one_configuration(model_chkpt, dl, output_base_dir, model_abbr=model_abbr)
