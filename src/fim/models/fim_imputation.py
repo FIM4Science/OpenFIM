@@ -8,6 +8,7 @@ from transformers import BitsAndBytesConfig
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.helper import create_class_instance
 
+from ..data.utils import make_multi_dim, make_single_dim, repeat_for_dim
 from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
 from .blocks import MinMaxNormalization
@@ -129,12 +130,8 @@ class FIMImputation(AModel):
 
         B, wc, wlen, _ = obs_values.shape
 
-        # tor sequences apart on window level, ie. reshape [B, wc, wlen, 1] -> [B*wc, wlen, 1] so FIMODE can handle it
-        # obs_values_torn = obs_values.view(B * wc, wlen, 1)
-        # obs_times_torn = obs_times.view(B * wc, wlen, 1)
-
         ##
-        # normalize data (globally and optionally locally)
+        # normalize data (globally and/or optionally locally)
         ##
 
         obs_values_glob_normalized, glob_norm_params_values = self.glob_normalize_values(
@@ -493,4 +490,137 @@ class FIMImputation(AModel):
         return self.peft is not None and self.peft["method"] is not None
 
 
+class FIMImputationWindowed(AModel):
+    def __init__(
+        self, fim_imputation: Union[str, Path, FIMImputation], denoising_model: Optional[dict] = None, **kwargs
+    ):
+        super(FIMImputationWindowed, self).__init__()
+        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+
+        self._create_model(fim_imputation, denoising_model)
+
+    def _create_model(self, fim_imputation: Union[str, Path, FIMImputation], denoising_model: dict):
+        if denoising_model is not None:
+            self.denoising_model = create_class_instance(denoising_model.pop("name"), denoising_model)
+        else:
+            self.denoising_model = lambda x, mask: x
+
+        self.fim_imputation: FIMImputation = (
+            load_model_from_checkpoint(fim_imputation, module=FIMImputation)
+            if isinstance(fim_imputation, (str, Path))
+            else fim_imputation
+        )
+
+    def forward(self, batch: dict) -> dict:
+        """
+        Compute solution path for imputation window.
+
+        Assumes the data to be windowed already. Also computes interpolation of observed windows.
+
+        Args:
+            batch (dict)
+                - observations (values: B, wc, wlen, D; mask and times: B, wc, wlen, 1)
+                - locations (B, wlen_locs, 1)
+        """
+        # get input data
+        obs_values = batch.get("observation_values")  # shape [B, wc, wlen, D]
+        obs_times = batch.get("observation_times")  # shape [B, wc, wlen, 1]
+        obs_mask = batch.get("observation_mask", None)  # shape [B, wc, wlen, D]
+        if obs_mask is None:
+            self.logger.debug("Warning: No mask provided. Assuming no missing values.")
+            obs_mask = torch.zeros_like(obs_times, dtype=bool)
+
+        locations = batch.get("location_times")  # shape [B, wlen_locs, 1]
+        init_conditions = batch.get("initial_conditions")  # shape [B, D]
+
+        B, wc, wlen, D = obs_values.shape
+
+        # make single dimensional
+        obs_values_processed = make_single_dim(obs_values)  # shape [B*D, wc, wlen, 1]
+        obs_times_processed = repeat_for_dim(obs_times, D)  # shape [B*D, wc, wlen, 1]
+        obs_mask_processed = repeat_for_dim(obs_mask, D)
+        locations_processed = repeat_for_dim(locations, D)  # shape [B*D, wlen_locs, 1]
+        init_conditions_processed = make_single_dim(init_conditions)  # shape [B*D, 1]
+
+        # denoise observation values
+        obs_values_processed = self.denoising_model(obs_values_processed, obs_mask_processed)
+
+        # compute imputation solution
+        fim_imp_input = {
+            "observation_values": obs_values_processed,
+            "observation_times": obs_times_processed,
+            "observation_mask": obs_mask_processed,
+            "location_times": locations_processed,
+            "initial_conditions": init_conditions_processed,
+        }
+
+        output_imputation = self.fim_imputation(fim_imp_input)
+        learnt_imp_solution = make_multi_dim(
+            output_imputation["visualizations"]["imputation_window"]["learnt"], batch_size=B, process_dim=D
+        )
+        learnt_imp_drift = make_multi_dim(
+            output_imputation["visualizations"]["drift"]["learnt"], batch_size=B, process_dim=D
+        )
+        learnt_imp_certainty = make_multi_dim(
+            output_imputation["visualizations"]["drift"]["certainty"], batch_size=B, process_dim=D
+        )
+
+        # compute interpolation of observed windows
+        fim_interpolation_input = {
+            "coarse_grid_noisy_sample_paths": obs_values_processed.view(B * D * wc, wlen, 1),
+            "coarse_grid_grid": obs_times_processed.view(B * D * wc, wlen, 1),
+            "coarse_grid_observation_mask": obs_mask_processed.view(B * D * wc, wlen, 1),
+            "fine_grid_grid": obs_times_processed.view(B * D * wc, wlen, 1),
+        }
+
+        output_interpolation = self.fim_imputation.fim_base(fim_interpolation_input, training=False)
+        interpolation_solution = make_multi_dim(
+            output_interpolation["visualizations"]["solution"]["learnt"].view(B * D, wc, wlen, 1),
+            batch_size=B,
+            process_dim=D,
+        )
+        interpolation_drift = make_multi_dim(
+            output_interpolation["visualizations"]["drift"]["learnt"].view(B * D, wc, wlen, 1),
+            batch_size=B,
+            process_dim=D,
+        )
+        interpolation_certainty = make_multi_dim(
+            output_interpolation["visualizations"]["drift"]["certainty"].view(B * D, wc, wlen, 1),
+            batch_size=B,
+            process_dim=D,
+        )
+
+        # TODO interpolate at boundaries
+
+        return {
+            "imputation_window": {
+                "learnt": learnt_imp_solution,
+                "target": batch.get("target_sample_path", None),
+                "locations": locations,
+                "drift": learnt_imp_drift,
+                "drift_certainty": learnt_imp_certainty,
+                "padding_mask_locations": batch.get("padding_mask_locations", None),
+            },
+            "observations": {
+                "values": obs_values,
+                "mask": obs_mask,
+                "times": obs_times,
+                "denoised_values": obs_values_processed.view(B, wc, wlen, D),
+                "interpolation": interpolation_solution,
+                "drift": interpolation_drift,
+                "drift_certainty": interpolation_certainty,
+            },
+        }
+
+    def new_stats(self):
+        pass
+
+    def loss(self):
+        raise NotImplementedError
+
+    def metric(self):
+        raise NotImplementedError
+
+
 ModelFactory.register("FIM_imputation", FIMImputation)
+ModelFactory.register("FIM_imputation_windowed", FIMImputationWindowed)

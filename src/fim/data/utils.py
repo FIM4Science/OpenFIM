@@ -156,7 +156,14 @@ def make_multi_dim(x: torch.Tensor, batch_size: int, process_dim: int):
     for sample_id in range(batch_size):
         sample_values = []
         for dim in range(process_dim):
-            sample_values.append(x[sample_id + dim * batch_size, :, 0])
+            sample_values.append(x[sample_id + dim * batch_size, ..., 0])
         all_samples.append(torch.stack(sample_values, dim=-1))
 
     return torch.stack(all_samples, dim=0)
+
+
+def repeat_for_dim(t, process_dim):
+    """
+    Repeat tensor for process_dim times along first dimension.
+    """
+    return torch.concat([t for _ in range(process_dim)], dim=0)

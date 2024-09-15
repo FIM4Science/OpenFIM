@@ -1,24 +1,40 @@
 """metrics used throughout the project."""
 
+from typing import Optional
+
 import torch
 
 
-def r2_score(prediction: torch.Tensor, ground_truth: torch.Tensor) -> torch.Tensor:
+def r2_score(prediction: torch.Tensor, ground_truth: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
     """
     Compute the R2 score of a prediction. The score is normalized with respect to the mean of the ground truth.
 
     Args:
         prediction: the predicted values. Shape [B, T, D]
         ground_truth: the true values. Shape [B, T, D]
+        mask: a mask indicating if there are padding values. 1 if value is padding, 0 else. Shape [B, T]
 
     Returns:
         percentage of R2 scores above 0.9. Shape [1]
         the R2 score, averaged over the dimensions. Shape [1]
         the standard deviation of the R2 score. Shape [1]
     """
-    ground_truth_mean = torch.mean(ground_truth, axis=1)  #  [B, D]
-    ss_res = torch.sum((ground_truth - prediction) ** 2, axis=1)  # [B, D]
-    ss_tot = torch.sum((ground_truth - ground_truth_mean.unsqueeze(1)) ** 2, axis=1)  # [B, D]
+    if mask is None:
+        mask = torch.zeros((prediction.size(0), prediction.size(1)), dtype=torch.bool)
+    expanded_mask = mask.unsqueeze(-1).expand(-1, -1, prediction.size(-1))
+
+    ground_truth_mean = torch.nanmean(
+        torch.where(~expanded_mask, ground_truth, torch.tensor(float("nan"))), axis=1
+    )  #  [B, D]
+
+    squared_diff_res = (ground_truth - prediction) ** 2
+    masked_squared_diff_res = torch.where(~expanded_mask, squared_diff_res, torch.tensor(float("nan")))
+    ss_res = torch.nansum(masked_squared_diff_res, axis=1)  # [B, D]
+
+    squared_diff_tot = (ground_truth - ground_truth_mean.unsqueeze(1)) ** 2
+    squared_diff_tot_masked = torch.where(~expanded_mask, squared_diff_tot, torch.tensor(float("nan")))
+    ss_tot = torch.nansum(squared_diff_tot_masked, axis=1)  # [B, D]
+
     r2 = 1 - ss_res / ss_tot  # [B, D]
 
     # compute average across dimensions
@@ -31,7 +47,7 @@ def r2_score(prediction: torch.Tensor, ground_truth: torch.Tensor) -> torch.Tens
     return r2_above09, r2_mean, r2_std
 
 
-def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor) -> dict:
+def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor, mask: Optional[torch.Tensor] = None) -> dict:
     """
     Compute the metrics of a prediction given the ground truth.
 
@@ -42,8 +58,9 @@ def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor) -> di
         R2 = 1/D \\sum_{i=1}^D [ 1 - (\\sum_{t=1}^T ( x_t^i - \\hat{x}_t^i )^2)/(\\sum_{t=1}^{T} ( x_t^i - \bar{x}^i )^2) ]
 
     Args:
-        predictions: values predicted by the model. shape: (horizon_length, n_dims)
-        ground_truth: the true values. shape: (horizon_length, n_dims)
+        predictions: values predicted by the model. shape: (B, horizon_length, n_dims)
+        ground_truth: the true values. shape: (B, horizon_length, n_dims)
+        mask: a mask indicating if there are padding values. 1 if value is padding, 0 else. shape: (B, horizon_length)
 
     Returns:
         a dictionary containing the metrics, averaged over all samples and the standard deviation.
@@ -52,19 +69,28 @@ def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor) -> di
         raise ValueError(
             f"prediction and ground_truth must have the same shape, got {predictions.shape} and {ground_truth.shape}"
         )
-    r2_above09, r2_mean, r2_std = r2_score(predictions, ground_truth)
+    if mask is None:
+        mask = torch.zeros((predictions.size(0), predictions.size(1)), dtype=torch.bool)
+    expanded_mask = mask.unsqueeze(-1).expand(-1, -1, predictions.size(-1))
 
-    mae_across_dims = torch.mean(torch.abs(ground_truth - predictions), axis=1)
-    mse_across_dims = torch.mean((ground_truth - predictions) ** 2, axis=1)
+    r2_above09, r2_mean, r2_std = r2_score(predictions, ground_truth, mask)
+
+    abs_diff = torch.abs(ground_truth - predictions)
+    abs_diff_masked = torch.where(~expanded_mask, abs_diff, torch.tensor(float("nan")))
+    mae_per_sample = torch.mean(torch.nanmean(abs_diff_masked, axis=1), axis=-1)
+
+    squared_diff = (ground_truth - predictions) ** 2
+    squared_diff_masked = torch.where(~expanded_mask, squared_diff, torch.tensor(float("nan")))
+    mse_per_sample = torch.mean(torch.nanmean(squared_diff_masked, axis=1), axis=-1)
 
     return {
         "r2_score_mean": r2_mean.item(),
         "r2_score_std": r2_std.item(),
         "r2_score_above0.9": r2_above09.item(),
-        "mae_mean": torch.mean(mae_across_dims).item(),
-        "mae_std": torch.std(mae_across_dims).item(),
-        "mse_mean": torch.mean(mse_across_dims).item(),
-        "mse_std": torch.std(mse_across_dims).item(),
-        "rmse_mean": torch.mean(torch.sqrt(mse_across_dims)).item(),
-        "rmse_std": torch.std(torch.sqrt(mse_across_dims)).item(),
+        "mae_mean": torch.mean(mae_per_sample).item(),
+        "mae_std": torch.std(mae_per_sample).item(),
+        "mse_mean": torch.mean(mse_per_sample).item(),
+        "mse_std": torch.std(mse_per_sample).item(),
+        "rmse_mean": torch.mean(torch.sqrt(mse_per_sample)).item(),
+        "rmse_std": torch.std(torch.sqrt(mse_per_sample)).item(),
     }

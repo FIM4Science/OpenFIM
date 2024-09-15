@@ -72,7 +72,7 @@ if __name__ == "__main__":
     # data_path = "data/20k_ImputationDummy/"
     data_path = "data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
 
-    output_base_dir = "reports/FIMImpuation/SynthData/all/"
+    output_base_dir = "reports/FIMImputation/SynthData/all/"
     # output_base_dir = "reports/FIMImpuation/DummyData_20k/"
 
     batch_size = 4096
@@ -96,9 +96,9 @@ if __name__ == "__main__":
                 "coarse_grid_observation_mask",
             ],
             "debugging_data_range": 2000,
-            "window_count": 3,
+            "window_count": 5,
             "overlap": 0,
-            "imputation_mask": (False, True, False),
+            "imputation_mask": (False, False, True, False, False),
             "max_sequence_length": 256,
         },
     )
@@ -107,15 +107,15 @@ if __name__ == "__main__":
         # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_3encBlocks_fp16-experiment-seed-10_09-08-2131/checkpoints/best-model/model-checkpoint.pth",
         # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1541/checkpoints/best-model/model-checkpoint.pth",
         # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1549/checkpoints/best-model/model-checkpoint.pth",
-        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
-        "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
+        "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
     ]
     model_abbrs = [
         # "09-08-2131_epoch-_test",
         # "09-09-1541_epoch-_test",
         # "09-09-1549_epoch-_test",
-        # "09-13-1636_epoch-_test",
-        "09-13-1635_epoch-_test",
+        "09-13-1636_epoch-369_test",
+        # "09-13-1635_epoch-_test",
     ]
     for model_chkpt, model_abbr in zip(model_chkpts, model_abbrs):
         evaluate_one_configuration(model_chkpt, dl, output_base_dir, model_abbr=model_abbr)
