@@ -93,6 +93,9 @@ def split_into_windows(
         assert window.size(1) == window_size + overlap_size
         windows.append(window)
 
+    if padding_size_windowing_end is None:
+        padding_size_windowing_end = 0
+
     return torch.concat(windows, dim=0), (overlap_size, padding_size_windowing_end)
 
 
