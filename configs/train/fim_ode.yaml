@@ -1,5 +1,5 @@
 experiment:
-  name: fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331
+  name: DEBUG_fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331
   name_add_date: False # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: cuda # auto, cuda, cpu

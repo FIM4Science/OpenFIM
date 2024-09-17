@@ -154,9 +154,13 @@ def load_model_from_checkpoint(
     Returns:
         nn.Module: The loaded model.
     """
-    params_dict_dir = (Path(checkpoint_path).parent / "../../train_parameters.yaml").resolve()
+    # check in same dir as checkpoint for train_parameters.yaml
+    params_dict_dir = Path(checkpoint_path).parent / "train_parameters.yaml"
     if not params_dict_dir.exists():
-        raise FileNotFoundError(f"Could not find train_parameters.yaml in {params_dict_dir}")
+        # check two directories above
+        params_dict_dir = (Path(checkpoint_path).parent / "../../train_parameters.yaml").resolve()
+        if not params_dict_dir.exists():
+            raise FileNotFoundError(f"Could not find train_parameters.yaml in {params_dict_dir} nor in {Path(checkpoint_path).parent}")
     params_dict = load_yaml(params_dict_dir)
     model_params = params_dict.get("model")
 

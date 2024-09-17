@@ -1,5 +1,5 @@
 experiment:
-  name: FIMImputation/Debug_SynthData_all_5w_MinMax_MinMax_nllh_sfvOrig_LRcosAn_4encBlocks
+  name: FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [4]
   device_map: cuda # auto, cuda, cpu
@@ -102,16 +102,16 @@ dataset:
           "coarse_grid_observation_mask",
         ]
     debugging_data_range: null
-    window_count: 5
+    window_count: 3
     overlap: 0
-    imputation_mask: !!python/tuple [false, true, false] #  or null for random mask
+    imputation_mask: !!python/tuple [false, true, false] #  or null for random mask # size of tuple = number of windows
     max_sequence_length: 256
 
 trainer: 
   name: Trainer
   debug_iterations: null
   precision: fp16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 700
+  epochs: &epochs 400
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
