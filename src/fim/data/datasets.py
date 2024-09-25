@@ -260,27 +260,16 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
             item["coarse_grid_grid"], self.window_count, self.overlap, max_sequence_length=max_sequence_length
         )
         observation_mask, _ = split_into_windows(
-            item["coarse_grid_observation_mask"].bool(),
-            self.window_count,
-            self.overlap,
-            max_sequence_length=max_sequence_length,
+            item["coarse_grid_observation_mask"].bool(), self.window_count, self.overlap, max_sequence_length=max_sequence_length
         )
         # imputation window data
         location_times, _ = split_into_windows(
-            item["fine_grid_grid"],
-            self.window_count,
-            self.overlap,
-            max_sequence_length=max_sequence_length,
-            padding_value=None,
+            item["fine_grid_grid"], self.window_count, self.overlap, max_sequence_length=max_sequence_length, padding_value=None
         )
         target_drift = item.get("fine_grid_concept_values", None)
         if target_drift is not None:
             target_drift, _ = split_into_windows(
-                target_drift,
-                self.window_count,
-                self.overlap,
-                max_sequence_length=max_sequence_length,
-                padding_value=None,
+                target_drift, self.window_count, self.overlap, max_sequence_length=max_sequence_length, padding_value=None
             )
         target_sample_path, _ = split_into_windows(
             item["fine_grid_sample_paths"],
@@ -299,14 +288,15 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         )
 
         if self.imputation_mask is None:
-            # generate window level mask: exactly one window (not at boundaries) is masked out (==1). shape: wc, 1
+            # generate window level mask: max two windows (not at boundaries) is masked out (==1). shape: wc, 1
             mask = torch.zeros(self.window_count, dtype=torch.bool)
-            masked_window_index = torch.randint(1, self.window_count - 1, (1,)).item()
+            n_masked_windows = torch.randint(1, 3, size=(1,)).item()
+            masked_window_index = torch.randperm(self.window_count - 2)[:n_masked_windows] + 1
             mask[masked_window_index] = True
+            assert mask.sum() == n_masked_windows, f"Number of masked windows {mask.sum()} does not match expected {n_masked_windows}."
         else:
             mask = self.imputation_mask
 
-        assert mask.sum() == 1
         assert mask.dim() == 1
 
         # select masked out window as imputation window and observed windows as observation windows
@@ -316,10 +306,10 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         observation_mask = observation_mask[~mask]
 
         # take only masked out window
-        location_times = location_times[mask].squeeze(0)
+        location_times = location_times[mask]  # .squeeze(0)
         if target_drift is not None:
-            target_drift = target_drift[mask].squeeze(0)
-        target_sample_path = target_sample_path[mask].squeeze(0)
+            target_drift = target_drift[mask]  # .squeeze(0)
+        target_sample_path = target_sample_path[mask]  # .squeeze(0)
         initial_conditions = target_sample_path[0, :]
 
         return {

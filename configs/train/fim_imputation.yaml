@@ -5,7 +5,7 @@ experiment:
   device_map: cuda # auto, cuda, cpu
 
 distributed:
-  enabled: true
+  enabled: false
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -13,8 +13,8 @@ distributed:
   activation_chekpoint: false
 
 model:
-  name: FIM_imputation  # class name
-  fim_base: results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
+  name: FIM_imputation # class name
+  fim_base: /cephfs_projects/foundation_models/models/FIMODE/fim_ode_minMax/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
   use_fim_normalization: true
 
   loss_configs:
@@ -23,23 +23,23 @@ model:
     loss_scale_unsuperv_loss: 0.0
 
   psi_2: # transformer for combining the windows
-      name: fim.models.blocks.Transformer
-      num_encoder_blocks: 4
-      dim_model: &dim_latent 512
-      dim_time: 1023 # 2*dim_latent -1 (expect dimension of initial input to transformer: dim_time + 1)
-      num_heads: 8
-      dropout: &dropout 0.1
-      residual_mlp:
-        name: fim.models.blocks.Mlp
-        in_features: *dim_latent
-        out_features: *dim_latent
-        hidden_layers: !!python/tuple [*dim_latent]
-        hidden_act:
-          name:  torch.nn.SELU
-        output_act:
-          name:  torch.nn.Identity
-        dropout: *dropout
-  
+    name: fim.models.blocks.Transformer
+    num_encoder_blocks: 4
+    dim_model: &dim_latent 512
+    dim_time: 1023 # 2*dim_latent -1 (expect dimension of initial input to transformer: dim_time + 1)
+    num_heads: 8
+    dropout: &dropout 0.1
+    residual_mlp:
+      name: fim.models.blocks.Mlp
+      in_features: *dim_latent
+      out_features: *dim_latent
+      hidden_layers: !!python/tuple [*dim_latent]
+      hidden_act:
+        name: torch.nn.SELU
+      output_act:
+        name: torch.nn.Identity
+      dropout: *dropout
+
   global_normalization_values: # normalization entire time series
     # name: fim.models.blocks.StandardizationSERIN
     # mean_target: 0
@@ -57,17 +57,15 @@ model:
     #   dropout: 0.1
 
     # name: fim.models.blocks.NoNormalization
-    
+
     # name: fim.models.blocks.Standardization
-    
+
     name: fim.models.blocks.MinMaxNormalization
 
-
-  global_normalization_times: 
+  global_normalization_times:
     name: fim.models.blocks.MinMaxNormalization
-    
+
     # name: fim.models.blocks.NoNormalization
-
 
   scale_feature_mapping:
     name: torch.nn.Linear
@@ -75,39 +73,34 @@ model:
     out_features: 512
     bias: true
 
-
 dataset:
   name: ts_torch_dataloader
   # path: data/20k_ImputationDummy
-  path:  data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask
+  path: /cephfs_projects/foundation_models/data/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/
   ds_name: ""
   # split: "train"
   batch_size: 1024
   test_batch_size: 1024
   dataset_name: fim.data.datasets.TimeSeriesImputationDatasetTorch
-  output_fields:
-    !!python/tuple [
-      "locations",
-    ]
+  output_fields: !!python/tuple ["locations"]
   loader_kwargs:
-    num_workers: 16
+    num_workers: 1
   dataset_kwargs:
-    output_fields_fimbase:
-      !!python/tuple [
-          "fine_grid_grid", 
-          "fine_grid_concept_values", 
-          "fine_grid_sample_paths",
-          "coarse_grid_grid",
-          "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
-          "coarse_grid_observation_mask",
-        ]
+    output_fields_fimbase: !!python/tuple [
+        "fine_grid_grid",
+        "fine_grid_concept_values",
+        "fine_grid_sample_paths",
+        "coarse_grid_grid",
+        "coarse_grid_noisy_sample_paths", #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
+        "coarse_grid_observation_mask",
+      ]
     debugging_data_range: null
-    window_count: 3
+    window_count: 5
     overlap: 0
-    imputation_mask: !!python/tuple [false, true, false] #  or null for random mask # size of tuple = number of windows
+    imputation_mask: !!python/tuple [false, false, false, true, false] #  or null for random mask # size of tuple = number of windows
     max_sequence_length: 256
 
-trainer: 
+trainer:
   name: Trainer
   debug_iterations: null
   precision: fp16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy

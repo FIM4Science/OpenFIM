@@ -75,9 +75,7 @@ class FIMImputation(AModel):
         scale_feature_mapping: dict,
         loss_configs: dict,
     ):
-        self.fim_base: FIMODE = (
-            load_model_from_checkpoint(fim_base, module=FIMODE) if isinstance(fim_base, (Path, str)) else fim_base
-        )
+        self.fim_base: FIMODE = load_model_from_checkpoint(fim_base, module=FIMODE) if isinstance(fim_base, (Path, str)) else fim_base
 
         self.fim_base.apply_normalization = self.use_fim_normalization
 
@@ -102,13 +100,7 @@ class FIMImputation(AModel):
         self.loss_scale_drift = loss_configs.get("loss_scale_drift", 1.0)
         self.loss_scale_unsuperv_loss = loss_configs.get("loss_scale_unsuperv_loss", 1.0)
 
-    def forward(
-        self,
-        x: dict,
-        schedulers: Optional[dict] = None,
-        step: Optional[int] = None,
-        training: bool = False,
-    ) -> dict:
+    def forward(self, x: dict, schedulers: Optional[dict] = None, step: Optional[int] = None, training: bool = False) -> dict:
         """
         Assume: Input is windowed, i.e. for example observation values shape: [B, window_count, max_window_size, 1]
         """
@@ -256,9 +248,7 @@ class FIMImputation(AModel):
 
         # move to correct initial condition (hacky solution: subtract current initial value and add desired one -> something better?)
         denormalized_solution_paths_learnt = (
-            denormalized_solution_paths_learnt
-            - denormalized_solution_paths_learnt[:, :1, :]
-            + init_conditions_for_impuWindow[:, None, :]
+            denormalized_solution_paths_learnt - denormalized_solution_paths_learnt[:, :1, :] + init_conditions_for_impuWindow[:, None, :]
         )
 
         ##
@@ -297,9 +287,7 @@ class FIMImputation(AModel):
             },
         }
 
-    def _get_scale_feature_vector(
-        self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor
-    ) -> torch.Tensor:
+    def _get_scale_feature_vector(self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor) -> torch.Tensor:
         """
         Compute scale features per window: extract features & embedd with a linear layer.
 
@@ -346,12 +334,8 @@ class FIMImputation(AModel):
         # get index of first observed value
         first_obs_idx = torch.argmax((~obs_mask).int(), dim=2)
         last_obs_idx = (~obs_mask.squeeze(-1)).cumsum(dim=2).argmax(dim=2, keepdim=True)
-        first_obs_values = obs_values.gather(
-            dim=-2, index=first_obs_idx.unsqueeze(-1).expand(-1, -1, -1, obs_values.shape[-1])
-        ).squeeze(-1)
-        last_obs_values = obs_values.gather(
-            dim=-2, index=last_obs_idx.unsqueeze(-1).expand(-1, -1, -1, obs_values.shape[-1])
-        ).squeeze(-1)
+        first_obs_values = obs_values.gather(dim=-2, index=first_obs_idx.unsqueeze(-1).expand(-1, -1, -1, obs_values.shape[-1])).squeeze(-1)
+        last_obs_values = obs_values.gather(dim=-2, index=last_obs_idx.unsqueeze(-1).expand(-1, -1, -1, obs_values.shape[-1])).squeeze(-1)
         range_first_last_obs_values = last_obs_values - first_obs_values
 
         # Stack all features together
@@ -440,9 +424,7 @@ class FIMImputation(AModel):
         learnt_mean_drift, learnt_log_std_drift = vector_field_concepts
         learnt_var_drift = torch.exp(learnt_log_std_drift) ** 2
 
-        nllh_drift_avg = torch.mean(
-            1 / 2 * (target_drift - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift
-        )
+        nllh_drift_avg = torch.mean(1 / 2 * (target_drift - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift)
 
         # unsupervised loss
         step_size_fine_grid = impu_window_grid[..., 1:, :] - impu_window_grid[..., :-1, :]
@@ -450,11 +432,7 @@ class FIMImputation(AModel):
         # unsupervised_loss[i] = (target_path[i]-target_path[i-1] - drift[i-1]*step_size)^2
         unsupervised_loss = torch.mean(
             torch.sum(
-                (
-                    target_sample_path[..., 1:, :]
-                    - target_sample_path[..., :-1, :]
-                    - learnt_mean_drift[..., :-1, :] * step_size_fine_grid
-                )
+                (target_sample_path[..., 1:, :] - target_sample_path[..., :-1, :] - learnt_mean_drift[..., :-1, :] * step_size_fine_grid)
                 ** 2,
                 dim=-2,
             )
@@ -491,9 +469,7 @@ class FIMImputation(AModel):
 
 
 class FIMImputationWindowed(AModel):
-    def __init__(
-        self, fim_imputation: Union[str, Path, FIMImputation], denoising_model: Optional[dict] = None, **kwargs
-    ):
+    def __init__(self, fim_imputation: Union[str, Path, FIMImputation], denoising_model: Optional[dict] = None, **kwargs):
         super(FIMImputationWindowed, self).__init__()
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
@@ -506,9 +482,7 @@ class FIMImputationWindowed(AModel):
             self.denoising_model = lambda x, mask: x
 
         self.fim_imputation: FIMImputation = (
-            load_model_from_checkpoint(fim_imputation, module=FIMImputation)
-            if isinstance(fim_imputation, (str, Path))
-            else fim_imputation
+            load_model_from_checkpoint(fim_imputation, module=FIMImputation) if isinstance(fim_imputation, (str, Path)) else fim_imputation
         )
 
     def forward(self, batch: dict) -> dict:
@@ -558,12 +532,8 @@ class FIMImputationWindowed(AModel):
         learnt_imp_solution = make_multi_dim(
             output_imputation["visualizations"]["imputation_window"]["learnt"], batch_size=B, process_dim=D
         )
-        learnt_imp_drift = make_multi_dim(
-            output_imputation["visualizations"]["drift"]["learnt"], batch_size=B, process_dim=D
-        )
-        learnt_imp_certainty = make_multi_dim(
-            output_imputation["visualizations"]["drift"]["certainty"], batch_size=B, process_dim=D
-        )
+        learnt_imp_drift = make_multi_dim(output_imputation["visualizations"]["drift"]["learnt"], batch_size=B, process_dim=D)
+        learnt_imp_certainty = make_multi_dim(output_imputation["visualizations"]["drift"]["certainty"], batch_size=B, process_dim=D)
 
         # compute interpolation of observed windows
         fim_interpolation_input = {

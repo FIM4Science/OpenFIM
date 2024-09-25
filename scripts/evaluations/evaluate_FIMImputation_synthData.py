@@ -16,9 +16,7 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
 
-def evaluate_one_configuration(
-    model_checkpoint_path: str, dl: TimeSeriesDataLoaderTorch, output_base_dir: str, model_abbr: str = None
-):
+def evaluate_one_configuration(model_checkpoint_path: str, dl: TimeSeriesDataLoaderTorch, output_base_dir: str, model_abbr: str = None):
     # check if model checkpoint path ends with pth or pt
     if not (model_checkpoint_path.endswith(".pth") or model_checkpoint_path.endswith(".pt")):
         raise ValueError("Model checkpoint path has to point to a .pth or .pt file!")
@@ -70,7 +68,8 @@ def evaluate_one_configuration(
 
 if __name__ == "__main__":
     # data_path = "data/20k_ImputationDummy/"
-    data_path = "data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
+    # data_path = "data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
+    data_path = "/cephfs_projects/foundation_models/data/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
 
     output_base_dir = "reports/FIMImputation/SynthData/all/"
     # output_base_dir = "reports/FIMImpuation/DummyData_20k/"
@@ -107,7 +106,8 @@ if __name__ == "__main__":
         # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_3encBlocks_fp16-experiment-seed-10_09-08-2131/checkpoints/best-model/model-checkpoint.pth",
         # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1541/checkpoints/best-model/model-checkpoint.pth",
         # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1549/checkpoints/best-model/model-checkpoint.pth",
-        "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
+        "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth"
         # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
     ]
     model_abbrs = [

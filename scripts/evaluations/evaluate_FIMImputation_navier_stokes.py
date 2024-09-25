@@ -1,9 +1,11 @@
 import json
+import math
 import os
 import pickle
 from typing import Optional, Tuple
 
 import torch
+from tqdm import tqdm
 
 from fim.models import ModelFactory
 from fim.utils.metrics import compute_metrics
@@ -21,25 +23,31 @@ model_config = {
     "denoising_model": None,
 }
 data_config = {
-    "data_dir": "/cephfs_projects/foundation_models/data/neurips_baseline_comparison_data/cmu_mocap_43_preprocessed_imputation_percentage_0_2/",
+    "data_dir": "/cephfs_projects/foundation_models/data/neurips_baseline_comparison_data/navier_stokes_preprocessed_with_imputation_sets_and_train_test_split/split_single_long/",
     "window_count": (wc := 5),
-    "max_length_window": 64 if wc == 5 else 128,
+    "max_length_window": 40 if wc == 5 else 40,
     "overlap_locations": 0,
 }
 
 
-def load_data_mocap(directory: str) -> dict:
+def load_data_navier_stokes(directory: str) -> dict:
     data = {}
-    for filename in os.listdir(directory):
-        if filename.endswith(".pickle"):
-            key, _, _ = filename.rpartition(".")
-            with open(os.path.join(directory, filename), "rb") as f:
-                v = pickle.load(f)
-            if isinstance(v, dict):
-                v = (torch.tensor(v["eigenvectors"]), torch.tensor(v["eigenvalues"]))
-            else:
-                v = torch.tensor(v)
-            data[key] = v
+    import numpy as np
+
+    def jax_to_torch(jax_array):
+        if isinstance(jax_array, dict):
+            return {k: torch.tensor(np.array(v)) for k, v in jax_array.items()}
+        return torch.tensor(np.array(jax_array))
+
+    data["observation_grid"] = jax_to_torch(pickle.load(open(os.path.join(directory, "time.pickle"), "rb")))
+    data["observation_values"] = jax_to_torch(pickle.load(open(os.path.join(directory, "u_and_v_time_coefficients.pickle"), "rb")))
+    data["high_dim_trajectory"] = jax_to_torch(pickle.load(open(os.path.join(directory, "u_and_v.pickle"), "rb")))
+    data["imputation_mask"] = jax_to_torch(pickle.load(open(os.path.join(directory, "imputation_mask_0_2_perc.pickle"), "rb")))
+    data["observation_mask"] = jax_to_torch(pickle.load(open(os.path.join(directory, "observation_mask_0_2_perc.pickle"), "rb")))
+    data["pca_params"] = jax_to_torch(pickle.load(open(os.path.join(directory, "u_and_v_pca_params.pickle"), "rb")))
+    B, T = data["observation_values"].size(0), data["observation_values"].size(1)
+    data["high_dim_trajectory"] = data["high_dim_trajectory"].reshape(B, T, -1)
+
     return data
 
 
@@ -105,7 +113,7 @@ def prepare_data(data_dir: str, window_count: int = 3, max_length_window: int = 
         pca_params: torch.Tensor, the mask of the imputation window (for visualization)
     """
     # load data
-    data = load_data_mocap(data_dir)
+    data = load_data_navier_stokes(data_dir)
 
     obs_grid = data["observation_grid"]
     obs_values_pca = data["observation_values"]  # in pca space
@@ -258,7 +266,7 @@ def prepare_data(data_dir: str, window_count: int = 3, max_length_window: int = 
     return batch_high_dim, batch_pca, data["pca_params"]
 
 
-def evaluate_configuration(model, batch, output_path, pca_params: Optional[tuple] = None):
+def evaluate_configuration(model, data, output_path, pca_params: Optional[tuple] = None, individual_eval_each_dim=False):
     """
     Evaluate the model on the given batch and save the results.
 
@@ -268,27 +276,90 @@ def evaluate_configuration(model, batch, output_path, pca_params: Optional[tuple
         output_path: the path to save the results
         pca: flag indicating if data is in pca space and needs to be transformed back to high dim
     """
+    # Reshape the batch tensors from BxTxD to B*DxTx1
+
+    if individual_eval_each_dim:
+        B, D = data["observation_values"].size(0), data["observation_values"].size(-1)
+        data["location_times"] = data["location_times"].repeat_interleave(D, dim=0)
+        data["target_sample_path"] = data["target_sample_path"].permute(0, 2, 1).reshape(B * D, -1, 1)
+        data["initial_conditions"] = data["initial_conditions"].reshape(B * D, 1)
+        data["observation_values"] = data["observation_values"].permute(0, 3, 1, 2).reshape(B * D, 4, 40, 1)
+        data["observation_mask"] = data["observation_mask"].repeat_interleave(D, dim=0)
+        data["observation_times"] = data["observation_times"].repeat_interleave(D, dim=0)
+        data["padding_mask_locations"] = data["padding_mask_locations"].repeat_interleave(D, dim=0)
+
     model.eval()
     with torch.no_grad():
-        output = model(batch)
+        if individual_eval_each_dim:
+            batch_size = 1024 * 5
+            num_batches = math.ceil(data["observation_values"].size(0) / batch_size)
+            outputs = []
+            for i in tqdm(range(num_batches), total=num_batches, desc="Evaluating"):
+                start_idx = i * batch_size
+                end_idx = min((i + 1) * batch_size, data["observation_values"].size(0))
+                batch_data = {k: v[start_idx:end_idx].to(device_map) for k, v in data.items()}
+                batch_output = model(batch_data)
+                def move_to_cpu(data):
+                    if isinstance(data, dict):
+                        return {k: move_to_cpu(v) for k, v in data.items()}
+                    elif isinstance(data, torch.Tensor):
+                        return data.cpu()
+                    else:
+                        return data
 
-    target_sample_paths = output["imputation_window"]["target"]  # [43, wlen_loc, D] where D=3 if pca and D=50 if high dim
-    pred_sample_paths = output["imputation_window"]["learnt"]  # [43, wlen_loc, D]
+                batch_output = move_to_cpu(batch_output)
+                outputs.append(batch_output)
+
+            def recursive_cat(dicts, key=None):
+                if isinstance(dicts[0], dict):
+                    return {k: recursive_cat([d[k] for d in dicts], k) for k in dicts[0].keys()}
+                else:
+                    if dicts[0].dim() == 3:
+                        t = torch.cat(dicts, dim=0).reshape(10, -1, 8).permute(0, 2, 1)
+                        if key == "locations":
+                            return t[:, :, 0, None]
+                        return t
+                    elif dicts[0].dim() == 2:
+                        return torch.cat(dicts, dim=0).reshape(10, -1, 8).permute(0, 2, 1)[:, :, 0]
+                    elif dicts[0].dim() == 4:
+                        t = torch.cat(dicts, dim=0).reshape(10, -1, 4, 40).permute(0, 2, 3, 1)
+                        if key in ["mask", "times"]:
+                            return t[:, :, :, 0, None]
+                        return t
+
+            output = recursive_cat(outputs)
+
+        else:
+            data = {k: v.to(device_map) for k, v in data.items()}
+            output = model(data)
+
+        target_sample_paths = output["imputation_window"]["target"]
+        pred_sample_paths = output["imputation_window"]["learnt"]
 
     # reconstruct from pca space if necessary
     if pca_params is not None:
-        eigenvectors, eigenvalues = pca_params
+        right_eigenvectors = pca_params.get("right_eigenvectors")
+        data_mean = pca_params.get("data_mean")
+        pca_components_count = pred_sample_paths.size(-1)
 
-        pred_sample_paths_high_dim_pca = (
-            pred_sample_paths
-            * torch.sqrt(eigenvalues[..., :pca_component_count][..., None, :])
-            @ torch.transpose(eigenvectors[..., :pca_component_count], dim0=-1, dim1=-2)
-        )  # [43, wlen_loc, 50]
-        target_sample_paths_high_dim_pca = (
-            target_sample_paths
-            * torch.sqrt(eigenvalues[..., :pca_component_count][..., None, :])
-            @ torch.transpose(eigenvectors[..., :pca_component_count], dim0=-1, dim1=-2)
-        )
+        # this is similar to above, reverting the PCA by multiplying with the inverse (which is just the transpose) of the projection matrix
+        inverse_base_change = torch.transpose(right_eigenvectors, 1, 2)
+
+        # only consider the 38 components
+        inverse_base_change = inverse_base_change[..., :pca_components_count, :]  # [..., components_count, D]
+
+        pred_sample_paths_high_dim_pca = pred_sample_paths[..., :pca_components_count]  # [..., components_count, D]
+        # base change from 38 to high dimensional
+        pred_sample_paths_high_dim_pca = pred_sample_paths_high_dim_pca @ inverse_base_change  # [..., T, D]
+        # adjust for centering of data
+        pred_sample_paths_high_dim_pca = pred_sample_paths_high_dim_pca + data_mean
+
+        target_sample_paths_high_dim_pca = target_sample_paths[..., :pca_components_count]  # [..., components_count, D]
+        # base change from 38 to high dimensional
+        target_sample_paths_high_dim_pca = target_sample_paths_high_dim_pca @ inverse_base_change  # [..., T, D]
+        # adjust for centering of data
+        target_sample_paths_high_dim_pca = target_sample_paths_high_dim_pca + data_mean
+
         pred_sample_paths = pred_sample_paths_high_dim_pca
         target_sample_paths = target_sample_paths_high_dim_pca
 
@@ -310,18 +381,16 @@ def evaluate_configuration(model, batch, output_path, pca_params: Optional[tuple
 
 
 if __name__ == "__main__":
-    model = ModelFactory.create(
-        **model_config,
-        device_map=device_map,
-    )
+    model = ModelFactory.create(**model_config, device_map=device_map)
+    model.to(device_map)
     model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
-    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_overlap0/"
+    output_dir_base = f"reports/FIMImputation/NavierStokes/{model_abbr}_overlap0/"
     os.makedirs(output_dir_base, exist_ok=True)
 
     print("saving at ", output_dir_base)
     batch_high_dim, batch_pca, pca_params = prepare_data(**data_config)
-    evaluate_configuration(model, batch_pca, output_dir_base + "pca_", pca_params=pca_params)
-    evaluate_configuration(model, batch_high_dim, output_dir_base + "high_dim_")
+    # evaluate_configuration(model, batch_pca, output_dir_base + "pca_", pca_params=pca_params)
+    evaluate_configuration(model, batch_high_dim, output_dir_base + "high_dim_", individual_eval_each_dim=True)
 
     # visualize
     # import matplotlib.pyplot as plt

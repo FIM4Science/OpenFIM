@@ -23,9 +23,7 @@ def r2_score(prediction: torch.Tensor, ground_truth: torch.Tensor, mask: Optiona
         mask = torch.zeros((prediction.size(0), prediction.size(1)), dtype=torch.bool)
     expanded_mask = mask.unsqueeze(-1).expand(-1, -1, prediction.size(-1))
 
-    ground_truth_mean = torch.nanmean(
-        torch.where(~expanded_mask, ground_truth, torch.tensor(float("nan"))), axis=1
-    )  #  [B, D]
+    ground_truth_mean = torch.nanmean(torch.where(~expanded_mask, ground_truth, torch.tensor(float("nan"))), axis=1)  #  [B, D]
 
     squared_diff_res = (ground_truth - prediction) ** 2
     masked_squared_diff_res = torch.where(~expanded_mask, squared_diff_res, torch.tensor(float("nan")))
@@ -66,19 +64,21 @@ def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor, mask:
         a dictionary containing the metrics, averaged over all samples and the standard deviation.
     """
     if predictions.shape != ground_truth.shape:
-        raise ValueError(
-            f"prediction and ground_truth must have the same shape, got {predictions.shape} and {ground_truth.shape}"
-        )
+        raise ValueError(f"prediction and ground_truth must have the same shape, got {predictions.shape} and {ground_truth.shape}")
     if mask is None:
         mask = torch.zeros((predictions.size(0), predictions.size(1)), dtype=torch.bool)
     expanded_mask = mask.unsqueeze(-1).expand(-1, -1, predictions.size(-1))
 
+    print("Calculating metrics")
+    print("Calculating R2")
     r2_above09, r2_mean, r2_std = r2_score(predictions, ground_truth, mask)
 
+    print("Calculating MAE")
     abs_diff = torch.abs(ground_truth - predictions)
     abs_diff_masked = torch.where(~expanded_mask, abs_diff, torch.tensor(float("nan")))
     mae_per_sample = torch.mean(torch.nanmean(abs_diff_masked, axis=1), axis=-1)
 
+    print("Calculating MSE")
     squared_diff = (ground_truth - predictions) ** 2
     squared_diff_masked = torch.where(~expanded_mask, squared_diff, torch.tensor(float("nan")))
     mse_per_sample = torch.mean(torch.nanmean(squared_diff_masked, axis=1), axis=-1)
