@@ -5,8 +5,9 @@ from typing import Optional, Union
 
 import torch
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
+from torch.utils.data import default_collate
 
-from fim.data.utils import split_into_windows
+from fim.data.utils import split_into_variable_windows
 
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
@@ -199,6 +200,8 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         loading_function: Optional[callable] = None,
         key_mapping_fct: Optional[callable] = None,
         window_count: int = 3,
+        min_iwindow_percentage: float = 0.1,
+        max_iwindow_percentage: float = 0.3,
         overlap: int = 0,
         max_sequence_length: int = 256,
         imputation_mask: Optional[list[bool]] = None,
@@ -221,11 +224,13 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         self.overlap = overlap
         self.window_size = math.ceil(max_sequence_length / window_count)
         self.overlap_size = int(self.window_size * overlap)
-        self.imputation_mask = torch.tensor(imputation_mask) if imputation_mask is not None else None
+        self.min_iwindow_percentage = min_iwindow_percentage
+        self.max_iwindow_percentage = max_iwindow_percentage
 
-        # get padding parameters:
-        # if overlap>0: the first window is padded with overlap_size many elements (in the front)
-        # last window is padded with remaining number of elements to reach window_size+overlap_size (in the back)
+        self.imputation_mask = torch.tensor(imputation_mask) if imputation_mask is not None else None
+        if self.imputation_mask is not None:
+            assert sum(self.imputation_mask) == 1, "Only one window can be masked out for imputation."
+
         size_last_window = max_sequence_length - (self.window_count - 1) * self.window_size
         self.padding_params = (self.overlap_size, self.window_size + self.overlap_size - size_last_window)
 
@@ -244,37 +249,74 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         if self.key_mapping_fct is not None:
             k = list(item.keys())
             item = self.key_mapping_fct(item)
+        return item
 
-        # need to split into windows and provide observation part and location part
+    def _sample_iwindow_size(self, max_sequence_length):
+        min_iwindow_percentage = self.min_iwindow_percentage
+        max_iwindow_percentage = self.max_iwindow_percentage
+        iwindow_size = torch.randint(
+            int(min_iwindow_percentage * max_sequence_length), int(max_iwindow_percentage * max_sequence_length), (1,)
+        ).item()
+        return iwindow_size
+
+    @classmethod
+    def sample_imputation_mask(cls, window_count):
+        iwindow_index = torch.randint(1, window_count - 1, (1,)).item()
+        mask = torch.zeros(window_count, dtype=torch.bool)
+        mask[iwindow_index] = True
+        assert mask.sum() == 1, f"Number of masked windows {mask.sum()} does not match expected {1}."
+        return mask
+
+    @staticmethod
+    def collate_fn(batch, dataset):
+        mask = dataset.imputation_mask
+        max_sequence_length = batch[0]["coarse_grid_grid"].size(1)
+        iwindow_size = dataset._sample_iwindow_size(max_sequence_length)
+        output = []
+        for item in batch:
+            if mask is None:
+                mask = dataset.sample_imputation_mask(dataset.window_count)
+
+            iwindow_index = mask.nonzero().item()
+            output.append(dataset._get_windowed_item(item, iwindow_size, iwindow_index, mask))
+
+        return default_collate(output)
+
+    def _get_windowed_item(self, item: dict, iwindow_size: int, iwindow_index: int, mask: torch.Tensor) -> dict:
         max_sequence_length = item["coarse_grid_grid"].size(1)
+        observation_values = split_into_variable_windows(
+            item["coarse_grid_noisy_sample_paths"], iwindow_size, iwindow_index, self.window_count, max_sequence_length=max_sequence_length
+        )
 
-        # observations. all shapes: from  [1, M, 1] to  [wc, wlen, 1]
-        observation_values, padding_params = split_into_windows(
-            item["coarse_grid_noisy_sample_paths"],
+        observation_times = split_into_variable_windows(
+            item["coarse_grid_grid"], iwindow_size, iwindow_index, self.window_count, max_sequence_length=max_sequence_length
+        )
+        observation_mask = split_into_variable_windows(
+            item["coarse_grid_observation_mask"].bool(),
+            iwindow_size,
+            iwindow_index,
             self.window_count,
-            self.overlap,
             max_sequence_length=max_sequence_length,
         )
-        assert padding_params == self.padding_params
-        observation_times, _ = split_into_windows(
-            item["coarse_grid_grid"], self.window_count, self.overlap, max_sequence_length=max_sequence_length
-        )
-        observation_mask, _ = split_into_windows(
-            item["coarse_grid_observation_mask"].bool(), self.window_count, self.overlap, max_sequence_length=max_sequence_length
-        )
         # imputation window data
-        location_times, _ = split_into_windows(
-            item["fine_grid_grid"], self.window_count, self.overlap, max_sequence_length=max_sequence_length, padding_value=None
+        location_times = split_into_variable_windows(
+            item["fine_grid_grid"],
+            iwindow_size,
+            iwindow_index,
+            self.window_count,
+            max_sequence_length=max_sequence_length,
+            padding_value=None,
         )
         target_drift = item.get("fine_grid_concept_values", None)
         if target_drift is not None:
-            target_drift, _ = split_into_windows(
-                target_drift, self.window_count, self.overlap, max_sequence_length=max_sequence_length, padding_value=None
+            target_drift = split_into_variable_windows(
+                target_drift, iwindow_size, iwindow_index, self.window_count, max_sequence_length=max_sequence_length, padding_value=None
             )
-        target_sample_path, _ = split_into_windows(
+        target_sample_path = split_into_variable_windows(
             item["fine_grid_sample_paths"],
+            iwindow_size,
+            iwindow_index,
             self.window_count,
-            self.overlap,
             max_sequence_length=max_sequence_length,
             padding_value=None,
         )
@@ -287,18 +329,6 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
             == location_times.shape[:2]
         )
 
-        if self.imputation_mask is None:
-            # generate window level mask: max two windows (not at boundaries) is masked out (==1). shape: wc, 1
-            mask = torch.zeros(self.window_count, dtype=torch.bool)
-            n_masked_windows = torch.randint(1, 3, size=(1,)).item()
-            masked_window_index = torch.randperm(self.window_count - 2)[:n_masked_windows] + 1
-            mask[masked_window_index] = True
-            assert mask.sum() == n_masked_windows, f"Number of masked windows {mask.sum()} does not match expected {n_masked_windows}."
-        else:
-            mask = self.imputation_mask
-
-        assert mask.dim() == 1
-
         # select masked out window as imputation window and observed windows as observation windows
         # take all but masked out window
         observation_values = observation_values[~mask]
@@ -306,19 +336,19 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         observation_mask = observation_mask[~mask]
 
         # take only masked out window
-        location_times = location_times[mask]  # .squeeze(0)
+        location_times = location_times[mask].squeeze(0)
         if target_drift is not None:
-            target_drift = target_drift[mask]  # .squeeze(0)
-        target_sample_path = target_sample_path[mask]  # .squeeze(0)
+            target_drift = target_drift[mask].squeeze(0)
+        target_sample_path = target_sample_path[mask].squeeze(0)
         initial_conditions = target_sample_path[0, :]
 
         return {
             "observation_values": observation_values,
             "observation_times": observation_times,
             "observation_mask": observation_mask.bool(),
-            "location_times": location_times,
-            "target_drift": target_drift,
-            "target_sample_path": target_sample_path,
+            "location_times": location_times[:iwindow_size],
+            "target_drift": target_drift[:iwindow_size],
+            "target_sample_path": target_sample_path[:iwindow_size],
             "initial_conditions": initial_conditions,
         }
 

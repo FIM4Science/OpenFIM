@@ -14,7 +14,9 @@ pca_component_count = 3
 
 model_config = {
     "name": "FIM_imputation_windowed",
-    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
+    # "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
+    # "fim_imputation": "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth",
+    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
@@ -244,6 +246,7 @@ def prepare_data(data_dir: str, window_count: int = 3, max_length_window: int = 
         "observation_mask": ~(context_obs_mask.bool()),
         "observation_times": context_times.float(),
         "padding_mask_locations": padding_mask_locations,
+        "target_high_dim": loc_values_high_dim.float(),
     }
     batch_high_dim = {
         "location_times": loc_grid.float(),
@@ -284,13 +287,13 @@ def evaluate_configuration(model, batch, output_path, pca_params: Optional[tuple
             * torch.sqrt(eigenvalues[..., :pca_component_count][..., None, :])
             @ torch.transpose(eigenvectors[..., :pca_component_count], dim0=-1, dim1=-2)
         )  # [43, wlen_loc, 50]
-        target_sample_paths_high_dim_pca = (
-            target_sample_paths
-            * torch.sqrt(eigenvalues[..., :pca_component_count][..., None, :])
-            @ torch.transpose(eigenvectors[..., :pca_component_count], dim0=-1, dim1=-2)
-        )
+        # target_sample_paths_high_dim_pca = (
+        #     target_sample_paths
+        #     * torch.sqrt(eigenvalues[..., :pca_component_count][..., None, :])
+        #     @ torch.transpose(eigenvectors[..., :pca_component_count], dim0=-1, dim1=-2)
+        # )
         pred_sample_paths = pred_sample_paths_high_dim_pca
-        target_sample_paths = target_sample_paths_high_dim_pca
+        target_sample_paths = batch["target_high_dim"]
 
     # compute metrics
     metrics = compute_metrics(
@@ -315,7 +318,7 @@ if __name__ == "__main__":
         device_map=device_map,
     )
     model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
-    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_overlap0/"
+    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_overlap0-random_window/"
     os.makedirs(output_dir_base, exist_ok=True)
 
     print("saving at ", output_dir_base)

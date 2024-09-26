@@ -1,5 +1,5 @@
 experiment:
-  name: FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks
+  name: FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [4]
   device_map: cuda # auto, cuda, cpu
@@ -84,7 +84,7 @@ dataset:
   dataset_name: fim.data.datasets.TimeSeriesImputationDatasetTorch
   output_fields: !!python/tuple ["locations"]
   loader_kwargs:
-    num_workers: 1
+    num_workers: 8
   dataset_kwargs:
     output_fields_fimbase: !!python/tuple [
         "fine_grid_grid",
@@ -96,8 +96,10 @@ dataset:
       ]
     debugging_data_range: null
     window_count: 5
+    min_iwindow_percentage: 0.05
+    max_iwindow_percentage: 0.5
     overlap: 0
-    imputation_mask: !!python/tuple [false, false, false, true, false] #  or null for random mask # size of tuple = number of windows
+    imputation_mask: null # !!python/tuple [false, false, false, true, false] #  or null for random mask # size of tuple = number of windows
     max_sequence_length: 256
 
 trainer:

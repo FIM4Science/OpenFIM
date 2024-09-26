@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -12,10 +13,7 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import create_class_instance, verify_str_arg
 
-from ..data.datasets import (
-    BaseDataset,
-    TimeSeriesDataset,
-)
+from ..data.datasets import BaseDataset, TimeSeriesDataset, TimeSeriesImputationDatasetTorch
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 
@@ -84,9 +82,7 @@ class BaseDataLoader:
         if self.split is not None:
             self.dataset = {self.split: DataSet(self.path, self.name, self.split, **self.dataset_kwargs)}
         else:
-            self.dataset = {
-                split_: DataSet(self.path, self.name, split_, **self.dataset_kwargs) for split_ in dataset_split_names
-            }
+            self.dataset = {split_: DataSet(self.path, self.name, split_, **self.dataset_kwargs) for split_ in dataset_split_names}
         for dataset in self.dataset.values():
             # dataset.map(transform_start_field_to_time_features, batched=True)
             dataset.data.set_format(type="torch", columns=output_fields)
@@ -97,9 +93,7 @@ class BaseDataLoader:
         for n, d in dataset.items():
             sampler = None
             if is_distributed():
-                sampler = DistributedSampler(
-                    d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train"
-                )
+                sampler = DistributedSampler(d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train")
             batch_size = self.batch_size
             if n != "train":
                 batch_size = self.test_batch_size
@@ -229,9 +223,7 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
         for n, d in dataset.items():
             sampler = None
             if is_distributed():
-                sampler = DistributedSampler(
-                    d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train"
-                )
+                sampler = DistributedSampler(d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train")
             batch_size = self.batch_size
             if n != "train":
                 batch_size = self.test_batch_size
@@ -241,7 +233,9 @@ class TimeSeriesDataLoaderTorch(BaseDataLoader):
                 sampler=sampler,
                 shuffle=sampler is None and n == "train",
                 batch_size=batch_size,
-                collate_fn=None,
+                collate_fn=partial(TimeSeriesImputationDatasetTorch.collate_fn, dataset=d)
+                if isinstance(d, TimeSeriesImputationDatasetTorch)
+                else None,
                 **self.loader_kwargs,
             )
 

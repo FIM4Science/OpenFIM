@@ -83,6 +83,12 @@ def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor, mask:
     squared_diff_masked = torch.where(~expanded_mask, squared_diff, torch.tensor(float("nan")))
     mse_per_sample = torch.mean(torch.nanmean(squared_diff_masked, axis=1), axis=-1)
 
+    print("Calculating MSE with manual masks")
+
+    obs_count = (~expanded_mask).sum(axis=(-1, -2))
+    squared_diff_masked = torch.where(~expanded_mask, squared_diff, torch.zeros_like(squared_diff))
+    manual_mse_per_sample = torch.sum(squared_diff_masked, axis=(-1, -2)) / obs_count
+
     return {
         "r2_score_mean": r2_mean.item(),
         "r2_score_std": r2_std.item(),
@@ -93,4 +99,8 @@ def compute_metrics(predictions: torch.Tensor, ground_truth: torch.Tensor, mask:
         "mse_std": torch.std(mse_per_sample).item(),
         "rmse_mean": torch.mean(torch.sqrt(mse_per_sample)).item(),
         "rmse_std": torch.std(torch.sqrt(mse_per_sample)).item(),
+        "manual_mse_mean": torch.mean(manual_mse_per_sample).item(),
+        "manual_mse_std": torch.std(manual_mse_per_sample).item(),
+        "manual_rmse_mean": torch.mean(torch.sqrt(manual_mse_per_sample)).item(),
+        "manual_rmse_std": torch.std(torch.sqrt(manual_mse_per_sample)).item(),
     }

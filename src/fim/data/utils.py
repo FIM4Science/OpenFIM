@@ -3,7 +3,7 @@
 import math
 import os
 import pickle
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -30,6 +30,74 @@ def load_ODEBench_as_torch(directory: str) -> dict:
             # need to invert mask for correct usage of this implementation (1 indicates masked out)
             data[key] = ~data[key].bool()
     return data
+
+
+def split_into_variable_windows(
+    x: torch.Tensor,
+    imputation_window_size: float,
+    imputation_window_index: int,
+    window_count: int,
+    max_sequence_length: int,
+    padding_value: Optional[int] = 1,
+) -> Tuple[torch.Tensor, Tuple[int, int]]:
+    """
+    Split the tensor into windows, ensuring one window (neither first nor last) has a size between 10% and 30% of the sequence,
+    and the rest of the windows have equal size.
+
+    Args:
+        x (torch.Tensor): input tensor with shape (batch_size*process_dim, max_sequence_length, 1)
+        min_window_percentage (float): minimum percentage of the sequence length for the variable-sized window (e.g., 0.1 for 10%).
+        max_window_percentage (float): maximum percentage of the sequence length for the variable-sized window (e.g., 0.3 for 30%).
+        window_count (int): number of windows including the variable-sized window.
+        overlap (float): the fraction of overlap between consecutive windows.
+        max_sequence_length (int): the maximum length of the sequence.
+        padding_value (int): value to pad with. Recommends using 1 as this automatically masks the values.
+
+    Returns:
+        torch.Tensor: tensor with shape (num_windows*batch_size*process_dim, window_size+overlap_size, 1)
+        tuple[int, int]: overlap_size, padding_size_window
+    """
+
+    # Remaining length after allocating the variable window
+    remaining_length = max_sequence_length - imputation_window_size
+
+    # Calculate the size of the rest of the windows
+    fixed_window_size = math.ceil(remaining_length / (window_count - 1))
+
+    windows = []
+    start_idx = 0
+    padding_size_windowing_end = None
+    max_window_size = max(imputation_window_size, fixed_window_size)
+    # Loop through the windows
+    for i in range(window_count):
+        if i == imputation_window_index:
+            # Variable-sized window (neither first nor last)
+            window_size = imputation_window_size
+        else:
+            # Fixed-size windows for all others
+            window_size = fixed_window_size
+
+        window = x[:, start_idx : start_idx + window_size, :]
+
+        # Handle padding if the window is smaller than expected
+        if window.size(1) < max_window_size:
+            padding_size_windowing_end = max_window_size - window.size(1)
+            if padding_value is not None:
+                pad_value = padding_value * torch.ones_like(window[:, :1, :], dtype=window.dtype)
+            else:
+                pad_value = x[:, -1:, :]
+            padding = pad_value.expand(-1, padding_size_windowing_end, -1)
+            window = torch.cat([window, padding], dim=1)
+
+        assert (
+            window.size(1) == max_window_size
+        ), f"Window size ({window.size(1)}) does not match the expected size ({max_window_size}). Imputation window size: {imputation_window_size}, Fixed window size: {fixed_window_size}, Window index: {imputation_window_index}, Window count: {window_count}, Max sequence length: {max_sequence_length}, Padding value: {padding_value}, Current window index: {i}"
+        windows.append(window)
+
+        # Update start index for next window
+        start_idx += window_size
+
+    return torch.concat(windows, dim=0)
 
 
 def split_into_windows(
@@ -72,6 +140,7 @@ def split_into_windows(
                     first_value = x[:, 0:1, :]
                     padding = first_value.expand(-1, overlap_size, -1)
                 window = torch.cat([padding, window], dim=1)
+                window = torch.cat([padding, window], dim=1)
         else:
             start_idx = i * window_size - overlap_size
             window = x[:, start_idx : start_idx + window_size + overlap_size, :]
@@ -81,9 +150,7 @@ def split_into_windows(
                 padding_size_windowing_end = window_size + overlap_size - actual_window_size
 
                 if padding_value is not None:
-                    padding = padding_value * torch.ones_like(
-                        window[:, :padding_size_windowing_end, :], dtype=window.dtype
-                    )
+                    padding = padding_value * torch.ones_like(window[:, :padding_size_windowing_end, :], dtype=window.dtype)
                 else:
                     last_value = x[:, -1:, :]
                     padding = last_value.expand(-1, padding_size_windowing_end, -1)

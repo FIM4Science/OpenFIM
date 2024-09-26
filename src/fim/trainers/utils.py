@@ -134,8 +134,8 @@ class TrainLossTracker:
             self.epoch_histograms[name].append(histogram)
             self.batch_histograms[name] = 0.0
 
-        for line_plot in self.batch_line_plots:
-            self.epoch_line_plots.append(line_plot)
+        self.epoch_line_plots.append(self.batch_line_plots[-1])
+        self.batch_line_plots = []
 
     def get_batch_losses(self, loss_name=None):
         """
@@ -175,8 +175,8 @@ class TrainLossTracker:
         """
 
         return {
-            "losses": dict((k, v[-1]) for k, v in self.epoch_losses.items()),
-            "histograms": dict((k, v[-1]) for k, v in self.epoch_histograms.items()),
+            "losses": {k: v[-1] for k, v in self.epoch_losses.items()},
+            "histograms": {k: v[-1] for k, v in self.epoch_histograms.items()},
             "line_plots": self.epoch_line_plots[-1] if len(self.epoch_line_plots) > 0 else {},
         }
 
@@ -616,9 +616,7 @@ class TrainLogging:
             if v.numel() != 1:
                 continue
 
-            self.tensorboard_logger.add_scalar(
-                label + k.upper(), v.float(), self.__tensorboard_global_step, new_style=True
-            )
+            self.tensorboard_logger.add_scalar(label + k.upper(), v.float(), self.__tensorboard_global_step, new_style=True)
 
     def _log_tensorboard_histograms(self, label, histograms):
         if histograms is None:
@@ -656,9 +654,7 @@ class TrainLogging:
             figs = self._generate_interpolation_plots(line_plot_data)
 
         for label_fig, fig in figs:
-            self.tensorboard_logger.add_figure(
-                tag=label + label_fig, figure=fig, global_step=self.__tensorboard_global_step
-            )
+            self.tensorboard_logger.add_figure(tag=label + label_fig, figure=fig, global_step=self.__tensorboard_global_step)
 
     def _generate_imputation_plots(self, line_plot_data):
         """Generate a plot showing the imputation performance: plot observed values and for the imputation window the target and the learnt values."""
@@ -677,12 +673,8 @@ class TrainLogging:
             obs_times = line_plot_data["observations"]["times"][sample_id, i, ...][~obs_mask]
             obs_values = line_plot_data["observations"]["values"][sample_id, i, ...][~obs_mask]
 
-            axs[0].scatter(
-                obs_times, sample_id * 0.5 + obs_values, color=colors[i], marker="x", label=f"observed window {i}"
-            )
-        axs[0].plot(
-            imputation_times, sample_id * 0.5 + imputation_target, color="black", linestyle="--", label="target"
-        )
+            axs[0].scatter(obs_times, sample_id * 0.5 + obs_values, color=colors[i], marker="x", label=f"observed window {i}")
+        axs[0].plot(imputation_times, sample_id * 0.5 + imputation_target, color="black", linestyle="--", label="target")
         axs[0].plot(imputation_times, sample_id * 0.5 + imputation_learnt, color="blue", label="learnt")
         # axs[0].legend()
         axs[0].set_title("Imputation")
@@ -1024,9 +1016,7 @@ class GPUMemoryTrace:
             self.__logger.info("Max CUDA memory reserved was %.2f GB", max_reserved)
             self.__logger.info("Peak active CUDA memory was %.2f GB", peak_active_gb)
             self.__logger.info("Cuda Malloc retires : %d", cuda_malloc_retires)
-            self.__logger.info(
-                "CPU Total Peak Memory consumed during the train (max): %d GB", cpu_peaked + self.cpu_begin
-            )
+            self.__logger.info("CPU Total Peak Memory consumed during the train (max): %d GB", cpu_peaked + self.cpu_begin)
 
 
 class TrainingTimePerformanceTracker:

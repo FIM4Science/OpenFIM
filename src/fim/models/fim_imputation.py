@@ -138,9 +138,6 @@ class FIMImputation(AModel):
 
         obs_mask_torn = obs_mask.view(B * wc, wlen, 1)
 
-        # normalize locations analogously to observation times
-        locations_glob_normalized, _ = self.glob_normalize_times(locations, norm_params=glob_norm_params_times)
-
         if self.use_fim_normalization:
             (
                 obs_values_loc_normalized,  # [B*wc, wlen, 1]
@@ -168,7 +165,7 @@ class FIMImputation(AModel):
             obs_values_loc_normalized = obs_values_glob_normalized
             obs_times_loc_normalized = obs_times_glob_normalized
 
-            locations_loc_normalized = locations_glob_normalized
+            locations_loc_normalized = self.glob_normalize_times(locations, norm_params=glob_norm_params_times)[0]
             loc_norm_params_locations = {}
 
         ##
