@@ -269,12 +269,11 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
 
     @staticmethod
     def collate_fn(batch, dataset):
-        mask = dataset.imputation_mask
         max_sequence_length = batch[0]["coarse_grid_grid"].size(1)
         iwindow_size = dataset._sample_iwindow_size(max_sequence_length)
         output = []
         for item in batch:
-            if mask is None:
+            if dataset.imputation_mask is None:
                 mask = dataset.sample_imputation_mask(dataset.window_count)
 
             iwindow_index = mask.nonzero().item()
@@ -339,8 +338,9 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         location_times = location_times[mask].squeeze(0)
         if target_drift is not None:
             target_drift = target_drift[mask].squeeze(0)
+        linitial_conditions = observation_values[iwindow_index - 1, ~observation_mask[iwindow_index - 1].bool()][-1:]
+        rinitial_conditions = observation_values[iwindow_index, ~observation_mask[iwindow_index].bool()][:1]
         target_sample_path = target_sample_path[mask].squeeze(0)
-        initial_conditions = target_sample_path[0, :]
 
         return {
             "observation_values": observation_values,
@@ -349,7 +349,9 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
             "location_times": location_times[:iwindow_size],
             "target_drift": target_drift[:iwindow_size],
             "target_sample_path": target_sample_path[:iwindow_size],
-            "initial_conditions": initial_conditions,
+            "linitial_conditions": linitial_conditions,
+            "rinitial_conditions": rinitial_conditions,
+            "imputation_window_index": iwindow_index,
         }
 
     def __str__(self):

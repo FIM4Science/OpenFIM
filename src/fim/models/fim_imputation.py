@@ -116,7 +116,8 @@ class FIMImputation(AModel):
         obs_times = x.get("observation_times")  # shape [B, wc, wlen, 1]
 
         locations = x.get("location_times")  # shape [B, wlen_locs, 1]
-        init_conditions_for_impuWindow = x.get("initial_conditions")  # shape [B, 1]
+        linitial_condition = x.get("linitial_conditions")  # shape [B, 1]
+        rinitial_condition = x.get("rinitial_conditions")  # shape [B, 1]
         drift_impuWindow_target = x.get("target_drift", None)  # shape [B, wlen_locs, 1]
         sample_path_impuWindow_target = x.get("target_sample_path", None)  # shape [B, wlen_locs, 1]
 
@@ -152,7 +153,13 @@ class FIMImputation(AModel):
             )
             # normalize locations to [0, 1] as well
             locations_loc_normalized, loc_norm_params_locations = self.loc_normalize_locations(locations)
+            linitial_condition_loc_normalized = self.glob_normalize_values(
+                linitial_condition.unsqueeze(1), norm_params=glob_norm_params_values
+            )[0]
 
+            rinitial_condition_loc_normalized = self.glob_normalize_values(
+                rinitial_condition.unsqueeze(1), norm_params=glob_norm_params_values
+            )[0]
             # need dummy normalization parameters for values. will be implicitly learnt by model
             loc_norm_params_locations = {
                 "norm_params_time": loc_norm_params_locations,
@@ -212,14 +219,22 @@ class FIMImputation(AModel):
         )
 
         # get solution with dummy initial condition
-        solution_paths_learnt = self.fim_base.get_solution(
+        lsolution_paths_learnt = self.fim_base.get_solution(
             fine_grid=locations_loc_normalized,
-            init_condition=torch.zeros_like(init_conditions_for_impuWindow),
+            init_condition=linitial_condition_loc_normalized.squeeze(-1),
             branch_out=embedded_input_sequence,
             normalization_parameters=loc_norm_params_locations,
         )
 
-        assert solution_paths_learnt.shape == locations.shape
+        rsolution_paths_learnt = self.fim_base.get_solution(
+            fine_grid=torch.flip(locations_loc_normalized, dims=[1]),
+            init_condition=rinitial_condition_loc_normalized.squeeze(-1),
+            branch_out=embedded_input_sequence,
+            normalization_parameters=loc_norm_params_locations,
+        )
+        rsolution_paths_learnt = torch.flip(rsolution_paths_learnt, dims=[1])
+
+        assert lsolution_paths_learnt.shape == locations.shape
 
         ##
         # Denormalize
@@ -231,22 +246,26 @@ class FIMImputation(AModel):
                 normalization_parameters=loc_norm_params_locations,
             )
 
-        denormalized_solution_paths_learnt = self.glob_normalize_values.revert_normalization(
-            x=solution_paths_learnt, data_concepts=glob_norm_params_values
+        denormalized_lsolution_paths_learnt = self.glob_normalize_values.revert_normalization(
+            x=lsolution_paths_learnt, data_concepts=glob_norm_params_values
         )
-        # denormalized_solution_paths_learnt = self.glob_normalize_values.revert_normalization(
-        #     x=denormalized_solution_paths_learnt, data_concepts=glob_norm_params_values
-        # )
+
+        denormalized_rsolution_paths_learnt = self.glob_normalize_values.revert_normalization(
+            x=rsolution_paths_learnt, data_concepts=glob_norm_params_values
+        )
+
         denormalized_vector_field_concepts = self._renormalize_vector_field_params(
             vector_field_concepts=drift_concepts_learnt,
             norm_params_time=glob_norm_params_times,
             norm_params_values=glob_norm_params_values,
         )
 
-        # move to correct initial condition (hacky solution: subtract current initial value and add desired one -> something better?)
-        denormalized_solution_paths_learnt = (
-            denormalized_solution_paths_learnt - denormalized_solution_paths_learnt[:, :1, :] + init_conditions_for_impuWindow[:, None, :]
+        alpha = (
+            torch.linspace(0, 1, steps=denormalized_lsolution_paths_learnt.shape[1], device=denormalized_lsolution_paths_learnt.device)
+            .unsqueeze(0)
+            .unsqueeze(-1)
         )
+        denormalized_solution_paths_learnt = (1 - alpha) * denormalized_lsolution_paths_learnt + alpha * denormalized_rsolution_paths_learnt
 
         ##
         # Loss
@@ -482,7 +501,7 @@ class FIMImputationWindowed(AModel):
             load_model_from_checkpoint(fim_imputation, module=FIMImputation) if isinstance(fim_imputation, (str, Path)) else fim_imputation
         )
 
-    def forward(self, batch: dict) -> dict:
+    def forward(self, batch: dict, imputation_window_index: int = None) -> dict:
         """
         Compute solution path for imputation window.
 
@@ -502,8 +521,8 @@ class FIMImputationWindowed(AModel):
             obs_mask = torch.zeros_like(obs_times, dtype=bool)
 
         locations = batch.get("location_times")  # shape [B, wlen_locs, 1]
-        init_conditions = batch.get("initial_conditions")  # shape [B, D]
-
+        linitial_conditions = batch.get("linitial_conditions")  # shape [B, D]
+        rinitial_conditions = batch.get("rinitial_conditions")  # shape [B, D]
         B, wc, wlen, D = obs_values.shape
 
         # make single dimensional
@@ -511,26 +530,11 @@ class FIMImputationWindowed(AModel):
         obs_times_processed = repeat_for_dim(obs_times, D)  # shape [B*D, wc, wlen, 1]
         obs_mask_processed = repeat_for_dim(obs_mask, D)
         locations_processed = repeat_for_dim(locations, D)  # shape [B*D, wlen_locs, 1]
-        init_conditions_processed = make_single_dim(init_conditions)  # shape [B*D, 1]
+        linitial_conditions_processed = make_single_dim(linitial_conditions)  # shape [B*D, 1]
+        rinitial_conditions_processed = make_single_dim(rinitial_conditions)  # shape [B*D, 1]
 
         # denoise observation values
         obs_values_processed = self.denoising_model(obs_values_processed, obs_mask_processed)
-
-        # compute imputation solution
-        fim_imp_input = {
-            "observation_values": obs_values_processed,
-            "observation_times": obs_times_processed,
-            "observation_mask": obs_mask_processed,
-            "location_times": locations_processed,
-            "initial_conditions": init_conditions_processed,
-        }
-
-        output_imputation = self.fim_imputation(fim_imp_input)
-        learnt_imp_solution = make_multi_dim(
-            output_imputation["visualizations"]["imputation_window"]["learnt"], batch_size=B, process_dim=D
-        )
-        learnt_imp_drift = make_multi_dim(output_imputation["visualizations"]["drift"]["learnt"], batch_size=B, process_dim=D)
-        learnt_imp_certainty = make_multi_dim(output_imputation["visualizations"]["drift"]["certainty"], batch_size=B, process_dim=D)
 
         # compute interpolation of observed windows
         fim_interpolation_input = {
@@ -556,6 +560,34 @@ class FIMImputationWindowed(AModel):
             batch_size=B,
             process_dim=D,
         )
+        if imputation_window_index is not None:
+            mask_l = ~obs_mask[:, imputation_window_index - 1].squeeze(-1).to(torch.int64)  # Shape [43, 64]
+            mask_r = ~obs_mask[:, imputation_window_index].squeeze(-1).to(torch.int64)  # Shape [43, 64]
+            reversed_mask_l = torch.flip(mask_l, dims=[1])
+            last_indices_l = torch.argmax(reversed_mask_l, dim=1)
+            first_indices_r = torch.argmax(mask_r, dim=1)
+            last_indices_l = mask_l.shape[1] - 1 - last_indices_l
+            batch_indices = torch.arange(obs_mask.shape[0]).to(obs_mask.device)
+            linitial_conditions_processed = interpolation_solution[:, imputation_window_index - 1][batch_indices, last_indices_l]
+            rinitial_conditions_processed = interpolation_solution[:, imputation_window_index][batch_indices, first_indices_r]
+            linitial_conditions_processed = make_single_dim(linitial_conditions_processed)
+            rinitial_conditions_processed = make_single_dim(rinitial_conditions_processed)
+        # compute imputation solution
+        fim_imp_input = {
+            "observation_values": obs_values_processed,
+            "observation_times": obs_times_processed,
+            "observation_mask": obs_mask_processed,
+            "location_times": locations_processed,
+            "linitial_conditions": linitial_conditions_processed,
+            "rinitial_conditions": rinitial_conditions_processed,
+        }
+
+        output_imputation = self.fim_imputation(fim_imp_input)
+        learnt_imp_solution = make_multi_dim(
+            output_imputation["visualizations"]["imputation_window"]["learnt"], batch_size=B, process_dim=D
+        )
+        learnt_imp_drift = make_multi_dim(output_imputation["visualizations"]["drift"]["learnt"], batch_size=B, process_dim=D)
+        learnt_imp_certainty = make_multi_dim(output_imputation["visualizations"]["drift"]["certainty"], batch_size=B, process_dim=D)
 
         # TODO interpolate at boundaries
 

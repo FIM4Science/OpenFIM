@@ -16,7 +16,7 @@ model_config = {
     "name": "FIM_imputation_windowed",
     # "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth",
-    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth",
+    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50-experiment-seed-4_09-27-0823/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
@@ -238,11 +238,34 @@ def prepare_data(data_dir: str, window_count: int = 3, max_length_window: int = 
     context_obs_mask = torch.stack(context_obs_mask)
     context_times = torch.stack(context_times)
 
+    mask_l = context_obs_mask[:, 1].squeeze(-1).to(torch.int64)  # Shape [43, 64]
+    mask_r = context_obs_mask[:, 2].squeeze(-1).to(torch.int64)  # Shape [43, 64]
+    # We want to find the last occurrence of True values in the mask along dim=1 (W)
+    # Reverse the mask and find the first occurrence of True
+    reversed_mask_l = torch.flip(mask_l, dims=[1])
+    # Use torch.argmax to get the index of the first True value in the reversed mask, which corresponds to the last True in the original mask
+    last_indices_l = torch.argmax(reversed_mask_l, dim=1)
+    first_indices_r = torch.argmax(mask_r, dim=1)
+
+    # Since the mask is reversed, convert the indices back to the original order
+    last_indices_l = mask_l.shape[1] - 1 - last_indices_l
+
+    # Handle cases where no True values exist in the mask by setting the last_indices where no True was found to -1 (ignore them)
+    # valid = mask.sum(dim=1) > 0  # Check if there's at least one True in each row
+    # last_indices[~valid] = -1  # Mark invalid indices
+
+    # Create a batch index tensor
+    batch_indices = torch.arange(context_values_pca.shape[0])
+
+    # Use advanced indexing to select the last observed values based on the indices
+
     batch_pca = {
         "location_times": loc_grid.float(),
         "target_sample_path": (l := loc_values_pca.float()),
         "initial_conditions": l[:, 0],
         "observation_values": context_values_pca.float(),
+        "linitial_conditions": context_values_pca[:, 1][batch_indices, last_indices_l],
+        "rinitial_conditions": context_values_pca[:, 2][batch_indices, first_indices_r],
         "observation_mask": ~(context_obs_mask.bool()),
         "observation_times": context_times.float(),
         "padding_mask_locations": padding_mask_locations,
@@ -253,6 +276,8 @@ def prepare_data(data_dir: str, window_count: int = 3, max_length_window: int = 
         "target_sample_path": (l := loc_values_high_dim.float()),
         "initial_conditions": l[:, 0],
         "observation_values": context_values_high_dim.float(),
+        "linitial_conditions": context_values_high_dim[:, 1][batch_indices, last_indices_l],
+        "rinitial_conditions": context_values_high_dim[:, 2][batch_indices, first_indices_r],
         "observation_mask": ~(context_obs_mask.bool()),
         "observation_times": context_times.float(),
         "padding_mask_locations": padding_mask_locations,
@@ -273,7 +298,8 @@ def evaluate_configuration(model, batch, output_path, pca_params: Optional[tuple
     """
     model.eval()
     with torch.no_grad():
-        output = model(batch)
+        output = model(batch, imputation_window_index=2)
+        # output = model(batch)
 
     target_sample_paths = output["imputation_window"]["target"]  # [43, wlen_loc, D] where D=3 if pca and D=50 if high dim
     pred_sample_paths = output["imputation_window"]["learnt"]  # [43, wlen_loc, D]
@@ -318,7 +344,7 @@ if __name__ == "__main__":
         device_map=device_map,
     )
     model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
-    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_overlap0-random_window/"
+    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_trend_overlap0-random_window-interpolated-10-30-soulution/"
     os.makedirs(output_dir_base, exist_ok=True)
 
     print("saving at ", output_dir_base)

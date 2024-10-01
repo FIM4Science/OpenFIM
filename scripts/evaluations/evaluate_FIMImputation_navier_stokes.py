@@ -16,7 +16,7 @@ pca_component_count = 3
 
 model_config = {
     "name": "FIM_imputation_windowed",
-    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
+    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
@@ -244,11 +244,21 @@ def prepare_data(data_dir: str, window_count: int = 3, max_length_window: int = 
     context_obs_mask = torch.stack(context_obs_mask)
     context_times = torch.stack(context_times)
 
+    mask_l = context_obs_mask[:, 1].squeeze(-1).to(torch.int64)  # Shape [43, 64]
+    mask_r = context_obs_mask[:, 2].squeeze(-1).to(torch.int64)  # Shape [43, 64]
+    reversed_mask_l = torch.flip(mask_l, dims=[1])
+    last_indices_l = torch.argmax(reversed_mask_l, dim=1)
+    first_indices_r = torch.argmax(mask_r, dim=1)
+    last_indices_l = mask_l.shape[1] - 1 - last_indices_l
+    batch_indices = torch.arange(context_values_pca.shape[0])
+
     batch_pca = {
         "location_times": loc_grid.float(),
         "target_sample_path": (l := loc_values_pca.float()),
         "initial_conditions": l[:, 0],
         "observation_values": context_values_pca.float(),
+        "linitial_conditions": context_values_pca[:, 1][batch_indices, last_indices_l],
+        "rinitial_conditions": context_values_pca[:, 2][batch_indices, first_indices_r],
         "observation_mask": ~(context_obs_mask.bool()),
         "observation_times": context_times.float(),
         "padding_mask_locations": padding_mask_locations,
@@ -258,6 +268,8 @@ def prepare_data(data_dir: str, window_count: int = 3, max_length_window: int = 
         "target_sample_path": (l := loc_values_high_dim.float()),
         "initial_conditions": l[:, 0],
         "observation_values": context_values_high_dim.float(),
+        "linitial_conditions": context_values_pca[:, 1][batch_indices, last_indices_l],
+        "rinitial_conditions": context_values_pca[:, 2][batch_indices, first_indices_r],
         "observation_mask": ~(context_obs_mask.bool()),
         "observation_times": context_times.float(),
         "padding_mask_locations": padding_mask_locations,
@@ -294,11 +306,13 @@ def evaluate_configuration(model, data, output_path, pca_params: Optional[tuple]
             batch_size = 1024 * 5
             num_batches = math.ceil(data["observation_values"].size(0) / batch_size)
             outputs = []
+            # counter = 0
             for i in tqdm(range(num_batches), total=num_batches, desc="Evaluating"):
                 start_idx = i * batch_size
                 end_idx = min((i + 1) * batch_size, data["observation_values"].size(0))
                 batch_data = {k: v[start_idx:end_idx].to(device_map) for k, v in data.items()}
-                batch_output = model(batch_data)
+                batch_output = model(batch_data, imputation_window_index=2)
+
                 def move_to_cpu(data):
                     if isinstance(data, dict):
                         return {k: move_to_cpu(v) for k, v in data.items()}
@@ -309,6 +323,9 @@ def evaluate_configuration(model, data, output_path, pca_params: Optional[tuple]
 
                 batch_output = move_to_cpu(batch_output)
                 outputs.append(batch_output)
+                # if counter > 10:
+                #     break
+                # counter += 1
 
             def recursive_cat(dicts, key=None):
                 if isinstance(dicts[0], dict):
@@ -338,8 +355,8 @@ def evaluate_configuration(model, data, output_path, pca_params: Optional[tuple]
 
     # reconstruct from pca space if necessary
     if pca_params is not None:
-        right_eigenvectors = pca_params.get("right_eigenvectors")
-        data_mean = pca_params.get("data_mean")
+        right_eigenvectors = pca_params.get("right_eigenvectors").to(device_map)
+        data_mean = pca_params.get("data_mean").to(device_map)
         pca_components_count = pred_sample_paths.size(-1)
 
         # this is similar to above, reverting the PCA by multiplying with the inverse (which is just the transpose) of the projection matrix
@@ -384,12 +401,12 @@ if __name__ == "__main__":
     model = ModelFactory.create(**model_config, device_map=device_map)
     model.to(device_map)
     model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
-    output_dir_base = f"reports/FIMImputation/NavierStokes/{model_abbr}_overlap0/"
+    output_dir_base = f"reports/FIMImputation/NavierStokes/{model_abbr}_overlap0-random_window-interpolated-10-30-soulution/"
     os.makedirs(output_dir_base, exist_ok=True)
 
     print("saving at ", output_dir_base)
     batch_high_dim, batch_pca, pca_params = prepare_data(**data_config)
-    # evaluate_configuration(model, batch_pca, output_dir_base + "pca_", pca_params=pca_params)
+    evaluate_configuration(model, batch_pca, output_dir_base + "pca_", pca_params=pca_params)
     evaluate_configuration(model, batch_high_dim, output_dir_base + "high_dim_", individual_eval_each_dim=True)
 
     # visualize

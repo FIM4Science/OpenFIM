@@ -1,5 +1,5 @@
 experiment:
-  name: FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50
+  name: FIMImputation/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [4]
   device_map: cuda # auto, cuda, cpu
@@ -76,7 +76,7 @@ model:
 dataset:
   name: ts_torch_dataloader
   # path: data/20k_ImputationDummy
-  path: /cephfs_projects/foundation_models/data/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/
+  path: /cephfs_projects/foundation_models/data/torch_500K_ode_length_256_with_per_gps_no_imputation_mask/
   ds_name: ""
   # split: "train"
   batch_size: 1024
