@@ -16,7 +16,7 @@ model_config = {
     "name": "FIM_imputation_windowed",
     # "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth",
-    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50-experiment-seed-4_09-27-0823/checkpoints/best-model/model-checkpoint.pth",
+    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50-experiment-seed-4_10-01-1333/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
@@ -344,7 +344,7 @@ if __name__ == "__main__":
         device_map=device_map,
     )
     model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
-    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_trend_overlap0-random_window-interpolated-10-30-soulution/"
+    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_trend_overlap0-random_window-interpolated-5-50-soulution/"
     os.makedirs(output_dir_base, exist_ok=True)
 
     print("saving at ", output_dir_base)

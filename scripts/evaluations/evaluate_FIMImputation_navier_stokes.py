@@ -332,14 +332,14 @@ def evaluate_configuration(model, data, output_path, pca_params: Optional[tuple]
                     return {k: recursive_cat([d[k] for d in dicts], k) for k in dicts[0].keys()}
                 else:
                     if dicts[0].dim() == 3:
-                        t = torch.cat(dicts, dim=0).reshape(10, -1, 8).permute(0, 2, 1)
+                        t = torch.cat(dicts, dim=0).reshape(B, -1, 8).permute(0, 2, 1)
                         if key == "locations":
                             return t[:, :, 0, None]
                         return t
                     elif dicts[0].dim() == 2:
-                        return torch.cat(dicts, dim=0).reshape(10, -1, 8).permute(0, 2, 1)[:, :, 0]
+                        return torch.cat(dicts, dim=0).reshape(B, -1, 8).permute(0, 2, 1)[:, :, 0]
                     elif dicts[0].dim() == 4:
-                        t = torch.cat(dicts, dim=0).reshape(10, -1, 4, 40).permute(0, 2, 3, 1)
+                        t = torch.cat(dicts, dim=0).reshape(B, -1, 4, 40).permute(0, 2, 3, 1)
                         if key in ["mask", "times"]:
                             return t[:, :, :, 0, None]
                         return t
