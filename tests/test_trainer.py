@@ -5,12 +5,12 @@
 
 
 import pytest
+
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
 from fim.models import ModelFactory
-from fim.trainers.trainer import TrainLossTracker, Trainer
+from fim.trainers.trainer import Trainer, TrainLossTracker
 from fim.utils.helper import load_yaml
-from fim.utils.logging import setup_logging
 
 
 class TestLossTracker:
@@ -57,8 +57,8 @@ class TestLossTracker:
         assert epoch_losses["loss2"] == 1.2
 
 
-def test_trainer_ar():
-    TRAIN_CONF = test_data_path / "config" / "ar_lstm_vanila.yaml"
+def test_trainer_fimode():
+    TRAIN_CONF = test_data_path / "config" / "fim_ode_mini_test.yaml"
     config = load_yaml(TRAIN_CONF, True)
     device_map = config.experiment.device_map
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())

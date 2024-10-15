@@ -25,11 +25,11 @@ model:
     loss_scale_unsuperv_loss: 0.0
 
   time_encoding:
-    name: fim.models.blocks.TimeEncoding
+    name: fim.models.blocks.basic.TimeEncoding
     dim_time: &dim_time 512
 
   trunk_net:
-    name: fim.models.blocks.Mlp
+    name: fim.models.blocks.basic.Mlp
     in_features: *dim_time
     out_features: &dim_latent 512
     hidden_layers: !!python/tuple [&hidden_dim_mlp 1024, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
@@ -38,27 +38,27 @@ model:
     output_act:
       name: torch.nn.SELU
     dropout: &dropout 0.1
-  
+
   branch_net:
-    name: fim.models.blocks.Transformer
+    name: fim.models.blocks.basic.Transformer
     num_encoder_blocks: 4
     dim_model: *dim_latent
     dim_time: *dim_time
     num_heads: 8
     dropout: *dropout
     residual_mlp:
-      name: fim.models.blocks.Mlp
+      name: fim.models.blocks.basic.Mlp
       in_features: *dim_latent
       out_features: *dim_latent
       hidden_layers: !!python/tuple [*hidden_dim_mlp]
       hidden_act:
-        name: torch.nn.SELU 
+        name: torch.nn.SELU
       output_act:
         name: torch.nn.SELU
       dropout: *dropout
-  
+
   combiner_net:
-    name: fim.models.blocks.Mlp
+    name: fim.models.blocks.basic.Mlp
     in_features: 1024  # needs to be the sum of the output dimensions of trunk_net and branch_net => =2* latent_dim
     out_features: *dim_latent
     hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
@@ -69,7 +69,7 @@ model:
     dropout: *dropout
 
   vector_field_net:
-    name: fim.models.blocks.Mlp
+    name: fim.models.blocks.basic.Mlp
     in_features: *dim_latent
     out_features: 2
     hidden_layers: !!python/tuple []
@@ -80,7 +80,7 @@ model:
     dropout: *dropout
 
   init_cond_net:
-    name: fim.models.blocks.Mlp
+    name: fim.models.blocks.basic.Mlp
     in_features: *dim_latent
     out_features: 2
     hidden_layers: !!python/tuple [*hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp, *hidden_dim_mlp]
@@ -109,7 +109,7 @@ optimizers: !!python/tuple
       name: torch.optim.AdamW
       lr: 0.000001
       weight_decay: 0.001
-      gradient_norm_clipping: null 
+      gradient_norm_clipping: null
       # schedulers: !!python/tuple
       #   - name: torch.optim.lr_scheduler.ReduceLROnPlateau
       schedulers: !!python/tuple

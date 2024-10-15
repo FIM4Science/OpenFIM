@@ -61,7 +61,7 @@ class BaseDataLoader:
         if dataset_type_name == "dummy":
             dataset_split_names = ["train", "test", "validation"]
         else:
-            dataset_split_names = get_dataset_split_names(path, ds_name)
+            dataset_split_names = get_dataset_split_names(path, ds_name, trust_remote_code=True)
 
         self.split = verify_str_arg(split, arg="split", valid_values=dataset_split_names + [None])
 

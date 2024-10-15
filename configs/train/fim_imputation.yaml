@@ -23,14 +23,14 @@ model:
     loss_scale_unsuperv_loss: 0.0
 
   psi_2: # transformer for combining the windows
-    name: fim.models.blocks.Transformer
+    name: fim.models.blocks.base.Transformer
     num_encoder_blocks: 4
     dim_model: &dim_latent 512
     dim_time: 1023 # 2*dim_latent -1 (expect dimension of initial input to transformer: dim_time + 1)
     num_heads: 8
     dropout: &dropout 0.1
     residual_mlp:
-      name: fim.models.blocks.Mlp
+      name: fim.models.blocks.base.Mlp
       in_features: *dim_latent
       out_features: *dim_latent
       hidden_layers: !!python/tuple [*dim_latent]
@@ -60,10 +60,10 @@ model:
 
     # name: fim.models.blocks.Standardization
 
-    name: fim.models.blocks.MinMaxNormalization
+    name: fim.models.blocks.normalization.MinMaxNormalization
 
   global_normalization_times:
-    name: fim.models.blocks.MinMaxNormalization
+    name: fim.models.blocks.normalization.MinMaxNormalization
 
     # name: fim.models.blocks.NoNormalization
 

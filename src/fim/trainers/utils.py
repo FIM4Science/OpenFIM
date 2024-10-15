@@ -134,7 +134,8 @@ class TrainLossTracker:
             self.epoch_histograms[name].append(histogram)
             self.batch_histograms[name] = 0.0
 
-        self.epoch_line_plots.append(self.batch_line_plots[-1])
+        if len(self.batch_line_plots) > 0:
+            self.epoch_line_plots.append(self.batch_line_plots[-1])
         self.batch_line_plots = []
 
     def get_batch_losses(self, loss_name=None):

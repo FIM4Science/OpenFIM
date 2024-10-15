@@ -1,12 +1,13 @@
 import pytest
 import torch
-from fim.models.blocks import Mlp
+from fim.models.blocks.base import Mlp
 
 
 class TestMlp:
     input_size = 100
     output_size = 8
     hidden_sizes = [64, 32]
+    
     @pytest.fixture
     def mlp(self):
         hidden_activation = torch.nn.ReLU()
@@ -14,7 +15,7 @@ class TestMlp:
         mlp = Mlp(self.input_size, self.output_size, self.hidden_sizes, hidden_activation, output_activation)
         return mlp
 
-    
+
 
     def test_mlp_architecture(self, mlp: Mlp):
 

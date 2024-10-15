@@ -85,49 +85,23 @@ class FIMODE(AModel):
         normalization_values: Optional[dict] = None,
     ):
         if self.apply_normalization:
-            self.normalization_time = create_class_instance(
-                normalization_time.pop("name"),
-                normalization_time,
-            )
-            self.normalization_values = create_class_instance(
-                normalization_values.pop("name"),
-                normalization_values,
-            )
+            self.normalization_time = create_class_instance(normalization_time.pop("name"), normalization_time)
+            self.normalization_values = create_class_instance(normalization_values.pop("name"), normalization_values)
 
-        self.time_encoding = create_class_instance(
-            time_encoding.pop("name"),
-            time_encoding,
-        )
+        self.time_encoding = create_class_instance(time_encoding.pop("name"), time_encoding)
 
-        self.trunk_net = create_class_instance(
-            trunk_net.pop("name"),
-            trunk_net,
-        )
+        self.trunk_net = create_class_instance(trunk_net.pop("name"), trunk_net)
 
-        self.branch_net = create_class_instance(
-            branch_net.pop("name"),
-            branch_net,
-        )
+        self.branch_net = create_class_instance(branch_net.pop("name"), branch_net)
 
         if combiner_net.get("in_features") != 2 * combiner_net.get("out_features"):
-            raise ValueError(
-                "The number of input features for the combiner_net must be twice the number of output features (latent dim)."
-            )
+            raise ValueError("The number of input features for the combiner_net must be twice the number of output features (latent dim).")
 
-        self.combiner_net = create_class_instance(
-            combiner_net.pop("name"),
-            combiner_net,
-        )
+        self.combiner_net = create_class_instance(combiner_net.pop("name"), combiner_net)
 
-        self.vector_field_net = create_class_instance(
-            vector_field_net.pop("name"),
-            vector_field_net,
-        )
+        self.vector_field_net = create_class_instance(vector_field_net.pop("name"), vector_field_net)
 
-        self.init_cond_net = create_class_instance(
-            init_cond_net.pop("name"),
-            init_cond_net,
-        )
+        self.init_cond_net = create_class_instance(init_cond_net.pop("name"), init_cond_net)
 
         match loss_configs.get("ode_solver"):
             case "rk4":
@@ -141,13 +115,7 @@ class FIMODE(AModel):
         self.loss_scale_init_cond = loss_configs.pop("loss_scale_init_cond")
         self.loss_scale_unsuperv_loss = loss_configs.pop("loss_scale_unsuperv_loss")
 
-    def forward(
-        self,
-        batch,
-        schedulers: Optional[dict] = None,
-        step: Optional[int] = None,
-        training: bool = False,
-    ) -> dict:
+    def forward(self, batch, schedulers: Optional[dict] = None, step: Optional[int] = None, training: bool = False) -> dict:
         """
         Args:
             batch (dict): input batch with entries (each torch.Tensor)
@@ -196,10 +164,7 @@ class FIMODE(AModel):
                 fine_grid_grid_normSpace,  # [B, L, 1]
                 normalization_parameters,
             ) = self.normalize_input(
-                obs_times=obs_times_origSpace,
-                obs_values=obs_values_origSpace,
-                obs_mask=obs_mask,
-                loc_times=fine_grid_grid_origSpace,
+                obs_times=obs_times_origSpace, obs_values=obs_values_origSpace, obs_mask=obs_mask, loc_times=fine_grid_grid_origSpace
             )
         else:
             obs_values_normSpace = obs_values_origSpace
@@ -274,9 +239,7 @@ class FIMODE(AModel):
             }
             model_output["visualizations"]["init_condition"] = {
                 "learnt": learnt_init_condition_concepts_origSpace[0],
-                "target": fine_grid_sample_paths_origSpace[..., 0, :]
-                if fine_grid_sample_paths_origSpace is not None
-                else None,
+                "target": fine_grid_sample_paths_origSpace[..., 0, :] if fine_grid_sample_paths_origSpace is not None else None,
                 "certainty": torch.exp(learnt_init_condition_concepts_origSpace[1]),
             }
         else:
@@ -316,9 +279,7 @@ class FIMODE(AModel):
             dim=-1,
         )  # Shape [B, T, dim_time + 1]
 
-        encoded_input_sequence = self.branch_net(
-            x=obs_input_latent, key_padding_mask=obs_mask
-        )  # Shape [B, 1, dim_latent]
+        encoded_input_sequence = self.branch_net(x=obs_input_latent, key_padding_mask=obs_mask)  # Shape [B, 1, dim_latent]
 
         return encoded_input_sequence
 
@@ -379,9 +340,7 @@ class FIMODE(AModel):
         init_condition_concepts = init_condition_concepts.squeeze(1)  # Shape [B, 2]
 
         # split into mean and log variance
-        init_condition_mean, init_condition_log_std = torch.split(
-            init_condition_concepts, 1, dim=-1
-        )  # Shape each [B, 1]
+        init_condition_mean, init_condition_log_std = torch.split(init_condition_concepts, 1, dim=-1)  # Shape each [B, 1]
 
         return init_condition_mean, init_condition_log_std
 
@@ -416,9 +375,7 @@ class FIMODE(AModel):
         learnt_mean_drift, learnt_log_std_drift = vector_field_concepts
         learnt_var_drift = torch.exp(learnt_log_std_drift) ** 2
 
-        nllh_drift_avg = torch.mean(
-            1 / 2 * (target_drift_fine_grid - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift
-        )
+        nllh_drift_avg = torch.mean(1 / 2 * (target_drift_fine_grid - learnt_mean_drift) ** 2 / learnt_var_drift + learnt_log_std_drift)
 
         learnt_mean_init_cond, learnt_log_std_init_cond = init_condition_concepts
         learnt_var_init_cond = torch.exp(learnt_log_std_init_cond) ** 2
@@ -520,9 +477,7 @@ class FIMODE(AModel):
 
         return solution
 
-    def normalize_input(
-        self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor
-    ) -> tuple:
+    def normalize_input(self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor) -> tuple:
         """
         Apply normalization to observation values and times independently.
 
@@ -657,12 +612,8 @@ class FIMODE(AModel):
 
         shape = drift_mean.shape  # [B, L, 1]
 
-        reversion_factor_time = self.normalization_time.get_reversion_factor(
-            normalization_parameters.get("norm_params_time")
-        )
-        reversion_factor_values = self.normalization_values.get_reversion_factor(
-            normalization_parameters.get("norm_params_values")
-        )
+        reversion_factor_time = self.normalization_time.get_reversion_factor(normalization_parameters.get("norm_params_time"))
+        reversion_factor_values = self.normalization_values.get_reversion_factor(normalization_parameters.get("norm_params_values"))
 
         # reshape (and repeat) factors to match drift_mean
         if reversion_factor_values.dim() == 2:
@@ -723,9 +674,7 @@ class FIMODE(AModel):
         """Revert time normalization."""
         return self.normalization_time.revert_normalization(grid_grid, norm_params.get("norm_params_time"))
 
-    def _renormalize_init_condition_params_old(
-        self, init_cond_dist_params: tuple, normalization_parameters: dict
-    ) -> tuple:
+    def _renormalize_init_condition_params_old(self, init_cond_dist_params: tuple, normalization_parameters: dict) -> tuple:
         """
         Rescale the initial condition (mean and log_std) to original space based on observation values normalization parameters.
 
@@ -817,9 +766,7 @@ class FIMWindowed(AModel):
     Denoising model is optional. If not provided, the input is not denoised.
     """
 
-    def __init__(
-        self, fim_base: Union[str, Path, FIMODE], denoising_model: dict, window_count: int, overlap: float, **kwargs
-    ):
+    def __init__(self, fim_base: Union[str, Path, FIMODE], denoising_model: dict, window_count: int, overlap: float, **kwargs):
         super().__init__(**kwargs)
 
         self.window_count = window_count
@@ -841,9 +788,7 @@ class FIMWindowed(AModel):
                 denoising_model.pop("name"),
                 denoising_model,
             )
-        self.fim_base: FIMODE = (
-            load_model_from_checkpoint(fim_model, module=FIMODE) if isinstance(fim_model, (str, Path)) else fim_model
-        )
+        self.fim_base: FIMODE = load_model_from_checkpoint(fim_model, module=FIMODE) if isinstance(fim_model, (str, Path)) else fim_model
 
     def forward(self, x: dict) -> dict:
         """
@@ -860,9 +805,7 @@ class FIMWindowed(AModel):
             observation_mask = torch.zeros_like(observation_times)
 
         batch_size, max_sequence_length, process_dim = noisy_observation_values.shape
-        if (
-            window_size := int((ws := (math.ceil(max_sequence_length / self.window_count))) + self.overlap * ws)
-        ) >= 128:
+        if (window_size := int((ws := (math.ceil(max_sequence_length / self.window_count))) + self.overlap * ws)) >= 128:
             raise ValueError(
                 f"The window size ({window_size}) is too large for the model. Please increase the number of windows or increase the overlap."
             )
@@ -896,9 +839,7 @@ class FIMWindowed(AModel):
         #     ), f"{k} has shape {v.shape} and not {(batch_size * process_dim, max_sequence_length, 1)}"
 
         # denoise input
-        denoised_observation_values = self.denoising_model(
-            noisy_observation_values_processed, observation_mask_processed
-        )
+        denoised_observation_values = self.denoising_model(noisy_observation_values_processed, observation_mask_processed)
         # assert denoised_observation_values.shape == (batch_size * process_dim, max_sequence_length, 1)
 
         return_values.update(
@@ -952,12 +893,8 @@ class FIMWindowed(AModel):
         times = output["visualizations"]["fine_grid_grid"]  # shape [B*D*window_count, window_size+overlap_size, 1]
 
         # separate windows: reshape to [B*D, window_count, window_size+overlap_size, 1]
-        paths_reordered = reorder_windows_per_sample(
-            paths, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim
-        )
-        times_reordered = reorder_windows_per_sample(
-            times, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim
-        )
+        paths_reordered = reorder_windows_per_sample(paths, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim)
+        times_reordered = reorder_windows_per_sample(times, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim)
 
         # old
         # all_samples_values = []
@@ -999,12 +936,8 @@ class FIMWindowed(AModel):
 
         # remove padding from windowing
         last_index = -self.padding_size_windowing_end if self.padding_size_windowing_end is not None else None
-        paths_merged_multi_dim = paths_merged_multi_dim[
-            :, self.overlap_size : last_index, :
-        ]  # shape [B, max_sequence_length, D]
-        times_merged_multi_dim = times_merged_multi_dim[
-            :, self.overlap_size : last_index, :
-        ]  # shape [B, max_sequence_length, D]
+        paths_merged_multi_dim = paths_merged_multi_dim[:, self.overlap_size : last_index, :]  # shape [B, max_sequence_length, D]
+        times_merged_multi_dim = times_merged_multi_dim[:, self.overlap_size : last_index, :]  # shape [B, max_sequence_length, D]
 
         assert paths_merged_multi_dim.shape == (
             batch_size,
@@ -1020,9 +953,7 @@ class FIMWindowed(AModel):
         )
         return return_values
 
-    def _linear_interpolation_windows(
-        self, paths: torch.Tensor, times: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _linear_interpolation_windows(self, paths: torch.Tensor, times: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Combine the windows by linear interpolation of the overlapping part.
 
@@ -1043,9 +974,7 @@ class FIMWindowed(AModel):
             values_b = paths[:, i, :, :]
             times_b = times[:, i, :, :]
 
-            combined_values, combined_times = self._merge_two_windows(
-                combined_values, combined_times, values_b, times_b
-            )
+            combined_values, combined_times = self._merge_two_windows(combined_values, combined_times, values_b, times_b)
 
         return combined_values, combined_times
 

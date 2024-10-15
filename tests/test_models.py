@@ -21,40 +21,58 @@ from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
 class TestModelFactory:
     @pytest.fixture
     def train_config(self):
-        conf_path = test_data_path / "config" / "ar_lstm_vanila.yaml"
+        conf_path = test_data_path / "config" / "fim_ode_mini_test.yaml"
         train_config = load_yaml(conf_path, True)
         return train_config
 
-    def test_init_ar(self, train_config: GenericConfig):
+    def test_init_fim(self, train_config: GenericConfig):
         model = ModelFactory.create(
-            name="AR", recurrent_module=train_config.model.recurrent_module.to_dict(), output_head=train_config.model.output_head.to_dict()
+            name="FIMODE",
+            time_encoding=train_config.model.time_encoding.to_dict(),
+            trunk_net=train_config.model.trunk_net.to_dict(),
+            branch_net=train_config.model.branch_net.to_dict(),
+            combiner_net=train_config.model.combiner_net.to_dict(),
+            vector_field_net=train_config.model.vector_field_net.to_dict(),
+            init_cond_net=train_config.model.init_cond_net.to_dict(),
+            loss_configs=train_config.model.loss_configs.to_dict(),
+            normalization_time=train_config.model.normalization_time.to_dict(),
+            normalization_values=train_config.model.normalization_values.to_dict(),
+            load_in_8bit=False,
+            load_in_4bit=False,
+            use_bf16=False,
+            device_map="cpu",
+            resume=False,
+            peft=None,
         )
         assert model is not None
         assert model.device == torch.device("cpu")
         del model
-        model = ModelFactory.create(
-            name="AR",
-            recurrent_module=train_config.model.recurrent_module.to_dict(),
-            output_head=train_config.model.output_head.to_dict(),
-            device_map="cuda",
-        )
-        assert model is not None
-        assert model.device == torch.device("cuda:0")
-        del model
 
-    def test_model_factory_ar(self):
-        model_params = {
-            "recurrent_module": {"name": "torch.nn.LSTM", "input_size": 2, "hidden_size": 10, "num_layers": 1, "batch_first": True},
-            "output_head": {
-                "name": "fim.models.blocks.Mlp",
-                "in_features": 10,
-                "out_features": 2,
-                "hidden_layers": (256, 256),
-                "hidden_act": {"name": "torch.nn.ReLU"},
-                "output_act": {"name": "torch.nn.Sigmoid"},
-            },
-        }
-        model = ModelFactory.create("AR", **model_params)
+        if torch.cuda.is_available():
+            model = ModelFactory.create(
+                name="FIMODE",
+                time_encoding=train_config.model.time_encoding.to_dict(),
+                trunk_net=train_config.model.trunk_net.to_dict(),
+                branch_net=train_config.model.branch_net.to_dict(),
+                combiner_net=train_config.model.combiner_net.to_dict(),
+                vector_field_net=train_config.model.vector_field_net.to_dict(),
+                init_cond_net=train_config.model.init_cond_net.to_dict(),
+                loss_configs=train_config.model.loss_configs.to_dict(),
+                normalization_time=train_config.model.normalization_time.to_dict(),
+                normalization_values=train_config.model.normalization_values.to_dict(),
+                load_in_8bit=False,
+                load_in_4bit=False,
+                use_bf16=False,
+                device_map="cuda",
+                resume=False,
+                peft=None,
+            )
+            assert model is not None
+            assert model.device == torch.device("cuda:0")
+            del model
+
+    def test_model_factory_fim(self, train_config: GenericConfig):
+        model = ModelFactory.create(**train_config.model.to_dict())
         assert model is not None
 
     @pytest.fixture
@@ -82,6 +100,6 @@ class TestModelFactory:
             out = model(batch)
             break
         assert isinstance(out["losses"], dict)
-        max_len = batch["seq_len"].max().item() - 1
-        bs = batch["target"].shape[0]
-        assert out["predictions"].shape == (bs, max_len, 2)
+        bs = batch["coarse_grid_grid"].shape[0]
+        assert out["visualizations"]["solution"]["learnt"].shape == (bs, 128, 1)
+        assert out["visualizations"]["solution"]["target"].shape == (bs, 128, 1)
