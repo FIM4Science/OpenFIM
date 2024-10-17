@@ -13,7 +13,7 @@ from torch.utils.data.dataloader import DataLoader
 from fim.utils.collate import pad_data_collator
 from fim.utils.helper import create_class_instance, verify_str_arg
 
-from ..data.datasets import BaseDataset, TimeSeriesDataset, TimeSeriesImputationDatasetTorch
+from ..data.datasets import HFDataset, TimeSeriesDataset, TimeSeriesImputationDatasetTorch
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 
@@ -67,7 +67,7 @@ class BaseDataLoader:
 
         match dataset_type_name:
             case "base":
-                DataSet = BaseDataset
+                DataSet = HFDataset
             case "synthetic":
                 raise ValueError("Outdated dataset type 'synthetic'.")
                 # DataSet = SyntheticDataset

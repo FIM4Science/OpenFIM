@@ -4,16 +4,17 @@ from pathlib import Path
 from typing import Optional, Union
 
 import torch
+import torch.utils
+import torch.utils.data
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
 from torch.utils.data import default_collate
 
-from fim.data.utils import split_into_variable_windows
-
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
+from .utils import load_file, split_into_variable_windows
 
 
-class BaseDataset(torch.utils.data.Dataset):
+class HFDataset(torch.utils.data.Dataset):
     """
     Base class for time series datasets.
 
@@ -50,9 +51,7 @@ class BaseDataset(torch.utils.data.Dataset):
         self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
         self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
         self.data: DatasetDict = load_dataset(path, ds_name, split=split, download_mode=download_mode, **kwargs)
-
-    def __post_init__(self):
-        self.logger.debug("Base Dataset loaded successfully.")
+        self.logger.debug(f"Dataset from {path} with name {ds_name} and split {split} loaded successfully.")
 
     def __getitem__(self, idx):
         out = self.data[idx]
@@ -70,7 +69,7 @@ class BaseDataset(torch.utils.data.Dataset):
         return len(self.data)
 
 
-class TimeSeriesDataset(BaseDataset):
+class TimeSeriesDataset(torch.utils.data.Dataset):
     """
     Base class for time series datasets.
 
@@ -118,7 +117,94 @@ class TimeSeriesDataset(BaseDataset):
         return f"TimeSeriesDataset(path={self.path}, name={self.name}, split={self.split}, dataset={self.data})"
 
 
-class TimeSeriesDatasetTorch(BaseDataset):
+class FimDataset(torch.utils.data.Dataset):
+    """
+    FimDataset is a custom dataset class for loading and handling data from a specified path.
+
+    Each file in the directory is loaded as a separate key-value pair in the dataset dictionary. In case _files_to_load_ is
+    specified only the files in the dictionary are loaded. The data is loaded from the files and stored in the dataset
+
+    The file type is automatically detected. Currently, the supported file types are .h5, .pickle, and .pt.
+
+    Example:
+        ```python
+        dataset = FimDataset(path="data/mjp/train")
+        print(dataset)
+
+        # example with files_to_load
+        files_to_load = {
+            "fine_grid": "fine_grid_grid.pt",
+            "fine_grid_masks": "fine_grid_masks.pt",
+        }
+        dataset = FimDataset(path="data/mjp/train", files_to_load=files_to_load)
+        print(dataset)
+        ```
+    Attributes:
+        logger (RankLoggerAdapter): Logger for the dataset class.
+        _path (Union[str, Path]): Path to the dataset directory.
+        files_to_load (Optional[dict]): Dictionary specifying files to load.
+        data_limit (Optional[int]): Limit on the number of data entries to load from each file.
+        data (dict): Loaded data from the specified files.
+    Methods:
+        __init__(path: Union[str, Path], files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
+            Initializes the FimDataset with the given path, files to load, and data limit.
+        __load_data() -> dict:
+            Loads data from the specified files and returns it as a dictionary.
+        __getitem__(idx):
+            Returns the data entry at the specified index.
+        __get_files() -> list[tuple[str, Path]]:
+            Retrieves the list of files to load based on the specified files or all files in the directory.
+        path:
+            Property to get and set the dataset path.
+        __len__():
+            Returns the number of data entries in the dataset.
+        __str__():
+            Returns a string representation of the FimDataset.
+    """
+
+    def __init__(self, path: Union[str, Path], files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
+        super().__init__()
+
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+        self._path = path
+        self.files_to_load = files_to_load
+        self.data_limit = data_limit
+        self.logger.debug(f"Loading dataset from {path} with files {files_to_load}.")
+        self.data = self.__load_data()
+        self.logger.debug(f"Dataset from {path} loaded successfully.")
+
+    def __load_data(self) -> dict:
+        files_to_load = self.__get_files()
+        return {file_name: load_file(file_path)[: self.data_limit] for file_name, file_path in files_to_load}
+
+    def __getitem__(self, idx):
+        return {k: v[idx] for k, v in self.data.items()}
+
+    def __get_files(self) -> list[tuple[str, Path]]:
+        if self.files_to_load is not None:
+            files_to_load = self.files_to_load.items()
+        else:
+            files_to_load = [(f.stem, f) for f in self.path.iterdir() if f.is_file()]
+        return files_to_load
+
+    @property
+    def path(self):
+        return self._path
+
+    @path.setter
+    def path(self, path: Union[str, Path]):
+        assert isinstance(path, (str, Path)), f"Expected path to be of type str or Path, but got {type(path)}."
+        assert Path(path).exists(), f"Path {path} does not exist."
+        self._path = path
+
+    def __len__(self):
+        return len(next(iter(self.data.values())))
+
+    def __str__(self):
+        return f"FimDataset(path={self.path}, files_to_load={self.files_to_load})"
+
+
+class TimeSeriesDatasetTorch(torch.utils.data.Dataset):
     """
     Base class for time series datasets where the data is given in torch format.
 

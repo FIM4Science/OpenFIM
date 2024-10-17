@@ -5,6 +5,7 @@ import os
 import pickle
 from typing import Optional, Tuple
 
+import h5py
 import numpy as np
 import torch
 
@@ -237,3 +238,28 @@ def repeat_for_dim(t, process_dim):
     Repeat tensor for process_dim times along first dimension.
     """
     return torch.concat([t for _ in range(process_dim)], dim=0)
+
+
+def load_file(file_path):
+    """
+    Load a file based on its file extension.
+    Parameters:
+    file_path (Path): The path to the file to be loaded.
+    Returns:
+    object: The loaded file content. The type of the returned object depends on the file type:
+        - For ".pickle" or ".pkl" files, it returns the deserialized object using pickle.
+        - For ".pt" files, it returns the object loaded using torch.
+        - For ".h5" files, it returns an h5py File object.
+    Raises:
+    ValueError: If the file type is unsupported.
+    """
+    file_type = file_path.suffix
+    match file_type:
+        case ".pickle", ".pkl":  # TODO: we have to convert the loaded data object to torch.tensor
+            return pickle.load(open(file_path, "rb"))
+        case ".pt":
+            return torch.load(file_path)
+        case ".h5":
+            return h5py.File(file_path, "r")
+        case _:
+            raise ValueError(f"Unsupported file type {file_type}.")
