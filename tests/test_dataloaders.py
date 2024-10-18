@@ -12,10 +12,12 @@ from datasets import DownloadMode
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from fim import test_data_path
 from fim.data.dataloaders import BaseDataLoader, DataLoaderFactory
 from fim.utils.helper import expand_params, load_yaml
 
 
+@pytest.mark.skip("Skip until we have a proper dataset")
 class TestBaseDataLoader:
     path = "monash_tsf"
     name = "nn5_daily"
@@ -82,12 +84,37 @@ class TestBaseDataLoader:
         assert x["target"].shape[1] == x["seq_len"].max()
 
 
-@pytest.mark.skip("Skip until we have a proper dataset")
 class TestFimDataLoader:
+    def test_load(self):
+        root_path = test_data_path / "data" / "mjp"
+        config = {
+            "name": "FIMDataLoader",
+            "path_collections": {"train": [root_path / "train"]*2, "test": [root_path / "test"]},
+            "loader_kwargs": {"num_workers": 16, "batch_size": 1, "test_batch_size": 2},
+            # "split": "train"
+            "dataset_kwargs": {
+                "files_to_load": {
+                    "observation_grid": "fine_grid_grid.pt",
+                    "observation_values": "fine_grid_noisy_sample_paths.pt",
+                    "mask_seq_lengths": "fine_grid_mask_seq_lengths.pt",
+                    "time_normalization_factors": "fine_grid_time_normalization_factors.pt",
+                    "intensity_matrices": "fine_grid_intensity_matrices.pt",
+                    "adjacency_matrices": "fine_grid_adjacency_matrices.pt",
+                    "initial_distributions": "fine_grid_initial_distributions.pt",
+                },
+                "data_limit": None,
+            },
+        }
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 4
+        assert dataloader.test_set_size == 2
+
+    @pytest.mark.skip("Skip until we have a proper dataset")
     @pytest.mark.parametrize(
         "config_path", ["/home/koerner/FIM/configs/train/fim_ode.yaml", "/home/koerner/FIM/configs/train/decoderOnly_example.yaml"]
     )
-    def test_loading(self, config_path):
+    def test_loading_old(self, config_path):
         torch.manual_seed(4)
 
         config_inference = load_yaml(config_path)

@@ -8,7 +8,7 @@ import pytest
 from datasets import Dataset, DownloadMode
 
 from fim import test_data_path
-from fim.data.datasets import FimDataset, HFDataset
+from fim.data.datasets import FIMDataset, HFDataset
 
 
 class TestHFDataset:
@@ -48,15 +48,25 @@ class TestHFDataset:
 
 class TestFimDataset:
     def test_init(self):
-        dataset = FimDataset(path=test_data_path / "data" / "mjp" / "train")
+        dataset = FIMDataset(path=test_data_path / "data" / "mjp" / "train")
         assert dataset is not None
         assert isinstance(dataset.data, dict)
         assert dataset.data is not None
         assert "fine_grid_grid" in dataset.data
         assert len(dataset.data) == 9
+        assert len(dataset) == 2
+
+    def test_init_list_of_paths(self):
+        dataset = FIMDataset(path=[test_data_path / "data" / "mjp" / "train", test_data_path / "data" / "mjp" / "test"])
+        assert dataset is not None
+        assert isinstance(dataset.data, dict)
+        assert dataset.data is not None
+        assert "fine_grid_grid" in dataset.data
+        assert len(dataset.data) == 9
+        assert len(dataset) == 4
 
     def test_get_item(self):
-        dataset = FimDataset(path=test_data_path / "data" / "mjp" / "train")
+        dataset = FIMDataset(path=test_data_path / "data" / "mjp" / "train")
         assert dataset[0] is not None
         assert dataset[0].keys() == {
             "fine_grid_grid",

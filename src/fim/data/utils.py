@@ -255,7 +255,7 @@ def load_file(file_path):
     """
     file_type = file_path.suffix
     match file_type:
-        case ".pickle", ".pkl":  # TODO: we have to convert the loaded data object to torch.tensor
+        case ".pickle" | ".pkl":  # TODO: we have to convert the loaded data object to torch.tensor
             return pickle.load(open(file_path, "rb"))
         case ".pt":
             return torch.load(file_path)

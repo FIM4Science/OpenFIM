@@ -1,6 +1,7 @@
 import logging
 import math
-from pathlib import Path
+import pathlib
+from collections import defaultdict
 from typing import Optional, Union
 
 import torch
@@ -9,6 +10,7 @@ import torch.utils.data
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
 from torch.utils.data import default_collate
 
+from ..typing import Path, Paths
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
 from .utils import load_file, split_into_variable_windows
@@ -117,7 +119,7 @@ class TimeSeriesDataset(torch.utils.data.Dataset):
         return f"TimeSeriesDataset(path={self.path}, name={self.name}, split={self.split}, dataset={self.data})"
 
 
-class FimDataset(torch.utils.data.Dataset):
+class FIMDataset(torch.utils.data.Dataset):
     """
     FimDataset is a custom dataset class for loading and handling data from a specified path.
 
@@ -140,33 +142,33 @@ class FimDataset(torch.utils.data.Dataset):
         print(dataset)
         ```
     Attributes:
+        path (Union[Path, Paths]): The path or list of paths to the dataset files.
+        files_to_load (Optional[dict]): A dictionary specifying which files to load.
+        data_limit (Optional[int]): An optional limit on the number of data entries to load from each file.
         logger (RankLoggerAdapter): Logger for the dataset class.
-        _path (Union[str, Path]): Path to the dataset directory.
-        files_to_load (Optional[dict]): Dictionary specifying files to load.
-        data_limit (Optional[int]): Limit on the number of data entries to load from each file.
-        data (dict): Loaded data from the specified files.
+        data (dict): A dictionary containing the loaded data.
     Methods:
-        __init__(path: Union[str, Path], files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
-            Initializes the FimDataset with the given path, files to load, and data limit.
+        __init__(path: Union[Path, Paths], files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
+            Initializes the FIMDataset with the given path, files to load, and data limit.
         __load_data() -> dict:
-            Loads data from the specified files and returns it as a dictionary.
+            Loads the data from the specified files and returns it as a dictionary.
         __getitem__(idx):
             Returns the data entry at the specified index.
         __get_files() -> list[tuple[str, Path]]:
-            Retrieves the list of files to load based on the specified files or all files in the directory.
+            Retrieves the list of files to load based on the specified files_to_load or all files in the path.
         path:
-            Property to get and set the dataset path.
+            Property getter and setter for the dataset path.
         __len__():
             Returns the number of data entries in the dataset.
         __str__():
-            Returns a string representation of the FimDataset.
+            Returns a string representation of the FIMDataset.
     """
 
-    def __init__(self, path: Union[str, Path], files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
+    def __init__(self, path: Union[Path, Paths], files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
         super().__init__()
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
-        self._path = path
+        self.path: Paths = path
         self.files_to_load = files_to_load
         self.data_limit = data_limit
         self.logger.debug(f"Loading dataset from {path} with files {files_to_load}.")
@@ -174,17 +176,20 @@ class FimDataset(torch.utils.data.Dataset):
         self.logger.debug(f"Dataset from {path} loaded successfully.")
 
     def __load_data(self) -> dict:
+        data = defaultdict(list)
         files_to_load = self.__get_files()
-        return {file_name: load_file(file_path)[: self.data_limit] for file_name, file_path in files_to_load}
+        for file_name, file_path in files_to_load:
+            data[file_name].append(load_file(file_path)[: self.data_limit])
+        return {k: torch.cat(v) for k, v in data.items()}
 
     def __getitem__(self, idx):
         return {k: v[idx] for k, v in self.data.items()}
 
-    def __get_files(self) -> list[tuple[str, Path]]:
+    def __get_files(self) -> Paths:
         if self.files_to_load is not None:
-            files_to_load = self.files_to_load.items()
+            files_to_load = [(key, path / file_name) for key, file_name in self.files_to_load.items() for path in self.path]
         else:
-            files_to_load = [(f.stem, f) for f in self.path.iterdir() if f.is_file()]
+            files_to_load = [(f.stem, f) for path in self.path for f in path.iterdir() if f.is_file()]
         return files_to_load
 
     @property
@@ -192,9 +197,14 @@ class FimDataset(torch.utils.data.Dataset):
         return self._path
 
     @path.setter
-    def path(self, path: Union[str, Path]):
-        assert isinstance(path, (str, Path)), f"Expected path to be of type str or Path, but got {type(path)}."
-        assert Path(path).exists(), f"Path {path} does not exist."
+    def path(self, path: Union[Path, Paths]):
+        assert isinstance(path, (str, Path, list)), f"Expected path to be of type str, Path, or list, but got {type(path)}."
+        if not isinstance(path, list):
+            path = [path]
+        path = [pathlib.Path(p) for p in path]
+        if not all(p.exists() for p in path):
+            missing_paths = [str(p) for p in path if not p.exists()]
+            raise AssertionError(f"Paths {', '.join(missing_paths)} do not exist.")
         self._path = path
 
     def __len__(self):
