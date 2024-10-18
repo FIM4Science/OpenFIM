@@ -15,7 +15,7 @@ import torch
 import torch.distributed as dist
 
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import ModelFactory
+from fim.models.blocks import ModelFactory
 from fim.trainers.trainer import TrainerFactory
 from fim.trainers.utils import cleanup, clear_gpu_cache, setup, setup_environ_flags
 from fim.utils.helper import GenericConfig, expand_params, load_yaml

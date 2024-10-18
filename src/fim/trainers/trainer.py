@@ -14,7 +14,7 @@ from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 
 from ..data.dataloaders import BaseDataLoader
-from ..models.models import AModel
+from ..models.blocks import AModel
 from ..utils.helper import GenericConfig, create_optimizers, create_schedulers, verify_str_arg
 from ..utils.logging import RankLoggerAdapter
 from .checkpoint import TrainCheckpoint, TrainCheckpointFSDPFullStateDict, apply_fsdp_checkpointing
@@ -39,9 +39,7 @@ class Trainer:
         self.training_logger = TrainLogging(self.experiment_dir, self.config.trainer.logging_format, self.rank)
         self.training_loss_tracker = TrainLossTracker()
         self.validation_loss_tracker = TrainLossTracker()
-        self.max_steps = (
-            self.dataloader.n_train_batches * self.config.trainer.epochs // self.gradient_accumulation_steps
-        )
+        self.max_steps = self.dataloader.n_train_batches * self.config.trainer.epochs // self.gradient_accumulation_steps
         self.steps_in_epoch = self.dataloader.n_train_batches // self.gradient_accumulation_steps
         self.schedulers: dict = create_schedulers(config.trainer.schedulers, self.max_steps, self.steps_in_epoch)
         self._prepare_model(model, config, resume)
@@ -106,9 +104,7 @@ class Trainer:
         self._auto_cast_type = torch.float16
         if is_bfloat_supported() and self._use_mixeprecision:
             if self.rank == 0:
-                self.logger.warning(
-                    "MIXED_PRECISION: There is bfloat16 support on your system. bfloat16 will be used instead of float16!"
-                )
+                self.logger.warning("MIXED_PRECISION: There is bfloat16 support on your system. bfloat16 will be used instead of float16!")
             self._auto_cast_type = torch.bfloat16
         self.grad_scaler = None
         if self._use_mixeprecision and not self.is_distributed:
@@ -159,9 +155,7 @@ class Trainer:
             case "MODEL_SPECIFIC":
                 return model.get_fsdp_policy(int(float(self.config.distributed.min_num_params)))
             case "SIZE_BASED":
-                return functools.partial(
-                    size_based_auto_wrap_policy, min_num_params=int(float(self.config.distributed.min_num_params))
-                )
+                return functools.partial(size_based_auto_wrap_policy, min_num_params=int(float(self.config.distributed.min_num_params)))
             case _:
                 return None
 
@@ -258,9 +252,7 @@ class Trainer:
 
     def _train_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
-        with torch.cuda.amp.autocast(
-            enabled=self._use_mixeprecision and torch.cuda.is_available(), dtype=self._auto_cast_type
-        ):
+        with torch.cuda.amp.autocast(enabled=self._use_mixeprecision and torch.cuda.is_available(), dtype=self._auto_cast_type):
             stats = self.model(batch, training=True, schedulers=self.schedulers, step=step)
             losses = stats["losses"]
             loss = losses["loss"]
@@ -276,9 +268,7 @@ class Trainer:
 
     def _model_update_step(self, step: int, loss: torch.Tensor):
         lrs = {}
-        update_gradients = ((step + 1) % self.gradient_accumulation_steps == 0) or (
-            (step + 1) == self.dataloader.n_train_batches
-        )
+        update_gradients = ((step + 1) % self.gradient_accumulation_steps == 0) or ((step + 1) == self.dataloader.n_train_batches)
         if self.precision or self.config.model.use_bf16:
             self.grad_scaler.scale(loss).backward()
             if update_gradients:
@@ -316,9 +306,7 @@ class Trainer:
     def _validation_epoch(self, epoch: int) -> dict:
         self.model.eval()
         with torch.no_grad():
-            p_bar = StepProgressBarFactory.create_validation_progress_bar(
-                self.dataloader.n_validation_batches, self.rank
-            )
+            p_bar = StepProgressBarFactory.create_validation_progress_bar(self.dataloader.n_validation_batches, self.rank)
             data_it = self.dataloader.validation_it
             if self.debug_mode:
                 data_it = islice(data_it, self.number_of_debug_iterations)

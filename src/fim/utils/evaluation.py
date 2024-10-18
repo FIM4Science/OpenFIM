@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 
 from fim.data.dataloaders import DataLoaderFactory
 
-from ..models import ModelFactory
+from ..models.blocks import ModelFactory
 from .helper import export_list_of_dicts_to_jsonl, export_list_of_lists_to_csv
 
 
@@ -150,9 +150,7 @@ class QAevaluationSupervised(QAevaluation):
         max_new_tokens: int = 20,
         do_sample: bool = False,
     ) -> None:
-        super().__init__(
-            device, output_path, tokenizer_param, dataset_param, model_param, answer_pattern, max_new_tokens, do_sample
-        )
+        super().__init__(device, output_path, tokenizer_param, dataset_param, model_param, answer_pattern, max_new_tokens, do_sample)
         self.targers = []
 
     def evaluate(self, max_new_tokens: Optional[int] = None):
@@ -286,9 +284,7 @@ class PatchedTimeSeriesEvaluation(Evaluation):
                     "mask_point_level": m.cpu(),
                     "loss": self.model.loss(p, t),
                 }
-                for t, p, i, m in zip(
-                    x["output_values"], prediction["predictions"], x["input_values"], x["mask_point_level"]
-                )
+                for t, p, i, m in zip(x["output_values"], prediction["predictions"], x["input_values"], x["mask_point_level"])
             )
 
     def _move_batch_to_local_rank(self, batch):
@@ -412,12 +408,10 @@ class TimeSeriesEvaluation(Evaluation):
                 predictions_entry = {
                     "fine_grid_grid": x["fine_grid_grid"][sample_id].cpu().flatten().tolist(),
                     "solution": {
-                        key: value[sample_id].cpu().flatten().tolist()
-                        for key, value in model_output["visualizations"]["solution"].items()
+                        key: value[sample_id].cpu().flatten().tolist() for key, value in model_output["visualizations"]["solution"].items()
                     },
                     "drift": {
-                        key: value[sample_id].cpu().flatten().tolist()
-                        for key, value in model_output["visualizations"]["drift"].items()
+                        key: value[sample_id].cpu().flatten().tolist() for key, value in model_output["visualizations"]["drift"].items()
                     },
                     "init_condition": {
                         key: value[sample_id].cpu().flatten().tolist()
@@ -474,12 +468,8 @@ class TimeSeriesEvaluation(Evaluation):
             sample_data = self.predictions[i]
             fine_grid_grid = sample_data["fine_grid_grid"]
             obs_mask = sample_data.get("solution").get("observation_mask")
-            obs_values = [
-                v for masked, v in zip(obs_mask, sample_data.get("solution").get("observation_values")) if not masked
-            ]
-            obs_times = [
-                v for masked, v in zip(obs_mask, sample_data.get("solution").get("observation_times")) if not masked
-            ]
+            obs_values = [v for masked, v in zip(obs_mask, sample_data.get("solution").get("observation_values")) if not masked]
+            obs_times = [v for masked, v in zip(obs_mask, sample_data.get("solution").get("observation_times")) if not masked]
 
             # ground truth
             ax.plot(
@@ -550,9 +540,7 @@ class TimeSeriesEvaluation(Evaluation):
             )
 
             # prediction
-            ax.plot(
-                fine_grid_times, sample_data.get("drift", {}).get("learnt", None), label="Inference drift", color="blue"
-            )
+            ax.plot(fine_grid_times, sample_data.get("drift", {}).get("learnt", None), label="Inference drift", color="blue")
             if self.plot_certainty:
                 ax.fill_between(
                     fine_grid_times,
@@ -590,27 +578,15 @@ class TimeSeriesEvaluation(Evaluation):
         fig, ax = plt.subplots(1, 1, figsize=(10, 4))
         ax.errorbar(
             range(len(indices)),
-            [
-                self.predictions[p_id].get("init_condition").get("learnt")[0]
-                for p_id in range(n_predictions)
-                if p_id in indices
-            ],
-            yerr=[
-                self.predictions[p_id].get("init_condition").get("certainty")[0]
-                for p_id in range(n_predictions)
-                if p_id in indices
-            ],
+            [self.predictions[p_id].get("init_condition").get("learnt")[0] for p_id in range(n_predictions) if p_id in indices],
+            yerr=[self.predictions[p_id].get("init_condition").get("certainty")[0] for p_id in range(n_predictions) if p_id in indices],
             fmt="o",
             color="blue",
             label="Inference init. condition",
         )
         ax.scatter(
             range(len(indices)),
-            [
-                self.predictions[p_id].get("init_condition").get("target")[0]
-                for p_id in range(n_predictions)
-                if p_id in indices
-            ],
+            [self.predictions[p_id].get("init_condition").get("target")[0] for p_id in range(n_predictions) if p_id in indices],
             marker="x",
             color="orange",
             label="Ground truth init. condition",

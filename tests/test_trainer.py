@@ -8,7 +8,7 @@ import pytest
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import ModelFactory
+from fim.models.blocks import ModelFactory
 from fim.trainers.trainer import Trainer, TrainLossTracker
 from fim.utils.helper import load_yaml
 

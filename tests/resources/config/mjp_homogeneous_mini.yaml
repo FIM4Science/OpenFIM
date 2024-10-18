@@ -1,0 +1,94 @@
+experiment:
+  name: DEBUG_fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331
+  name_add_date: False # if true, the current date & time will be added to the experiment name
+  seed: [10]
+  device_map: cuda # auto, cuda, cpu
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  class_path: fim.models.FIMMjp
+  # dropout_rate: &dropout_rate 0.0
+  # likelihood_loss_scale: 1
+  # reconstruction_loss_scale: 0
+  # zero_entry_loss_scale: 50
+  # initial_distribution_loss_scale: 1
+  use_one_hot_encoding: true # Only use this for categorical data with states in [0, 1, 2, ...]
+  number_of_states: 6
+  use_adjacency_matrix: false
+
+  timeseries_encoder:
+    class_path: wienerfm.blocks.encoders.TransformerEncoder
+    layers_count: 4
+    transformer_blocks:
+      class_path: wienerfm.blocks.long_context_encoders.TransformerBlock
+      output_size: 128
+      dropout_rate: *dropout_rate
+      encoding_module:
+        class_path: flax.linen.attention.MultiHeadDotProductAttention
+        qkv_features: 128
+        num_heads: 8
+
+        dropout_rate: *dropout_rate
+
+      mlp:
+        class_path: wienerfm.blocks.mlp.MLP
+        hidden_layers: [512]
+        layers:
+          activation: selu
+          dropout:
+            rate:
+              *dropout_rate
+              #layer_norm: {}
+    nn_transformation:
+      transform: flax.linen.vmap
+      methods:
+        __call__:
+          variable_axes: { "params": null, "batch_stats": null }
+          axis_name: "minibatch"
+          split_rngs:
+            {
+              "params": false,
+              "batch_stats": false,
+              "dropout": true,
+              "sample": true,
+            }
+          in_axes: !!python/tuple [-3, 0]
+          out_axes: !!python/tuple [null, -3, -2]
+
+  time_embeddings:
+    class_path: wienerfm.blocks.encoders.LearnedSinusTimeEncoder
+    encoding_dim: 512
+
+  attention:
+    class_path: wienerfm.blocks.encoders.MultiHeadSelfAttention
+    num_heads: 4
+    output_features: 256
+    head:
+      class_path: wienerfm.blocks.encoders.SelfAttention
+      qkv_features: 256
+
+  intensity_matrix_model:
+    # MLP that acts on the hidden representation of RNN
+    class_path: wienerfm.blocks.mlp.MLP
+    hidden_layers: [128, 128]
+    output_size: 60 # 2*(num_state * num_state - num_state) since we predict the mean and variance for the off-diagonal elements of the intensity matrix
+    layers:
+      activation: selu
+      dropout:
+        rate: *dropout_rate
+
+  initial_distribution_model:
+    class_path: wienerfm.blocks.mlp.MLP
+    hidden_layers: [128, 128]
+    output_size: 6
+    layers:
+      activation: selu
+      dropout:
+        rate: *dropout_rate

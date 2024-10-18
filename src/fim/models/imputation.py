@@ -11,8 +11,8 @@ from fim.utils.helper import create_class_instance
 from ..data.utils import make_multi_dim, make_single_dim, repeat_for_dim
 from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
+from .blocks import AModel, ModelFactory
 from .blocks.normalization import MinMaxNormalization
-from .models import AModel, ModelFactory
 from .ode import FIMODE
 
 

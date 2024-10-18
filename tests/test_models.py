@@ -7,16 +7,15 @@ import torch
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import ModelFactory
 
 # from reasoningschema.data import load_tokenizer
 # from reasoningschema.data.dataloaders import DataLoaderFactory
 # from reasoningschema.models import HSN, AModel, ModelFactory
 # from reasoningschema.models.blocks.decoders import Decoder
 # from reasoningschema.models.blocks.encoders import EncoderModelA
-from fim.models.models import AModel
+from fim.models.blocks import AModel, ModelFactory
 from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
-
+from fim.models import FIMMjp
 
 class TestModelFactory:
     @pytest.fixture
@@ -103,3 +102,12 @@ class TestModelFactory:
         bs = batch["coarse_grid_grid"].shape[0]
         assert out["visualizations"]["solution"]["learnt"].shape == (bs, 128, 1)
         assert out["visualizations"]["solution"]["target"].shape == (bs, 128, 1)
+
+
+class TestMJP:
+    def config(self):
+        conf_path = test_data_path / "config" / "fim_mjp_mini_test.yaml"
+        train_config = load_yaml(conf_path, True)
+        return train_config
+    def test_init(self):
+        assert True

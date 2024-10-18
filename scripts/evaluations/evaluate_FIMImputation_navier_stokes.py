@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 import torch
 from tqdm import tqdm
 
-from fim.models import ModelFactory
+from fim.models.blocks import ModelFactory
 from fim.utils.metrics import compute_metrics
 
 

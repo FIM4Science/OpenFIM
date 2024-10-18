@@ -13,7 +13,7 @@ from fim.utils.metrics import compute_metrics
 
 from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
-from .models import AModel, ModelFactory
+from .blocks import AModel, ModelFactory
 
 
 class FIMODE(AModel):

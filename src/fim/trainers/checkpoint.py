@@ -18,7 +18,7 @@ from torch.distributed.fsdp import FullStateDictConfig, StateDictType
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig
 
-from ..models.models import AModel
+from ..models.blocks import AModel
 from ..trainers.utils import (
     TrainLogging,
     TrainLossTracker,
@@ -224,7 +224,7 @@ class TrainCheckpoint:
         for name, optimizer in self.optimizers.items():
             if name in checkpoint:
                 optimizer["opt"].load_state_dict(checkpoint[name]["opt"])
-                if optimizer['schedulers'] is not None:
+                if optimizer["schedulers"] is not None:
                     for ix, (_, scheduler) in enumerate(optimizer["schedulers"]):
                         scheduler.load_state_dict(checkpoint[name]["schedulers"][ix])
                 self.__logger.info("Loaded optimizer state for %s.", name)
@@ -326,7 +326,7 @@ class TrainCheckpoint:
     def __get_last_epoch(self):
         epoch_numbers = []
         for checkpoint_name in [item.name for item in self.checkpoint_dir.iterdir() if item.is_dir()]:
-            match = re.match("^epoch-(\d+)$", checkpoint_name)
+            match = re.match(r"^epoch-(\d+)$", checkpoint_name)
             if match:
                 epoch_numbers.append(int(match.group(1)))
         if not epoch_numbers:
