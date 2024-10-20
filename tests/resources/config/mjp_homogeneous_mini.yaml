@@ -1,8 +1,8 @@
 experiment:
-  name: DEBUG_fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331
+  name: FIM_MJP_Homogeneous_Mini
   name_add_date: False # if true, the current date & time will be added to the experiment name
   seed: [10]
-  device_map: cuda # auto, cuda, cpu
+  device_map: auto # auto, cuda, cpu
 
 distributed:
   enabled: false
@@ -12,83 +12,111 @@ distributed:
   checkpoint_type: full_state # full_state, local_state
   activation_chekpoint: false
 
+dataset:
+  name: FIMDataLoader
+  path_collections:
+    train: !!python/tuple
+      - FIM/tests/resources/data/mjp/train/
+    valid: !!python/tuple
+      - FIM/tests/resources/data/mjp/test/
+    test: !!python/tuple
+      - FIM/tests/resources/data/mjp/test/
+  loader_kwargs:
+    batch_size: 2
+    num_workers: 0
+    test_batch_size: 2
+  dataset_kwargs:
+    files_to_load:
+      observation_grid: "fine_grid_grid.pt"
+      observation_values: "fine_grid_noisy_sample_paths.pt"
+      mask_seq_lengths: "fine_grid_mask_seq_lengths.pt"
+      time_normalization_factors: "fine_grid_time_normalization_factors.pt"
+      intensity_matrices: "fine_grid_intensity_matrices.pt"
+      adjacency_matrices: "fine_grid_adjacency_matrices.pt"
+      initial_distributions: "fine_grid_initial_distributions.pt"
+    data_limit: null
+
+model_dim: &model_dim 64
+
 model:
-  class_path: fim.models.FIMMjp
-  # dropout_rate: &dropout_rate 0.0
-  # likelihood_loss_scale: 1
-  # reconstruction_loss_scale: 0
-  # zero_entry_loss_scale: 50
-  # initial_distribution_loss_scale: 1
-  use_one_hot_encoding: true # Only use this for categorical data with states in [0, 1, 2, ...]
-  number_of_states: 6
-  use_adjacency_matrix: false
+  name: FIMMJP
+  n_states: 6
+  use_adjacency_matrix: False
 
-  timeseries_encoder:
-    class_path: wienerfm.blocks.encoders.TransformerEncoder
-    layers_count: 4
-    transformer_blocks:
-      class_path: wienerfm.blocks.long_context_encoders.TransformerBlock
-      output_size: 128
-      dropout_rate: *dropout_rate
-      encoding_module:
-        class_path: flax.linen.attention.MultiHeadDotProductAttention
-        qkv_features: 128
-        num_heads: 8
+  ts_encoder:
+    name: fim.models.blocks.base.TransformerEncoder
+    num_layers: 2
 
-        dropout_rate: *dropout_rate
+    transformer_block:
+      name: fim.models.blocks.base.TransformerBlock
+      model_dim: *model_dim
+      ff_dim: 128
+      dropout: 0.1
+      activation:
+        name: torch.nn.SiLU
+      normalization:
+        name: torch.nn.RMSNorm
+        normalized_shape: [*model_dim]
+      attention_head:
+        name: torch.nn.MultiheadAttention
+        embed_dim: *model_dim
+        num_heads: 2
+        batch_first: True
 
-      mlp:
-        class_path: wienerfm.blocks.mlp.MLP
-        hidden_layers: [512]
-        layers:
-          activation: selu
-          dropout:
-            rate:
-              *dropout_rate
-              #layer_norm: {}
-    nn_transformation:
-      transform: flax.linen.vmap
-      methods:
-        __call__:
-          variable_axes: { "params": null, "batch_stats": null }
-          axis_name: "minibatch"
-          split_rngs:
-            {
-              "params": false,
-              "batch_stats": false,
-              "dropout": true,
-              "sample": true,
-            }
-          in_axes: !!python/tuple [-3, 0]
-          out_axes: !!python/tuple [null, -3, -2]
+  pos_encodings:
+    name: fim.models.blocks.base.SineTimeEncoding
+    model_dim: *model_dim
 
-  time_embeddings:
-    class_path: wienerfm.blocks.encoders.LearnedSinusTimeEncoder
-    encoding_dim: 512
-
-  attention:
-    class_path: wienerfm.blocks.encoders.MultiHeadSelfAttention
+  path_attention:
+    name: torch.nn.MultiheadAttention
+    embed_dim: *model_dim
     num_heads: 4
-    output_features: 256
-    head:
-      class_path: wienerfm.blocks.encoders.SelfAttention
-      qkv_features: 256
+    batch_first: True
 
-  intensity_matrix_model:
-    # MLP that acts on the hidden representation of RNN
-    class_path: wienerfm.blocks.mlp.MLP
-    hidden_layers: [128, 128]
-    output_size: 60 # 2*(num_state * num_state - num_state) since we predict the mean and variance for the off-diagonal elements of the intensity matrix
-    layers:
-      activation: selu
-      dropout:
-        rate: *dropout_rate
+  intensity_matrix_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: [64, 64]
+    hidden_act:
+      name: torch.nn.SELU
+    dropout: 0.1
 
-  initial_distribution_model:
-    class_path: wienerfm.blocks.mlp.MLP
-    hidden_layers: [128, 128]
-    output_size: 6
-    layers:
-      activation: selu
-      dropout:
-        rate: *dropout_rate
+  initial_distribution_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: [64, 64]
+    hidden_act:
+      name: torch.nn.SELU
+    dropout: 0.1
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: fp16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 400
+  detect_anomaly: false
+  save_every: 10
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      beta: 1.0
+      label: gauss_nll
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: init_cross_entropy
+      beta: 1.0
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: missing_link
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: 0.0001
+      weight_decay: 0.001
+      gradient_norm_clipping: 10
+      schedulers: !!python/tuple
+        - name: torch.optim.lr_scheduler.CosineAnnealingLR
+          T_max: *epochs
+          eta_min: 0.0000001
+          last_epoch: -1

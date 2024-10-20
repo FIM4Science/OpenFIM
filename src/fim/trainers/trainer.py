@@ -252,7 +252,7 @@ class Trainer:
 
     def _train_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
-        with torch.cuda.amp.autocast(enabled=self._use_mixeprecision and torch.cuda.is_available(), dtype=self._auto_cast_type):
+        with torch.amp.autocast("cuda", enabled=self._use_mixeprecision and torch.cuda.is_available(), dtype=self._auto_cast_type):
             stats = self.model(batch, training=True, schedulers=self.schedulers, step=step)
             losses = stats["losses"]
             loss = losses["loss"]

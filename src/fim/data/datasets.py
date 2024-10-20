@@ -51,7 +51,9 @@ class HFDataset(torch.utils.data.Dataset):
         self.path = path
         self.name = ds_name
         self.logger.debug(f"Loading dataset from {path} with name {ds_name} and split {split}.")
-        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, ds_name) + [None])
+        self.split = verify_str_arg(
+            split, arg="split", valid_values=get_dataset_split_names(path, ds_name, trust_remote_code=True) + [None]
+        )
         self.data: DatasetDict = load_dataset(path, ds_name, split=split, download_mode=download_mode, **kwargs)
         self.logger.debug(f"Dataset from {path} with name {ds_name} and split {split} loaded successfully.")
 
@@ -164,7 +166,7 @@ class FIMDataset(torch.utils.data.Dataset):
             Returns a string representation of the FIMDataset.
     """
 
-    def __init__(self, path: Union[Path, Paths], files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
+    def __init__(self, path: Path | Paths, files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
         super().__init__()
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
@@ -197,9 +199,9 @@ class FIMDataset(torch.utils.data.Dataset):
         return self._path
 
     @path.setter
-    def path(self, path: Union[Path, Paths]):
-        assert isinstance(path, (str, Path, list)), f"Expected path to be of type str, Path, or list, but got {type(path)}."
-        if not isinstance(path, list):
+    def path(self, path: Path | Paths):
+        assert isinstance(path, (str, Path, list, tuple)), f"Expected path to be of type str, Path, or list, but got {type(path)}."
+        if not isinstance(path, (tuple, list)):
             path = [path]
         path = [pathlib.Path(p) for p in path]
         if not all(p.exists() for p in path):

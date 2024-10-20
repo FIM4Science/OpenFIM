@@ -89,7 +89,7 @@ class TestFimDataLoader:
         root_path = test_data_path / "data" / "mjp"
         config = {
             "name": "FIMDataLoader",
-            "path_collections": {"train": [root_path / "train"]*2, "test": [root_path / "test"]},
+            "path_collections": {"train": [root_path / "train"] * 2, "test": [root_path / "test"]},
             "loader_kwargs": {"num_workers": 16, "batch_size": 1, "test_batch_size": 2},
             # "split": "train"
             "dataset_kwargs": {

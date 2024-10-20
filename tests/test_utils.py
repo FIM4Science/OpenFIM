@@ -1,11 +1,11 @@
-import torch
-
-from fim.data.utils import split_into_variable_windows
-
-
 # pylint: disable=missing-module-docstring
 # pylint: disable=missing-function-docstring
 # pylint: disable=line-too-long
+
+import torch
+
+from fim.data.utils import split_into_variable_windows
+from fim.models.utils import create_matrix_from_off_diagonal, get_off_diagonal_elements
 
 
 def test_split_into_variable_windows():
@@ -40,3 +40,73 @@ def test_split_into_variable_windows_no_overlap():
     assert isinstance(windows, torch.Tensor)
     assert windows.size(0) == window_count
     assert windows.size(2) == 1
+
+
+def test_get_off_diagonal_elements():
+    matrix = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=torch.float)
+    expected = torch.tensor([2, 3, 4, 6, 7, 8], dtype=torch.float)
+    result = get_off_diagonal_elements(matrix)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_get_off_diagonal_elements_batch():
+    matrix = torch.tensor([[[1, 2, 3], [4, 5, 6], [7, 8, 9]], [[9, 8, 7], [6, 5, 4], [3, 2, 1]]], dtype=torch.float)
+    expected = torch.tensor([[2, 3, 4, 6, 7, 8], [8, 7, 6, 4, 3, 2]], dtype=torch.float)
+    result = get_off_diagonal_elements(matrix)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_get_off_diagonal_elements_single_element():
+    matrix = torch.tensor([[1]], dtype=torch.float)
+    expected = torch.tensor([], dtype=torch.float)
+    result = get_off_diagonal_elements(matrix)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_get_off_diagonal_elements_non_square():
+    matrix = torch.tensor([[1, 2], [3, 4], [5, 6]], dtype=torch.float)
+    try:
+        get_off_diagonal_elements(matrix)
+    except AssertionError as e:
+        assert str(e) == "The last two dimensions of the matrix must be square."
+    else:
+        assert False, "Expected an AssertionError, but none was raised"
+
+
+def test_create_matrix_from_off_diagonal():
+    off_diagonal_elements = torch.tensor([2, 3, 4, 5, 6, 7], dtype=torch.float)
+    size = 3
+    diagonal_value = 1.0
+    expected = torch.tensor([[1, 2, 3], [4, 1, 5], [6, 7, 1]], dtype=torch.float)
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_matrix_from_off_diagonal_batch():
+    off_diagonal_elements = torch.tensor([[2, 3, 4, 5, 6, 7], [8, 9, 10, 11, 12, 13]], dtype=torch.float)
+    size = 3
+    diagonal_value = 0.0
+    expected = torch.tensor([[[0, 2, 3], [4, 0, 5], [6, 7, 0]], [[0, 8, 9], [10, 0, 11], [12, 13, 0]]], dtype=torch.float)
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_matrix_from_off_diagonal_single_element():
+    off_diagonal_elements = torch.tensor([], dtype=torch.float)
+    size = 1
+    diagonal_value = 5.0
+    expected = torch.tensor([[5]], dtype=torch.float)
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_matrix_from_off_diagonal_non_square():
+    off_diagonal_elements = torch.tensor([1, 2, 3, 4, 5, 6], dtype=torch.float)
+    size = 4
+    diagonal_value = 0.0
+    try:
+        create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value)
+    except AssertionError as e:
+        assert str(e) == "Number of off-diagonal elements does not match the expected size."
+    else:
+        assert False, "Expected an AssertionError, but none was raised"

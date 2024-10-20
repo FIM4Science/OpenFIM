@@ -14,24 +14,20 @@ from fim.data.datasets import FIMDataset, HFDataset
 class TestHFDataset:
     dataset_name = "nn5_daily"
 
-    @pytest.fixture(scope="module")
-    def test_dataset(self):
-        return HFDataset(path="monash_tsf", ds_name=self.dataset_name, split="test", download_mode=DownloadMode.FORCE_REDOWNLOAD)
-
     def test_init(self):
-        dataset = HFDataset(path="monash_tsf", ds_name=self.dataset_name)
+        dataset = HFDataset(path="monash_tsf", ds_name=self.dataset_name, trust_remote_code=True)
         assert dataset.data is not None
         assert isinstance(dataset.data, Dataset)
         print(dataset)
 
     def test_init_with_optional_arguments(self):
-        dataset = HFDataset(path="monash_tsf", ds_name=self.dataset_name, split="test")
+        dataset = HFDataset(path="monash_tsf", ds_name=self.dataset_name, split="test", trust_remote_code=True)
         assert dataset.data is not None
         assert isinstance(dataset.data, Dataset)
 
     def test_init_with_invalid_split(self):
         with pytest.raises(ValueError):
-            HFDataset(path="monash_tsf", ds_name=self.dataset_name, split="invalid_split")
+            HFDataset(path="monash_tsf", ds_name=self.dataset_name, split="invalid_split", trust_remote_code=True)
 
     def test_init_with_download_mode(self):
         dataset = HFDataset(path="monash_tsf", ds_name=self.dataset_name, download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS, split="test")
@@ -81,3 +77,4 @@ class TestFimDataset:
         }
         assert len(dataset) == 2
         assert dataset[0]["fine_grid_grid"].shape == (300, 100, 1)
+        

@@ -6,11 +6,11 @@ import torch.nn as nn
 
 from fim.trainers.utils import is_distributed
 
-from .base import Mlp, TimeEncoding, Transformer
+from .base import MLP, SineTimeEncoding, Transformer, TransformerBlock, TransformerEncoder
 from .normalization import MinMaxNormalization
 
 
-__all__ = [Mlp, TimeEncoding, Transformer, MinMaxNormalization]
+__all__ = [MLP, SineTimeEncoding, Transformer, MinMaxNormalization, TransformerBlock, TransformerEncoder]
 
 
 class AModel(nn.Module, ABC):

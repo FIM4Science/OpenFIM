@@ -121,11 +121,13 @@ class BaseDataLoader:
 
 
 class FIMDataLoader(BaseDataLoader):
-    def __init__(self, path_collections: dict[str, list[Union[str, Path]]], dataset_kwargs: dict, loader_kwargs: dict):
+    def __init__(self, path_collections: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
         super().__init__(dataset_kwargs, loader_kwargs)
         self.path_collections = path_collections
         for name, paths in path_collections.items():
             self.dataset[name] = FIMDataset(paths, **dataset_kwargs)
+
+        self._init_dataloaders(self.dataset)
 
 
 class TimeSeriesDataLoaderTorch:

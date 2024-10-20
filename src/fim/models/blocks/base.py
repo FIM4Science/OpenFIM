@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import torch
 from torch import nn
@@ -39,7 +39,7 @@ class Block(nn.Module):
                     nn.init.zeros_(module.bias)
 
 
-class Mlp(Block):
+class MLP(Block):
     """
     Implement a multi-layer perceptron (MLP) with optional dropout.
 
@@ -56,7 +56,7 @@ class Mlp(Block):
         dropout: float = 0.0,
         **kwargs,
     ):
-        super(Mlp, self).__init__(**kwargs)
+        super(MLP, self).__init__(**kwargs)
 
         if isinstance(hidden_act, dict):
             hidden_act = create_class_instance(hidden_act.pop("name"), hidden_act)
@@ -85,7 +85,62 @@ class Mlp(Block):
         return self.layers(x)
 
 
-class TimeEncoding(Block):
+class TransformerBlock(Block):
+    def __init__(
+        self,
+        model_dim: int,
+        ff_dim: int,
+        dropout: float,
+        attention_head: Union[dict, nn.Module] = nn.MultiheadAttention,
+        activation: Union[dict, nn.Module] = nn.ReLU(),
+        normalization: Union[dict, nn.Module] = nn.LayerNorm,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.model_dim = model_dim
+        self.attention_head = attention_head
+        if isinstance(attention_head, dict):
+            self.attention_head = create_class_instance(attention_head.pop("name"), attention_head)
+
+        if isinstance(normalization, dict):
+            norm_type = normalization.pop("name")
+            self.norm1 = create_class_instance(norm_type, normalization)
+            self.norm2 = create_class_instance(norm_type, normalization)
+        else:
+            self.norm1 = normalization(model_dim)
+            self.norm2 = normalization(model_dim)
+
+        self.ff = MLP(model_dim, model_dim, [ff_dim, model_dim], hidden_act=activation)
+        self.dropout = nn.Dropout(dropout)
+        self.dropout_attention = nn.Dropout(dropout)
+
+    def forward(self, x, mask=None):
+        x = self.dropout_attention(self.attention_head(x, x, x, attn_mask=mask)[0]) + x
+        x = self.norm1(x)
+        x = self.dropout(self.ff(x)) + x
+        x = self.norm2(x)
+
+        return x
+
+
+class TransformerEncoder(Block):
+    def __init__(self, num_layers: int, transformer_block: dict | TransformerBlock, **kwargs):
+        super().__init__(**kwargs)
+        if isinstance(transformer_block, dict):
+            name = transformer_block.pop("name")
+            self.layers = nn.Sequential(*(create_class_instance(name, copy.deepcopy(transformer_block)) for _ in range(num_layers)))
+        else:
+            self.layers = nn.Sequential(*(transformer_block(**kwargs) for _ in range(num_layers)))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.layers(x)
+
+    @property
+    def model_dim(self):
+        return self.layers[0].model_dim
+
+
+class SineTimeEncoding(Block):
     """
     Implements the time encoding as described in "Multi-time attention networks for irregularly sampled time series, Shukla & Marlin, 2020".
 
@@ -95,17 +150,17 @@ class TimeEncoding(Block):
     w_j and b_j are learnable parameters.
     """
 
-    def __init__(self, dim_time: int):
+    def __init__(self, model_dim: int):
         """
         Args:
             d_time (int): Dimension of the time representation
         """
-        super(TimeEncoding, self).__init__()
+        super(SineTimeEncoding, self).__init__()
 
-        self.d_time = dim_time
+        self.model_dim = model_dim
 
         self.linear_embedding = nn.Linear(1, 1, bias=True)
-        self.periodic_embedding = nn.Sequential(nn.Linear(1, dim_time - 1, bias=True), SinActivation())
+        self.periodic_embedding = nn.Sequential(nn.Linear(1, model_dim - 1, bias=True), SinActivation())
 
     def forward(self, grid: torch.Tensor):
         """

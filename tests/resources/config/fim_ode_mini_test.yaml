@@ -2,7 +2,7 @@ experiment:
   name: DEBUG_fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331
   name_add_date: False # if true, the current date & time will be added to the experiment name
   seed: [10]
-  device_map: cuda # auto, cuda, cpu
+  device_map: cpu # auto, cuda, cpu
 
 distributed:
   enabled: false
@@ -30,11 +30,11 @@ model:
     name: fim.models.blocks.normalization.MinMaxNormalization
 
   time_encoding:
-    name: fim.models.blocks.base.TimeEncoding
-    dim_time: &dim_time 16
+    name: fim.models.blocks.base.SineTimeEncoding
+    model_dim: &dim_time 16
 
   trunk_net:
-    name: fim.models.blocks.base.Mlp
+    name: fim.models.blocks.base.MLP
     in_features: *dim_time
     out_features: &dim_latent 16
     hidden_layers: !!python/tuple [&hidden_dim_mlp 16]
@@ -52,7 +52,7 @@ model:
     num_heads: 1
     dropout: *dropout
     residual_mlp:
-      name: fim.models.blocks.base.Mlp
+      name: fim.models.blocks.base.MLP
       in_features: *dim_latent
       out_features: *dim_latent
       hidden_layers: !!python/tuple [*hidden_dim_mlp]
@@ -63,7 +63,7 @@ model:
       dropout: *dropout
 
   combiner_net:
-    name: fim.models.blocks.base.Mlp
+    name: fim.models.blocks.base.MLP
     in_features: 32 # needs to be the sum of the output dimensions of trunk_net and branch_net => =2* latent_dim
     out_features: *dim_latent
     hidden_layers: !!python/tuple [*hidden_dim_mlp]
@@ -74,7 +74,7 @@ model:
     dropout: *dropout
 
   vector_field_net:
-    name: fim.models.blocks.base.Mlp
+    name: fim.models.blocks.base.MLP
     in_features: *dim_latent
     out_features: 2
     hidden_layers: !!python/tuple []
@@ -85,7 +85,7 @@ model:
     dropout: *dropout
 
   init_cond_net:
-    name: fim.models.blocks.base.Mlp
+    name: fim.models.blocks.base.MLP
     in_features: 17 # *dim_latent +1
     out_features: 2
     hidden_layers: !!python/tuple [*hidden_dim_mlp]

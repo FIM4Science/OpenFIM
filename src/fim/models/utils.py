@@ -140,9 +140,7 @@ def rk4(
     return solution
 
 
-def load_model_from_checkpoint(
-    checkpoint_path: Union[str, Path], module: nn.Module, for_eval: bool = True
-) -> nn.Module:
+def load_model_from_checkpoint(checkpoint_path: Union[str, Path], module: nn.Module, for_eval: bool = True) -> nn.Module:
     """
     Load a model from a checkpoint.
 
@@ -165,7 +163,7 @@ def load_model_from_checkpoint(
     model_params = params_dict.get("model")
 
     if (model_name := model_params.pop("name")) != "FIMODE" and model_name != "FIM_imputation":
-        logger.warn("Not tested for anything but FIMODE and FIMImputation!")
+        logger.warning("Not tested for anything but FIMODE and FIMImputation!")
 
     model = module(**model_params)
 
@@ -184,3 +182,42 @@ def load_model_from_checkpoint(
         model.eval()
 
     return model
+
+
+def get_off_diagonal_elements(matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Get the off-diagonal elements of a square matrix.
+
+    Args:
+        matrix (torch.Tensor): Square matrix.
+
+    Returns:
+        torch.Tensor: Off-diagonal elements of the matrix.
+    """
+    assert matrix.size(-1) == matrix.size(-2), "The last two dimensions of the matrix must be square."
+    *batch_dims, n, _ = matrix.shape
+    eye = torch.eye(n, dtype=bool, device=matrix.device).logical_not()
+    off_diagonal_indices = torch.nonzero(eye, as_tuple=True)
+    return matrix[..., off_diagonal_indices[0], off_diagonal_indices[1]].reshape(*batch_dims, -1)
+
+
+def create_matrix_from_off_diagonal(off_diagonal_elements: torch.Tensor, size: int, diagonal_value: float = 0.0) -> torch.Tensor:
+    """
+    Create a square matrix from its off-diagonal elements with a fixed value on the diagonal.
+
+    Args:
+        off_diagonal_elements (torch.Tensor): Flattened off-diagonal elements of the matrix.
+        size (int): Size of the square matrix.
+        diagonal_value (float): Value to set on the diagonal elements.
+
+    Returns:
+        torch.Tensor: The reconstructed square matrix.
+    """
+    assert off_diagonal_elements.size(-1) == size * (size - 1), "Number of off-diagonal elements does not match the expected size."
+
+    *batch_dims, _ = off_diagonal_elements.shape
+    matrix = torch.full((*batch_dims, size, size), diagonal_value, dtype=off_diagonal_elements.dtype, device=off_diagonal_elements.device)
+    eye = torch.eye(size, dtype=bool, device=matrix.device).logical_not()
+    matrix[..., eye] = off_diagonal_elements
+
+    return matrix
