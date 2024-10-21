@@ -5,7 +5,7 @@ import torch
 from dlpack import asdlpack
 
 
-PATH = "/cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test"
+PATH = "/cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test/"
 
 OUT_PATH = "/home/cvejoski/Projects/FoundationModels/FIM/tests/resources/data/mjp/25k_hom_mjp_6_st_10s_1_noise_rand_300-samples-per-intensity_with_initial_distribution/test/"
 OUT_PATH = Path(OUT_PATH)
