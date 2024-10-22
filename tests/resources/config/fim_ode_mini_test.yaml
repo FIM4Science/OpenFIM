@@ -30,7 +30,7 @@ model:
     name: fim.models.blocks.normalization.MinMaxNormalization
 
   time_encoding:
-    name: fim.models.blocks.base.SineTimeEncoding
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
     model_dim: &dim_time 16
 
   trunk_net:

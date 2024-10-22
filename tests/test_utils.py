@@ -5,7 +5,7 @@
 import torch
 
 from fim.data.utils import split_into_variable_windows
-from fim.models.utils import create_matrix_from_off_diagonal, get_off_diagonal_elements
+from fim.models.utils import create_matrix_from_off_diagonal, create_padding_mask, get_off_diagonal_elements
 
 
 def test_split_into_variable_windows():
@@ -110,3 +110,49 @@ def test_create_matrix_from_off_diagonal_non_square():
         assert str(e) == "Number of off-diagonal elements does not match the expected size."
     else:
         assert False, "Expected an AssertionError, but none was raised"
+
+
+def test_create_matrix_from_off_diagonal_sum_row():
+    off_diagonal_elements = torch.tensor([2, 3, 4, 5, 6, 7], dtype=torch.float)
+    size = 3
+    diagonal_value = 1.0
+    mode = "sum_row"
+    expected = torch.tensor([[5, 2, 3], [4, 9, 5], [6, 7, 13]], dtype=torch.float)
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value, mode)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_padding_mask():
+    mask_seq_lengths = torch.tensor([3, 5, 2])
+    seq_len = 6
+    expected = torch.tensor(
+        [[False, False, False, True, True, True], [False, False, False, False, False, True], [False, False, True, True, True, True]]
+    )
+    result = create_padding_mask(mask_seq_lengths, seq_len)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_padding_mask_all_zeros():
+    mask_seq_lengths = torch.tensor([0, 0, 0])
+    seq_len = 4
+    expected = torch.tensor([[True, True, True, True], [True, True, True, True], [True, True, True, True]])
+    result = create_padding_mask(mask_seq_lengths, seq_len)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_padding_mask_all_full():
+    mask_seq_lengths = torch.tensor([4, 4, 4])
+    seq_len = 4
+    expected = torch.tensor([[False, False, False, False], [False, False, False, False], [False, False, False, False]])
+    result = create_padding_mask(mask_seq_lengths, seq_len)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_padding_mask_varied_lengths():
+    mask_seq_lengths = torch.tensor([1, 2, 3, 4])
+    seq_len = 4
+    expected = torch.tensor(
+        [[False, True, True, True], [False, False, True, True], [False, False, False, True], [False, False, False, False]]
+    )
+    result = create_padding_mask(mask_seq_lengths, seq_len)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"

@@ -8,12 +8,6 @@ import torch
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
 from fim.models import FIMMJP
-
-# from reasoningschema.data import load_tokenizer
-# from reasoningschema.data.dataloaders import DataLoaderFactory
-# from reasoningschema.models import HSN, AModel, ModelFactory
-# from reasoningschema.models.blocks.decoders import Decoder
-# from reasoningschema.models.blocks.encoders import EncoderModelA
 from fim.models.blocks import AModel, ModelFactory, TransformerEncoder
 from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
 

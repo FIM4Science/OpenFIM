@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 
 # TODO: It is better if they inherit from torch scheduler class so we have save_state. At the moment the state of the schedulers is not saved during checkpoining
@@ -31,9 +32,7 @@ class ExponentialSchedulerGumbel:
     Exponential annealing for Gumbel-Softmax temperature
     """
 
-    def __init__(
-        self, max_steps: int, init_temperature: float, min_temperature: float, training_fraction_to_reach_min: float = 0.5
-    ):
+    def __init__(self, max_steps: int, init_temperature: float, min_temperature: float, training_fraction_to_reach_min: float = 0.5):
         self.init_temperature = init_temperature
         self.min_temperature = min_temperature
 
@@ -50,8 +49,8 @@ class ConstantScheduler:
     def __init__(self, beta: float = 1.0, **kwargs):
         self.beta = beta
 
-    def __call__(self, step):
-        return self.beta
+    def __call__(self, step) -> torch.Tensor:
+        return torch.tensor(self.beta)
 
 
 class LinearScheduler:

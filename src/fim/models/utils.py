@@ -201,7 +201,9 @@ def get_off_diagonal_elements(matrix: torch.Tensor) -> torch.Tensor:
     return matrix[..., off_diagonal_indices[0], off_diagonal_indices[1]].reshape(*batch_dims, -1)
 
 
-def create_matrix_from_off_diagonal(off_diagonal_elements: torch.Tensor, size: int, diagonal_value: float = 0.0) -> torch.Tensor:
+def create_matrix_from_off_diagonal(
+    off_diagonal_elements: torch.Tensor, size: int, diagonal_value: float = 0.0, mode: str = "fill"
+) -> torch.Tensor:
     """
     Create a square matrix from its off-diagonal elements with a fixed value on the diagonal.
 
@@ -209,6 +211,7 @@ def create_matrix_from_off_diagonal(off_diagonal_elements: torch.Tensor, size: i
         off_diagonal_elements (torch.Tensor): Flattened off-diagonal elements of the matrix.
         size (int): Size of the square matrix.
         diagonal_value (float): Value to set on the diagonal elements.
+        mode (str): How to fill the matrix. Options: "fill" (default), "sum_row". If "fill" the diagonal is filled with the diagonal_value, if "sum_row" the diagonal is filled with the sum of the row.
 
     Returns:
         torch.Tensor: The reconstructed square matrix.
@@ -219,5 +222,23 @@ def create_matrix_from_off_diagonal(off_diagonal_elements: torch.Tensor, size: i
     matrix = torch.full((*batch_dims, size, size), diagonal_value, dtype=off_diagonal_elements.dtype, device=off_diagonal_elements.device)
     eye = torch.eye(size, dtype=bool, device=matrix.device).logical_not()
     matrix[..., eye] = off_diagonal_elements
+    if mode == "sum_row":
+        matrix[..., torch.arange(size), torch.arange(size)] = matrix.sum(dim=-1) - diagonal_value
 
     return matrix
+
+
+def create_padding_mask(mask_seq_lengths: torch.Tensor, seq_len: int) -> torch.Tensor:
+    """
+    Create a padding mask for the input tensor.
+
+    Args:
+        mask_seq_lengths (torch.Tensor): Lengths of the sequences in the batch. Shape: [B]
+        seq_len (int): Length of the sequences.
+
+    Returns:
+        torch.Tensor: Padding mask for the input tensor. Shape: [B, seq_len]
+    """
+    B = mask_seq_lengths.size(0)
+    mask = torch.arange(seq_len, device=mask_seq_lengths.device).expand(B, -1) >= mask_seq_lengths.unsqueeze(-1)
+    return mask

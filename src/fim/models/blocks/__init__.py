@@ -6,8 +6,9 @@ import torch.nn as nn
 
 from fim.trainers.utils import is_distributed
 
-from .base import MLP, SineTimeEncoding, Transformer, TransformerBlock, TransformerEncoder
+from .base import MLP, Transformer, TransformerBlock, TransformerEncoder
 from .normalization import MinMaxNormalization
+from .positional_encodings import SineTimeEncoding
 
 
 __all__ = [MLP, SineTimeEncoding, Transformer, MinMaxNormalization, TransformerBlock, TransformerEncoder]

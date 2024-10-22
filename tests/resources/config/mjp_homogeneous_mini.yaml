@@ -16,13 +16,14 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - FIM/tests/resources/data/mjp/train/
-    valid: !!python/tuple
-      - FIM/tests/resources/data/mjp/test/
+      - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/train/
+      - tests/resources/data/mjp/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/
+    validation: !!python/tuple
+      - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/
     test: !!python/tuple
-      - FIM/tests/resources/data/mjp/test/
+      - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/
   loader_kwargs:
-    batch_size: 2
+    batch_size: 4
     num_workers: 0
     test_batch_size: 2
   dataset_kwargs:
@@ -64,7 +65,7 @@ model:
         batch_first: True
 
   pos_encodings:
-    name: fim.models.blocks.base.SineTimeEncoding
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
     model_dim: *model_dim
 
   path_attention:
@@ -90,8 +91,8 @@ model:
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: fp16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 400
+  precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 2
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
@@ -111,7 +112,7 @@ trainer:
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
-      name: torch.optim.AdamW
+      name: torch.optim.Adam
       lr: 0.0001
       weight_decay: 0.001
       gradient_norm_clipping: 10

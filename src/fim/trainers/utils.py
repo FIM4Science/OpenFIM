@@ -958,10 +958,39 @@ def byte2gb(x):
     return float(x / 2**30)
 
 
+def is_accelerator_available() -> bool:
+    """
+    Check if any hardware accelerator (CUDA or MPS) is available.
+
+    Returns:
+        bool: True if a CUDA or MPS accelerator is available, False otherwise.
+    """
+    return torch.cuda.is_available() or torch.backends.mps.is_available()
+
+
+def get_accel_type() -> str:
+    """
+    Determines the appropriate accelerator for the current environment.
+
+    Returns:
+        str: The type of accelerator available. Possible values are:
+             - "cuda" if a CUDA-enabled GPU is available.
+             - "mps" if an Apple Silicon GPU is available.
+             - "cpu" if no GPU is available.
+    """
+    if torch.cuda.is_available():
+        return "cuda"
+    elif torch.backends.mps.is_available():
+        return "mps"
+    else:
+        return "cpu"
+
+
 # This context manager is used to track the peak memory usage of the process
 class GPUMemoryTrace:
     def __init__(self, rank: int = 0):
         gc.collect()
+
         torch.cuda.empty_cache()
         # torch.cuda.reset_accumulated_memory_stats()
         torch.cuda.reset_peak_memory_stats()  # reset the peak gauge to zero

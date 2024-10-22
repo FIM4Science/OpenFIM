@@ -3,11 +3,10 @@ import os
 from typing import List, Optional, Union
 
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 from ...trainers.utils import is_distributed
 from ...utils.helper import create_class_instance
-from ..utils import SinActivation
 
 
 class Block(nn.Module):
@@ -114,8 +113,8 @@ class TransformerBlock(Block):
         self.dropout = nn.Dropout(dropout)
         self.dropout_attention = nn.Dropout(dropout)
 
-    def forward(self, x, mask=None):
-        x = self.dropout_attention(self.attention_head(x, x, x, attn_mask=mask)[0]) + x
+    def forward(self, x: Tensor, padding_mask: Optional[Tensor] = None, mask: Optional[Tensor] = None):
+        x = self.dropout_attention(self.attention_head(x, x, x, key_padding_mask=padding_mask, attn_mask=mask)[0]) + x
         x = self.norm1(x)
         x = self.dropout(self.ff(x)) + x
         x = self.norm2(x)
@@ -128,52 +127,23 @@ class TransformerEncoder(Block):
         super().__init__(**kwargs)
         if isinstance(transformer_block, dict):
             name = transformer_block.pop("name")
-            self.layers = nn.Sequential(*(create_class_instance(name, copy.deepcopy(transformer_block)) for _ in range(num_layers)))
+            self.layers = MaskedSequential(*(create_class_instance(name, copy.deepcopy(transformer_block)) for _ in range(num_layers)))
         else:
-            self.layers = nn.Sequential(*(transformer_block(**kwargs) for _ in range(num_layers)))
+            self.layers = MaskedSequential(*(transformer_block(**kwargs) for _ in range(num_layers)))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layers(x)
+    def forward(self, x: Tensor, padding_mask: Optional[Tensor] = None) -> Tensor:
+        return self.layers(x, padding_mask=padding_mask)
 
     @property
     def model_dim(self):
         return self.layers[0].model_dim
 
 
-class SineTimeEncoding(Block):
-    """
-    Implements the time encoding as described in "Multi-time attention networks for irregularly sampled time series, Shukla & Marlin, 2020".
-
-    Each time point t is encoded as a vector of dimension d_time:
-        - first element: linear embedding of t: w_0*t + b_0
-        - remaining elements: sinusoidal embedding of t with different frequencies: sin(w_i*t + b_i) for i in {1, ..., d_time-1}
-    w_j and b_j are learnable parameters.
-    """
-
-    def __init__(self, model_dim: int):
-        """
-        Args:
-            d_time (int): Dimension of the time representation
-        """
-        super(SineTimeEncoding, self).__init__()
-
-        self.model_dim = model_dim
-
-        self.linear_embedding = nn.Linear(1, 1, bias=True)
-        self.periodic_embedding = nn.Sequential(nn.Linear(1, model_dim - 1, bias=True), SinActivation())
-
-    def forward(self, grid: torch.Tensor):
-        """
-        Args:
-            grid (torch.Tensor): Grid of time points, shape (batch_size, seq_len, 1)
-
-        Returns:
-            torch.Tensor: Time encoding, shape (batch_size, seq_len, d_time)
-        """
-        linear = self.linear_embedding(grid)
-        periodic = self.periodic_embedding(grid)
-
-        return torch.cat([linear, periodic], dim=-1)
+class MaskedSequential(nn.Sequential):
+    def forward(self, x: Tensor, mask: Optional[Tensor] = None, padding_mask: Optional[Tensor] = None) -> Tensor:
+        for module in self._modules.values():
+            x = module(x, mask=mask, padding_mask=padding_mask)
+        return x
 
 
 class Transformer(Block):

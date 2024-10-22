@@ -25,6 +25,8 @@ from .utils import (
     TrainingTimePerformanceTracker,
     TrainLogging,
     TrainLossTracker,
+    get_accel_type,
+    is_accelerator_available,
 )
 
 
@@ -62,10 +64,18 @@ class Trainer:
             validation_loss_tracker=self.validation_loss_tracker,
             grad_scaler=self.grad_scaler,
             rank=self.rank,
-            is_peft=self.model.is_peft(),
+            is_peft=False,  # self.model.is_peft(),
         )
+        if config.experiment.device_map == "auto":
+            if torch.cuda.is_available():
+                device = torch.cuda.current_device()
+            elif torch.backends.mps.is_available():
+                device = torch.device("mps")
+            else:
+                device = torch.device("cpu")
+
         if not self.is_distributed:
-            self.model.to(config.experiment.device_map)
+            self.model.to(device)
             if resume:
                 self.start_epoch = self.checkpointer.load_checkpoint("last-epoch")
                 self.optimizers = self.checkpointer.optimizers
@@ -86,8 +96,10 @@ class Trainer:
             dist.barrier()
 
     def _setup_variables(self):
+        self.is_accelerator = is_accelerator_available()
+        self.accel_type = get_accel_type()
         self.rank = 0
-        self.local_rank = 0 if torch.cuda.is_available() and self.config.experiment.device_map else "cpu"
+        self.local_rank = 0 if self.is_accelerator and self.config.experiment.device_map != "cpu" else "cpu"
         if self.is_distributed:
             self.rank = int(os.environ["RANK"])
             self.local_rank = int(os.environ["LOCAL_RANK"])
@@ -108,9 +120,9 @@ class Trainer:
             self._auto_cast_type = torch.bfloat16
         self.grad_scaler = None
         if self._use_mixeprecision and not self.is_distributed:
-            self.grad_scaler = torch.cuda.amp.GradScaler()
+            self.grad_scaler = torch.amp.GradScaler(self.accel_type)
         elif self._use_mixeprecision and self.is_distributed:
-            self.grad_scaler = ShardedGradScaler()
+            self.grad_scaler = ShardedGradScaler(self.accel_type)
 
     def _fsdp_initialize(self):
         wrap_policy = self._get_wrap_policy(self.model)
@@ -193,7 +205,7 @@ class Trainer:
 
         time_trace = TrainingTimePerformanceTracker(self.rank)
         for epoch in range(self.start_epoch, self.n_epochs):
-            if torch.cuda.is_available() and self.config.experiment.device_map != "cpu":
+            if self.is_accelerator and self.config.experiment.device_map == "cuda":
                 mem_trace = GPUMemoryTrace(self.rank)
 
             # train step
@@ -252,8 +264,12 @@ class Trainer:
 
     def _train_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
-        with torch.amp.autocast("cuda", enabled=self._use_mixeprecision and torch.cuda.is_available(), dtype=self._auto_cast_type):
-            stats = self.model(batch, training=True, schedulers=self.schedulers, step=step)
+        with torch.amp.autocast(
+            self.accel_type,
+            enabled=self._use_mixeprecision and self.is_accelerator,
+            dtype=self._auto_cast_type,
+        ):
+            stats = self.model(batch, schedulers=self.schedulers, step=step)
             losses = stats["losses"]
             loss = losses["loss"]
             loss = loss / self.gradient_accumulation_steps
@@ -269,7 +285,7 @@ class Trainer:
     def _model_update_step(self, step: int, loss: torch.Tensor):
         lrs = {}
         update_gradients = ((step + 1) % self.gradient_accumulation_steps == 0) or ((step + 1) == self.dataloader.n_train_batches)
-        if self.precision or self.config.model.use_bf16:
+        if self.precision:
             self.grad_scaler.scale(loss).backward()
             if update_gradients:
                 for opt_name, optimizer in self.optimizers.items():
@@ -324,7 +340,7 @@ class Trainer:
 
     def _validation_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
-        stats = self.model(batch, training=False)
+        stats = self.model(batch)
         losses = {k: v.detach().float() for k, v in stats["losses"].items()}
         histograms = {}
         # if "histograms" in stats:

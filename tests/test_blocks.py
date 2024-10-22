@@ -91,7 +91,7 @@ class TestTransformer:
         x = torch.randn(batch_size, seq_len, dim_model)
         mask = torch.tril(torch.ones(seq_len, seq_len), 1).bool()
 
-        output = transformer_block(x, mask)
+        output = transformer_block(x, mask=mask)
         assert output.shape == (batch_size, seq_len, dim_model)
 
     @pytest.fixture

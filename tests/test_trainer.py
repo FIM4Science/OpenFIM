@@ -74,10 +74,10 @@ def test_trainer_fimode():
 def test_trainer_mjp():
     TRAIN_CONF = test_data_path / "config" / "mjp_homogeneous_mini.yaml"
     config = load_yaml(TRAIN_CONF, True)
-    device_map = config.experiment.device_map
+
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
 
-    model = ModelFactory.create(**config.model.to_dict(), device_map=device_map)
+    model = ModelFactory.create(**config.model.to_dict())
 
     trainer = Trainer(model, dataloader, config)
 

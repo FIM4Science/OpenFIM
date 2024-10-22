@@ -4,8 +4,9 @@ import torch
 from torch import nn
 
 from ..utils.helper import create_class_instance
-from .blocks import AModel, ModelFactory, SineTimeEncoding, TransformerEncoder
-from .utils import create_matrix_from_off_diagonal, get_off_diagonal_elements
+from .blocks import AModel, ModelFactory, TransformerEncoder
+from .blocks.positional_encodings import SineTimeEncoding
+from .utils import create_matrix_from_off_diagonal, create_padding_mask, get_off_diagonal_elements
 
 
 class FIMMJP(AModel):
@@ -70,7 +71,8 @@ class FIMMJP(AModel):
         obs_values_one_hot = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states).float()
         pos_enc = self.pos_encodings(obs_grid_normalized)
         path = torch.cat([obs_values_one_hot, pos_enc], dim=-1)  # [t, delta_t]
-        h = self.ts_encoder(path.view(B * P, L, -1))[:, -1, :].view(B, P, -1)
+        padding_mask = create_padding_mask(x["mask_seq_lengths"].view(B * P), L)
+        h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, -1, :].view(B, P, -1)
         h = self.path_attention(h, h, h)[0][:, -1, :]
 
         h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
@@ -117,13 +119,15 @@ class FIMMJP(AModel):
         target_mean = get_off_diagonal_elements(target_im)
         adjaceny_matrix = get_off_diagonal_elements(adjaceny_matrix)
         target_init_cond = torch.argmax(target_init_cond, dim=-1).long()
-        loss_gauss = adjaceny_matrix * self.gaussian_nll(pred_im, pred_logvar_im, target_mean) # TODO: This can lead to NaNs for the mean or the var of the entries that are not observed (adjacency_matrix = 0).
+        loss_gauss = adjaceny_matrix * self.gaussian_nll(
+            pred_im, pred_logvar_im, target_mean
+        )  # TODO: This can lead to NaNs for the mean or the var of the entries that are not observed (adjacency_matrix = 0).
         loss_initial = self.init_cross_entropy(pred_init_cond, target_init_cond)
 
         loss_missing_link = normalization_constants * (1.0 - adjaceny_matrix) * (torch.pow(pred_im, 2) + torch.exp(pred_logvar_im))
-        gaus_cons = schedulers.get("gauss_nll")(step) if schedulers else 1.0
-        init_cons = schedulers.get("init_cross_entropy")(step) if schedulers else 1.0
-        missing_link_cons = schedulers.get("missing_link")(step) if schedulers else 1.0
+        gaus_cons = schedulers.get("gauss_nll")(step) if schedulers else torch.tensor(1.0)
+        init_cons = schedulers.get("init_cross_entropy")(step) if schedulers else torch.tensor(1.0)
+        missing_link_cons = schedulers.get("missing_link")(step) if schedulers else torch.tensor(1.0)
         loss = gaus_cons * loss_gauss + init_cons * loss_initial.view(-1, 1) - missing_link_cons * loss_missing_link
         return {
             "loss": loss.mean(),

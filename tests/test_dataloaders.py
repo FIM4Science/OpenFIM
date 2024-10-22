@@ -86,7 +86,12 @@ class TestBaseDataLoader:
 
 class TestFimDataLoader:
     def test_load(self):
-        root_path = test_data_path / "data" / "mjp"
+        root_path = (
+            test_data_path
+            / "data"
+            / "mjp"
+            / "5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution"
+        )
         config = {
             "name": "FIMDataLoader",
             "path_collections": {"train": [root_path / "train"] * 2, "test": [root_path / "test"]},

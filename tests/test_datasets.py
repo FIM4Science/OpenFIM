@@ -44,7 +44,13 @@ class TestHFDataset:
 
 class TestFimDataset:
     def test_init(self):
-        dataset = FIMDataset(path=test_data_path / "data" / "mjp" / "train")
+        dataset = FIMDataset(
+            path=test_data_path
+            / "data"
+            / "mjp"
+            / "5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/"
+            / "train"
+        )
         assert dataset is not None
         assert isinstance(dataset.data, dict)
         assert dataset.data is not None
@@ -53,7 +59,20 @@ class TestFimDataset:
         assert len(dataset) == 2
 
     def test_init_list_of_paths(self):
-        dataset = FIMDataset(path=[test_data_path / "data" / "mjp" / "train", test_data_path / "data" / "mjp" / "test"])
+        dataset = FIMDataset(
+            path=[
+                test_data_path
+                / "data"
+                / "mjp"
+                / "5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution"
+                / "train",
+                test_data_path
+                / "data"
+                / "mjp"
+                / "25k_hom_mjp_6_st_10s_1_noise_rand_300-samples-per-intensity_with_initial_distribution"
+                / "test",
+            ]
+        )
         assert dataset is not None
         assert isinstance(dataset.data, dict)
         assert dataset.data is not None
@@ -62,7 +81,13 @@ class TestFimDataset:
         assert len(dataset) == 4
 
     def test_get_item(self):
-        dataset = FIMDataset(path=test_data_path / "data" / "mjp" / "train")
+        dataset = FIMDataset(
+            path=test_data_path
+            / "data"
+            / "mjp"
+            / "5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution"
+            / "train"
+        )
         assert dataset[0] is not None
         assert dataset[0].keys() == {
             "fine_grid_grid",
@@ -77,4 +102,3 @@ class TestFimDataset:
         }
         assert len(dataset) == 2
         assert dataset[0]["fine_grid_grid"].shape == (300, 100, 1)
-        
