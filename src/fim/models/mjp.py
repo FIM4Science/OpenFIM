@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 import torch
-from torch import nn
+from torch import Tensor, nn
 
 from ..utils.helper import create_class_instance
 from .blocks import AModel, ModelFactory, TransformerEncoder
@@ -72,36 +72,28 @@ class FIMMJP(AModel):
         self.gaussian_nll = nn.GaussianNLLLoss(full=True, reduction="none")
         self.init_cross_entropy = nn.CrossEntropyLoss(reduction="none")
 
-    def forward(self, x: dict[str, torch.Tensor], schedulers: dict = None, step: int = None) -> dict:
+    def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         obs_grid = x["observation_grid"]
-        B, P, L = obs_grid.shape[:3]
-        norm_constants = obs_grid.amax(dim=[-3, -2, -1])
-        obs_grid_normalized = obs_grid / norm_constants.view(-1, 1, 1, 1)
-        obs_values_one_hot = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states).float()
-        pos_enc = self.pos_encodings(obs_grid_normalized)
-        path = torch.cat([obs_values_one_hot, pos_enc], dim=-1)  # [t, delta_t]
-        padding_mask = create_padding_mask(x["mask_seq_lengths"].view(B * P), L)
-        h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, -1, :].view(B, P, -1)
-        h = self.path_attention(h, h, h)[0][:, -1, :]
 
-        h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
-        if self.use_adjacency_matrix:
-            h = torch.cat([h, get_off_diagonal_elements(x["adjacency_matrix"])], dim=-1)
-        predicted_offdiagonal_im = self.intensity_matrix_decoder(h)
-        init_cond = self.initial_distribution_decoder(h)
-        predicted_offdiagonal_im_logmean, predicted_offdiagonal_im_logvar = predicted_offdiagonal_im.chunk(2, dim=-1)
-        predicted_offdiagonal_im = torch.exp(predicted_offdiagonal_im_logmean) / norm_constants.view(-1, 1)
-        predicted_offdiagonal_im_logvar = predicted_offdiagonal_im_logvar - torch.log(norm_constants.view(-1, 1))
+        norm_constants, obs_grid_normalized = self.__normalize_obs_grid(obs_grid)
+
+        obs_values_one_hot = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states).float()
+
+        h = self.__encode(x, obs_grid_normalized, obs_values_one_hot)
+
+        pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
+
+        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logvar(norm_constants, pred_offdiag_im_mean_logvar)
 
         out = {
-            "im": create_matrix_from_off_diagonal(predicted_offdiagonal_im, self.n_states),
-            "log_var_im": create_matrix_from_off_diagonal(predicted_offdiagonal_im_logvar, self.n_states),
+            "im": create_matrix_from_off_diagonal(pred_offdiag_im_mean, self.n_states),
+            "log_var_im": create_matrix_from_off_diagonal(pred_offdiag_im_logvar, self.n_states),
             "init_cond": init_cond,
         }
         if "intensity_matrices" in x and "initial_distributions" in x:
             out["losses"] = self.loss(
-                predicted_offdiagonal_im,
-                predicted_offdiagonal_im_logvar,
+                pred_offdiag_im_mean,
+                pred_offdiag_im_logvar,
                 init_cond,
                 x["intensity_matrices"],
                 x["initial_distributions"],
@@ -113,15 +105,46 @@ class FIMMJP(AModel):
 
         return out
 
+    def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
+        pred_offdiag_im_logvar = self.intensity_matrix_decoder(h)
+        init_cond = self.initial_distribution_decoder(h)
+        return pred_offdiag_im_logvar, init_cond
+
+    def __encode(self, x: Tensor, obs_grid_normalized: Tensor, obs_values_one_hot: Tensor) -> Tensor:
+        B, P, L = obs_grid_normalized.shape[:3]
+        pos_enc = self.pos_encodings(obs_grid_normalized)
+        path = torch.cat([obs_values_one_hot, pos_enc], dim=-1)  # [t, delta_t]
+        padding_mask = create_padding_mask(x["mask_seq_lengths"].view(B * P), L)
+        padding_mask[:, 0] = False
+        h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, -1, :].view(B, P, -1)
+
+        h = self.path_attention(h, h, h)[0][:, -1, :]
+
+        h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
+        if self.use_adjacency_matrix:
+            h = torch.cat([h, get_off_diagonal_elements(x["adjacency_matrix"])], dim=-1)
+        return h
+
+    def __denormalize_offdiag_mean_logvar(self, norm_constants: Tensor, pred_offdiag_im_mean_logvar: Tensor) -> tuple[Tensor, Tensor]:
+        pred_offdiag_im_logmean, pred_offdiag_im_logvar = pred_offdiag_im_mean_logvar.chunk(2, dim=-1)
+        pred_offdiag_im_mean = torch.exp(pred_offdiag_im_logmean) / norm_constants.view(-1, 1)
+        pred_offdiag_im_logvar = pred_offdiag_im_logvar - torch.log(norm_constants.view(-1, 1))
+        return pred_offdiag_im_mean, pred_offdiag_im_logvar
+
+    def __normalize_obs_grid(self, obs_grid: Tensor) -> tuple[Tensor, Tensor]:
+        norm_constants = obs_grid.amax(dim=[-3, -2, -1])
+        obs_grid_normalized = obs_grid / norm_constants.view(-1, 1, 1, 1)
+        return norm_constants, obs_grid_normalized
+
     def loss(
         self,
-        pred_im: torch.Tensor,
-        pred_logvar_im: torch.Tensor,
-        pred_init_cond: torch.Tensor,
-        target_im: torch.Tensor,
-        target_init_cond: torch.Tensor,
-        adjaceny_matrix: torch.Tensor,
-        normalization_constants: torch.Tensor,
+        pred_im: Tensor,
+        pred_logvar_im: Tensor,
+        pred_init_cond: Tensor,
+        target_im: Tensor,
+        target_init_cond: Tensor,
+        adjaceny_matrix: Tensor,
+        normalization_constants: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:

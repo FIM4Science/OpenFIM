@@ -15,29 +15,11 @@ distributed:
 dataset:
   name: FIMDataLoader
   path_collections:
-    train:
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_reg_300-samples-per-intensity_with_initial_distribution/test/train
-      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/train
-
-    test:
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_reg_300-samples-per-intensity_with_initial_distribution/test/test
-      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
+    train: !!python/tuple
+      - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/train/
+      - tests/resources/data/mjp/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/
+    validation: !!python/tuple
+      - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/
 
   loader_kwargs:
     batch_size: 4
