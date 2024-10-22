@@ -37,21 +37,29 @@ class FIMMJP(AModel):
         self.use_adjacency_matrix = use_adjacency_matrix
         self.ts_encoder = ts_encoder
         total_offdiagonal_transitions = n_states**2 - n_states
+
         if isinstance(ts_encoder, dict):
             self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
+
         self.pos_encodings = pos_encodings
         if isinstance(pos_encodings, dict):
-            pos_encodings["model_dim"] -= self.n_states
+            assert (
+                pos_encodings["out_dim"] - self.n_states > 0
+            ), "The output dimension of the positional encodings must be greater than the number of states."
+            pos_encodings["out_dim"] -= self.n_states
             self.pos_encodings = create_class_instance(pos_encodings.pop("name"), pos_encodings)
+
         self.path_attention = path_attention
         if isinstance(path_attention, dict):
             self.path_attention = create_class_instance(path_attention.pop("name"), path_attention)
+
         if isinstance(intensity_matrix_decoder, dict):
             intensity_matrix_decoder["in_features"] = self.ts_encoder.model_dim + (
                 (total_offdiagonal_transitions + 1) if use_adjacency_matrix else 1
             )
             intensity_matrix_decoder["out_features"] = 2 * total_offdiagonal_transitions
             self.intensity_matrix_decoder = create_class_instance(intensity_matrix_decoder.pop("name"), intensity_matrix_decoder)
+
         if isinstance(initial_distribution_decoder, dict):
             initial_distribution_decoder["in_features"] = self.ts_encoder.model_dim + (
                 (total_offdiagonal_transitions + 1) if use_adjacency_matrix else 1
@@ -60,6 +68,7 @@ class FIMMJP(AModel):
             self.initial_distribution_decoder = create_class_instance(
                 initial_distribution_decoder.pop("name"), initial_distribution_decoder
             )
+
         self.gaussian_nll = nn.GaussianNLLLoss(full=True, reduction="none")
         self.init_cross_entropy = nn.CrossEntropyLoss(reduction="none")
 
@@ -128,7 +137,7 @@ class FIMMJP(AModel):
         gaus_cons = schedulers.get("gauss_nll")(step) if schedulers else torch.tensor(1.0)
         init_cons = schedulers.get("init_cross_entropy")(step) if schedulers else torch.tensor(1.0)
         missing_link_cons = schedulers.get("missing_link")(step) if schedulers else torch.tensor(1.0)
-        loss = gaus_cons * loss_gauss + init_cons * loss_initial.view(-1, 1) - missing_link_cons * loss_missing_link
+        loss = gaus_cons * loss_gauss + init_cons * loss_initial.view(-1, 1) + missing_link_cons * loss_missing_link
         return {
             "loss": loss.mean(),
             "loss_gauss": loss_gauss.mean(),

@@ -67,12 +67,9 @@ class Trainer:
             is_peft=False,  # self.model.is_peft(),
         )
         if config.experiment.device_map == "auto":
-            if torch.cuda.is_available():
-                device = torch.cuda.current_device()
-            elif torch.backends.mps.is_available():
-                device = torch.device("mps")
-            else:
-                device = torch.device("cpu")
+            device = torch.device(self.accel_type)
+        else:
+            device = torch.device(config.experiment.device_map)
 
         if not self.is_distributed:
             self.model.to(device)

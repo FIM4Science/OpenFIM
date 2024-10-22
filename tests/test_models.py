@@ -145,7 +145,7 @@ class TestMJP:
             "activation": {"name": "torch.nn.ReLU"},
             "normalization": {"name": "torch.nn.LayerNorm", "normalized_shape": 64},
         }
-        pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "model_dim": 64}
+        pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "out_dim": 64}
         timeseries_encoder = TransformerEncoder(4, transformer_block)
         path_attn = ({"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True},)
         intensity_matrix_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}

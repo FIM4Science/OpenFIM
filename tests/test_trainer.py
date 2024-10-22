@@ -60,10 +60,9 @@ class TestLossTracker:
 def test_trainer_fimode():
     TRAIN_CONF = test_data_path / "config" / "fim_ode_mini_test.yaml"
     config = load_yaml(TRAIN_CONF, True)
-    device_map = config.experiment.device_map
-    dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
 
-    model = ModelFactory.create(**config.model.to_dict(), device_map=device_map)
+    dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
+    model = ModelFactory.create(**config.model.to_dict())
 
     trainer = Trainer(model, dataloader, config)
 

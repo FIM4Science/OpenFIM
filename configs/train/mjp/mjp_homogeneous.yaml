@@ -1,6 +1,6 @@
 experiment:
-  name: FIM_MJP_Homogeneous_Mini
-  name_add_date: False # if true, the current date & time will be added to the experiment name
+  name: FIM_MJP_Homogeneous
+  name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
 
@@ -16,16 +16,16 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/train/
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/train/
       - tests/resources/data/mjp/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/
     validation: !!python/tuple
       - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/
     test: !!python/tuple
       - tests/resources/data/mjp/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/
   loader_kwargs:
-    batch_size: 4
-    num_workers: 0
-    test_batch_size: 2
+    batch_size: 128
+    num_workers: 8
+    test_batch_size: 256
   dataset_kwargs:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
@@ -37,7 +37,7 @@ dataset:
       initial_distributions: "fine_grid_initial_distributions.pt"
     data_limit: null
 
-model_dim: &model_dim 64
+model_dim: &model_dim 512
 
 model:
   name: FIMMJP
@@ -46,22 +46,22 @@ model:
 
   ts_encoder:
     name: fim.models.blocks.base.TransformerEncoder
-    num_layers: 2
+    num_layers: 4
 
     transformer_block:
       name: fim.models.blocks.base.TransformerBlock
       model_dim: *model_dim
-      ff_dim: 128
+      ff_dim: 2048
       dropout: 0.1
       activation:
         name: torch.nn.SiLU
       normalization:
         name: torch.nn.RMSNorm
-        normalized_shape: !!python/tuple [*model_dim]
+        normalized_shape: [*model_dim]
       attention_head:
         name: torch.nn.MultiheadAttention
         embed_dim: *model_dim
-        num_heads: 2
+        num_heads: 8
         batch_first: True
 
   pos_encodings:
@@ -76,14 +76,14 @@ model:
 
   intensity_matrix_decoder:
     name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [64, 64]
+    hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
     dropout: 0.1
 
   initial_distribution_decoder:
     name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [64, 64]
+    hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
     dropout: 0.1
@@ -92,7 +92,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 2
+  epochs: &epochs 100
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
@@ -112,7 +112,7 @@ trainer:
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
-      name: torch.optim.Adam
+      name: torch.optim.AdamW
       lr: 0.0001
       weight_decay: 0.001
       gradient_norm_clipping: 10

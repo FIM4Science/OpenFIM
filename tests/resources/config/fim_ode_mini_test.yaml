@@ -31,7 +31,7 @@ model:
 
   time_encoding:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding
-    model_dim: &dim_time 16
+    out_dim: &dim_time 16
 
   trunk_net:
     name: fim.models.blocks.base.MLP
@@ -97,7 +97,7 @@ model:
 
 dataset:
   name: ts_torch_dataloader # base_dataloader
-  path: /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/ #  /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  path: tests/resources/data/ode/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/ #  /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
   ds_name: ""
   batch_size: 16
   test_batch_size: 16
@@ -120,7 +120,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 5
+  epochs: &epochs 2
   detect_anomaly: false
   save_every: 5
   gradient_accumulation_steps: 1
