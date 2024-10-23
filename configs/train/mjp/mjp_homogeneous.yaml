@@ -5,9 +5,9 @@ experiment:
   device_map: auto # auto, cuda, cpu
 
 distributed:
-  enabled: false
+  enabled: true
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
-  wrap_policy: NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
   checkpoint_type: full_state # full_state, local_state
   activation_chekpoint: false
@@ -15,7 +15,7 @@ distributed:
 dataset:
   name: FIMDataLoader
   path_collections:
-    train:
+    train: !!python/tuple
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
@@ -27,7 +27,7 @@ dataset:
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_reg_300-samples-per-intensity_with_initial_distribution/test/train
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/train
 
-    test:
+    validation: !!python/tuple
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
@@ -40,9 +40,9 @@ dataset:
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
 
   loader_kwargs:
-    batch_size: 128
+    batch_size: 16
     num_workers: 8
-    test_batch_size: 256
+    test_batch_size: 16
   dataset_kwargs:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
@@ -59,7 +59,7 @@ model_dim: &model_dim 512
 model:
   name: FIMMJP
   n_states: 6
-  use_adjacency_matrix: False
+  use_adjacency_matrix: false
 
   ts_encoder:
     name: fim.models.blocks.base.TransformerEncoder
@@ -79,7 +79,7 @@ model:
         name: torch.nn.MultiheadAttention
         embed_dim: *model_dim
         num_heads: 8
-        batch_first: True
+        batch_first: true
 
   pos_encodings:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding
@@ -89,7 +89,7 @@ model:
     name: torch.nn.MultiheadAttention
     embed_dim: *model_dim
     num_heads: 4
-    batch_first: True
+    batch_first: true
 
   intensity_matrix_decoder:
     name: fim.models.blocks.base.MLP
@@ -108,7 +108,7 @@ model:
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: &epochs 100
   detect_anomaly: false
   save_every: 10
@@ -125,7 +125,7 @@ trainer:
       beta: 1.0
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: missing_link
-      beta: 1.0
+      beta: 50.0
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer

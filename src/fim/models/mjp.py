@@ -77,7 +77,7 @@ class FIMMJP(AModel):
 
         norm_constants, obs_grid_normalized = self.__normalize_obs_grid(obs_grid)
 
-        obs_values_one_hot = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states).float()
+        obs_values_one_hot = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states)
 
         h = self.__encode(x, obs_grid_normalized, obs_values_one_hot)
 
@@ -160,6 +160,9 @@ class FIMMJP(AModel):
         gaus_cons = schedulers.get("gauss_nll")(step) if schedulers else torch.tensor(1.0)
         init_cons = schedulers.get("init_cross_entropy")(step) if schedulers else torch.tensor(1.0)
         missing_link_cons = schedulers.get("missing_link")(step) if schedulers else torch.tensor(1.0)
+        gaus_cons = gaus_cons.to(self.device)
+        init_cons = init_cons.to(self.device)
+        missing_link_cons = missing_link_cons.to(self.device)
         loss = gaus_cons * loss_gauss + init_cons * loss_initial.view(-1, 1) + missing_link_cons * loss_missing_link
         return {
             "loss": loss.mean(),

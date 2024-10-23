@@ -113,8 +113,9 @@ class TrainLossTracker:
             if is_distributed() and torch.cuda.device_count() > 1:
                 try:
                     dist.all_reduce(loss, op=dist.ReduceOp.SUM)
-                except Exception:
-                    self.logger.error("Unable to reduce the '%s' loss from all ranks!", name)
+                except Exception as e:
+                    self.logger.error("Unable to reduce the '%s' loss from all ranks! See the exception below!", name)
+                    self.logger.error(e)
                 loss = loss / self.world_size
             avg_loss = loss / self.batch_losses_counter[name]
             self.epoch_losses[name].append(avg_loss)
@@ -853,8 +854,8 @@ class TrainLogging:
         self.tensorboard_logger.close()
 
 
-def setup():
-    dist.init_process_group("nccl")
+def setup(rank: int, world_size: int):
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 
 def setup_environ_flags(rank):

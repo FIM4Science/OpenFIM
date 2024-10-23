@@ -258,7 +258,7 @@ def load_file(file_path):
         case ".pickle" | ".pkl":  # TODO: we have to convert the loaded data object to torch.tensor
             return pickle.load(open(file_path, "rb"))
         case ".pt":
-            return torch.load(file_path)
+            return torch.load(file_path, weights_only=True)
         case ".h5":
             return h5py.File(file_path, "r")
         case _:

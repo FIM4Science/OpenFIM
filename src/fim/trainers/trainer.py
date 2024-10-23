@@ -6,7 +6,6 @@ from itertools import islice
 from pathlib import Path
 
 import torch
-import torch.distributed as dist
 import yaml
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import ShardingStrategy
@@ -90,7 +89,7 @@ class Trainer:
             if resume:
                 self.checkpointer.load_optimizers_state("last-epoch")
                 self.optimizers = self.checkpointer.optimizers
-            dist.barrier()
+            # dist.barrier()
 
     def _setup_variables(self):
         self.is_accelerator = is_accelerator_available()
@@ -202,7 +201,7 @@ class Trainer:
 
         time_trace = TrainingTimePerformanceTracker(self.rank)
         for epoch in range(self.start_epoch, self.n_epochs):
-            if self.is_accelerator and self.config.experiment.device_map == "cuda":
+            if self.accel_type == "cuda":
                 mem_trace = GPUMemoryTrace(self.rank)
 
             # train step
@@ -222,7 +221,7 @@ class Trainer:
             self.checkpointer.save_checkpoint(epoch, train_epoch_stats, validation_epoch_stats)
             time_trace.stop_timer("Checkpoint")
             p_bar.update_and_set_postfix(1, train_epoch_stats, validation_epoch_stats, ["loss", "ppl"])
-            if torch.cuda.is_available() and self.config.experiment.device_map != "cpu":
+            if self.accel_type == "cuda":
                 mem_trace.print_summary()
             time_trace.print_elapsed_time("Epoch")
             time_trace.print_elapsed_time("Validation")
@@ -337,13 +336,18 @@ class Trainer:
 
     def _validation_batch(self, step: int, batch: dict) -> dict:
         self._move_batch_to_local_rank(batch)
-        stats = self.model(batch)
+        with torch.amp.autocast(
+            self.accel_type,
+            enabled=self._use_mixeprecision and self.is_accelerator,
+            dtype=self._auto_cast_type,
+        ):
+            stats = self.model(batch)
         losses = {k: v.detach().float() for k, v in stats["losses"].items()}
         histograms = {}
-        # if "histograms" in stats:
-        #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
+            # if "histograms" in stats:
+            #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
         return {"losses": losses, "histograms": histograms, "line_plots": stats.get("visualizations", {})}
-        # return {"losses": losses}
+            # return {"losses": losses}
 
     def _update_learning_rates(self, call_place: str):
         verify_str_arg(call_place, "call_place", ["epoch", "minibatch"])

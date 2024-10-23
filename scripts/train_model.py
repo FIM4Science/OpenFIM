@@ -12,12 +12,11 @@ from typing import List
 import click
 import numpy as np
 import torch
-import torch.distributed as dist
 
 from fim.data.dataloaders import DataLoaderFactory
 from fim.models.blocks import ModelFactory
 from fim.trainers.trainer import TrainerFactory
-from fim.trainers.utils import cleanup, clear_gpu_cache, setup, setup_environ_flags
+from fim.trainers.utils import cleanup, clear_gpu_cache, get_accel_type, setup, setup_environ_flags
 from fim.utils.helper import GenericConfig, expand_params, load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
@@ -60,10 +59,10 @@ def train_distributed(config: List[GenericConfig], resume: bool):
     torch.manual_seed(int(config.experiment.seed))
     torch.cuda.manual_seed(int(config.experiment.seed))
     np.random.seed(int(config.experiment.seed))
-    setup()
     world_size = int(os.environ["WORLD_SIZE"])
     rank = int(os.environ["RANK"])
     local_rank = int(os.environ["LOCAL_RANK"])
+    setup(rank, world_size)
 
     if rank == 0:
         logger.info("Starting Experiment: %s", config.experiment.name)
@@ -74,6 +73,8 @@ def train_distributed(config: List[GenericConfig], resume: bool):
         clear_gpu_cache(local_rank)
         setup_environ_flags(rank)
         device_map = config.experiment.device_map
+        if device_map == "auto":
+            device_map = get_accel_type()
 
         dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
 
@@ -84,7 +85,7 @@ def train_distributed(config: List[GenericConfig], resume: bool):
         )
         trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
         trainer.train()
-    dist.barrier()
+    # dist.barrier()
     cleanup()
 
 
