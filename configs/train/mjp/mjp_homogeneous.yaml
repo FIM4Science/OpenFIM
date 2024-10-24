@@ -40,9 +40,9 @@ dataset:
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
 
   loader_kwargs:
-    batch_size: 16
+    batch_size: 64
     num_workers: 8
-    test_batch_size: 16
+    test_batch_size: 64
   dataset_kwargs:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
@@ -54,7 +54,7 @@ dataset:
       initial_distributions: "fine_grid_initial_distributions.pt"
     data_limit: null
 
-model_dim: &model_dim 512
+model_dim: &model_dim 256
 
 model:
   name: FIMMJP
@@ -68,27 +68,30 @@ model:
     transformer_block:
       name: fim.models.blocks.base.TransformerBlock
       model_dim: *model_dim
-      ff_dim: 2048
+      ff_dim: 512
       dropout: 0.1
       activation:
         name: torch.nn.SiLU
       normalization:
-        name: torch.nn.RMSNorm
+        name: torch.nn.LayerNorm
         normalized_shape: [*model_dim]
       attention_head:
         name: torch.nn.MultiheadAttention
         embed_dim: *model_dim
-        num_heads: 8
+        num_heads: 4
         batch_first: true
 
   pos_encodings:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding
     out_dim: *model_dim
 
+  # pos_encodings:
+  #   name: fim.models.blocks.positional_encodings.DeltaTimeEncoding
+
   path_attention:
     name: torch.nn.MultiheadAttention
     embed_dim: *model_dim
-    num_heads: 4
+    num_heads: 8
     batch_first: true
 
   intensity_matrix_decoder:
@@ -125,14 +128,14 @@ trainer:
       beta: 1.0
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: missing_link
-      beta: 50.0
+      beta: 1.0
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
       lr: 0.0001
-      weight_decay: 0.001
-      gradient_norm_clipping: 10
+      weight_decay: 0.0001
+      # gradient_norm_clipping: 10
       schedulers: !!python/tuple
         - name: torch.optim.lr_scheduler.CosineAnnealingLR
           T_max: *epochs

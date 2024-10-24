@@ -220,7 +220,7 @@ class Trainer:
             time_trace.start_timer("Checkpoint")
             self.checkpointer.save_checkpoint(epoch, train_epoch_stats, validation_epoch_stats)
             time_trace.stop_timer("Checkpoint")
-            p_bar.update_and_set_postfix(1, train_epoch_stats, validation_epoch_stats, ["loss", "ppl"])
+            p_bar.update_and_set_postfix(1, train_epoch_stats["losses"], validation_epoch_stats["losses"], ["loss", "ppl"])
             if self.accel_type == "cuda":
                 mem_trace.print_summary()
             time_trace.print_elapsed_time("Epoch")
@@ -344,10 +344,10 @@ class Trainer:
             stats = self.model(batch)
         losses = {k: v.detach().float() for k, v in stats["losses"].items()}
         histograms = {}
-            # if "histograms" in stats:
-            #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
+        # if "histograms" in stats:
+        #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
         return {"losses": losses, "histograms": histograms, "line_plots": stats.get("visualizations", {})}
-            # return {"losses": losses}
+        # return {"losses": losses}
 
     def _update_learning_rates(self, call_place: str):
         verify_str_arg(call_place, "call_place", ["epoch", "minibatch"])

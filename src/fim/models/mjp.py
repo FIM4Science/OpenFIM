@@ -115,7 +115,7 @@ class FIMMJP(AModel):
         pos_enc = self.pos_encodings(obs_grid_normalized)
         path = torch.cat([obs_values_one_hot, pos_enc], dim=-1)  # [t, delta_t]
         padding_mask = create_padding_mask(x["mask_seq_lengths"].view(B * P), L)
-        padding_mask[:, 0] = False
+        padding_mask[:, 0] = True
         h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, -1, :].view(B, P, -1)
 
         h = self.path_attention(h, h, h)[0][:, -1, :]
@@ -151,9 +151,8 @@ class FIMMJP(AModel):
         target_mean = get_off_diagonal_elements(target_im)
         adjaceny_matrix = get_off_diagonal_elements(adjaceny_matrix)
         target_init_cond = torch.argmax(target_init_cond, dim=-1).long()
-        loss_gauss = adjaceny_matrix * self.gaussian_nll(
-            pred_im, pred_logvar_im, target_mean
-        )  # TODO: This can lead to NaNs for the mean or the var of the entries that are not observed (adjacency_matrix = 0).
+        # TODO: This can lead to NaNs for the mean or the var of the entries that are not observed (adjacency_matrix = 0).
+        loss_gauss = adjaceny_matrix * self.gaussian_nll(pred_im, target_mean, torch.exp(pred_logvar_im))
         loss_initial = self.init_cross_entropy(pred_init_cond, target_init_cond)
 
         loss_missing_link = normalization_constants * (1.0 - adjaceny_matrix) * (torch.pow(pred_im, 2) + torch.exp(pred_logvar_im))
@@ -163,12 +162,14 @@ class FIMMJP(AModel):
         gaus_cons = gaus_cons.to(self.device)
         init_cons = init_cons.to(self.device)
         missing_link_cons = missing_link_cons.to(self.device)
+        rmse_loss = torch.sqrt(torch.mean((target_mean - pred_im) ** 2))
         loss = gaus_cons * loss_gauss + init_cons * loss_initial.view(-1, 1) + missing_link_cons * loss_missing_link
         return {
             "loss": loss.mean(),
             "loss_gauss": loss_gauss.mean(),
             "loss_initial": loss_initial.mean(),
             "loss_missing_link": loss_missing_link.mean(),
+            "rmse_loss": rmse_loss,
             "beta_gauss_nll": gaus_cons,
             "beta_init_cross_entropy": init_cons,
             "beta_missing_link": missing_link_cons,
