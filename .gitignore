@@ -63,3 +63,7 @@ venv/
 # Vim sessions
 *.vim
 .*.sw[a-p]
+
+# plots
+*.png
+*.jpg

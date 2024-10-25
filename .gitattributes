@@ -41,3 +41,4 @@
 *.csv filter=lfs diff=lfs merge=lfs -text
 *.txt filter=lfs diff=lfs merge=lfs -text
 *.pt filter=lfs diff=lfs merge=lfs -text
+data/evaluation/pp filter=lfs diff=lfs merge=lfs -text
