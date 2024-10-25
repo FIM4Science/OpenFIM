@@ -13,6 +13,7 @@ __pycache__/*
 .*.swp
 */.ipynb_checkpoints/*
 .DS_Store
+core.*
 
 # Project files
 .ropeproject
@@ -21,18 +22,18 @@ __pycache__/*
 .settings
 .idea
 .vscode
+env_config.env
 tags
-results*
-zzz_*
-reports/*
-*archived*
-slurm*
+results
+evaluations
+saved_evaluations
 
 # Package files
 *.egg
 *.eggs/
 .installed.cfg
 *.egg-info
+*.egg-info/PKG-INFO
 
 # Unittest and coverage
 htmlcov/*
@@ -57,8 +58,8 @@ MANIFEST
 .venv*/
 .conda*/
 .python-version
-.env*
+venv/
 
-# plots
-*.png
-*.jpg
+# Vim sessions
+*.vim
+.*.sw[a-p]
