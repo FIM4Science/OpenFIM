@@ -1,13 +1,62 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
 requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools_scm]
-# For smarter version schemes and other configuration options,
-# check out https://github.com/pypa/setuptools_scm
-version_scheme = "no-guess-dev"
+[project]
+name = "fim"
+version = "0.1.0"
+description = "Project that contains the models of the FIM series papers."
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+   { name = "David Berghaus", email = "david.berghaus@iais.fraunhofer.de" },
+   { name = "Kostadin Cvejoski", email = "cvejoski@gmail.com" },
+   { name = "Ramses Sanchez", email = "sanchez@cs.uni-bonn.de" },
+   { name = "Patrick Seifner", email = "seifner@cs.uni-bonn.de" },
 
+]
+license = { file = "LICENSE.txt" }
+requires-python = ">=3.12"
+dependencies = [
+   "torch",
+   "datasets",
+   "peft",
+   "click",
+   "numpy",
+   "scipy",
+   "pandas",
+   "tqdm",
+   "ipython",
+   "matplotlib",
+   "ipympl",
+   "seaborn",
+   "tensorboard",
+   "h5py",
+   "optimum",
+   "pyyaml",
+   "jupyterlab",
+   "ipywidgets",
+   "pytest",
+   "pytest-cov",
+   "tox",
+   "pre_commit",
+   "nbdime",
+   "nbstripout",
+   "sphinx",
+   "recommonmark",
+   "colorlog",
+]
+
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages]
+find = { where = ["src"] }
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra"
+testpaths = ["tests"]
 
 [tool.ruff.lint]
 # Never enforce `E501` (line length violations).
@@ -15,7 +64,7 @@ ignore = ["C901", "E501", "E741", "F402", "F823", "I001"]
 select = ["C", "E", "F", "I", "W"]
 
 [tool.ruff]
-line-length = 120
+line-length = 140
 
 # Ignore import violations in all `__init__.py` files.
 [tool.ruff.lint.per-file-ignores]

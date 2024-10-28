@@ -65,6 +65,7 @@ model:
 
   intensity_matrix_decoder:
     name: fim.models.blocks.base.MLP
+    in_features: 2049
     hidden_layers: !!python/tuple [64, 64]
     hidden_act:
       name: torch.nn.SELU
@@ -72,6 +73,7 @@ model:
 
   initial_distribution_decoder:
     name: fim.models.blocks.base.MLP
+    in_features: 2049
     hidden_layers: !!python/tuple [64, 64]
     hidden_act:
       name: torch.nn.SELU
