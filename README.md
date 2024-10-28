@@ -1,63 +1,30 @@
 # FIM
 
-Add a short description of your project here.
+This project contains all the models developed in the "Foundation Models for Inference" series of papers.
 
 ## Table of Contents
-- [Installation](#installation)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [License](#license)
+- [FIM](#fim)
+  - [Table of Contents](#table-of-contents)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ## Installation
 
-To set up the necessary environment for this project, follow these steps:
+In order to set up the necessary environment:
 
-1. Clone the repository:
-   ```bash
-   git clone git@github.com:cvejoski/FIM.git
+1. create a virtual environment using your conda or python virtualenv
+
+2. install the project in the virtual environment:
    ```
-
-2. Navigate to the project directory:
-   ```bash
-   cd FIM
-   ```
-
-3. Create a virtual environment:
-   ```bash
-   python -m venv fim
-   ```
-   or alternatively one can use virtualenvwrapper:
-   ```bash
-   mkvirtualenv fim
-   ```
-
-4. Activate the virtual environment:
-   - For Windows:
-     ```bash
-     .\env\Scripts\activate
-     ```
-   - For macOS and Linux:
-     ```bash
-     source env/bin/activate
-     ```
-
-   - Alternatively, if you are using virtualenvwrapper, you can activate the virtual environment with:
-     ```bash
-     workon fim
-     ```
-5. Install the project dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-7. Install the project:
-   ```bash
    pip install -e .
    ```
 
+
 Optional and needed only once after `git clone`:
 
-6. install several [pre-commit] git hooks with:
+3. install several [pre-commit] git hooks with:
    ```bash
    pre-commit install
    # You might also want to run `pre-commit autoupdate`
@@ -65,7 +32,7 @@ Optional and needed only once after `git clone`:
    and checkout the configuration under `.pre-commit-config.yaml`.
    The `-n, --no-verify` flag of `git commit` can be used to deactivate pre-commit hooks temporarily.
 
-7. install [nbstripout] git hooks to remove the output cells of committed notebooks with:
+4. install [nbstripout] git hooks to remove the output cells of committed notebooks with:
    ```bash
    nbstripout --install --attributes notebooks/.gitattributes
    ```
@@ -74,6 +41,7 @@ Optional and needed only once after `git clone`:
 
 
 Then take a look into the `scripts` and `notebooks` folders.
+
 
 ## Usage
 
@@ -85,7 +53,7 @@ To start training, follow these steps:
 
 3. Run the training script, providing the path to the configuration file:
    ```bash
-   python scripts/train_model.py --config configs/train/autoregressive_example.yaml
+   python scripts/train_model.py --config configs/train/example.yaml
    ```
 
    This will start the training process using the specified configuration and save the trained model to the specified location.
@@ -96,24 +64,22 @@ To start training, follow these steps:
 
 Contributions are welcome! Here's how you can contribute to this project:
 
-1. Fork the repository.
-
-2. Create a new branch:
+1. Create a new branch:
    ```bash
    git checkout -b feature/your-feature
    ```
 
-3. Make your changes and commit them:
+2. Make your changes and commit them:
    ```bash
    git commit -m "Add your commit message here"
    ```
 
-4. Push your changes to your forked repository:
+3. Push your changes to your forked repository:
    ```bash
    git push origin feature/your-feature
    ```
 
-5. Open a pull request in the original repository.
+4. Open a pull request.
 
 ## License
 
