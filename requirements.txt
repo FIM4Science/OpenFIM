@@ -1,3 +1,53 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:3445e415eb28a7dc5ddaf96e758e59f9a6207294affdd97927d07ad2decbd6ef
-size 621
+torch
+datasets
+peft
+
+# BASICS
+click
+numpy
+scipy
+pandas
+tqdm
+click
+ipython
+# VISUALIZATION
+matplotlib
+ipympl  # interactive matplotlib plots
+seaborn
+# altair
+# yellowbrick
+# ML, STATS & DEEP LEARNING
+# statsmodels
+# scikit-learn
+# sktime
+# tslearn
+# xgboost
+# catboost
+# lightgbm
+# pytorch
+# fastai  # activate fastai channel above!
+# tensorflow
+# keras
+# spacy
+# OTHER TOOLS
+# optuna
+# dask
+# snakeviz
+tensorboard
+h5py
+optimum
+
+# DEVELOPMENT ONLY PACKAGES (could also be kept in a separate environment file)
+pyyaml
+tqdm
+jupyterlab
+ipywidgets
+pytest
+pytest-cov
+tox
+pre_commit
+nbdime
+nbstripout
+sphinx
+recommonmark
+colorlog
