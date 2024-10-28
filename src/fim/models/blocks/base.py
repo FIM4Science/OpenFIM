@@ -4,6 +4,7 @@ from typing import List, Optional, Union
 
 import torch
 from torch import Tensor, nn
+from torch.nn.functional import scaled_dot_product_attention
 
 from ...trainers.utils import is_distributed
 from ...utils.helper import create_class_instance
@@ -84,10 +85,47 @@ class MLP(Block):
         return self.layers(x)
 
 
+class MultiHeadLearnableQueryAttention(Block):
+    def __init__(self, n_queries: int, n_heads: int, embed_dim: int, kv_dim: int = None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.n_queries = n_queries
+        self.n_heads = n_heads
+        self.kv_dim = kv_dim if kv_dim is not None else embed_dim
+        self.embed_dim = embed_dim
+        self.is_same_embedding_dim_and_kv_dim = embed_dim == self.kv_dim
+        if self.is_same_embedding_dim_and_kv_dim:
+            self.head_dim = embed_dim // n_heads
+            assert self.head_dim * n_heads == embed_dim, "embedding_dim must be divisible by n_heads"
+            self.q = nn.Parameter(torch.randn(1, self.n_heads, self.n_queries, self.head_dim))
+            self.W_k = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+            self.W_v = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+            self.W_o = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+        else:
+            self.head_dim = self.kv_dim // n_heads
+            assert self.head_dim * n_heads == self.kv_dim, "kv_dim must be divisible by n_heads"
+            self.q = nn.Parameter(torch.randn(1, self.n_heads, self.n_queries, self.head_dim))
+            self.W_k = nn.Linear(self.embed_dim, self.kv_dim, bias=False)
+            self.W_v = nn.Linear(self.embed_dim, self.kv_dim, bias=False)
+            self.W_o = nn.Linear(self.kv_dim, self.embed_dim, bias=False)
+
+    def forward(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+        B, L, _ = k.size()
+
+        q = self.q.expand(B, -1, -1, -1).view(B * self.n_heads, self.n_queries, self.head_dim)
+        k = self.W_k(k).reshape(B, L, self.n_heads, self.head_dim).permute(0, 2, 1, 3).view(B * self.n_heads, L, self.head_dim)
+        v = self.W_v(v).reshape(B, L, self.n_heads, self.head_dim).permute(0, 2, 1, 3).view(B * self.n_heads, L, self.head_dim)
+
+        h = scaled_dot_product_attention(q, k, v, mask)
+        # h = h.permute(0, 2, 1, -1).reshape(B, L, -1)
+        # out = self.W_o(h)
+        return h.view(B, -1)
+
+
 class TransformerBlock(Block):
     def __init__(
         self,
-        model_dim: int,
+        in_features: int,
         ff_dim: int,
         dropout: float,
         attention_head: Union[dict, nn.Module] = nn.MultiheadAttention,
@@ -96,7 +134,7 @@ class TransformerBlock(Block):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.model_dim = model_dim
+        self.model_dim = in_features
         self.attention_head = attention_head
         if isinstance(attention_head, dict):
             self.attention_head = create_class_instance(attention_head.pop("name"), attention_head)
@@ -106,10 +144,10 @@ class TransformerBlock(Block):
             self.norm1 = create_class_instance(norm_type, normalization)
             self.norm2 = create_class_instance(norm_type, normalization)
         else:
-            self.norm1 = normalization(model_dim)
-            self.norm2 = normalization(model_dim)
+            self.norm1 = normalization(in_features)
+            self.norm2 = normalization(in_features)
 
-        self.ff = MLP(model_dim, model_dim, [ff_dim, model_dim], hidden_act=activation)
+        self.ff = MLP(in_features, in_features, [ff_dim, in_features], hidden_act=activation)
         self.dropout = nn.Dropout(dropout)
         self.dropout_attention = nn.Dropout(dropout)
 
@@ -122,11 +160,32 @@ class TransformerBlock(Block):
         return x
 
 
+class RNNEncoder(Block):
+    def __init__(self, in_features: int, rnn: dict | nn.Module, **kwargs):
+        super().__init__(**kwargs)
+        self.rnn = rnn
+        if isinstance(rnn, dict):
+            rnn_name = rnn.pop("name")
+            rnn["input_size"] = in_features
+            self.rnn = create_class_instance(rnn_name, rnn)
+
+    def forward(self, x: Tensor, seq_len: Tensor) -> Tensor:
+        x = torch.nn.utils.rnn.pack_padded_sequence(x, seq_len.cpu(), batch_first=True, enforce_sorted=False)
+        x, _ = self.rnn(x)
+        x, _ = torch.nn.utils.rnn.pad_packed_sequence(x, batch_first=True)
+        return x
+
+    @property
+    def out_features(self):
+        return self.rnn.hidden_size * 2 if self.rnn.bidirectional else self.rnn.hidden_size
+
+
 class TransformerEncoder(Block):
-    def __init__(self, num_layers: int, transformer_block: dict | TransformerBlock, **kwargs):
+    def __init__(self, num_layers: int, in_features: int, transformer_block: dict | TransformerBlock, **kwargs):
         super().__init__(**kwargs)
         if isinstance(transformer_block, dict):
             name = transformer_block.pop("name")
+            transformer_block["in_features"] = in_features
             self.layers = MaskedSequential(*(create_class_instance(name, copy.deepcopy(transformer_block)) for _ in range(num_layers)))
         else:
             self.layers = MaskedSequential(*(transformer_block(**kwargs) for _ in range(num_layers)))
@@ -135,7 +194,7 @@ class TransformerEncoder(Block):
         return self.layers(x, padding_mask=padding_mask)
 
     @property
-    def model_dim(self):
+    def out_features(self):
         return self.layers[0].model_dim
 
 

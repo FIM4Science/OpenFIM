@@ -38,7 +38,7 @@ class TestTransformer:
 
         attention_head = torch.nn.MultiheadAttention(dim, num_heads, batch_first=True)
         return TransformerBlock(
-            model_dim=64,
+            in_features=64,
             ff_dim=256,
             dropout=0.1,
             attention_head=attention_head,
@@ -59,7 +59,7 @@ class TestTransformer:
 
         attention_head = {"name": "torch.nn.MultiheadAttention", "embed_dim": dim, "num_heads": num_heads, "batch_first": True}
         transformer_block = TransformerBlock(
-            model_dim=64,
+            in_features=64,
             ff_dim=256,
             dropout=0.1,
             attention_head=attention_head,
@@ -98,14 +98,14 @@ class TestTransformer:
     def transformer_encoder(self):
         transformer_block = {
             "name": "fim.models.blocks.TransformerBlock",
-            "model_dim": 64,
+            "in_features": 64,
             "ff_dim": 256,
             "dropout": 0.1,
             "attention_head": {"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True},
             "activation": {"name": "torch.nn.ReLU"},
             "normalization": {"name": "torch.nn.LayerNorm", "normalized_shape": 64},
         }
-        return TransformerEncoder(num_layers=2, transformer_block=transformer_block)
+        return TransformerEncoder(num_layers=2, in_features=64, transformer_block=transformer_block)
 
     def test_transformer_encoder_initialization(self, transformer_encoder):
         assert transformer_encoder is not None

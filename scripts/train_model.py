@@ -36,18 +36,17 @@ logger = RankLoggerAdapter(logging.getLogger(__name__))
     "-r",
     "--resume",
     "resume",
-    is_flag=True,
-    default=False,
-    show_default=True,
-    help="Resume the training from the last checkpoint of the experiment. In case there is no checkpoint it starts new training.",
+    default=None,
+    type=click.Path(exists=True, dir_okay=True, file_okay=False),
+    help="Resume the training from the last checkpoint of the experiment.",
 )
-def main(cfg_path: Path, log_level: int, resume: bool):
+def main(cfg_path: Path, log_level: int, resume: Path):
     config = load_yaml(cfg_path)
     gs_configs = expand_params(config)
     train(gs_configs, resume)
 
 
-def train(configs: List[GenericConfig], resume: bool):
+def train(configs: List[GenericConfig], resume: Path):
     for config in configs:
         if config.distributed.enabled:
             train_distributed(config, resume)
@@ -55,7 +54,7 @@ def train(configs: List[GenericConfig], resume: bool):
             train_single(config, resume)
 
 
-def train_distributed(config: List[GenericConfig], resume: bool):
+def train_distributed(config: List[GenericConfig], resume: Path):
     torch.manual_seed(int(config.experiment.seed))
     torch.cuda.manual_seed(int(config.experiment.seed))
     np.random.seed(int(config.experiment.seed))
@@ -89,7 +88,7 @@ def train_distributed(config: List[GenericConfig], resume: bool):
     cleanup()
 
 
-def train_single(config: List[GenericConfig], resume: bool):
+def train_single(config: List[GenericConfig], resume: Path):
     logger.info("Starting Experiment: %s", config.experiment.name)
 
     torch.manual_seed(int(config.experiment.seed))
@@ -100,11 +99,7 @@ def train_single(config: List[GenericConfig], resume: bool):
     device_map = config.experiment.device_map
 
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-    model = ModelFactory.create(
-        **config.model.to_dict(),
-        device_map=device_map,
-        resume=resume,
-    )
+    model = ModelFactory.create(**config.model.to_dict(), device_map=device_map)
     trainer = TrainerFactory.create(
         config.trainer.name,
         model=model,

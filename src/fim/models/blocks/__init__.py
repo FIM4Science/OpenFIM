@@ -6,25 +6,27 @@ import torch.nn as nn
 
 from fim.trainers.utils import is_distributed
 
-from .base import MLP, Transformer, TransformerBlock, TransformerEncoder
+from .base import MLP, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer, TransformerBlock, TransformerEncoder
 from .normalization import MinMaxNormalization
-from .positional_encodings import SineTimeEncoding
+from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
 
 
-__all__ = [MLP, SineTimeEncoding, Transformer, MinMaxNormalization, TransformerBlock, TransformerEncoder]
+__all__ = [
+    MLP,
+    SineTimeEncoding,
+    Transformer,
+    MinMaxNormalization,
+    TransformerBlock,
+    TransformerEncoder,
+    DeltaTimeEncoding,
+    RNNEncoder,
+    MultiHeadLearnableQueryAttention,
+]
 
 
 class AModel(nn.Module, ABC):
     def __init__(self, **kwargs):
         super().__init__()
-
-    @abstractmethod
-    def new_stats(self) -> Dict:
-        """
-        Create dictionary where it will hold the results (_loss_ and _metrics_) after each training step.
-        :return:
-        """
-        raise NotImplementedError("The new_stats method is not implemented in your class!")
 
     @abstractmethod
     def loss(self, *inputs) -> Dict:

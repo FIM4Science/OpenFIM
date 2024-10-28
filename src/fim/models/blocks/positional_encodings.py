@@ -15,17 +15,17 @@ class SineTimeEncoding(Block):
     w_j and b_j are learnable parameters.
     """
 
-    def __init__(self, out_dim: int):
+    def __init__(self, out_features: int):
         """
         Args:
             d_time (int): Dimension of the time representation
         """
         super(SineTimeEncoding, self).__init__()
 
-        self.out_dim = out_dim
+        self.out_features = out_features
 
         self.linear_embedding = nn.Linear(1, 1, bias=True)
-        self.periodic_embedding = nn.Sequential(nn.Linear(1, out_dim - 1, bias=True), SinActivation())
+        self.periodic_embedding = nn.Sequential(nn.Linear(1, out_features - 1, bias=True), SinActivation())
 
     def forward(self, grid: torch.Tensor) -> torch.Tensor:
         """
@@ -44,7 +44,7 @@ class SineTimeEncoding(Block):
 class DeltaTimeEncoding(Block):
     def __init__(self, resume: bool = False, **kwargs):
         super().__init__(resume, **kwargs)
-        self.out_dim = 2
+        self.out_features = 2
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.numel() == 0:

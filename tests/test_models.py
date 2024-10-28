@@ -8,7 +8,7 @@ import torch
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
 from fim.models import FIMMJP
-from fim.models.blocks import AModel, ModelFactory, TransformerEncoder
+from fim.models.blocks import AModel, ModelFactory, RNNEncoder, TransformerEncoder
 from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
 
 
@@ -124,6 +124,12 @@ class TestMJP:
         return train_config
 
     @pytest.fixture
+    def config_rnn(self):
+        conf_path = test_data_path / "config" / "mjp_homogeneous_rnn.yaml"
+        train_config = load_yaml(conf_path, True)
+        return train_config
+
+    @pytest.fixture
     def dataloader(self, config):
         dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
         return dataloader
@@ -133,20 +139,25 @@ class TestMJP:
         model = ModelFactory.create(**config.model.to_dict())
         return model.to(device)
 
+    @pytest.fixture
+    def model_rnn(self, config_rnn, device):
+        model = ModelFactory.create(**config_rnn.model.to_dict())
+        return model.to(device)
+
     def test_init(self):
         n_states = 6
         use_adjacency_matrix = False
         transformer_block = {
             "name": "fim.models.blocks.TransformerBlock",
-            "model_dim": 64,
+            "in_features": 64,
             "ff_dim": 256,
             "dropout": 0.1,
             "attention_head": {"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True},
             "activation": {"name": "torch.nn.ReLU"},
             "normalization": {"name": "torch.nn.LayerNorm", "normalized_shape": 64},
         }
-        pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "out_dim": 64}
-        timeseries_encoder = TransformerEncoder(4, transformer_block)
+        pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "out_features": 64}
+        timeseries_encoder = TransformerEncoder(4, 64, transformer_block)
         path_attn = ({"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True},)
         intensity_matrix_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
         initial_distribution_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
@@ -168,6 +179,52 @@ class TestMJP:
         print(model)
         batch = {key: val.to(device) for key, val in batch.items()}
         out = model(batch)
+
+        assert isinstance(out, dict)
+        assert "losses" in out
+        assert "im" in out
+        assert "log_var_im" in out
+        assert "loss" in out["losses"]
+        assert "loss_gauss" in out["losses"]
+        assert "loss_initial" in out["losses"]
+        assert "loss_missing_link" in out["losses"]
+        assert out["im"].shape == (batch["observation_grid"].shape[0], 6, 6)
+        assert out["log_var_im"].shape == (batch["observation_grid"].shape[0], 6, 6)
+        assert out["init_cond"].shape == (batch["observation_grid"].shape[0], 6)
+
+    def test_init_rnn(self):
+        n_states = 6
+        use_adjacency_matrix = False
+        pos_encodings = {"name": "fim.models.blocks.DeltaTimeEncoding"}
+        rnn = torch.nn.RNN(2 + n_states, 64, 1, batch_first=True, bidirectional=True)
+        timeseries_encoder = RNNEncoder(2 + n_states, rnn)
+        path_attn = {
+            "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
+            "n_queries": 16,
+            "n_heads": 1,
+            "embed_dim": 64,
+            "kv_dim": 128,
+        }
+        intensity_matrix_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
+        initial_distribution_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
+        assert (
+            FIMMJP(
+                n_states,
+                use_adjacency_matrix,
+                timeseries_encoder,
+                pos_encodings,
+                path_attn,
+                intensity_matrix_decoder,
+                initial_distribution_decoder,
+            )
+            is not None
+        )
+
+    def test_forward_rnn(self, dataloader, model_rnn, device):
+        batch = next(iter(dataloader.train_it))
+        print(model_rnn)
+        batch = {key: val.to(device) for key, val in batch.items()}
+        out = model_rnn(batch)
 
         assert isinstance(out, dict)
         assert "losses" in out

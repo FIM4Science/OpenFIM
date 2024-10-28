@@ -1019,9 +1019,6 @@ class FIMWindowed(AModel):
 
         return combined_values, combined_times
 
-    def new_stats(self):
-        pass
-
     def loss(self, *inputs) -> Dict:
         raise NotImplementedError("FIM_windowed does not support loss calculation, as it is not trained.")
 

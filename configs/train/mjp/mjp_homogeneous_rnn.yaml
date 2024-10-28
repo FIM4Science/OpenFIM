@@ -1,11 +1,11 @@
 experiment:
-  name: FIM_MJP_Homogeneous_no_annealing_path_attention_8_head_model_dim_256
+  name: FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
 
 distributed:
-  enabled: true
+  enabled: false
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -40,9 +40,9 @@ dataset:
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
 
   loader_kwargs:
-    batch_size: 32
-    num_workers: 16
-    test_batch_size: 32
+    batch_size: 128
+    num_workers: 8
+    test_batch_size: 128
   dataset_kwargs:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
@@ -62,40 +62,27 @@ model:
   use_adjacency_matrix: false
 
   ts_encoder:
-    name: fim.models.blocks.base.TransformerEncoder
-    num_layers: 4
+    name: fim.models.blocks.base.RNNEncoder
 
-    transformer_block:
-      name: fim.models.blocks.base.TransformerBlock
-      in_features: *model_dim
-      ff_dim: 1024
-      dropout: 0.1
-      activation:
-        name: torch.nn.SiLU
-      normalization:
-        name: torch.nn.LayerNorm
-        normalized_shape: !!python/tuple [*model_dim]
-      attention_head:
-        name: torch.nn.MultiheadAttention
-        embed_dim: *model_dim
-        num_heads: 4
-        batch_first: true
+    rnn:
+      name: torch.nn.RNN
+      hidden_size: *model_dim
+      batch_first: true
+      bidirectional: true
 
   pos_encodings:
-    name: fim.models.blocks.positional_encodings.SineTimeEncoding
-    out_features: *model_dim
-
-  # pos_encodings:
-  #   name: fim.models.blocks.positional_encodings.DeltaTimeEncoding
+    name: fim.models.blocks.positional_encodings.DeltaTimeEncoding
 
   path_attention:
-    name: torch.nn.MultiheadAttention
-    embed_dim: *model_dim
-    num_heads: 8
-    batch_first: true
+    name: fim.models.blocks.MultiHeadLearnableQueryAttention
+    n_queries: 16
+    n_heads: 1
+    embed_dim: 512
+    kv_dim: 128
 
   intensity_matrix_decoder:
     name: fim.models.blocks.base.MLP
+    in_features: 2049
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
@@ -103,6 +90,7 @@ model:
 
   initial_distribution_decoder:
     name: fim.models.blocks.base.MLP
+    in_features: 2049
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU

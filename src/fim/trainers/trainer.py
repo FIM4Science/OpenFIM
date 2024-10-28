@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
+from typing import Optional
 
 import torch
 import yaml
@@ -48,7 +49,7 @@ class Trainer:
         self._save_experiment_parameters()
         torch.autograd.set_detect_anomaly(self.config.trainer.detect_anomaly)
 
-    def _prepare_model(self, model, config, resume):
+    def _prepare_model(self, model, config, resume: Optional[Path] = None):
         self.model = model
         checkpoint_class = TrainCheckpointFSDPFullStateDict if self.is_distributed else TrainCheckpoint
         self.optimizers = create_optimizers(self.model, config.optimizers)
@@ -72,11 +73,11 @@ class Trainer:
 
         if not self.is_distributed:
             self.model.to(device)
-            if resume:
+            if resume is not None:
                 self.start_epoch = self.checkpointer.load_checkpoint("last-epoch")
                 self.optimizers = self.checkpointer.optimizers
         else:
-            if resume:
+            if resume is not None:
                 self.start_epoch = self.checkpointer.load_model_state("last-epoch")
                 self.model = self.checkpointer.model
 
@@ -86,7 +87,7 @@ class Trainer:
             self.checkpointer.model = self.model
             self.checkpointer.optimizers = self.optimizers
 
-            if resume:
+            if resume is not None:
                 self.checkpointer.load_optimizers_state("last-epoch")
                 self.optimizers = self.checkpointer.optimizers
             # dist.barrier()
@@ -131,7 +132,7 @@ class Trainer:
             mixed_precision=mixed_precision_policy,
             device_id=torch.cuda.current_device(),
             limit_all_gathers=True,
-            sync_module_states=self.resume,
+            sync_module_states=self.resume is not None,
             use_orig_params=True,  # self.model.is_peft(),
             # ignored_modules=[self.model.fim_base], # ignored_states
         )
@@ -169,7 +170,7 @@ class Trainer:
 
     def _prepare_experiment_dirs(self) -> None:
         name = self.config.experiment.name
-        if self.resume:
+        if self.resume is not None:
             # remove "-seed-n" at end
             name = name[: name.rfind("-experiment-seed-")]
             date = ""

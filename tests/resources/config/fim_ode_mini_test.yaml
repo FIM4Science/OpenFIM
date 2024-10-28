@@ -31,7 +31,7 @@ model:
 
   time_encoding:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding
-    out_dim: &dim_time 16
+    out_features: &dim_time 16
 
   trunk_net:
     name: fim.models.blocks.base.MLP

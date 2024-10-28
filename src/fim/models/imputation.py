@@ -36,7 +36,7 @@ class FIMImputation(AModel):
         peft: Optional[dict] = None,
         **kwargs,
     ):
-        super(FIMImputation, self).__init__()
+        super(FIMImputation, self).__init__(**kwargs)
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         self._device_map = device_map
         self._torch_dtype = None
@@ -414,9 +414,6 @@ class FIMImputation(AModel):
         else:
             return drift_mean
 
-    def new_stats(self):
-        pass
-
     def loss(
         self,
         vector_field_concepts: tuple,
@@ -610,9 +607,6 @@ class FIMImputationWindowed(AModel):
                 "drift_certainty": interpolation_certainty,
             },
         }
-
-    def new_stats(self):
-        pass
 
     def loss(self):
         raise NotImplementedError

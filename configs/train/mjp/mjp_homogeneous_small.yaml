@@ -1,11 +1,11 @@
 experiment:
-  name: FIM_MJP_Homogeneous_no_annealing_path_attention_8_head_model_dim_256
+  name: FIM_MJP_Homogeneous_no_annealing_transformer_model_dim_128_path_attention_one_head_small
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
 
 distributed:
-  enabled: true
+  enabled: false
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -40,9 +40,9 @@ dataset:
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
 
   loader_kwargs:
-    batch_size: 32
-    num_workers: 16
-    test_batch_size: 32
+    batch_size: 72
+    num_workers: 8
+    test_batch_size: 72
   dataset_kwargs:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
@@ -54,7 +54,7 @@ dataset:
       initial_distributions: "fine_grid_initial_distributions.pt"
     data_limit: null
 
-model_dim: &model_dim 256
+model_dim: &model_dim 128
 
 model:
   name: FIMMJP
@@ -68,7 +68,7 @@ model:
     transformer_block:
       name: fim.models.blocks.base.TransformerBlock
       in_features: *model_dim
-      ff_dim: 1024
+      ff_dim: 512
       dropout: 0.1
       activation:
         name: torch.nn.SiLU
@@ -85,13 +85,10 @@ model:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding
     out_features: *model_dim
 
-  # pos_encodings:
-  #   name: fim.models.blocks.positional_encodings.DeltaTimeEncoding
-
   path_attention:
     name: torch.nn.MultiheadAttention
     embed_dim: *model_dim
-    num_heads: 8
+    num_heads: 1
     batch_first: true
 
   intensity_matrix_decoder:
