@@ -4,6 +4,7 @@
 # test why some batches take longer than others
 import sys
 import time
+from itertools import islice
 
 import numpy as np
 import pytest
@@ -116,21 +117,22 @@ class TestFimDataLoader:
     def test_load(self, config: dict):
         dataloader = DataLoaderFactory.create(**config)
         assert dataloader is not None
-        assert dataloader.train_set_size == 4
-        assert dataloader.test_set_size == 2
+        assert dataloader.train_set_size == 800
+        assert dataloader.test_set_size == 200
 
     def test_variable_num_of_paths(self, config: dict):
         config["loader_kwargs"]["max_path_count"] = 300
-        config["loader_kwargs"]["max_number_of_minibatch_sizes"] = 1
+        config["loader_kwargs"]["max_number_of_minibatch_sizes"] = 10
         config["loader_kwargs"]["variable_num_of_paths"] = True
+        config["loader_kwargs"]["batch_size"] = 32
+        config["loader_kwargs"]["num_workers"] = 0
         dataloader = DataLoaderFactory.create(**config)
         assert dataloader is not None
-        assert dataloader.train_set_size == 4
-        assert dataloader.test_set_size == 2
-        batch = next(iter(dataloader.train_it))
-        assert batch["observation_values"].shape[1] == 1
-        for k, v in batch.items():
-            print(k, v.shape)
+        assert dataloader.train_set_size == 800
+        assert dataloader.test_set_size == 200
+        for _ in range(2):
+            for ix, batch in enumerate(islice(dataloader.train_it, 10)):
+                assert batch["observation_values"].shape[1] == ix * 30 + 1
 
     @pytest.mark.skip("Skip until we have a proper dataset")
     @pytest.mark.parametrize(

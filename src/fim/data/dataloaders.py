@@ -154,12 +154,12 @@ class FIMDataLoader(BaseDataLoader):
     def var_path_collate_fun(batch: List[dict], paths_per_batch: List[int], max_path_count: int):
         batch_data = []
         paths_to_use = paths_per_batch.pop(0)  # Take the number of paths for this batch
-
+        path_idxs = torch.randint(0, max_path_count, (paths_to_use,))
         for item in batch:
             selected_paths = {}
             for k, v in item.items():
                 if isinstance(v, Tensor) and v.dim() != 0 and v.size(0) == max_path_count:
-                    selected_paths[k] = v[:paths_to_use]
+                    selected_paths[k] = v[path_idxs]
                 else:
                     selected_paths[k] = v
             batch_data.append(selected_paths)

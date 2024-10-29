@@ -56,7 +56,7 @@ class TestFimDataset:
         assert dataset.data is not None
         assert "fine_grid_grid" in dataset.data
         assert len(dataset.data) == 9
-        assert len(dataset) == 2
+        assert len(dataset) == 400
 
     def test_init_list_of_paths(self):
         dataset = FIMDataset(
@@ -78,7 +78,7 @@ class TestFimDataset:
         assert dataset.data is not None
         assert "fine_grid_grid" in dataset.data
         assert len(dataset.data) == 9
-        assert len(dataset) == 4
+        assert len(dataset) == 800
 
     def test_get_item(self):
         dataset = FIMDataset(
@@ -100,5 +100,5 @@ class TestFimDataset:
             "fine_grid_sample_paths",
             "fine_grid_time_normalization_factors",
         }
-        assert len(dataset) == 2
+        assert len(dataset) == 400
         assert dataset[0]["fine_grid_grid"].shape == (300, 100, 1)
