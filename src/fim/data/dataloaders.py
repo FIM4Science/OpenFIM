@@ -9,13 +9,15 @@ import torch
 import torch.distributed as dist
 import torch.utils
 from datasets import load_dataset_builder
+from torch import Tensor
+from torch.utils.data import default_collate
 from torch.utils.data.dataloader import DataLoader
-
-from fim.utils.helper import create_class_instance, verify_str_arg
 
 from ..data.datasets import FIMDataset, TimeSeriesImputationDatasetTorch
 from ..trainers.utils import is_distributed
+from ..utils.helper import create_class_instance, verify_str_arg
 from ..utils.logging import RankLoggerAdapter
+from .utils import get_path_counts
 
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
@@ -45,12 +47,14 @@ class BaseDataLoader:
         self.loader_kwargs = loader_kwargs
         self.iter = {}
         self.dataset = {}
+        self.samplers = {}
 
     def _init_dataloaders(self, dataset: dict[str, torch.utils.data.Dataset]):
         for n, d in dataset.items():
             sampler = None
             if is_distributed():
                 sampler = DistributedSampler(d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train")
+            self.samplers[n] = sampler
             batch_size = self.batch_size
             if n != "train":
                 batch_size = self.test_batch_size
@@ -60,7 +64,7 @@ class BaseDataLoader:
                 sampler=sampler,
                 shuffle=sampler is None,
                 batch_size=batch_size,
-                collate_fn=self._get_collate_fn(d),
+                collate_fn=self._get_collate_fn(n, d),
                 **self.loader_kwargs,
             )
 
@@ -112,7 +116,7 @@ class BaseDataLoader:
     def test_set_size(self):
         return len(self.test)
 
-    def _get_collate_fn(self, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
+    def _get_collate_fn(self, dataset_name: str, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
         return None
 
     def __str__(self) -> str:
@@ -122,12 +126,54 @@ class BaseDataLoader:
 
 class FIMDataLoader(BaseDataLoader):
     def __init__(self, path_collections: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
+        self.max_path_count = loader_kwargs.pop("max_path_count", None)
+        self.max_number_of_minibatch_sizes = loader_kwargs.pop("max_number_of_minibatch_sizes", None)
+        self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
         super().__init__(dataset_kwargs, loader_kwargs)
+        if self.variable_num_of_paths:
+            assert (
+                self.max_number_of_minibatch_sizes is not None
+            ), "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            assert self.max_path_count is not None, "max_path_conunt must be provided if variable_num_of_paths is True"
+            self.batch_path_sizes = {}
+
         self.path_collections = path_collections
         for name, paths in path_collections.items():
             self.dataset[name] = FIMDataset(paths, **dataset_kwargs)
+            if self.variable_num_of_paths:
+                self.batch_path_sizes[name] = get_path_counts(
+                    len(self.dataset[name]),
+                    self.batch_size if name == "train" else self.test_batch_size,
+                    self.max_path_count,
+                    self.max_number_of_minibatch_sizes,
+                )
 
         self._init_dataloaders(self.dataset)
+
+    @staticmethod
+    def var_path_collate_fun(batch: List[dict], paths_per_batch: List[int], max_path_count: int):
+        batch_data = []
+        paths_to_use = paths_per_batch.pop(0)  # Take the number of paths for this batch
+
+        for item in batch:
+            selected_paths = {}
+            for k, v in item.items():
+                if isinstance(v, Tensor) and v.dim() != 0 and v.size(0) == max_path_count:
+                    selected_paths[k] = v[:paths_to_use]
+                else:
+                    selected_paths[k] = v
+            batch_data.append(selected_paths)
+
+        return default_collate(batch_data)
+
+    def _get_collate_fn(self, dataset_name: str, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
+        if self.variable_num_of_paths:
+            return partial(
+                FIMDataLoader.var_path_collate_fun,
+                paths_per_batch=list(self.batch_path_sizes[dataset_name]).copy(),
+                max_path_count=self.max_path_count,
+            )
+        return super()._get_collate_fn(dataset_name, dataset)
 
 
 class TimeSeriesDataLoaderTorch:

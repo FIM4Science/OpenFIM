@@ -85,7 +85,8 @@ class TestBaseDataLoader:
 
 
 class TestFimDataLoader:
-    def test_load(self):
+    @pytest.fixture
+    def config(self):
         root_path = (
             test_data_path
             / "data"
@@ -110,10 +111,26 @@ class TestFimDataLoader:
                 "data_limit": None,
             },
         }
+        return config
+
+    def test_load(self, config: dict):
         dataloader = DataLoaderFactory.create(**config)
         assert dataloader is not None
         assert dataloader.train_set_size == 4
         assert dataloader.test_set_size == 2
+
+    def test_variable_num_of_paths(self, config: dict):
+        config["loader_kwargs"]["max_path_count"] = 300
+        config["loader_kwargs"]["max_number_of_minibatch_sizes"] = 1
+        config["loader_kwargs"]["variable_num_of_paths"] = True
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 4
+        assert dataloader.test_set_size == 2
+        batch = next(iter(dataloader.train_it))
+        assert batch["observation_values"].shape[1] == 1
+        for k, v in batch.items():
+            print(k, v.shape)
 
     @pytest.mark.skip("Skip until we have a proper dataset")
     @pytest.mark.parametrize(

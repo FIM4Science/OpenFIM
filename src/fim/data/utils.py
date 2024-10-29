@@ -240,6 +240,37 @@ def repeat_for_dim(t, process_dim):
     return torch.concat([t for _ in range(process_dim)], dim=0)
 
 
+def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int, max_number_of_minibatch_sizes: int = 10) -> list:
+    """
+    Calculate the path counts for minibatches.
+
+    Args:
+        num_examples (int): The total number of examples.
+        minibatch_size (int): The size of each minibatch.
+        max_path_count (int): The maximum path count.
+        max_number_of_minibatch_sizes (int, optional): The maximum number of minibatches with different path sizes. Defaults to 10.
+
+    Returns:
+        torch.Tensor: A tensor containing the path counts for each minibatch.
+
+    Raises:
+        ValueError: If there are not enough minibatches to distribute paths evenly.
+    """
+    num_minibatches = num_examples // minibatch_size
+    if num_examples % minibatch_size != 0:
+        num_minibatches += 1
+
+    path_counts = list(np.arange(1, max_path_count + 1, max_path_count // max_number_of_minibatch_sizes))
+    path_counts *= num_minibatches // len(path_counts)
+    if len(path_counts) == 0:
+        raise ValueError("Not enough minibatches to distribute paths evenly. We have not implemented this case yet.")
+
+    if len(path_counts) < num_minibatches:
+        path_counts += [max_path_count] * (num_minibatches - len(path_counts))
+
+    return torch.tensor(path_counts)
+
+
 def load_file(file_path):
     """
     Load a file based on its file extension.

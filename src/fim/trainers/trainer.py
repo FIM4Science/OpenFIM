@@ -239,6 +239,8 @@ class Trainer:
         data_it = self.dataloader.train_it
         if self.debug_mode:
             data_it = islice(data_it, self.number_of_debug_iterations)
+        if self.is_distributed:
+            self.dataloader.samplers["train"].set_epoch(epoch)
         step = epoch * self.steps_in_epoch
         # with torch.profiler.profile(
         #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),

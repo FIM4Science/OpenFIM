@@ -4,7 +4,7 @@
 
 import torch
 
-from fim.data.utils import split_into_variable_windows
+from fim.data.utils import get_path_counts, split_into_variable_windows
 from fim.models.utils import create_matrix_from_off_diagonal, create_padding_mask, get_off_diagonal_elements
 
 
@@ -155,4 +155,52 @@ def test_create_padding_mask_varied_lengths():
         [[False, True, True, True], [False, False, True, True], [False, False, False, True], [False, False, False, False]]
     )
     result = create_padding_mask(mask_seq_lengths, seq_len)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_get_path_counts_basic():
+    num_examples = 100
+    minibatch_size = 10
+    max_path_count = 30
+    expected = torch.tensor([1, 4, 7, 10, 13, 16, 19, 22, 25, 28])
+    result = get_path_counts(num_examples, minibatch_size, max_path_count)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_get_path_counts_with_remainder():
+    num_examples = 105
+    minibatch_size = 10
+    max_path_count = 30
+    expected = torch.tensor([1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 30])
+    result = get_path_counts(num_examples, minibatch_size, max_path_count)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_get_path_counts_small_minibatch():
+    num_examples = 100
+    minibatch_size = 5
+    max_path_count = 30
+    expected = torch.tensor([1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 1, 4, 7, 10, 13, 16, 19, 22, 25, 28])
+    result = get_path_counts(num_examples, minibatch_size, max_path_count)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_get_path_counts_not_enough_minibatches():
+    num_examples = 10
+    minibatch_size = 10
+    max_path_count = 30
+    try:
+        get_path_counts(num_examples, minibatch_size, max_path_count)
+    except ValueError as e:
+        assert str(e) == "Not enough minibatches to distribute paths evenly. We have not implemented this case yet."
+    else:
+        assert False, "Expected a ValueError, but none was raised"
+
+
+def test_get_path_counts_fill_paths_with_last_size():
+    num_examples = 356
+    minibatch_size = 32
+    max_path_count = 300
+    expected = torch.tensor([1, 31, 61, 91, 121, 151, 181, 211, 241, 271, 300, 300])
+    result = get_path_counts(num_examples, minibatch_size, max_path_count)
     assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
