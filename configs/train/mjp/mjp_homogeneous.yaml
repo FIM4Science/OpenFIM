@@ -74,11 +74,13 @@ model:
       in_features: *model_dim
       ff_dim: 1024
       dropout: 0.1
+      initialization_scheme: lecun_normal
       activation:
-        name: torch.nn.SiLU
+        name: torch.nn.SELU
       normalization:
         name: torch.nn.LayerNorm
         normalized_shape: !!python/tuple [*model_dim]
+
       attention_head:
         name: torch.nn.MultiheadAttention
         embed_dim: *model_dim
@@ -108,6 +110,7 @@ model:
     hidden_act:
       name: torch.nn.SELU
     dropout: 0.1
+    initialization_scheme: lecun_normal
 
   initial_distribution_decoder:
     name: fim.models.blocks.base.MLP
@@ -116,6 +119,7 @@ model:
     hidden_act:
       name: torch.nn.SELU
     dropout: 0.1
+    initialization_scheme: lecun_normal
 
 trainer:
   name: Trainer

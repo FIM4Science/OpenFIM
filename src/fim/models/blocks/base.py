@@ -12,8 +12,8 @@ from ...utils.helper import create_class_instance
 
 class Block(nn.Module):
     def __init__(self, resume: bool = False, **kwargs):
-        super(Block, self).__init__(**kwargs)
-
+        super(Block, self).__init__()
+        self.initialization_scheme = kwargs.get("initialization_scheme", "kaiming_normal")
         self.resume = resume
 
     @property
@@ -34,7 +34,10 @@ class Block(nn.Module):
         """
         for module in self.modules():
             if isinstance(module, nn.Linear):
-                nn.init.kaiming_normal_(module.weight, mode="fan_in", nonlinearity="leaky_relu")
+                if self.initialization_scheme == "kaiming_normal":
+                    nn.init.kaiming_normal_(module.weight, mode="fan_in", nonlinearity="leaky_relu")
+                elif self.initialization_scheme == "lecun_normal":
+                    nn.init.kaiming_normal_(module.weight, mode="fan_in", nonlinearity="linear")
                 if module.bias.data is not None:
                     nn.init.zeros_(module.bias)
 
@@ -80,6 +83,7 @@ class MLP(Block):
             if isinstance(output_act, dict):
                 output_act = create_class_instance(output_act.pop("name"), output_act)
             self.layers.add_module("output_activation", output_act)
+        self.param_init()
 
     def forward(self, x):
         return self.layers(x)
@@ -131,6 +135,7 @@ class TransformerBlock(Block):
         attention_head: Union[dict, nn.Module] = nn.MultiheadAttention,
         activation: Union[dict, nn.Module] = nn.ReLU(),
         normalization: Union[dict, nn.Module] = nn.LayerNorm,
+        initialization_scheme: str = "kaiming_normal",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -147,7 +152,7 @@ class TransformerBlock(Block):
             self.norm1 = normalization(in_features)
             self.norm2 = normalization(in_features)
 
-        self.ff = MLP(in_features, in_features, [ff_dim, in_features], hidden_act=activation)
+        self.ff = MLP(in_features, in_features, [ff_dim, in_features], hidden_act=activation, initialization_scheme=initialization_scheme)
         self.dropout = nn.Dropout(dropout)
         self.dropout_attention = nn.Dropout(dropout)
 
@@ -168,16 +173,24 @@ class RNNEncoder(Block):
             rnn_name = rnn.pop("name")
             rnn["input_size"] = in_features
             self.rnn = create_class_instance(rnn_name, rnn)
+        self.init_params()
 
     def forward(self, x: Tensor, seq_len: Tensor) -> Tensor:
         x = torch.nn.utils.rnn.pack_padded_sequence(x, seq_len.cpu(), batch_first=True, enforce_sorted=False)
-        x, _ = self.rnn(x)
-        x, _ = torch.nn.utils.rnn.pad_packed_sequence(x, batch_first=True)
-        return x
+        out, _ = self.rnn(x)
+        out, _ = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
+        return out
 
     @property
     def out_features(self):
         return self.rnn.hidden_size * 2 if self.rnn.bidirectional else self.rnn.hidden_size
+
+    def init_params(self):
+        for name, param in self.rnn.named_parameters():
+            if "weight" in name:
+                nn.init.orthogonal_(param)
+            elif "bias" in name:
+                nn.init.zeros_(param)
 
 
 class TransformerEncoder(Block):

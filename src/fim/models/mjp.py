@@ -155,7 +155,7 @@ class FIMMJP(AModel):
 
         pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
 
-        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logvar(norm_constants, pred_offdiag_im_mean_logvar)
+        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
 
         out = {
             "im": create_matrix_from_off_diagonal(pred_offdiag_im_mean, self.n_states),
@@ -170,9 +170,9 @@ class FIMMJP(AModel):
         return out
 
     def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
-        pred_offdiag_mean_logvar = self.intensity_matrix_decoder(h)
+        pred_offdiag_mean_logstd = self.intensity_matrix_decoder(h)
         init_cond = self.initial_distribution_decoder(h)
-        return pred_offdiag_mean_logvar, init_cond
+        return pred_offdiag_mean_logstd, init_cond
 
     def __encode(self, x: Tensor, obs_grid_normalized: Tensor, obs_values_one_hot: Tensor) -> Tensor:
         B, P, L = obs_grid_normalized.shape[:3]
@@ -197,11 +197,11 @@ class FIMMJP(AModel):
             h = torch.cat([h, get_off_diagonal_elements(x["adjacency_matrix"])], dim=-1)
         return h
 
-    def __denormalize_offdiag_mean_logvar(self, norm_constants: Tensor, pred_offdiag_im_mean_logvar: Tensor) -> tuple[Tensor, Tensor]:
-        pred_offdiag_im_logmean, pred_offdiag_im_logvar = pred_offdiag_im_mean_logvar.chunk(2, dim=-1)
+    def __denormalize_offdiag_mean_logstd(self, norm_constants: Tensor, pred_offdiag_im_mean_logstd: Tensor) -> tuple[Tensor, Tensor]:
+        pred_offdiag_im_logmean, pred_offdiag_im_logstd = pred_offdiag_im_mean_logstd.chunk(2, dim=-1)
         pred_offdiag_im_mean = torch.exp(pred_offdiag_im_logmean) / norm_constants.view(-1, 1)
-        pred_offdiag_im_logvar = pred_offdiag_im_logvar - torch.log(norm_constants.view(-1, 1))
-        return pred_offdiag_im_mean, pred_offdiag_im_logvar
+        pred_offdiag_im_logstd = pred_offdiag_im_logstd - torch.log(norm_constants.view(-1, 1))
+        return pred_offdiag_im_mean, pred_offdiag_im_logstd
 
     def __normalize_obs_grid(self, obs_grid: Tensor) -> tuple[Tensor, Tensor]:
         norm_constants = obs_grid.amax(dim=[-3, -2, -1])
@@ -211,7 +211,7 @@ class FIMMJP(AModel):
     def loss(
         self,
         pred_im: Tensor,
-        pred_logvar_im: Tensor,
+        pred_logstd_im: Tensor,
         pred_init_cond: Tensor,
         target: dict,
         normalization_constants: Tensor,
@@ -224,11 +224,13 @@ class FIMMJP(AModel):
         target_mean = get_off_diagonal_elements(target_im)
         adjaceny_matrix = get_off_diagonal_elements(adjaceny_matrix)
         target_init_cond = torch.argmax(target_init_cond, dim=-1).long()
-        pred_im_var = torch.exp(pred_logvar_im)
-        loss_gauss = adjaceny_matrix * self.gaussian_nll(pred_im, target_mean, pred_im_var)
-        loss_initial = self.init_cross_entropy(pred_init_cond, target_init_cond)
+        pred_im_std = torch.exp(pred_logstd_im)
+        loss_gauss = adjaceny_matrix * self.gaussian_nll(pred_im, target_mean, torch.pow(pred_im_std, 2))
+        loss_gauss = loss_gauss.sum() / (adjaceny_matrix.sum() + 1e-8)
+        loss_initial = self.init_cross_entropy(pred_init_cond, target_init_cond).mean()
         zero_entries = 1.0 - adjaceny_matrix
-        loss_missing_link = normalization_constants * zero_entries * (torch.pow(pred_im, 2) + pred_im_var)
+        loss_missing_link = normalization_constants * zero_entries * (torch.pow(pred_im, 2) + torch.pow(pred_im_std, 2))
+        loss_missing_link = loss_missing_link.sum() / (zero_entries.sum() + 1e-8)
         rmse_loss = torch.sqrt(torch.mean((target_mean - pred_im) ** 2))
 
         gaus_cons = schedulers.get("gauss_nll")(step) if schedulers else torch.tensor(1.0)
@@ -238,13 +240,13 @@ class FIMMJP(AModel):
         init_cons = init_cons.to(self.device)
         missing_link_cons = missing_link_cons.to(self.device)
 
-        loss = gaus_cons * loss_gauss + init_cons * loss_initial.view(-1, 1) + missing_link_cons * loss_missing_link
+        loss = gaus_cons * loss_gauss + init_cons * loss_initial + missing_link_cons * loss_missing_link
 
         return {
-            "loss": loss.sum(),
-            "loss_gauss": loss_gauss.sum() / adjaceny_matrix.sum(),
-            "loss_initial": loss_initial.mean(),
-            "loss_missing_link": loss_missing_link.sum() / zero_entries.sum(),
+            "loss": loss,
+            "loss_gauss": loss_gauss,
+            "loss_initial": loss_initial,
+            "loss_missing_link": loss_missing_link,
             "rmse_loss": rmse_loss,
             "beta_gauss_nll": gaus_cons,
             "beta_init_cross_entropy": init_cons,
