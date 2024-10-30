@@ -31,7 +31,7 @@ from .utils import (
 
 
 class Trainer:
-    def __init__(self, model: AModel, dataloader: BaseDataLoader, config: GenericConfig, resume: bool = False) -> None:
+    def __init__(self, model: AModel, dataloader: BaseDataLoader, config: GenericConfig, resume: Optional[Path | str] = None) -> None:
         self.config = config
         self.resume = resume
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
@@ -49,7 +49,7 @@ class Trainer:
         self._save_experiment_parameters()
         torch.autograd.set_detect_anomaly(self.config.trainer.detect_anomaly)
 
-    def _prepare_model(self, model, config, resume: Optional[Path] = None):
+    def _prepare_model(self, model, config, resume: Optional[Path | str] = None):
         self.model = model
         checkpoint_class = TrainCheckpointFSDPFullStateDict if self.is_distributed else TrainCheckpoint
         self.optimizers = create_optimizers(self.model, config.optimizers)
@@ -65,6 +65,7 @@ class Trainer:
             grad_scaler=self.grad_scaler,
             rank=self.rank,
             is_peft=False,  # self.model.is_peft(),
+            resume_dir=resume,
         )
         if config.experiment.device_map == "auto":
             device = torch.device(self.accel_type)
@@ -90,7 +91,6 @@ class Trainer:
             if resume is not None:
                 self.checkpointer.load_optimizers_state("last-epoch")
                 self.optimizers = self.checkpointer.optimizers
-            # dist.barrier()
 
     def _setup_variables(self):
         self.is_accelerator = is_accelerator_available()
@@ -170,11 +170,8 @@ class Trainer:
 
     def _prepare_experiment_dirs(self) -> None:
         name = self.config.experiment.name
-        if self.resume is not None:
-            # remove "-seed-n" at end
-            name = name[: name.rfind("-experiment-seed-")]
-            date = ""
-        elif self.config.experiment.name_add_date:
+
+        if self.config.experiment.name_add_date:
             # add date as string if wanted
             date = "_" + datetime.now().strftime("%m-%d-%H%M")
         else:

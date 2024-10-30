@@ -68,6 +68,7 @@ class TrainCheckpoint:
         grad_scaler: GradScaler = None,
         rank: int = 0,
         is_peft: bool = False,
+        resume_dir: Path | str = None,
     ):
         """
         Initializes the TrainCheckpoint instance.
@@ -93,6 +94,7 @@ class TrainCheckpoint:
         self.checkpoint_dir = Path(experiment_dir) / "checkpoints"
         self.best_model_dir = self.checkpoint_dir / "best-model"
         self.is_peft = is_peft
+        self.resume_dir = resume_dir
         if self.rank != 0:
             return
         self.__logger.info("Initializing Checkpoint Directories ...")
@@ -313,11 +315,11 @@ class TrainCheckpoint:
 
     def _get_checkpoint_path(self, checkpoint: Union[int, Literal["best-model", "last-epoch"]]) -> Path:
         if checkpoint == "best-model":
-            checkpoint_path = self.checkpoint_dir / "best-model"
+            checkpoint_path = self.resume_dir / "best-model"
         elif checkpoint == "last-epoch":
             checkpoint_path = self.__get_last_epoch()
         else:
-            checkpoint_path = self.checkpoint_dir / f"epoch-{checkpoint}"
+            checkpoint_path = self.resume_dir / f"epoch-{checkpoint}"
 
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint '{checkpoint_path}' not found")
@@ -325,13 +327,13 @@ class TrainCheckpoint:
 
     def __get_last_epoch(self):
         epoch_numbers = []
-        for checkpoint_name in [item.name for item in self.checkpoint_dir.iterdir() if item.is_dir()]:
+        for checkpoint_name in [item.name for item in self.resume_dir.iterdir() if item.is_dir()]:
             match = re.match(r"^epoch-(\d+)$", checkpoint_name)
             if match:
                 epoch_numbers.append(int(match.group(1)))
         if not epoch_numbers:
-            raise FileNotFoundError(f"Checkpoints not found in '{self.checkpoint_dir}' not found")
-        return self.checkpoint_dir / f"epoch-{max(epoch_numbers)}"
+            raise FileNotFoundError(f"Checkpoints not found in '{self.resume_dir}' not found")
+        return self.resume_dir / f"epoch-{max(epoch_numbers)}"
 
     def state_dict(self) -> dict:
         return self.best_model_flag
@@ -510,14 +512,14 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
         grad_scaler_state = None
         if self.rank == 0:
             self.__logger.info("Loading Optimizers State from %s ...", file_name)
-            checkpoint_ = torch.load(file_name)  # Load checkpoint on CPU
+            checkpoint_ = torch.load(file_name, weights_only=True)  # Load checkpoint on CPU
             grad_scaler_state = checkpoint_["grad_scaler"]
         grad_scaler_state = broadcast_state_dict(grad_scaler_state, "grad_scaler")
         dist.barrier()
         if self.grad_scaler is not None and grad_scaler_state is not None:
             self.grad_scaler.load_state_dict(grad_scaler_state)
         for name, optimizer in self.optimizers.items():
-            schedulers_sd = [None] * len(optimizer["schedulers"])
+            schedulers_sd = [None] * len(optimizer["schedulers"]) if optimizer["schedulers"] is not None else None
             full_osd = None
             if name in checkpoint_:
                 full_osd = checkpoint_[name]["opt"]
@@ -525,11 +527,12 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
             sharded_osd = FSDP.scatter_full_optim_state_dict(full_osd, self.model)
             optimizer["opt"].load_state_dict(sharded_osd)
             self.__logger.info("Optimizer %s Loaded!", name)
-            for ix, scheduler_sd in enumerate(schedulers_sd):
-                scheduler_sd = broadcast_state_dict(scheduler_sd, "scheduler_state_dict")
-                # self.__logger.debug("Recieved Scheduler state for optimizer '%s': %s!", name, schedulers_sd)
-                optimizer["schedulers"][ix][1].load_state_dict(scheduler_sd)
-            self.__logger.info("Optimizer-Schedulers %s Loaded!", name)
+            if schedulers_sd is not None:
+                for ix, scheduler_sd in enumerate(schedulers_sd):
+                    scheduler_sd = broadcast_state_dict(scheduler_sd, "scheduler_state_dict")
+                    # self.__logger.debug("Recieved Scheduler state for optimizer '%s': %s!", name, schedulers_sd)
+                    optimizer["schedulers"][ix][1].load_state_dict(scheduler_sd)
+                self.__logger.info("Optimizer-Schedulers %s Loaded!", name)
 
 
 non_reentrant_wrapper = partial(

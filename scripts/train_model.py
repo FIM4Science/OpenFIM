@@ -37,7 +37,7 @@ logger = RankLoggerAdapter(logging.getLogger(__name__))
     "--resume",
     "resume",
     default=None,
-    type=click.Path(exists=True, dir_okay=True, file_okay=False),
+    type=click.Path(exists=True, dir_okay=True, file_okay=False, path_type=Path),
     help="Resume the training from the last checkpoint of the experiment.",
 )
 def main(cfg_path: Path, log_level: int, resume: Path):

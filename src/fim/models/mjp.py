@@ -170,23 +170,26 @@ class FIMMJP(AModel):
         return out
 
     def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
-        pred_offdiag_im_logvar = self.intensity_matrix_decoder(h)
+        pred_offdiag_mean_logvar = self.intensity_matrix_decoder(h)
         init_cond = self.initial_distribution_decoder(h)
-        return pred_offdiag_im_logvar, init_cond
+        return pred_offdiag_mean_logvar, init_cond
 
     def __encode(self, x: Tensor, obs_grid_normalized: Tensor, obs_values_one_hot: Tensor) -> Tensor:
         B, P, L = obs_grid_normalized.shape[:3]
         pos_enc = self.pos_encodings(obs_grid_normalized)
-        path = torch.cat([pos_enc, obs_values_one_hot], dim=-1)  # [t, delta_t]
+        path = torch.cat([pos_enc, obs_values_one_hot], dim=-1)
         if isinstance(self.ts_encoder, TransformerEncoder):
             padding_mask = create_padding_mask(x["mask_seq_lengths"].view(B * P), L)
             padding_mask[:, 0] = True
-            h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, -1, :].view(B, P, -1)
-            h = self.path_attention(h, h, h)[0][:, 1, :]
+            h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, 1, :].view(B, P, -1)
+            if isinstance(self.path_attention, nn.MultiheadAttention):
+                h = self.path_attention(h, h, h)[0][:, -1]
+            else:
+                h = self.path_attention(h, h, h)
         elif isinstance(self.ts_encoder, RNNEncoder):
             h = self.ts_encoder(path.view(B * P, L, -1), x["mask_seq_lengths"].view(B * P))
             last_observation = x["mask_seq_lengths"].view(B * P) - 1
-            h = h[torch.arange(B * P), last_observation, :].view(B, P, -1)
+            h = h[torch.arange(B * P), last_observation].view(B, P, -1)
             h = self.path_attention(h, h, h)
 
         h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
@@ -221,10 +224,11 @@ class FIMMJP(AModel):
         target_mean = get_off_diagonal_elements(target_im)
         adjaceny_matrix = get_off_diagonal_elements(adjaceny_matrix)
         target_init_cond = torch.argmax(target_init_cond, dim=-1).long()
-
-        loss_gauss = adjaceny_matrix * self.gaussian_nll(pred_im, target_mean, torch.exp(pred_logvar_im))
+        pred_im_var = torch.exp(pred_logvar_im)
+        loss_gauss = adjaceny_matrix * self.gaussian_nll(pred_im, target_mean, pred_im_var)
         loss_initial = self.init_cross_entropy(pred_init_cond, target_init_cond)
-        loss_missing_link = normalization_constants * (1.0 - adjaceny_matrix) * (torch.pow(pred_im, 2) + torch.exp(pred_logvar_im))
+        zero_entries = 1.0 - adjaceny_matrix
+        loss_missing_link = normalization_constants * zero_entries * (torch.pow(pred_im, 2) + pred_im_var)
         rmse_loss = torch.sqrt(torch.mean((target_mean - pred_im) ** 2))
 
         gaus_cons = schedulers.get("gauss_nll")(step) if schedulers else torch.tensor(1.0)
@@ -237,10 +241,10 @@ class FIMMJP(AModel):
         loss = gaus_cons * loss_gauss + init_cons * loss_initial.view(-1, 1) + missing_link_cons * loss_missing_link
 
         return {
-            "loss": loss.mean(),
-            "loss_gauss": loss_gauss.mean(),
+            "loss": loss.sum(),
+            "loss_gauss": loss_gauss.sum() / adjaceny_matrix.sum(),
             "loss_initial": loss_initial.mean(),
-            "loss_missing_link": loss_missing_link.mean(),
+            "loss_missing_link": loss_missing_link.sum() / zero_entries.sum(),
             "rmse_loss": rmse_loss,
             "beta_gauss_nll": gaus_cons,
             "beta_init_cross_entropy": init_cons,

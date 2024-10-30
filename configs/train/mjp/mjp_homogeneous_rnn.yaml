@@ -1,7 +1,7 @@
 experiment:
-  name: FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim
+  name: FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_same_
   name_add_date: true # if true, the current date & time will be added to the experiment name
-  seed: [10]
+  seed: [0]
   device_map: auto # auto, cuda, cpu
 
 distributed:
@@ -43,6 +43,10 @@ dataset:
     batch_size: 128
     num_workers: 8
     test_batch_size: 128
+    pin_memory: true
+    max_path_count: 300
+    max_number_of_minibatch_sizes: 10
+    variable_num_of_paths: true
   dataset_kwargs:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
@@ -86,7 +90,7 @@ model:
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
-    dropout: 0.1
+    dropout: 0
 
   initial_distribution_decoder:
     name: fim.models.blocks.base.MLP
@@ -94,7 +98,7 @@ model:
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
-    dropout: 0.1
+    dropout: 0
 
 trainer:
   name: Trainer
@@ -116,7 +120,7 @@ trainer:
       beta: 1.0
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: missing_link
-      beta: 1.0
+      beta: 50.0
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
