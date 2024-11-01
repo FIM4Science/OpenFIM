@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_MJP_Homogeneous_no_annealing_path_attention_8_head_model_dim_256
+  name: FIM_MJP_Homogeneous_no_annealing_path_attention_8_head_model_dim_128
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -58,7 +58,7 @@ dataset:
       initial_distributions: "fine_grid_initial_distributions.pt"
     data_limit: null
 
-model_dim: &model_dim 256
+model_dim: &model_dim 128
 
 model:
   name: FIMMJP
@@ -72,7 +72,7 @@ model:
     transformer_block:
       name: fim.models.blocks.base.TransformerBlock
       in_features: *model_dim
-      ff_dim: 1024
+      ff_dim: 512
       dropout: 0.1
       initialization_scheme: lecun_normal
       activation:
@@ -94,7 +94,7 @@ model:
   path_attention:
     name: torch.nn.MultiheadAttention
     embed_dim: *model_dim
-    num_heads: 8
+    num_heads: 4
     batch_first: true
   # path_attention:
   #   name: fim.models.blocks.MultiHeadLearnableQueryAttention

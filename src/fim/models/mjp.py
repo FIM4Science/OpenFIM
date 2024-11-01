@@ -170,9 +170,9 @@ class FIMMJP(AModel):
         return out
 
     def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
-        pred_offdiag_mean_logstd = self.intensity_matrix_decoder(h)
+        pred_offdiag_logmean_logstd = self.intensity_matrix_decoder(h)
         init_cond = self.initial_distribution_decoder(h)
-        return pred_offdiag_mean_logstd, init_cond
+        return pred_offdiag_logmean_logstd, init_cond
 
     def __encode(self, x: Tensor, obs_grid_normalized: Tensor, obs_values_one_hot: Tensor) -> Tensor:
         B, P, L = obs_grid_normalized.shape[:3]
@@ -197,8 +197,8 @@ class FIMMJP(AModel):
             h = torch.cat([h, get_off_diagonal_elements(x["adjacency_matrix"])], dim=-1)
         return h
 
-    def __denormalize_offdiag_mean_logstd(self, norm_constants: Tensor, pred_offdiag_im_mean_logstd: Tensor) -> tuple[Tensor, Tensor]:
-        pred_offdiag_im_logmean, pred_offdiag_im_logstd = pred_offdiag_im_mean_logstd.chunk(2, dim=-1)
+    def __denormalize_offdiag_mean_logstd(self, norm_constants: Tensor, pred_offdiag_im_logmean_logstd: Tensor) -> tuple[Tensor, Tensor]:
+        pred_offdiag_im_logmean, pred_offdiag_im_logstd = pred_offdiag_im_logmean_logstd.chunk(2, dim=-1)
         pred_offdiag_im_mean = torch.exp(pred_offdiag_im_logmean) / norm_constants.view(-1, 1)
         pred_offdiag_im_logstd = pred_offdiag_im_logstd - torch.log(norm_constants.view(-1, 1))
         return pred_offdiag_im_mean, pred_offdiag_im_logstd
@@ -222,6 +222,7 @@ class FIMMJP(AModel):
         target_init_cond = target["initial_distributions"]
         adjaceny_matrix = target["adjacency_matrices"]
         target_mean = get_off_diagonal_elements(target_im)
+        P = target["observation_grid"].shape[1]
         adjaceny_matrix = get_off_diagonal_elements(adjaceny_matrix)
         target_init_cond = torch.argmax(target_init_cond, dim=-1).long()
         pred_im_std = torch.exp(pred_logstd_im)
@@ -241,7 +242,7 @@ class FIMMJP(AModel):
         missing_link_cons = missing_link_cons.to(self.device)
 
         loss = gaus_cons * loss_gauss + init_cons * loss_initial + missing_link_cons * loss_missing_link
-
+        # loss = rmse_loss
         return {
             "loss": loss,
             "loss_gauss": loss_gauss,
@@ -251,6 +252,7 @@ class FIMMJP(AModel):
             "beta_gauss_nll": gaus_cons,
             "beta_init_cross_entropy": init_cons,
             "beta_missing_link": missing_link_cons,
+            "number_of_paths": torch.tensor(P, device=self.device),
         }
 
     def metric(self, y: Any, y_target: Any) -> Dict:

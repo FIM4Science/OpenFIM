@@ -104,14 +104,14 @@ class MultiHeadLearnableQueryAttention(Block):
             self.q = nn.Parameter(torch.randn(1, self.n_heads, self.n_queries, self.head_dim))
             self.W_k = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
             self.W_v = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
-            self.W_o = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+            # self.W_o = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
         else:
             self.head_dim = self.kv_dim // n_heads
             assert self.head_dim * n_heads == self.kv_dim, "kv_dim must be divisible by n_heads"
             self.q = nn.Parameter(torch.randn(1, self.n_heads, self.n_queries, self.head_dim))
             self.W_k = nn.Linear(self.embed_dim, self.kv_dim, bias=False)
             self.W_v = nn.Linear(self.embed_dim, self.kv_dim, bias=False)
-            self.W_o = nn.Linear(self.kv_dim, self.embed_dim, bias=False)
+            # self.W_o = nn.Linear(self.kv_dim, self.embed_dim, bias=False)
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         B, L, _ = k.size()
@@ -121,8 +121,8 @@ class MultiHeadLearnableQueryAttention(Block):
         v = self.W_v(v).reshape(B, L, self.n_heads, self.head_dim).permute(0, 2, 1, 3).view(B * self.n_heads, L, self.head_dim)
 
         h = scaled_dot_product_attention(q, k, v, mask)
-        # h = h.permute(0, 2, 1, -1).reshape(B, L, -1)
-        # out = self.W_o(h)
+        h = h.view(B, self.n_heads, self.n_queries, self.head_dim).permute(0, 2, 1, 3).contiguous()
+
         return h.view(B, -1)
 
 
@@ -177,20 +177,28 @@ class RNNEncoder(Block):
 
     def forward(self, x: Tensor, seq_len: Tensor) -> Tensor:
         x = torch.nn.utils.rnn.pack_padded_sequence(x, seq_len.cpu(), batch_first=True, enforce_sorted=False)
-        out, _ = self.rnn(x)
+        carry = self.get_init_carry(x.batch_sizes[0])
+        out, _ = self.rnn(x, carry)
         out, _ = torch.nn.utils.rnn.pad_packed_sequence(out, batch_first=True)
         return out
+
+    def get_init_carry(self, batch_size: int):
+        return (
+            torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1), batch_size, self.rnn.hidden_size).to(self.device),
+            torch.ones(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1), batch_size, self.rnn.hidden_size).to(self.device),
+        )
 
     @property
     def out_features(self):
         return self.rnn.hidden_size * 2 if self.rnn.bidirectional else self.rnn.hidden_size
 
     def init_params(self):
-        for name, param in self.rnn.named_parameters():
-            if "weight" in name:
-                nn.init.orthogonal_(param)
-            elif "bias" in name:
-                nn.init.zeros_(param)
+        ...
+        # for name, param in self.rnn.named_parameters():
+        #     if "weight" in name:
+        #         nn.init.orthogonal_(param)
+        #     elif "bias" in name:
+        #         nn.init.zeros_(param)
 
 
 class TransformerEncoder(Block):
