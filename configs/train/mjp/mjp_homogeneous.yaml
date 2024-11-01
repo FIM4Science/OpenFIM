@@ -40,9 +40,9 @@ dataset:
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
 
   loader_kwargs:
-    batch_size: 40
+    batch_size: 32
     num_workers: 16
-    test_batch_size: 40
+    test_batch_size: 32
     pin_memory: true
     max_path_count: 300
     max_number_of_minibatch_sizes: 10

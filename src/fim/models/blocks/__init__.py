@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict
 
 import torch.nn as nn
+import torchinfo
 
 from fim.trainers.utils import is_distributed
 
@@ -50,6 +51,9 @@ class AModel(nn.Module, ABC):
         if is_distributed():
             return int(os.environ["RANK"])
         return 0
+
+    def summary(self, x: dict):
+        return torchinfo.summary(self, input_data=[x])
 
 
 class ModelFactory:

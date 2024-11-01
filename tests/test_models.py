@@ -237,3 +237,10 @@ class TestMJP:
         assert out["im"].shape == (batch["observation_grid"].shape[0], 6, 6)
         assert out["log_var_im"].shape == (batch["observation_grid"].shape[0], 6, 6)
         assert out["init_cond"].shape == (batch["observation_grid"].shape[0], 6)
+
+    def test_summary(self, model, dataloader):
+        import torchinfo
+
+        x = dataloader.train_it.dataset[0]
+        x = {key: val.unsqueeze(0).to(model.device) for key, val in x.items()}
+        print(torchinfo.summary(model, input_data=[x]))

@@ -17,7 +17,7 @@ authors = [
 license = { file = "LICENSE.txt" }
 requires-python = ">=3.12"
 dependencies = [
-   "torch",
+   "torch==2.5.0",
    "datasets",
    "peft",
    "click",
@@ -44,6 +44,7 @@ dependencies = [
    "sphinx",
    "recommonmark",
    "colorlog",
+   "torchinfo",
 ]
 
 

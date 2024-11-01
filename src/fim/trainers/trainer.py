@@ -193,6 +193,12 @@ class Trainer:
         params_path = self.experiment_dir / "train_parameters.yaml"
         self.logger.info("Saving training configuration to %s", params_path)
         yaml.dump(self.config.to_dict(), open(params_path, "w", encoding="utf-8"), default_flow_style=False)
+        model_architecture_path = self.experiment_dir / "model_architecture.txt"
+        self.logger.info("Saving model architecture to %s", model_architecture_path)
+        with open(model_architecture_path, "w") as f:
+            x = self.dataloader.train_it.dataset[0]
+            x = {key: val.unsqueeze(0).to(self.model.device) for key, val in x.items()}
+            f.write(str(self.model.summary(x)))
 
     def train(self):
         p_bar = StepProgressBarFactory.create_epoch_progress_bar(self.n_epochs, self.rank, self.start_epoch)
