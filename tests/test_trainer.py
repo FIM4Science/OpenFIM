@@ -8,6 +8,7 @@ import pytest
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
+from fim.models import FIMMJP, FIMMJPConfig, FIMODEConfig
 from fim.models.blocks import ModelFactory
 from fim.trainers.trainer import Trainer, TrainLossTracker
 from fim.utils.helper import load_yaml
@@ -62,7 +63,7 @@ def test_trainer_fimode():
     config = load_yaml(TRAIN_CONF, True)
 
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-    model = ModelFactory.create(**config.model.to_dict())
+    model = ModelFactory.create(FIMODEConfig(**config.model.to_dict()))
 
     trainer = Trainer(model, dataloader, config)
 
@@ -70,15 +71,24 @@ def test_trainer_fimode():
     assert trainer is not None
 
 
-def test_trainer_mjp():
-    TRAIN_CONF = test_data_path / "config" / "mjp_homogeneous_mini.yaml"
-    config = load_yaml(TRAIN_CONF, True)
+class TestTrainMJP:
+    @pytest.fixture(scope="module")
+    def results_dir(self, tmp_path_factory):
+        return tmp_path_factory.mktemp("results")
 
-    dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
+    def test_trainer_mjp(self, results_dir):
+        TRAIN_CONF = test_data_path / "config" / "mjp_homogeneous_mini.yaml"
+        print(results_dir)
+        config = load_yaml(TRAIN_CONF, True)
+        config.trainer.experiment_dir = results_dir
+        dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
 
-    model = ModelFactory.create(**config.model.to_dict())
+        model = ModelFactory.create(FIMMJPConfig(**config.model.to_dict()))
 
-    trainer = Trainer(model, dataloader, config)
+        trainer = Trainer(model, dataloader, config)
 
-    trainer.train()
-    assert trainer is not None
+        trainer.train()
+        assert trainer is not None
+        model = FIMMJP.load_model(results_dir / "FIM_MJP_Homogeneous_Mini/checkpoints/best-model")
+        assert model is not None
+        assert isinstance(model, FIMMJP)

@@ -1,6 +1,6 @@
 from .imputation import FIMImputation, FIMImputationWindowed
-from .mjp import FIMMJP
-from .ode import FIMODE, FIMWindowed
+from .mjp import FIMMJP, FIMMJPConfig
+from .ode import FIMODE, FIMODEConfig, FIMWindowed
 
 
-__all__ = ["FIMImputation", "FIMImputationWindowed", "FIMODE", "FIMWindowed", "FIMMJP"]
+__all__ = ["FIMImputation", "FIMImputationWindowed", "FIMODE", "FIMWindowed", "FIMMJP", "FIMMJPConfig", "FIMODEConfig"]

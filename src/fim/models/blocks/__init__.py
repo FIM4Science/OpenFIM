@@ -1,17 +1,22 @@
+import logging
 import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict
 
+import torch
 import torch.nn as nn
 import torchinfo
+from transformers import PretrainedConfig, PreTrainedModel
 
-from fim.trainers.utils import is_distributed
-
+from ...trainers.utils import is_distributed
+from ...utils.logging import RankLoggerAdapter
 from .base import MLP, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer, TransformerBlock, TransformerEncoder
 from .normalization import MinMaxNormalization
 from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
 
 
+logger = RankLoggerAdapter(logging.getLogger(__name__))
 __all__ = [
     MLP,
     SineTimeEncoding,
@@ -25,9 +30,10 @@ __all__ = [
 ]
 
 
-class AModel(nn.Module, ABC):
-    def __init__(self, **kwargs):
-        super().__init__()
+class AModel(PreTrainedModel, ABC):
+    def __init__(self, config: PretrainedConfig, **kwargs):
+        super().__init__(config)
+        self.config = config
 
     @abstractmethod
     def loss(self, *inputs) -> Dict:
@@ -55,6 +61,19 @@ class AModel(nn.Module, ABC):
     def summary(self, x: dict):
         return torchinfo.summary(self, input_data=[x])
 
+    @classmethod
+    def load_model(cls, model_path: Path):
+        model_path = Path(model_path)
+        config_path = model_path / "config.json"
+        model_weights_path = model_path / "model-checkpoint.pth"
+        if not model_path.exists() or not config_path.exists() or not model_weights_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        model_state = torch.load(model_path / "model-checkpoint.pth")
+        model_config = cls.config_class.from_pretrained(config_path)
+        model = cls(model_config)
+        model.load_state_dict(model_state)
+        return model
+
 
 class ModelFactory:
     model_types = {}
@@ -68,9 +87,9 @@ class ModelFactory:
         cls.model_types[model_type] = model_class
 
     @classmethod
-    def create(cls, name: str, **kwargs) -> AModel:
-        model_class = cls.model_types.get(name)
+    def create(cls, config: PretrainedConfig) -> AModel:
+        model_class = cls.model_types.get(config.model_type)
         if model_class:
-            return model_class(**kwargs)
+            return model_class(config)
         else:
             raise ValueError("Invalid model type")

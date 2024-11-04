@@ -4,116 +4,93 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 import torch
-from transformers import BitsAndBytesConfig
+from transformers import PretrainedConfig
 
 from fim.data.utils import make_multi_dim, make_single_dim, reorder_windows_per_sample, split_into_windows
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.helper import create_class_instance
 from fim.utils.metrics import compute_metrics
 
-from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
 from .blocks import AModel, ModelFactory
 
 
-class FIMODE(AModel):
+class FIMODEConfig(PretrainedConfig):
+    model_type = "fimode"
+
     def __init__(
         self,
-        time_encoding: dict,
-        trunk_net: dict,
-        branch_net: dict,
-        combiner_net: dict,
-        init_cond_net: dict,
-        vector_field_net: dict,
-        loss_configs: dict,
+        time_encoding: dict = None,
+        trunk_net: dict = None,
+        branch_net: dict = None,
+        combiner_net: dict = None,
+        init_cond_net: dict = None,
+        vector_field_net: dict = None,
+        loss_configs: dict = None,
         normalization_time: Optional[dict] = None,
         normalization_values: Optional[dict] = None,
-        load_in_8bit: bool = False,
-        load_in_4bit: bool = False,
-        use_bf16: bool = False,
-        device_map: Optional[str] = None,
-        resume: bool = False,
-        peft: Optional[dict] = None,
+        **kwargs,
     ):
-        super(FIMODE, self).__init__()
-        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
-        self._device_map = device_map
-        self._torch_dtype = None
-        self._quantization_config = None
-        self.resume = resume
-        self.peft = peft
-        if load_in_8bit and load_in_4bit:
-            raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
-        elif load_in_8bit or load_in_4bit:
-            self._quantization_config = BitsAndBytesConfig(
-                load_in_8bit=load_in_8bit,
-                load_in_4bit=load_in_4bit,
-            )
-            self._device_map = "auto"
-        if use_bf16 and is_bfloat_supported:
-            self._torch_dtype = torch.float16
+        self.time_encoding = time_encoding
+        self.trunk_net = trunk_net
+        self.branch_net = branch_net
+        self.combiner_net = combiner_net
+        self.init_cond_net = init_cond_net
+        self.vector_field_net = vector_field_net
+        self.loss_configs = loss_configs
+        self.normalization_time = normalization_time
+        self.normalization_values = normalization_values
 
-        if normalization_time is None:
+        super().__init__(**kwargs)
+
+
+class FIMODE(AModel):
+    config_class = FIMODEConfig
+
+    def __init__(self, config: FIMODEConfig, **kwargs):
+        super(FIMODE, self).__init__(config, **kwargs)
+        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+
+        if self.config.normalization_time is None:
             self.apply_normalization = False
         else:
             self.apply_normalization = True
 
-        self._create_model(
-            time_encoding=time_encoding,
-            trunk_net=trunk_net,
-            branch_net=branch_net,
-            combiner_net=combiner_net,
-            vector_field_net=vector_field_net,
-            init_cond_net=init_cond_net,
-            loss_configs=loss_configs,
-            normalization_time=normalization_time,
-            normalization_values=normalization_values,
-        )
+        self._create_model()
 
-        self.to(self._device_map)
-
-    def _create_model(
-        self,
-        time_encoding: dict,
-        trunk_net: dict,
-        branch_net: dict,
-        combiner_net: dict,
-        vector_field_net: dict,
-        init_cond_net: dict,
-        loss_configs: dict,
-        normalization_time: Optional[dict] = None,
-        normalization_values: Optional[dict] = None,
-    ):
+    def _create_model(self):
         if self.apply_normalization:
-            self.normalization_time = create_class_instance(normalization_time.pop("name"), normalization_time)
-            self.normalization_values = create_class_instance(normalization_values.pop("name"), normalization_values)
+            self.normalization_time = create_class_instance(self.config.normalization_time.pop("name"), self.config.normalization_time)
+            self.normalization_values = create_class_instance(
+                self.config.normalization_values.pop("name"), self.config.normalization_values
+            )
 
-        self.time_encoding = create_class_instance(time_encoding.pop("name"), time_encoding)
+        self.time_encoding = create_class_instance(self.config.time_encoding.pop("name"), self.config.time_encoding)
 
-        self.trunk_net = create_class_instance(trunk_net.pop("name"), trunk_net)
+        self.trunk_net = create_class_instance(self.config.trunk_net.pop("name"), self.config.trunk_net)
 
-        self.branch_net = create_class_instance(branch_net.pop("name"), branch_net)
+        self.branch_net = create_class_instance(self.config.branch_net.pop("name"), self.config.branch_net)
 
-        if combiner_net.get("in_features") != 2 * combiner_net.get("out_features"):
+        if self.config.combiner_net.get("in_features") != 2 * self.config.combiner_net.get("out_features"):
             raise ValueError("The number of input features for the combiner_net must be twice the number of output features (latent dim).")
 
-        self.combiner_net = create_class_instance(combiner_net.pop("name"), combiner_net)
+        self.combiner_net = create_class_instance(self.config.combiner_net.pop("name"), self.config.combiner_net)
 
-        self.vector_field_net = create_class_instance(vector_field_net.pop("name"), vector_field_net)
+        self.vector_field_net = create_class_instance(self.config.vector_field_net.pop("name"), self.config.vector_field_net)
 
-        self.init_cond_net = create_class_instance(init_cond_net.pop("name"), init_cond_net)
+        self.init_cond_net = create_class_instance(self.config.init_cond_net.pop("name"), self.config.init_cond_net)
 
-        match loss_configs.get("ode_solver"):
+        match self.config.loss_configs.get("ode_solver"):
             case "rk4":
                 from fim.models.utils import rk4
 
                 self.ode_solver = rk4
             case _:
-                raise ValueError(f"ODE solver {loss_configs.get('ode_solver')} not supported.")
+                raise ValueError(f"ODE solver {self.config.loss_configs.get('ode_solver')} not supported.")
 
-        self.loss_scale_drift = loss_configs.pop("loss_scale_drift")
-        self.loss_scale_init_cond = loss_configs.pop("loss_scale_init_cond")
-        self.loss_scale_unsuperv_loss = loss_configs.pop("loss_scale_unsuperv_loss")
+        self.loss_scale_drift = self.config.loss_configs.pop("loss_scale_drift")
+        self.loss_scale_init_cond = self.config.loss_configs.pop("loss_scale_init_cond")
+        self.loss_scale_unsuperv_loss = self.config.loss_configs.pop("loss_scale_unsuperv_loss")
 
     def forward(self, batch, schedulers: Optional[dict] = None, step: Optional[int] = None, training: bool = False) -> dict:
         """
@@ -1028,5 +1005,5 @@ class FIMWindowed(AModel):
         )
 
 
-ModelFactory.register("FIMODE", FIMODE)
+ModelFactory.register(FIMODEConfig.model_type, FIMODE)
 ModelFactory.register("FIMWindowed", FIMWindowed)

@@ -40,7 +40,7 @@ dataset:
 model_dim: &model_dim 64
 
 model:
-  name: FIMMJP
+  name: fimmjp
   n_states: 6
   use_adjacency_matrix: False
 
@@ -90,7 +90,7 @@ model:
 
 trainer:
   name: Trainer
-  debug_iterations: null
+  debug_iterations: 10
   precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: &epochs 2
   detect_anomaly: false
