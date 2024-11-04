@@ -26,7 +26,7 @@ from ..trainers.utils import (
     is_distributed,
 )
 from ..utils.git import latest_commit
-from ..utils.helper import GenericConfig, create_optimizers, filter_keys_by_part
+from ..utils.helper import GenericConfig, filter_keys_by_part
 from ..utils.logging import RankLoggerAdapter
 
 
@@ -165,25 +165,25 @@ class TrainCheckpoint:
             save_dir (Union[Path, str]): Directory where the model checkpoint will be saved.
         """
         # TODO: The state of the schedulers is not saved
-        file_name = save_dir / "model-checkpoint.pth"
-        self.__logger.info("Saving Model State: %s ...", file_name)
-        model_type = type(self.model).__name__
+        train_state = save_dir / "train-state-checkpoint.pth"
+        self.__logger.info("Saving Model State: %s ...", save_dir)
         if self.is_peft:
             model_state = self.model.save_pretrained(save_dir)
         else:
             model_state = self.model.state_dict()
 
+        torch.save(model_state, save_dir / "model-checkpoint.pth")
+        self.model.config.save_pretrained(save_dir)
         state = {
-            "model_type": model_type,
+            "model_type": self.model.config.model_type,
             "last_epoch": epoch,
-            "model_state": model_state,
             "params": self.train_config.to_dict(),
             "checkpointer_state": self.state_dict(),
             "training_logger": self.training_logger.state_dict(),
             "loss_trackers": {"training": self.train_loss_tracker.state_dict(), "validation": self.validation_loss_tracker.state_dict()},
             "commit": latest_commit(),
         }
-        torch.save(state, file_name)
+        torch.save(state, train_state)
 
     def _save_optimizers_state(self, epoch: int, save_dir: Union[Path, str]):
         """
@@ -299,19 +299,17 @@ class TrainCheckpoint:
 
     def _load_model_state(self, checkpoint_path: Path):
         model_checkpoint_path = checkpoint_path / "model-checkpoint.pth"
+        train_checkpoint_path = checkpoint_path / "train-state-checkpoint.pth"
         self.__logger.info("Loading Model State: %s ...", model_checkpoint_path)
-        state = torch.load(model_checkpoint_path)
-        if self.is_peft:
-            self.__logger.info("Loading PEFT model ...")
-            self.model.load_peft_pretrained_model(checkpoint_path)
-            self.optimizers = create_optimizers(self.model, self.train_config.optimizers)
-        if state["model_state"] is not None:
-            self.model.load_state_dict(state["model_state"], strict=not self.is_peft)
-        self.training_logger.load_state_dict(state["training_logger"])
-        self.train_loss_tracker.load_state_dict(state["loss_trackers"]["training"])
-        self.validation_loss_tracker.load_state_dict(state["loss_trackers"]["validation"])
-        self.load_state_dict(state["checkpointer_state"])
-        return int(state["last_epoch"]) + 1
+        model_state = torch.load(model_checkpoint_path)
+        train_checkpoint_state = torch.load(train_checkpoint_path)
+
+        self.model.load_state_dict(model_state)
+        self.training_logger.load_state_dict(train_checkpoint_state["training_logger"])
+        self.train_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["training"])
+        self.validation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["validation"])
+        self.load_state_dict(train_checkpoint_state["checkpointer_state"])
+        return int(train_checkpoint_state["last_epoch"]) + 1
 
     def _get_checkpoint_path(self, checkpoint: Union[int, Literal["best-model", "last-epoch"]]) -> Path:
         if checkpoint == "best-model":

@@ -1,12 +1,38 @@
+import copy
 from typing import Any, Dict
 
 import torch
 from torch import Tensor, nn
+from transformers import AutoConfig, AutoModel, PretrainedConfig
 
-from ..utils.helper import create_class_instance
-from .blocks import AModel, ModelFactory, RNNEncoder, TransformerEncoder
-from .blocks.positional_encodings import SineTimeEncoding
-from .utils import create_matrix_from_off_diagonal, create_padding_mask, get_off_diagonal_elements
+from fim.models.blocks import AModel, ModelFactory, RNNEncoder, TransformerEncoder
+from fim.models.utils import create_matrix_from_off_diagonal, create_padding_mask, get_off_diagonal_elements
+from fim.utils.helper import create_class_instance
+
+
+class FIMMJPConfig(PretrainedConfig):
+    model_type = "fimmjp"
+
+    def __init__(
+        self,
+        n_states: int = 2,
+        use_adjacency_matrix: bool = False,
+        ts_encoder: dict = None,
+        pos_encodings: dict = None,
+        path_attention: dict = None,
+        intensity_matrix_decoder: dict = None,
+        initial_distribution_decoder: dict = None,
+        **kwargs,
+    ):
+        self.n_states = n_states
+        self.use_adjacency_matrix = use_adjacency_matrix
+        self.ts_encoder = ts_encoder
+        self.pos_encodings = pos_encodings
+        self.path_attention = path_attention
+        self.intensity_matrix_decoder = intensity_matrix_decoder
+        self.initial_distribution_decoder = initial_distribution_decoder
+
+        super().__init__(**kwargs)
 
 
 class FIMMJP(AModel):
@@ -46,80 +72,49 @@ class FIMMJP(AModel):
             Compute the metric for the model.
     """
 
-    def __init__(
-        self,
-        n_states: int,
-        use_adjacency_matrix: bool,
-        ts_encoder: dict | TransformerEncoder,
-        pos_encodings: dict | SineTimeEncoding,
-        path_attention: dict | nn.Module,
-        intensity_matrix_decoder: dict | nn.Module,
-        initial_distribution_decoder: dict | nn.Module,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.n_states = n_states
-        self.use_adjacency_matrix = use_adjacency_matrix
-        self.ts_encoder = ts_encoder
-        total_offdiagonal_transitions = n_states**2 - n_states
+    config_class = FIMMJPConfig
 
-        self.__create_modules(
-            n_states,
-            use_adjacency_matrix,
-            ts_encoder,
-            pos_encodings,
-            path_attention,
-            intensity_matrix_decoder,
-            initial_distribution_decoder,
-            total_offdiagonal_transitions,
-        )
+    def __init__(self, config: FIMMJPConfig, **kwargs):
+        super().__init__(config, **kwargs)
+        self.n_states = config.n_states
+        self.use_adjacency_matrix = config.use_adjacency_matrix
+        self.ts_encoder = config.ts_encoder
+        self.total_offdiagonal_transitions = self.n_states**2 - self.n_states
+
+        self.__create_modules()
 
         self.gaussian_nll = nn.GaussianNLLLoss(full=True, reduction="none")
         self.init_cross_entropy = nn.CrossEntropyLoss(reduction="none")
 
-    def __create_modules(
-        self,
-        n_states,
-        use_adjacency_matrix,
-        ts_encoder,
-        pos_encodings,
-        path_attention,
-        intensity_matrix_decoder,
-        initial_distribution_decoder,
-        total_offdiagonal_transitions,
-    ):
-        self.pos_encodings = pos_encodings
-        if isinstance(pos_encodings, dict):
-            if isinstance(ts_encoder, dict) and ts_encoder["name"] == "fim.models.blocks.base.TransformerEncoder":
-                pos_encodings["out_features"] -= self.n_states
-            self.pos_encodings = create_class_instance(pos_encodings.pop("name"), pos_encodings)
+    def __create_modules(self):
+        pos_encodings = copy.deepcopy(self.config.pos_encodings)
+        ts_encoder = copy.deepcopy(self.config.ts_encoder)
+        path_attention = copy.deepcopy(self.config.path_attention)
+        intensity_matrix_decoder = copy.deepcopy(self.config.intensity_matrix_decoder)
+        initial_distribution_decoder = copy.deepcopy(self.config.initial_distribution_decoder)
 
-        self.ts_encoder = ts_encoder
-        if isinstance(ts_encoder, dict):
-            ts_encoder["in_features"] = n_states + self.pos_encodings.out_features
-            self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
+        if ts_encoder["name"] == "fim.models.blocks.base.TransformerEncoder":
+            pos_encodings["out_features"] -= self.n_states
+        self.pos_encodings = create_class_instance(pos_encodings.pop("name"), pos_encodings)
 
-        self.path_attention = path_attention
-        if isinstance(path_attention, dict):
-            self.path_attention = create_class_instance(path_attention.pop("name"), path_attention)
+        ts_encoder["in_features"] = self.n_states + self.pos_encodings.out_features
+        self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
 
-        if isinstance(intensity_matrix_decoder, dict):
-            in_features = intensity_matrix_decoder.get(
-                "in_features", self.ts_encoder.out_features + ((total_offdiagonal_transitions + 1) if use_adjacency_matrix else 1)
-            )
-            intensity_matrix_decoder["in_features"] = in_features
-            intensity_matrix_decoder["out_features"] = 2 * total_offdiagonal_transitions
-            self.intensity_matrix_decoder = create_class_instance(intensity_matrix_decoder.pop("name"), intensity_matrix_decoder)
+        self.path_attention = create_class_instance(path_attention.pop("name"), path_attention)
 
-        if isinstance(initial_distribution_decoder, dict):
-            in_features = initial_distribution_decoder.get(
-                "in_features", self.ts_encoder.out_features + ((total_offdiagonal_transitions + 1) if use_adjacency_matrix else 1)
-            )
-            initial_distribution_decoder["in_features"] = in_features
-            initial_distribution_decoder["out_features"] = n_states
-            self.initial_distribution_decoder = create_class_instance(
-                initial_distribution_decoder.pop("name"), initial_distribution_decoder
-            )
+        in_features = intensity_matrix_decoder.get(
+            "in_features", self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.use_adjacency_matrix else 1)
+        )
+        intensity_matrix_decoder["in_features"] = in_features
+        intensity_matrix_decoder["out_features"] = 2 * self.total_offdiagonal_transitions
+        self.intensity_matrix_decoder = create_class_instance(intensity_matrix_decoder.pop("name"), intensity_matrix_decoder)
+
+        in_features = initial_distribution_decoder.get(
+            "in_features", self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.use_adjacency_matrix else 1)
+        )
+        initial_distribution_decoder["in_features"] = in_features
+        initial_distribution_decoder["out_features"] = self.n_states
+        self.initial_distribution_decoder = create_class_instance(initial_distribution_decoder.pop("name"), initial_distribution_decoder)
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         """
@@ -259,4 +254,6 @@ class FIMMJP(AModel):
         return super().metric(y, y_target)
 
 
-ModelFactory.register("FIMMJP", FIMMJP)
+ModelFactory.register(FIMMJPConfig.model_type, FIMMJP)
+AutoConfig.register(FIMMJPConfig.model_type, FIMMJPConfig)
+AutoModel.register(FIMMJPConfig, FIMMJP)

@@ -48,7 +48,7 @@ model:
     name: fim.models.blocks.base.RNNEncoder
 
     rnn:
-      name: torch.nn.RNN
+      name: torch.nn.LSTM
       hidden_size: *model_dim
       batch_first: true
       bidirectional: true

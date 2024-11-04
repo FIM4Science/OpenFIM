@@ -18,6 +18,7 @@ license = { file = "LICENSE.txt" }
 requires-python = ">=3.12"
 dependencies = [
    "torch==2.5.0",
+   "transformers==4.46.0",
    "datasets",
    "peft",
    "click",
@@ -37,6 +38,7 @@ dependencies = [
    "ipywidgets",
    "pytest",
    "pytest-cov",
+   "pytest-dependency",
    "tox",
    "pre_commit",
    "nbdime",

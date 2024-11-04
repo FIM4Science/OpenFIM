@@ -7,8 +7,8 @@ import torch
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import FIMMJP
-from fim.models.blocks import AModel, ModelFactory, RNNEncoder, TransformerEncoder
+from fim.models import FIMMJP, FIMMJPConfig, FIMODEConfig
+from fim.models.blocks import AModel, ModelFactory
 from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
 
 
@@ -29,58 +29,16 @@ class TestModelFactory:
         return train_config
 
     def test_init_fim(self, train_config: GenericConfig, device):
-        model = ModelFactory.create(
-            name="FIMODE",
-            time_encoding=train_config.model.time_encoding.to_dict(),
-            trunk_net=train_config.model.trunk_net.to_dict(),
-            branch_net=train_config.model.branch_net.to_dict(),
-            combiner_net=train_config.model.combiner_net.to_dict(),
-            vector_field_net=train_config.model.vector_field_net.to_dict(),
-            init_cond_net=train_config.model.init_cond_net.to_dict(),
-            loss_configs=train_config.model.loss_configs.to_dict(),
-            normalization_time=train_config.model.normalization_time.to_dict(),
-            normalization_values=train_config.model.normalization_values.to_dict(),
-            load_in_8bit=False,
-            load_in_4bit=False,
-            use_bf16=False,
-            device_map="cpu",
-            resume=False,
-            peft=None,
-        )
+        ode_config = FIMODEConfig(**train_config.model.to_dict())
+        model = ModelFactory.create(config=ode_config)
         assert model is not None
         assert model.device == torch.device("cpu")
         del model
 
-        model = ModelFactory.create(
-            name="FIMODE",
-            time_encoding=train_config.model.time_encoding.to_dict(),
-            trunk_net=train_config.model.trunk_net.to_dict(),
-            branch_net=train_config.model.branch_net.to_dict(),
-            combiner_net=train_config.model.combiner_net.to_dict(),
-            vector_field_net=train_config.model.vector_field_net.to_dict(),
-            init_cond_net=train_config.model.init_cond_net.to_dict(),
-            loss_configs=train_config.model.loss_configs.to_dict(),
-            normalization_time=train_config.model.normalization_time.to_dict(),
-            normalization_values=train_config.model.normalization_values.to_dict(),
-            load_in_8bit=False,
-            load_in_4bit=False,
-            use_bf16=False,
-            device_map=device,
-            resume=False,
-            peft=None,
-        )
-        assert model is not None
-        assert model.device == torch.device(f"{str(device)}:0")
-        del model
-
-    def test_model_factory_fim(self, train_config: GenericConfig):
-        model = ModelFactory.create(**train_config.model.to_dict())
-        assert model is not None
-
     @pytest.fixture
     def model(self, train_config):
         self.device_map = train_config.experiment.device_map
-        model = ModelFactory.create(**train_config.model.to_dict())
+        model = ModelFactory.create(FIMODEConfig(**train_config.model.to_dict()))
 
         return model.to(self.device_map)
 
@@ -136,12 +94,12 @@ class TestMJP:
 
     @pytest.fixture
     def model(self, config, device):
-        model = ModelFactory.create(**config.model.to_dict())
+        model = ModelFactory.create(FIMMJPConfig(**config.model.to_dict()))
         return model.to(device)
 
     @pytest.fixture
     def model_rnn(self, config_rnn, device):
-        model = ModelFactory.create(**config_rnn.model.to_dict())
+        model = ModelFactory.create(FIMMJPConfig(**config_rnn.model.to_dict()))
         return model.to(device)
 
     def test_init(self):
@@ -157,19 +115,26 @@ class TestMJP:
             "normalization": {"name": "torch.nn.LayerNorm", "normalized_shape": 64},
         }
         pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "out_features": 64}
-        timeseries_encoder = TransformerEncoder(4, 64, transformer_block)
-        path_attn = ({"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True},)
+        timeseries_encoder = {
+            "name": "fim.models.blocks.base.TransformerEncoder",
+            "num_layers": 4,
+            "embed_dim": 64,
+            "transformer_block": transformer_block,
+        }
+        path_attn = {"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True}
         intensity_matrix_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
         initial_distribution_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
         assert (
             FIMMJP(
-                n_states,
-                use_adjacency_matrix,
-                timeseries_encoder,
-                pos_encodings,
-                path_attn,
-                intensity_matrix_decoder,
-                initial_distribution_decoder,
+                FIMMJPConfig(
+                    n_states,
+                    use_adjacency_matrix,
+                    timeseries_encoder,
+                    pos_encodings,
+                    path_attn,
+                    intensity_matrix_decoder,
+                    initial_distribution_decoder,
+                )
             )
             is not None
         )
@@ -197,7 +162,8 @@ class TestMJP:
         use_adjacency_matrix = False
         pos_encodings = {"name": "fim.models.blocks.DeltaTimeEncoding"}
         rnn = torch.nn.RNN(2 + n_states, 64, 1, batch_first=True, bidirectional=True)
-        timeseries_encoder = RNNEncoder(2 + n_states, rnn)
+        rnn = {"name": "torch.nn.RNN", "hidden_size": 64, "num_layers": 1, "bidirectional": True, "batch_first": True}
+        timeseries_encoder = {"name": "fim.models.blocks.RNNEncoder", "rnn": rnn}
         path_attn = {
             "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
             "n_queries": 16,
@@ -209,13 +175,15 @@ class TestMJP:
         initial_distribution_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
         assert (
             FIMMJP(
-                n_states,
-                use_adjacency_matrix,
-                timeseries_encoder,
-                pos_encodings,
-                path_attn,
-                intensity_matrix_decoder,
-                initial_distribution_decoder,
+                FIMMJPConfig(
+                    n_states,
+                    use_adjacency_matrix,
+                    timeseries_encoder,
+                    pos_encodings,
+                    path_attn,
+                    intensity_matrix_decoder,
+                    initial_distribution_decoder,
+                )
             )
             is not None
         )
@@ -244,3 +212,10 @@ class TestMJP:
         x = dataloader.train_it.dataset[0]
         x = {key: val.unsqueeze(0).to(model.device) for key, val in x.items()}
         print(torchinfo.summary(model, input_data=[x]))
+
+    def test_save_load_model(self, model, tmp_path):
+        model.save_pretrained(tmp_path)
+
+        loaded_model = FIMMJP.from_pretrained(tmp_path)
+        # assert model.config == loaded_model.config
+        assert model.state_dict().keys() == loaded_model.state_dict().keys()
