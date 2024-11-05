@@ -7,7 +7,7 @@ from typing import Any, Dict
 import torch
 import torch.nn as nn
 import torchinfo
-from transformers import PretrainedConfig, PreTrainedModel
+from transformers import AutoConfig, PretrainedConfig, PreTrainedModel
 
 from ...trainers.utils import is_distributed
 from ...utils.logging import RankLoggerAdapter
@@ -87,7 +87,9 @@ class ModelFactory:
         cls.model_types[model_type] = model_class
 
     @classmethod
-    def create(cls, config: PretrainedConfig) -> AModel:
+    def create(cls, config: dict | PretrainedConfig) -> AModel:
+        if isinstance(config, dict):
+            config = PretrainedConfig.from_dict(config)
         model_class = cls.model_types.get(config.model_type)
         if model_class:
             return model_class(config)
