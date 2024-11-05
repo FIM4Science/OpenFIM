@@ -58,9 +58,10 @@ class TestLossTracker:
         assert epoch_losses["loss2"] == 1.2
 
 
-def test_trainer_fimode():
+def test_trainer_fimode(tmp_path):
     TRAIN_CONF = test_data_path / "config" / "fim_ode_mini_test.yaml"
     config = load_yaml(TRAIN_CONF, True)
+    config.trainer.experiment_dir = tmp_path
 
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
     model = ModelFactory.create(FIMODEConfig(**config.model.to_dict()))

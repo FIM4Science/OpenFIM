@@ -33,7 +33,11 @@
 
 # mjp.push_to_hub("FIMMJP")
 
-from transformers import AutoModel
+# from transformers import AutoModel
 
-mjp_trans = AutoModel.from_pretrained("cvejoski/FIMMJP", trust_remote_code=True)
-print(mjp_trans)
+# from fim.models import FIMMJP
+
+
+# mjp_trans = AutoModel.from_pretrained("cvejoski/FIMMJP", trust_remote_code=True)
+# mjp = FIMMJP.from_pretrained("cvejoski/FIMMJP", trust_remote_code=True)
+# print(mjp_trans)
