@@ -77,11 +77,7 @@ def train_distributed(config: List[GenericConfig], resume: Path):
 
         dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
 
-        model = ModelFactory.create(
-            **config.model.to_dict(),
-            device_map=device_map,
-            resume=resume,
-        )
+        model = ModelFactory.create(config.model.to_dict())
         trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
         trainer.train()
     # dist.barrier()
@@ -96,17 +92,12 @@ def train_single(config: List[GenericConfig], resume: Path):
     np.random.seed(int(config.experiment.seed))
     torch.cuda.empty_cache()
 
-    device_map = config.experiment.device_map
+    # device_map = config.experiment.device_map
 
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-    model = ModelFactory.create(**config.model.to_dict(), device_map=device_map)
-    trainer = TrainerFactory.create(
-        config.trainer.name,
-        model=model,
-        dataloader=dataloader,
-        config=config,
-        resume=resume,
-    )
+
+    model = ModelFactory.create(config.model.to_dict())
+    trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
     trainer.train()
 
 
