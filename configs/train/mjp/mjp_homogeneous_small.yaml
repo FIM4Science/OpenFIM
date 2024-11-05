@@ -57,7 +57,7 @@ dataset:
 model_dim: &model_dim 128
 
 model:
-  name: FIMMJP
+  model_type: fimmjp
   n_states: 6
   use_adjacency_matrix: false
 
