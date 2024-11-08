@@ -41,7 +41,7 @@ dataset:
 
   loader_kwargs:
     batch_size: 128
-    num_workers: 8
+    num_workers: 16
     test_batch_size: 128
     pin_memory: true
     max_path_count: 300
@@ -106,7 +106,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 1000
+  epochs: &epochs 3000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
@@ -127,9 +127,9 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.0001
+      lr: 0.00001
       weight_decay: 0.0001
-      # # gradient_norm_clipping: 10
+      # gradient_norm_clipping: 10
       # schedulers: !!python/tuple
       #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
       #     T_max: *epochs
