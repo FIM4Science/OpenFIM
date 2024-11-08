@@ -184,8 +184,12 @@ class RNNEncoder(Block):
 
     def get_init_carry(self, batch_size: int):
         return (
-            torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1), batch_size, self.rnn.hidden_size).to(self.device),
-            torch.ones(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1), batch_size, self.rnn.hidden_size).to(self.device),
+            torch.zeros(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1), batch_size, self.rnn.hidden_size)
+            .to(self.device)
+            .contiguous(),
+            torch.ones(self.rnn.num_layers * (2 if self.rnn.bidirectional else 1), batch_size, self.rnn.hidden_size)
+            .to(self.device)
+            .contiguous(),
         )
 
     @property

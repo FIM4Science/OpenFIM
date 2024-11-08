@@ -26,7 +26,7 @@ from ..trainers.utils import (
     is_distributed,
 )
 from ..utils.git import latest_commit
-from ..utils.helper import GenericConfig, filter_keys_by_part
+from ..utils.helper import GenericConfig
 from ..utils.logging import RankLoggerAdapter
 
 
@@ -374,30 +374,17 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
         """
 
         with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, fullstate_save_policy):
-            if self.is_peft:
-                self.__logger.info("Getting PEFT Model State dict to rank 0 ...")
-                model_state = self.model.get_peft_state_dict()
-                if self.train_config.model.name == "HSN":
-                    model_state_rest = self.model.state_dict()
-                    if self.model.has_common_backbone:
-                        model_state_rest = filter_keys_by_part(model_state_rest, "backbone")
-                    else:
-                        model_state_rest = filter_keys_by_part(model_state_rest, "encoder.backbone")
-                        model_state_rest = filter_keys_by_part(model_state_rest, "decoder.backbone")
-                    model_state["rest"] = model_state_rest
-            else:
-                self.__logger.info("Getting Model State dict to rank 0 ...")
-                model_state = self.model.state_dict()
+            self.__logger.info("Getting Model State dict to rank 0 ...")
+            model_state = self.model.state_dict()
             self.__logger.info("Model State dict transferd to rank 0")
 
         if self.rank == 0:
-            file_name = save_dir / "model-checkpoint.pth"
-            self.__logger.info("Saving Model State: %s ...", file_name)
+            train_state_path = save_dir / "train-state-checkpoint.pth"
+            self.__logger.info("Saving Model State: %s ...", save_dir)
             model_type = type(self.model).__name__
             state = {
                 "model_type": model_type,
                 "last_epoch": epoch,
-                "model_state": model_state.get("rest", None) if self.is_peft else model_state,
                 "params": self.train_config.to_dict(),
                 "checkpointer_state": self.state_dict(),
                 "training_logger": self.training_logger.state_dict(),
@@ -407,24 +394,9 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
                 },
                 "commit": latest_commit(),
             }
-            torch.save(state, file_name)
-            self.__logger.info("Done Saving Model State: %s ...", file_name)
-            if self.is_peft:
-                if self.train_config.model.name == "LLMCausal":
-                    torch.save(model_state["backbone"], save_dir / "adapter_model.bin")
-                    self.model.peft_config.save_pretrained(save_dir)
-                    self.__logger.info("Done Saving PEFT ...")
-                elif self.train_config.model.name == "HSN":
-                    for block in ["encoder", "decoder"]:
-                        if block in model_state:
-                            if self.model.has_common_backbone:
-                                self.model.backbone.peft_config[block].save_pretrained(save_dir / block)
-                            else:
-                                getattr(self.model, block).backbone.peft_config[block].save_pretrained(save_dir / block)
-                            torch.save(model_state[block], save_dir / block / "adapter_model.bin")
-                    self.__logger.info("Done Saving PEFT ...")
-                else:
-                    raise ValueError(f"PEFT saving for the model {self.train_config.model.name} is undefined!")
+            torch.save(model_state, save_dir / "model-checkpoint.pth")
+            torch.save(state, train_state_path)
+            self.__logger.info("Done Saving Model State: %s ...", save_dir)
 
     def _save_optimizers_state(self, epoch: int, save_dir: Path | str):
         """
@@ -468,20 +440,18 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
         checkpointer_state = None
         if self.rank == 0:
             model_checkpoint_path = checkpoint_path / "model-checkpoint.pth"
+            train_checkpoint_path = checkpoint_path / "train-state-checkpoint.pth"
             self.__logger.info("Loading Model State: %s ...", model_checkpoint_path)
-            state = torch.load(model_checkpoint_path)
-            if self.is_peft:
-                if state["model_state"] is not None:
-                    self.model.load_state_dict(state["model_state"], strict=not self.is_peft)
-                self.model.load_peft_pretrained_model(checkpoint_path)
-            else:
-                self.model.load_state_dict(state["model_state"])
+            model_state = torch.load(model_checkpoint_path)
+            train_checkpoint_state = torch.load(train_checkpoint_path)
 
-            self.training_logger.load_state_dict(state["training_logger"])
-            self.train_loss_tracker.load_state_dict(state["loss_trackers"]["training"])
-            self.validation_loss_tracker.load_state_dict(state["loss_trackers"]["validation"])
-            last_epoch = int(state["last_epoch"])
-            checkpointer_state = state["checkpointer_state"]
+            self.model.load_state_dict(model_state)
+
+            self.training_logger.load_state_dict(train_checkpoint_state["training_logger"])
+            self.train_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["training"])
+            self.validation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["validation"])
+            last_epoch = int(train_checkpoint_state["last_epoch"])
+            checkpointer_state = train_checkpoint_state["checkpointer_state"]
         dist.barrier()
         last_epoch = broadcast_state_dict(last_epoch, "last_epoch")
         checkpointer_state = broadcast_state_dict(checkpointer_state, "checkpointer_state", True)
