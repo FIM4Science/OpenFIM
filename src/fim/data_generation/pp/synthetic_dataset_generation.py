@@ -1,0 +1,84 @@
+import numpy as np
+from tqdm import tqdm
+
+from fim.leftovers_from_old_library import create_class_instance
+from fim.data_generation.pp.hawkes_simulation import run_hawkes_simulation
+
+class HawkesDatasetGenerator():
+    def __init__(self, **kwargs) -> None:
+        self.num_samples_train = kwargs["num_samples_train"]
+        self.num_samples_test = kwargs["num_samples_test"]
+        self.num_paths = kwargs["num_paths"]
+        self.n_events_per_path = kwargs["n_events_per_path"]
+        self.kernel_sampler = create_class_instance(kwargs["kernel_sampler"])
+    
+    def assemble(self):
+        num_samples = self.num_samples_train + self.num_samples_test
+        event_time_data = np.zeros((num_samples, self.num_paths, self.n_events_per_path))
+        event_type_data = np.zeros((num_samples, self.num_paths, self.n_events_per_path))
+        for i in tqdm(range(num_samples)):
+            baselines, kernel_grids, kernel_evaluations = self.kernel_sampler()
+            event_time_data[i], event_type_data[i] = run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, self.num_paths, self.n_events_per_path)
+        
+        import pdb
+        pdb.set_trace()
+            
+    
+    
+class HawkesKernelSampler():
+    def __init__(self, **kwargs) -> None:
+        self.num_marks = kwargs["num_marks"]
+        self.kernel_grid_size = kwargs["kernel_grid_size"]
+        self.baseline_sampler = create_class_instance(kwargs["baseline_sampler"])
+        self.kernel_function_samplers = [create_class_instance(kernel_function_sampler) for kernel_function_sampler in kwargs["kernel_function_samplers"].values()]
+        
+    def  __call__(self):
+        """
+        Sample the parameters for the Hawkes kernel.
+        
+        Returns:
+        kernel_grids: np.array
+            The time grids on which the kernels get evaluated.
+        kernel_evaluations: np.array
+            The (diagonal) kernel evaluations.
+        """
+        kernel_grids = []
+        kernel_evaluations = []
+        baselines = []
+        for _ in range(self.num_marks):
+            # Randomly sample one of the kernel function samplers
+            kernel_function_sampler = np.random.choice(self.kernel_function_samplers)
+            grid, values = kernel_function_sampler(self.kernel_grid_size)
+            kernel_grids.append(grid)
+            kernel_evaluations.append(values)
+            baselines.append(self.baseline_sampler())
+        return baselines, np.array(kernel_grids), np.array(kernel_evaluations)
+        
+
+class HawkesExpKernelFunctionSampler():
+    """
+    Sample parameters for functions of the form a_0 * exp(-a_1 * t).
+    """
+    
+    def __init__(self, **kwargs) -> None:
+        self.a_0_sampler = create_class_instance(kwargs["a_0_sampler"])
+        self.a_1_sampler = create_class_instance(kwargs["a_1_sampler"])
+        
+    def __call__(self, grid_size, eps: float = 1e-2):
+        """
+        Evaluate the function on a grid of size grid_size.
+        We choose the maximum time so that the function is less than eps after that time.
+        
+        Returns:
+        t_grid: np.array
+            The grid of time points.
+        function_values: np.array
+            The values of the function at the time points.
+        """
+        a_0 = self.a_0_sampler()
+        a_1 = self.a_1_sampler()
+        max_time = -np.log(eps/a_0) / a_1
+        t_grid = np.linspace(0, max_time, grid_size)
+        return t_grid, a_0 * np.exp(-a_1 * t_grid)
+
+        

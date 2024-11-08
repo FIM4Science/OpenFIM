@@ -1,0 +1,28 @@
+dataset_path: "5k_hom_mjp_5_st_10s_10%_noise_reg_300-samples-per-intensity_with_initial_distribution"
+
+hawkes_generator:
+  class_path: fim.data_generation.pp.synthetic_dataset_generation.HawkesDatasetGenerator
+  num_samples_train: 10
+  num_samples_test: 10
+  num_paths: 500
+  n_events_per_path: 300
+  kernel_sampler:
+    class_path: fim.data_generation.pp.synthetic_dataset_generation.HawkesKernelSampler
+    num_marks: 2
+    kernel_grid_size: 100
+    baseline_sampler:
+      class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      low: 0.1
+      high: 1
+    kernel_function_samplers:
+      exponential1:
+        class_path: fim.data_generation.pp.synthetic_dataset_generation.HawkesExpKernelFunctionSampler
+        a_0_sampler:
+          class_path: fim.data_generation.pp.sampling_distributions.Uniform
+          low: 0.1
+          high: 1
+        a_1_sampler:
+          class_path: fim.data_generation.pp.sampling_distributions.Uniform
+          low: 0.1
+          high: 1
+
