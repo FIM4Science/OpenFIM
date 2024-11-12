@@ -3,10 +3,11 @@ dataset_name: &dataset_name "hawkes_test"
 
 data_generator:
   class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesDatasetGenerator
-  num_samples_train: &num_samples_train 10
+  num_samples_train: &num_samples_train 100
   num_samples_test: &num_samples_test 10
   num_paths: 500
   n_events_per_path: 300
+  num_procs: 16
   kernel_sampler:
     class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesKernelSampler
     num_marks: 1
