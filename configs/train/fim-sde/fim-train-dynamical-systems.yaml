@@ -48,15 +48,12 @@ model:
   dropout_rate: &dropout_rate 0.1
 
   #loss
-  diffusion_loss_scale: 1.0
-  loss_threshold: 100.0
   loss_type: "rmse" #var, rmse
   loss_threshold: &loss_threshold 100.0
-
   clip_grad: true
   clip_max_norm: 10.
   diffusion_loss_scale: &diffusion_loss_scale 1.0
-  train_with_normalized_head:  true
+  train_with_normalized_head: true
 
   # INFERENCE/PIPELINE ------------------------------------------------------------
   dt_pipeline: 0.01
@@ -68,7 +65,7 @@ dataset:
   name: FIMSDEDataloader
   type: theory # synthetic, theory
   dataset_description: &dataset_description dynamical_systems
-  dynamical_systems_hyperparameters_file: configs\train\fim-sde\sde-systems-hyperparameters.yaml
+  dynamical_systems_hyperparameters_file: \configs\train\fim-sde\sde-systems-hyperparameters.yaml
 
   total_minibatch_size: &total_minibatch_size 2
   total_minibatch_size_test: &total_minibatch_size_test 2

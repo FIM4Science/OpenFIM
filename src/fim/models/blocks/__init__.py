@@ -15,6 +15,7 @@ from .base import MLP, IdentityBlock, MultiHeadLearnableQueryAttention, RNNEncod
 from .normalization import MinMaxNormalization
 from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
 
+
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 __all__ = [
     MLP,
@@ -95,15 +96,3 @@ class ModelFactory:
             return model_class(config)
         else:
             raise ValueError(f"Invalid model type: {config.model_type}")
-
-    @classmethod
-    def create_deprecated(cls, config: dict, device_map: str = "cpu", resume: bool = False) -> AModel:
-        config_model = config["model"]
-        name = config_model.pop("name")
-        config_data = config["dataset"]
-        if name in cls.model_types.keys():
-            model_class = cls.model_types.get(name)
-            return model_class(**config_model, device_map=device_map, resume=resume)
-        elif name in cls.model_types_with_data_params.keys():
-            model_class = cls.model_types_with_data_params.get(name)
-            return model_class(model_config=config_model, data_config=config_data, device_map=device_map, resume=resume)
