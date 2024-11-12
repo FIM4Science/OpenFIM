@@ -13,14 +13,16 @@
 # limitations under the License.
 """Collection of datasets for the MJP."""
 
+import pathlib
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Optional
 
 import datasets
 import torch
 
 from fim.data.utils import load_file
-from fim.typing import Paths
+from fim.typing import Path, Paths
 
 
 # TODO: Add BibTeX citation
@@ -54,14 +56,14 @@ _LICENSE = ""
 #     "second_domain": "https://huggingface.co/great-new-dataset-second_domain.zip",
 # }
 
-_ROOT_URL = "data"
+_ROOT_URL = "data/DFR"
 
 
 @dataclass
 class MJPDatasetsBuilderConfig(datasets.BuilderConfig):
     """MJPDatasets builder config.."""
 
-    file_name: str
+    file_name: Optional[str] = None
 
 
 # TODO: Name of the dataset usually matches the script name with CamelCase instead of snake_case
@@ -106,48 +108,30 @@ class MJP(datasets.GeneratorBasedBuilder):
             version=VERSION,
             description="This part of my dataset covers a first domain",
         ),
-        MJPDatasetsBuilderConfig(
-            name="DFR_V=4",
-            file_name="6_st_DFR_V=4.zip",
-            version=VERSION,
-            description="This part of my dataset covers a first domain",
-        ),
-        MJPDatasetsBuilderConfig(
-            name="DFR_V=5",
-            file_name="6_st_DFR_V=5.zip",
-            version=VERSION,
-            description="This part of my dataset covers a first domain",
-        ),
-        MJPDatasetsBuilderConfig(
-            name="DFR_V=6",
-            file_name="6_st_DFR_V=6.zip",
-            version=VERSION,
-            description="This part of my dataset covers a first domain",
-        ),
     ]
 
     DEFAULT_CONFIG_NAME = "DFR_V=0"
 
     files_to_load = {
-        "observation_times": "fine_grid_grid.pickle",
-        "observation_values": "fine_grid_noisy_sample_paths.pickle",
-        "time_normalization_factors": "fine_grid_time_normalization_factors.pickle",
-        "sequence_lengths": "fine_grid_mask_seq_lengths.pickle",
-        "ground_truth_intensity_matrices": "fine_grid_intensity_matrices.pickle",
-        "adjacency_matrices": "fine_grid_adjacency_matrices.pickle",
-        "ground_truth_initial_distributions": "fine_grid_initial_distributions.pickle",
+        "observation_times": "fine_grid_grid.pt",
+        "observation_values": "fine_grid_noisy_sample_paths.pt",
+        "time_normalization_factors": "fine_grid_time_normalization_factors.pt",
+        "sequence_lengths": "fine_grid_mask_seq_lengths.pt",
+        "ground_truth_intensity_matrices": "fine_grid_intensity_matrices.pt",
+        "adjacency_matrices": "fine_grid_adjacency_matrices.pt",
+        "ground_truth_initial_distributions": "fine_grid_initial_distributions.pt",
     }
 
     def _info(self):
         features = datasets.Features(
             {
-                "observation_times": datasets.Sequence(datasets.Value("float32")),
-                "observation_values": datasets.Sequence(datasets.Value("uint64")),
+                "observation_times": datasets.Sequence(datasets.Sequence(datasets.Sequence(datasets.Value("float32")))),
+                "observation_values": datasets.Sequence(datasets.Sequence(datasets.Sequence(datasets.Value("uint32")))),
                 "time_normalization_factors": datasets.Value("float32"),
-                "sequence_lengths": datasets.Value("float32"),
-                "ground_truth_intensity_matrices": datasets.Value("float32"),
-                "adjacency_matrices": datasets.Value("float32"),
-                "ground_truth_initial_distributions": datasets.Value("uint64"),
+                "sequence_lengths": datasets.Sequence(datasets.Sequence(datasets.Value("int32"))),
+                "ground_truth_intensity_matrices": datasets.Sequence(datasets.Sequence(datasets.Value("float32"))),
+                "adjacency_matrices": datasets.Sequence(datasets.Sequence(datasets.Value("float32"))),
+                "ground_truth_initial_distributions": datasets.Sequence(datasets.Value("uint64")),
             }
         )
 
@@ -165,46 +149,27 @@ class MJP(datasets.GeneratorBasedBuilder):
         # By default the archives will be extracted and a path to a cached folder where they are extracted is returned instead of the archive
         urls = f"{_ROOT_URL}/{self.config.file_name}"
         data_dir = dl_manager.download_and_extract(urls)
+
         return [
             datasets.SplitGenerator(
-                name=datasets.Split.ALL,
+                name=datasets.Split.TRAIN,
                 # These kwargs will be passed to _generate_examples
-                gen_kwargs={"datadir": data_dir},
+                gen_kwargs={"datadir": pathlib.Path(data_dir) / self.config.file_name.split(".")[0]},
             )
         ]
 
-    def __get_files(self, path) -> Paths:
-        files_to_load = [(key, path / file_name) for key, file_name in self.files_to_load.items()]
+    def __get_files(self, path: Path) -> Paths:
+        files_to_load = [(key, pathlib.Path(path) / file_name) for key, file_name in self.files_to_load.items()]
         return files_to_load
 
     # method parameters are unpacked from `gen_kwargs` as given in `_split_generators`
     def _generate_examples(self, datadir):
         data = defaultdict(list)
         files_to_load = self.__get_files(datadir)
-        for file_name, file_path in files_to_load:
-            data[file_name].append(load_file(file_path))
-        for id, (k, v) in enumerate(data.items()):
-            yield id, {k: torch.cat(v) for k, v in data.items()}
-
-        # with open(filepath, encoding="utf-8") as f:
-        #     for key, row in enumerate(f):
-        #         data = json.loads(row)
-        #         if self.config.name == "first_domain":
-        #             # Yields examples as (key, example) tuples
-        #             yield (
-        #                 key,
-        #                 {
-        #                     "sentence": data["sentence"],
-        #                     "option1": data["option1"],
-        #                     "answer": "" if split == "test" else data["answer"],
-        #                 },
-        #             )
-        #         else:
-        #             yield (
-        #                 key,
-        #                 {
-        #                     "sentence": data["sentence"],
-        #                     "option2": data["option2"],
-        #                     "second_domain_answer": "" if split == "test" else data["second_domain_answer"],
-        #                 },
-        #             )
+        for key, file_path in files_to_load:
+            data[key].append(load_file(file_path))
+        for k, v in data.items():
+            data[k] = torch.cat(v)
+            print(k, data[k].shape)
+        for id in range(len(data["observation_times"])):
+            yield id, {k: v[id].tolist() for k, v in data.items() if k in self.info.features}
