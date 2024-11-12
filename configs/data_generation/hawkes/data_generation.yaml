@@ -1,10 +1,10 @@
 process_type: &process_type "hawkes" # hawkes, mjp, etc.
 dataset_name: &dataset_name "hawkes_test"
 
-hawkes_generator:
+data_generator:
   class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesDatasetGenerator
-  num_samples_train: 10
-  num_samples_test: 10
+  num_samples_train: &num_samples_train 10
+  num_samples_test: &num_samples_test 10
   num_paths: 500
   n_events_per_path: 300
   kernel_sampler:
@@ -64,3 +64,11 @@ hawkes_generator:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
       #     low: 0.1
       #     high: 1
+
+data_saver:
+  class_path: fim.data_generation.data_saver.DataSaver
+  process_type: *process_type
+  dataset_name: *dataset_name
+  num_samples_train: *num_samples_train
+  num_samples_test: *num_samples_test
+  storage_format: "torch" # torch, h5

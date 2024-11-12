@@ -28,10 +28,12 @@ def generate_data(cfg_path: Path) -> None:
     # save original config yaml
     save_in_yaml(cfg_copy, dataset_path, "config")
 
-    # assemble datasets (assembler is of type Assembler)
-    for dataset_label, assembler in cfg.items():
-        assembler.update({"dataset_path": dataset_path})
-        create_class_instance(assembler).assemble()
+    data_generator = create_class_instance(cfg["data_generator"])
+    data = data_generator.assemble()
+    
+    # save data
+    data_saver = create_class_instance(cfg["data_saver"])
+    data_saver(data)
 
 
 if __name__ == "__main__":

@@ -37,10 +37,14 @@ class HawkesDatasetGenerator():
         event_time_data = event_time_data[valid_samples]
         event_type_data = event_type_data[valid_samples]
         
-        
-        import pdb
-        pdb.set_trace()
-            
+        res = {
+            "baseline_data": baseline_data,
+            "kernel_grid_data": kernel_grid_data,
+            "kernel_evaluation_data": kernel_evaluation_data,
+            "event_time_data": event_time_data,
+            "event_type_data": event_type_data
+        }
+        return res
     
     
 class HawkesKernelSampler():
