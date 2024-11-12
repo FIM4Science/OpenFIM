@@ -20,9 +20,13 @@ import yaml
 from scipy import linalg as la
 from torch.optim.lr_scheduler import LRScheduler
 
-
 T = TypeVar("T", str, bytes)
 
+def nametuple_to_device(named_tuple, device):
+    return named_tuple._replace(**{
+        key: (value.to(device) if isinstance(value, torch.Tensor) else value)
+        for key, value in named_tuple._asdict().items()
+    })
 
 @dataclass
 class GenericConfig:

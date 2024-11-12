@@ -1,0 +1,90 @@
+seed: 0
+
+experiment:
+  name: lr_1e5_linear_spatial_embed_4x8x256_transformer
+  name_add_date: False # if true, the current date & time will be added to the experiment name
+  seed: 10
+  device_map: cuda # auto, cuda, cpu
+
+model:
+  name: FIMSDE
+  ###################################################################################
+  # To change
+  # phi_0^t
+  temporal_embedding_size: &temporal_embedding_size 21
+
+  # phi_0^s
+  spatial_embedding_size: &spatial_embedding_size 19
+  spatial_embedding_hidden_layers: &spatial_embedding_hidden_layers [50] #  if null, this will just be dense layer
+
+  # psi_1
+  sequence_encoding_tokenizer: &sequence_encoding_tokenizer 10
+  sequence_encoding_transformer_hidden_size: &sequence_encoding_transformer_hidden_size 28 
+  sequence_encoding_transformer_heads: &sequence_encoding_transformer_heads 1
+  sequence_encoding_transformer_layers: &sequence_encoding_transformer_layers 1
+
+  # Omega_1
+  combining_transformer_hidden_size: &combining_transformer_hidden_size 28 
+  combining_transformer_heads: &combining_transformer_heads 2
+  combining_transformer_layers: &combining_transformer_layers 1
+
+  # phi_1
+  trunk_net_size: &trunk_net_size 28 
+  trunk_net_hidden_layers: &trunk_net_hidden_layers [25]
+
+  # optimizer + regularising
+  add_delta_x_to_value_encoder: &add_delta_x_to_value_encoder true
+  learning_rate: &learning_rate 1.0e-5
+  weight_decay: &weight_decay 1.0e-4
+  dropout_rate: &dropout_rate 0.1
+
+  #loss 
+  diffusion_loss_scale: 1.0
+  loss_threshold: 100.0
+  loss_type: "rmse" #var, rmse
+  loss_threshold: &loss_threshold 100.0
+
+  clip_grad: true
+  clip_max_norm: 10.
+  diffusion_loss_scale: &diffusion_loss_scale 1.0
+  train_with_normalized_head:  true
+
+dataset:
+  # data loading
+  name: FIMSDEDataloader
+  dataset_description: &dataset_description SDE_linear_SNR_01_05_1_5_DELTA_3D
+
+  total_minibatch_size: &total_minibatch_size 2
+  total_minibatch_size_test: &total_minibatch_size_test 2
+  
+  max_dimension: 0
+  max_time_steps: 0
+  max_location_size: 0
+  max_num_paths: &max_num_of_paths 0
+  
+  data_loading_processes_count: &data_loading_processes_count 0
+
+  data_in_files: &data_in_files
+    obs_times: "obs_times.h5"
+    obs_values: "obs_values.h5"
+    locations: "hypercube_locations.h5"
+    drift_at_locations: "drift_functions_at_hypercube.h5"
+    diffusion_at_locations: "scaled_diffusion_functions_at_hypercube.h5"
+
+  dataset_path_collections: &dataset_path_collections
+    train:
+      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-1\1
+      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-2\1
+      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-3\1
+    test:
+      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-2\1
+    validation:
+      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-2\1
+      
+  tensorboard_figure_data: &tensorboard_figure_data "test" # "test" or "train"
+  plot_paths_count: &plot_paths_count 100
+
+  loader_kwargs:
+    num_workers: 2
+
+  
