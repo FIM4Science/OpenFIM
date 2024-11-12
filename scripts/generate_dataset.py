@@ -20,9 +20,10 @@ def generate_data(cfg_path: Path) -> None:
     cfg_copy: dict = deepcopy(cfg)
 
     # prepare dataset path
-    dataset_path: Path = Path("data/training_data/pp/" + cfg["dataset_path"])
+    dataset_path: Path = Path("data/synthetic_data/" + cfg["process_type"] + "/" + cfg["dataset_name"])
     # Drop dataset_path from cfg
-    cfg.pop("dataset_path")
+    cfg.pop("dataset_name")
+    cfg.pop("process_type")
 
     # save original config yaml
     save_in_yaml(cfg_copy, dataset_path, "config")

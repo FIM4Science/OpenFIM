@@ -2,7 +2,7 @@ import numpy as np
 from tqdm import tqdm
 
 from fim.leftovers_from_old_library import create_class_instance
-from fim.data_generation.pp.hawkes_simulation import run_hawkes_simulation
+from fim.data_generation.hawkes.hawkes_simulation import run_hawkes_simulation
 
 class HawkesDatasetGenerator():
     def __init__(self, **kwargs) -> None:
