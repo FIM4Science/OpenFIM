@@ -15,8 +15,8 @@ hawkes_generator:
       low: 0.1
       high: 1
     kernel_function_samplers:
-      exponential1:
-        class_path: fim.data_generation.pp.synthetic_dataset_generation.HawkesExpKernelFunctionSampler
+      exponential:
+        class_path: fim.data_generation.pp.kernel_functions.HawkesExpKernelFunctionSampler
         a_0_sampler:
           class_path: fim.data_generation.pp.sampling_distributions.Uniform
           low: 0.1
@@ -25,4 +25,41 @@ hawkes_generator:
           class_path: fim.data_generation.pp.sampling_distributions.Uniform
           low: 0.1
           high: 1
-
+      # exponential_shifted:
+      #   class_path: fim.data_generation.pp.kernel_functions.HawkesExpShiftedKernelFunctionSampler
+      #   a_0_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      #   a_1_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      #   a_2_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      # exponential_squared:
+      #   class_path: fim.data_generation.pp.kernel_functions.HawkesExpSquaredKernelFunctionSampler
+      #   a_0_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      #   a_1_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      # exponential_sin:
+      #   class_path: fim.data_generation.pp.kernel_functions.HawkesExpSinKernelFunctionSampler
+      #   a_0_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      #   a_1_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      #   a_2_sampler:
+      #     class_path: fim.data_generation.pp.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1

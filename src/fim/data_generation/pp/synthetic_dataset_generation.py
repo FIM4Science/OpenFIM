@@ -71,32 +71,5 @@ class HawkesKernelSampler():
             kernel_evaluations.append(values)
             baselines.append(self.baseline_sampler())
         return baselines, np.array(kernel_grids), np.array(kernel_evaluations)
-        
-
-class HawkesExpKernelFunctionSampler():
-    """
-    Sample parameters for functions of the form a_0 * exp(-a_1 * t).
-    """
-    
-    def __init__(self, **kwargs) -> None:
-        self.a_0_sampler = create_class_instance(kwargs["a_0_sampler"])
-        self.a_1_sampler = create_class_instance(kwargs["a_1_sampler"])
-        
-    def __call__(self, grid_size, eps: float = 1e-2):
-        """
-        Evaluate the function on a grid of size grid_size.
-        We choose the maximum time so that the function is less than eps after that time.
-        
-        Returns:
-        t_grid: np.array
-            The grid of time points.
-        function_values: np.array
-            The values of the function at the time points.
-        """
-        a_0 = self.a_0_sampler()
-        a_1 = self.a_1_sampler()
-        max_time = -np.log(eps/a_0) / a_1
-        t_grid = np.linspace(0, max_time, grid_size)
-        return t_grid, a_0 * np.exp(-a_1 * t_grid)
 
         
