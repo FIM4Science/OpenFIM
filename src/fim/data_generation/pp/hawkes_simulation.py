@@ -31,10 +31,13 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
         
     event_times = np.zeros((num_paths, n_events_per_path))
     event_types = np.zeros((num_paths, n_events_per_path))
-    for i in range(num_paths):
-        hawkes.reset()
-        hawkes.simulate()
-        event_times[i], event_types[i] = tick_timestamps_to_single_timeseries(hawkes.timestamps)
+    try:
+        for i in range(num_paths):
+            hawkes.reset()
+            hawkes.simulate()
+            event_times[i], event_types[i] = tick_timestamps_to_single_timeseries(hawkes.timestamps)
+    except: # If the simulation fails, return zeros
+        return np.zeros((num_paths, n_events_per_path)), np.zeros((num_paths, n_events_per_path))
     
     return event_times, event_types
         

@@ -8,7 +8,7 @@ hawkes_generator:
   n_events_per_path: 300
   kernel_sampler:
     class_path: fim.data_generation.pp.synthetic_dataset_generation.HawkesKernelSampler
-    num_marks: 2
+    num_marks: 1
     kernel_grid_size: 100
     baseline_sampler:
       class_path: fim.data_generation.pp.sampling_distributions.Uniform

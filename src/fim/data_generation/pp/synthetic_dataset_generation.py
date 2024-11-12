@@ -12,13 +12,31 @@ class HawkesDatasetGenerator():
         self.n_events_per_path = kwargs["n_events_per_path"]
         self.kernel_sampler = create_class_instance(kwargs["kernel_sampler"])
     
-    def assemble(self):
+    def assemble(self, dtype=np.float32):
         num_samples = self.num_samples_train + self.num_samples_test
-        event_time_data = np.zeros((num_samples, self.num_paths, self.n_events_per_path))
-        event_type_data = np.zeros((num_samples, self.num_paths, self.n_events_per_path))
+        num_marks = self.kernel_sampler.num_marks
+        kernel_grid_size = self.kernel_sampler.kernel_grid_size
+        baseline_data = np.zeros((num_samples, num_marks), dtype=dtype)
+        kernel_grid_data = np.zeros((num_samples, num_marks, kernel_grid_size), dtype=dtype)
+        kernel_evaluation_data = np.zeros((num_samples, num_marks, kernel_grid_size), dtype=dtype)
+        event_time_data = np.zeros((num_samples, self.num_paths, self.n_events_per_path), dtype=dtype)
+        event_type_data = np.zeros((num_samples, self.num_paths, self.n_events_per_path), dtype=dtype)
         for i in tqdm(range(num_samples)):
             baselines, kernel_grids, kernel_evaluations = self.kernel_sampler()
+            baseline_data[i], kernel_grid_data[i], kernel_evaluation_data[i] = baselines, kernel_grids, kernel_evaluations
             event_time_data[i], event_type_data[i] = run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, self.num_paths, self.n_events_per_path)
+        
+        # Detect invalid samples, that is, samples with no events
+        valid_samples = np.sum(event_time_data, axis=(1,2)) != 0
+        print("Ratio of invalid samples: ", (num_samples-np.sum(valid_samples))/num_samples)
+        
+        # Remove invalid samples
+        baseline_data = baseline_data[valid_samples]
+        kernel_grid_data = kernel_grid_data[valid_samples]
+        kernel_evaluation_data = kernel_evaluation_data[valid_samples]
+        event_time_data = event_time_data[valid_samples]
+        event_type_data = event_type_data[valid_samples]
+        
         
         import pdb
         pdb.set_trace()

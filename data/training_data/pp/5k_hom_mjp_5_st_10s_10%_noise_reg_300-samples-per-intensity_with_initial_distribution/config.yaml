@@ -19,7 +19,7 @@ hawkes_generator:
           low: 0.1
         class_path: fim.data_generation.pp.synthetic_dataset_generation.HawkesExpKernelFunctionSampler
     kernel_grid_size: 100
-    num_marks: 2
+    num_marks: 1
   n_events_per_path: 300
   num_paths: 500
   num_samples_test: 10
