@@ -4,26 +4,26 @@ from typing import List, Optional
 @dataclass
 class FIMSDEConfig:
     # phi_0^t
-    temporal_embedding_size: int = 128
+    temporal_embedding_size: int = 19
 
     # phi_0^s
-    spatial_embedding_size: int = 128
-    spatial_embedding_hidden_layers: Optional[int] = None  # If null, it will just be a dense layer
+    spatial_embedding_size: int = 19
+    spatial_embedding_hidden_layers: Optional[int] = field(default_factory=lambda: [25])  # If null, it will just be a dense layer
 
     # psi_1
-    sequence_encoding_tokenizer: int = 10
-    sequence_encoding_transformer_hidden_size: int = 256
-    sequence_encoding_transformer_heads: int = 4
-    sequence_encoding_transformer_layers: int = 4
+    sequence_encoding_tokenizer: int = 5
+    sequence_encoding_transformer_hidden_size: int = 50
+    sequence_encoding_transformer_heads: int = 1
+    sequence_encoding_transformer_layers: int = 1
 
     # Omega_1
-    combining_transformer_hidden_size: int = 128
-    combining_transformer_heads: int = 4
+    combining_transformer_hidden_size: int = 50
+    combining_transformer_heads: int = 1
     combining_transformer_layers: int = 1
 
     # phi_1
-    trunk_net_size: int = 128
-    trunk_net_hidden_layers: Optional[int] = None
+    trunk_net_size: int = 50
+    trunk_net_hidden_layers: Optional[int] = field(default_factory=lambda: [25])
 
     # optimizer + regularization
     add_delta_x_to_value_encoder: bool = True
@@ -40,6 +40,11 @@ class FIMSDEConfig:
     clip_grad:bool = True
     clip_max_norm:float = 10.
 
+    # INFERENCE/PIPELINE ------------------------------------------------------------
+    dt_pipeline:float = 0.01
+    number_of_time_steps_pipeline:int = 128
+    evaluate_with_unnormalized_heads:bool = True
+    
 # Example instantiation
 model_config = FIMSDEConfig(
     temporal_embedding_size=256,

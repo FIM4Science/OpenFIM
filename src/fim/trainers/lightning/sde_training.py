@@ -34,24 +34,35 @@ from fim.models.blocks.base import Mlp,TimeEncoding,TransformerModel
 from fim.utils.experiment_files import ExperimentsFiles
 from fim.models.blocks import AModel, ModelFactory
 from fim.data.datasets import FIMSDEDataset,FIMSDEDatabatchTuple
+from fim.pipelines.sde_pipelines import (
+    FIMSDEPipeline,
+    FIMSDEPipelineOutput
+)
+
+from fim.utils.helper import select_dimension_for_plot
+from fim.utils.plots.sde_estimation_plots import (
+    plot_one_dimension,
+    plot_drift_diffussion,
+    plot_3d_drift_and_diffusion
+)
 
 class FIMSDEL(pl.LightningModule):
-
+    """
+    """
     def __init__():
         pass
 
     # ----------------------------- Lightning functionality ---------------------------------------------^
-
-    def images_log_1D(self,pipeline_sample:FIMSDEPipelineOutput,datatuple:FIMSDEpDatabatchTuple,batch_idx:int):
+    def images_log_1D(self,pipeline_sample:FIMSDEPipelineOutput,datatuple:FIMSDEDatabatchTuple,batch_idx:int):
         """ """
         selected_data = select_dimension_for_plot(1,
-                                            datatuple.dimension_mask,
-                                            datatuple.locations,
-                                            pipeline_sample.drift_at_locations_estimator,
-                                            pipeline_sample.diffusion_at_locations_estimator,
-                                            datatuple.drift_at_locations,
-                                            datatuple.diffusion_at_locations,
-                                            index_to_select=0)
+                                                  datatuple.dimension_mask,
+                                                  datatuple.locations,
+                                                  pipeline_sample.drift_at_locations_estimator,
+                                                  pipeline_sample.diffusion_at_locations_estimator,
+                                                  datatuple.drift_at_locations,
+                                                  datatuple.diffusion_at_locations,
+                                                  index_to_select=0)
         if selected_data is not None:
             print(f"Validation batch index: {batch_idx}")
             locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
@@ -65,7 +76,7 @@ class FIMSDEL(pl.LightningModule):
             self.logger.experiment.add_figure(f"1D_{batch_idx}", fig, global_step=self.current_epoch)
             self.log_1D_images = True # log images once per epoch
 
-    def images_log_2D(self,pipeline_sample:FIMSDEPipelineOutput,datatuple:FIMSDEpDatabatchTuple,batch_idx:int):    
+    def images_log_2D(self,pipeline_sample:FIMSDEPipelineOutput,datatuple:FIMSDEDatabatchTuple,batch_idx:int):    
         """ """
         selected_data = select_dimension_for_plot(2,
                                                     datatuple.dimension_mask,
@@ -88,7 +99,7 @@ class FIMSDEL(pl.LightningModule):
             self.logger.experiment.add_figure(f"2D_{batch_idx}", fig, global_step=self.current_epoch)
             self.log_2D_images = True # log images once per epoch
 
-    def images_log_3D(self,pipeline_sample:FIMSDEPipelineOutput,datatuple:FIMSDEpDatabatchTuple,batch_idx:int):
+    def images_log_3D(self,pipeline_sample:FIMSDEPipelineOutput,datatuple:FIMSDEDatabatchTuple,batch_idx:int):
         """ """
         selected_data = select_dimension_for_plot(3,
                                                     datatuple.dimension_mask,
@@ -114,7 +125,7 @@ class FIMSDEL(pl.LightningModule):
             self.logger.experiment.add_figure(f"3D_{batch_idx}", fig, global_step=self.current_epoch)
             self.log_3D_images = True # log images once per epoch
 
-    def images_log(self,datatuple:FIMSDEpDatabatchTuple,batch_idx):
+    def images_log(self,datatuple:FIMSDEDatabatchTuple,batch_idx):
         """ """
         # sample plots
         pipeline = FIMSDEPipeline(self)
@@ -130,7 +141,7 @@ class FIMSDEL(pl.LightningModule):
         #    self.images_log_3D(pipeline_sample,datatuple,batch_idx)
 
     # ----------------------------- Lightning Functions ---------------------------------------------
-    def prepare_batch(self,batch)->FIMSDEpDatabatchTuple:
+    def prepare_batch(self,batch)->FIMSDEDatabatchTuple:
         """lightning will convert name tuple into a full tensor for training 
         here we create the nametuple as requiered for the model
         """
@@ -143,7 +154,7 @@ class FIMSDEL(pl.LightningModule):
             batch_idx
     ):
         optimizer = self.optimizers()
-        databatch:FIMSDEpDatabatchTuple = self.prepare_batch(batch)
+        databatch:FIMSDEDatabatchTuple = self.prepare_batch(batch)
         losses = self.forward(databatch,training=True)
 
         total_loss = losses["losses"]["total_loss"]
@@ -185,14 +196,14 @@ class FIMSDEL(pl.LightningModule):
     
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
-    
-    def on_train_start(self):
-        # the logger you used (in this case tensorboard)
-        tensorboard = self.logger.experiment
-        log_hyperparameters_to_tensorboard(self.config,tensorboard)
-        
+
     def on_train_epoch_start(self):
         # Action to be executed at the start of each training epoch
         self.log_1D_images = False
         self.log_2D_images = False
         self.log_3D_images = False
+
+    def on_train_epoch_end(self):
+        # Only run every `interval_epochs`
+        if (self.current_epoch + 1) % self.interval_epochs == 0:
+            self.run_periodic_function()

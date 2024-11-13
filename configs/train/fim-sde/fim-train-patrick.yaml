@@ -49,6 +49,11 @@ model:
   diffusion_loss_scale: &diffusion_loss_scale 1.0
   train_with_normalized_head:  true
 
+  # INFERENCE/PIPELINE ------------------------------------------------------------
+  dt_pipeline: 0.01
+  number_of_time_steps_pipeline: 128
+  evaluate_with_unnormalized_heads: True
+
 dataset:
   # data loading
   name: FIMSDEDataloader

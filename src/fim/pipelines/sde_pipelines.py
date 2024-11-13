@@ -5,13 +5,14 @@ from typing import Optional
 from dataclasses import dataclass
 
 from torch import Tensor
-from fim.data.datasets import FIMSDEpDatabatchTuple,FIMSDEpDataBulk
+from fim.data.datasets import FIMSDEDatabatchTuple,FIMSDEDatabatch
 
 from tqdm import tqdm  # Import tqdm for the progress bar
 from torch import Tensor
 from typing import Tuple
+from fim.models.config_dataclasses import FIMSDEConfig
 
-from fimodemix.utils.helper import (
+from fim.utils.helper import (
     nametuple_to_device,
     check_model_devices
 )
@@ -30,7 +31,8 @@ class FIMSDEPipeline:
 
     Inference Pipeline For SDE
     """
-    config
+   
+    config:FIMSDEConfig
     model:torch.nn
     
     def __init__(
@@ -44,7 +46,7 @@ class FIMSDEPipeline:
                 it takes its parameters from the model
         """
         self.model = model
-        self.config = model.config
+        self.config = model.model_config
 
         self.num_steps = self.config.number_of_time_steps_pipeline
         self.dt = self.config.dt_pipeline
@@ -55,7 +57,7 @@ class FIMSDEPipeline:
         databatch = nametuple_to_device(databatch,self.device)
         return databatch
     
-    def _evaluate_at_grid(self,databatch:FIMSDEpDatabatchTuple,locations=None):
+    def _evaluate_at_grid(self,databatch:FIMSDEDatabatchTuple,locations=None):
         """
         """
         if locations is None:
@@ -66,7 +68,7 @@ class FIMSDEPipeline:
 
     def __call__(
             self,
-            databatch:FIMSDEpDatabatchTuple|FIMSDEpDataBulk,
+            databatch:FIMSDEDatabatchTuple|FIMSDEDatabatch,
             initial_states:Tensor=None,
             evaluate_paths:bool=True,
             evaluate_at_locations:bool=True,
@@ -104,7 +106,7 @@ class FIMSDEPipeline:
     # -------------------------- SAMPLES ------------------------------------------
     def sample_initial_states(
             self,
-            databatch:FIMSDEpDatabatchTuple,
+            databatch:FIMSDEDatabatchTuple,
     )->Tensor:
         # Initialize states for all paths
         dimensions = databatch.obs_values.size(3)
@@ -116,7 +118,7 @@ class FIMSDEPipeline:
         self,
         X:Tensor,
         time:Tensor=None,
-        databatch:FIMSDEpDatabatchTuple=None
+        databatch:FIMSDEDatabatchTuple=None
     )->Tuple[Tensor,Tensor]:
         """
         Defines the drift and the diffusion from the forward pass
@@ -149,7 +151,7 @@ class FIMSDEPipeline:
     def model_euler_maruyama_step(
             self,
             states:Tensor,
-            databatch:FIMSDEpDatabatchTuple
+            databatch:FIMSDEDatabatchTuple
         )->Tensor:
         """
         Assumes diagonal diffusion 
@@ -172,7 +174,7 @@ class FIMSDEPipeline:
 
     def model_euler_maruyama_loop(
             self,
-            databatch: FIMSDEpDatabatchTuple = None,
+            databatch: FIMSDEDatabatchTuple = None,
             initial_states: Tensor = None,
     ):
         """

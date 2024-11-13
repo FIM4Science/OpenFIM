@@ -1,0 +1,281 @@
+import os
+import numpy as np
+from torch import Tensor
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+def plot_one_dimension(
+        locations:Tensor,
+        drift_at_locations_real:Tensor,
+        drift_at_locations_estimation:Tensor,
+        diffusion_at_locations_real:Tensor,
+        diffusion_at_locations_estimation:Tensor,
+        show=True
+    ):
+    """
+    just one dimension plot
+    """
+    fig, ax1 = plt.subplots()
+    color = 'tab:red'
+    ax1.set_xlabel('State')
+    ax1.set_ylabel('Drift', color=color)
+    ax1.plot(locations, drift_at_locations_real, color="r", label="Real Drift")
+    ax1.plot(locations, drift_at_locations_estimation, color="black", label="Estimator Drift")
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    ax2 = ax1.twinx()  # instantiate a second Axes that shares the same x-axis
+
+    color = 'tab:blue'
+    ax2.set_ylabel('Diffusion', color=color)  # we already handled the x-label with ax1
+    ax2.plot(locations, diffusion_at_locations_real, color='tab:blue', linestyle='--', label="Real Diffusion")
+    ax2.plot(locations, diffusion_at_locations_estimation, color='black', linestyle='--', label="Estimator Diffusion")
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout()  # otherwise the right y-label is slightly clipped
+
+    # Place the legend above the plot
+    fig.legend(loc='upper center', bbox_to_anchor=(0.5, 1.08), ncol=4)
+    if show:
+        plt.show()
+    else:
+        return fig
+    
+def plot_drift_diffussion(
+        locations:Tensor,
+        drift_at_locations_real:Tensor,
+        diffusion_at_locations_real:Tensor, 
+        drift_at_locations_estimation:Tensor, 
+        diffusion_at_locations_estimation:Tensor,
+        show:bool=True
+    ):
+    """
+    Plots estimated drift and diffusion along real parts and returns the figure.
+    selected 2D already
+    """
+    # Extract grid points (x, y)
+    x, y = locations[:, 0], locations[:, 1]
+
+    # Real vector fields
+    u_real_drift, v_real_drift = drift_at_locations_real[:, 0], drift_at_locations_real[:, 1]
+    u_real_diffusion, v_real_diffusion = diffusion_at_locations_real[:, 0], diffusion_at_locations_real[:, 1]
+
+    # Estimated vector fields
+    u_estimated_drift, v_estimated_drift = drift_at_locations_estimation[:, 0], drift_at_locations_estimation[:, 1]
+    u_estimated_diffusion, v_estimated_diffusion = diffusion_at_locations_estimation[:, 0], diffusion_at_locations_estimation[:, 1]
+
+    # Create a figure and 4 subplots
+    fig, axs = plt.subplots(2, 2, figsize=(8, 8))
+
+    # Plot real drift
+    axs[0, 0].quiver(x, y, u_real_drift, v_real_drift)
+    axs[0, 0].set_title('Real Drift')
+
+    # Plot real diffusion
+    axs[0, 1].quiver(x, y, u_real_diffusion, v_real_diffusion)
+    axs[0, 1].set_title('Real Diffusion')
+
+    # Plot estimated drift
+    axs[1, 0].quiver(x, y, u_estimated_drift, v_estimated_drift)
+    axs[1, 0].set_title('Estimated Drift')
+
+    # Plot estimated diffusion
+    axs[1, 1].quiver(x, y, u_estimated_diffusion, v_estimated_diffusion)
+    axs[1, 1].set_title('Estimated Diffusion')
+
+    # Adjust layout
+    plt.tight_layout()
+
+    if show:
+        plt.show()
+    else:
+        return fig  # Return the figure to log
+    
+def plot_3d_drift_and_diffusion_(
+        locations:Tensor,
+        drift_at_locations_real:Tensor,
+        diffusion_at_locations_real:Tensor, 
+        drift_at_locations_estimation:Tensor, 
+        diffusion_at_locations_estimation:Tensor,
+        your_fixed_x_value:float = -1.,
+        show:bool=True
+    ):
+    """
+    Dimensions already selected
+    """
+    # Assuming `locations` is a NumPy array of shape (P, 3), and `estimated_drift`, `estimated_diffusion`, `ground_truth_drift`, and `ground_truth_diffusion` are also NumPy arrays of shape (P, 3).
+    tolerance = 0.1  # tolerance for finding points close to the desired x_0 value
+
+    # Find indices where the first dimension of `locations` is close to `your_fixed_x_value`
+    #slice_indices = np.where(np.abs(locations[:, 0] - your_fixed_x_value) < tolerance)[0]
+
+    # Select the corresponding values at the chosen slice for both model estimates and ground truth
+    #drift_slice = drift_at_locations_estimation[slice_indices]
+    #diffusion_slice = diffusion_at_locations_estimation[slice_indices]
+
+    #ground_truth_drift_slice = drift_at_locations_real[slice_indices]
+    #ground_truth_diffusion_slice = diffusion_at_locations_real[slice_indices]
+
+    # Assuming the grid is 8x8 for visualization purposes (adjust if necessary)
+    #grid_size = int(np.sqrt(len(slice_indices)))
+
+    # Define your tolerance, locations, and fixed x value as before
+    slice_indices = np.where(np.abs(locations[:, 0] - your_fixed_x_value) < tolerance)[0]
+
+    # Calculate the largest perfect square that is less than or equal to the length of slice_indices
+    closest_square = int(np.floor(np.sqrt(len(slice_indices)))**2)
+
+    # Select only the closest_square number of indices for a perfect grid
+    slice_indices = slice_indices[:closest_square]
+
+    # Now you can reshape into a square grid for visualization
+    grid_size = int(np.sqrt(closest_square))
+
+    # Select corresponding values for both model estimates and ground truth
+    drift_slice = drift_at_locations_estimation[slice_indices]
+    diffusion_slice = diffusion_at_locations_estimation[slice_indices]
+
+    ground_truth_drift_slice = drift_at_locations_real[slice_indices]
+    ground_truth_diffusion_slice = diffusion_at_locations_real[slice_indices]
+
+    drift_slice_reshaped = drift_slice.reshape(grid_size, grid_size, -1)
+    diffusion_slice_reshaped = diffusion_slice.reshape(grid_size, grid_size, -1)
+
+    ground_truth_drift_reshaped = ground_truth_drift_slice.reshape(grid_size, grid_size, -1)
+    ground_truth_diffusion_reshaped = ground_truth_diffusion_slice.reshape(grid_size, grid_size, -1)
+
+    fig = plt.figure(figsize=(8, 8))
+    gs = GridSpec(4, 3, figure=fig, wspace=0.005, hspace=0.05)  # Adjust wspace and hspace
+
+    fig.suptitle(f'Slice at x_0 = {your_fixed_x_value:.5f}')
+
+    axs = []
+    for i in range(4):
+        row = []
+        for j in range(3):
+            ax = fig.add_subplot(gs[i, j])
+            row.append(ax)
+        axs.append(row)
+
+    for i in range(3):  # Loop over dimensions 0, 1, 2
+        # Ground-truth drift and diffusion
+        axs[0][i].imshow(ground_truth_drift_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[0][i].set_title(f'Dimension {i}')
+        axs[0][i].set_ylabel("Ground-Truth Drift")
+        
+        # Model drift
+        axs[1][i].imshow(drift_slice_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[1][i].set_ylabel("Model Drift")
+
+        # Ground-truth diffusion
+        axs[2][i].imshow(ground_truth_diffusion_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[2][i].set_ylabel("Ground-Truth Diffusion")
+
+        # Model diffusion
+        axs[3][i].imshow(diffusion_slice_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[3][i].set_ylabel("Model Diffusion")
+
+        # Remove axis labels and ticks from the last two columns
+        if i > 0:
+            for j in range(4):  # Iterate over rows
+                axs[j][i].set_yticks([])
+                axs[j][i].set_ylabel("")
+        # Remove ticks from all axes
+        for j in range(4):
+            axs[j][i].set_xticks([])
+            axs[j][i].set_yticks([])
+    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust layout to fit the suptitle
+    if show:
+        plt.show()
+    else:
+        return fig
+    
+def find_closest_factors(n):
+    # Find factors closest to the square root of `n`
+    root = int(np.sqrt(n))
+    for i in range(root, 0, -1):
+        if n % i == 0:
+            return i, n // i
+    return n, 1
+
+def plot_3d_drift_and_diffusion(
+    locations: Tensor,
+    drift_at_locations_real: Tensor,
+    diffusion_at_locations_real: Tensor, 
+    drift_at_locations_estimation: Tensor, 
+    diffusion_at_locations_estimation: Tensor,
+    your_fixed_x_value: float = 0.5,
+    show: bool = True,
+    pad_to_fit: bool = True
+):
+    tolerance = 1.0
+
+    # Find indices where `locations` is close to `your_fixed_x_value`
+    slice_indices = np.where(np.abs(locations[:, 0] - your_fixed_x_value) < tolerance)[0]
+
+    # Select corresponding values for model estimates and ground truth
+    drift_slice = drift_at_locations_estimation[slice_indices]
+    diffusion_slice = diffusion_at_locations_estimation[slice_indices]
+    ground_truth_drift_slice = drift_at_locations_real[slice_indices]
+    ground_truth_diffusion_slice = diffusion_at_locations_real[slice_indices]
+
+    # Get the count of points and find closest grid factors
+    points_count = len(slice_indices)
+    grid_size_x, grid_size_y = find_closest_factors(points_count)
+
+    # Optional padding if grid size doesn't match exactly
+    if pad_to_fit and grid_size_x * grid_size_y != points_count:
+        padding_needed = (grid_size_x * grid_size_y) - points_count
+        print(f"Padding with {padding_needed} zeros to fit grid shape.")
+        drift_slice = np.pad(drift_slice, ((0, padding_needed), (0, 0)))
+        diffusion_slice = np.pad(diffusion_slice, ((0, padding_needed), (0, 0)))
+        ground_truth_drift_slice = np.pad(ground_truth_drift_slice, ((0, padding_needed), (0, 0)))
+        ground_truth_diffusion_slice = np.pad(ground_truth_diffusion_slice, ((0, padding_needed), (0, 0)))
+
+    # Reshape slices for visualization
+    drift_slice_reshaped = drift_slice.reshape(grid_size_x, grid_size_y, -1)
+    diffusion_slice_reshaped = diffusion_slice.reshape(grid_size_x, grid_size_y, -1)
+    ground_truth_drift_reshaped = ground_truth_drift_slice.reshape(grid_size_x, grid_size_y, -1)
+    ground_truth_diffusion_reshaped = ground_truth_diffusion_slice.reshape(grid_size_x, grid_size_y, -1)
+
+    # Plotting
+    fig = plt.figure(figsize=(8, 8))
+    gs = GridSpec(4, 3, figure=fig, wspace=0.005, hspace=0.05)
+    fig.suptitle(f'Slice at x_0 = {your_fixed_x_value:.5f}')
+
+    axs = [[fig.add_subplot(gs[i, j]) for j in range(3)] for i in range(4)]
+
+    for i in range(3):  # Loop over dimensions 0, 1, 2
+        # Ground-truth drift and diffusion
+        axs[0][i].imshow(ground_truth_drift_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[0][i].set_title(f'Dimension {i}')
+        axs[0][i].set_ylabel("Ground-Truth Drift")
+        
+        # Model drift
+        axs[1][i].imshow(drift_slice_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[1][i].set_ylabel("Model Drift")
+
+        # Ground-truth diffusion
+        axs[2][i].imshow(ground_truth_diffusion_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[2][i].set_ylabel("Ground-Truth Diffusion")
+
+        # Model diffusion
+        axs[3][i].imshow(diffusion_slice_reshaped[..., i], origin='lower', cmap='viridis')
+        axs[3][i].set_ylabel("Model Diffusion")
+
+        # Remove ticks and labels for non-first columns
+        if i > 0:
+            for j in range(4): 
+                axs[j][i].set_yticks([])
+                axs[j][i].set_ylabel("")
+        # Remove ticks for all axes
+        for j in range(4):
+            axs[j][i].set_xticks([])
+            axs[j][i].set_yticks([])
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    if show:
+        plt.show()
+    else:
+        return fig

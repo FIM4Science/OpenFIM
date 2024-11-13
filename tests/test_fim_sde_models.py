@@ -36,10 +36,11 @@ def test_model():
     model = ModelFactory.create(config,device_map=device_map,resume=False)
     databatch:FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
     databatch = nametuple_to_device(databatch,device_map)
-
     forward_pass = model(databatch,training=True)
     print(forward_pass)
 
+def test_lightning_model():
+    pass
 
 if __name__=="__main__":
     test_model()

@@ -1,7 +1,5 @@
 # coding: utf-8
-
-from __future__ import absolute_import, division, print_function, unicode_literals
-
+from torch import Tensor
 import copy
 import csv
 import itertools
@@ -21,6 +19,9 @@ from scipy import linalg as la
 from torch.optim.lr_scheduler import LRScheduler
 
 T = TypeVar("T", str, bytes)
+
+def check_model_devices(x):
+    return x.parameters().__next__().device
 
 def nametuple_to_device(named_tuple, device):
     return named_tuple._replace(**{
@@ -636,3 +637,87 @@ def filter_keys_by_part(dictionary: OrderedDict, part: str):
         if part not in key:
             filtered_dict[key] = value
     return filtered_dict
+
+def select_dimension_for_plot_(dimension_to_choose:int,
+                               dimension_mask:Tensor,
+                               locations:Tensor,
+                               drift_at_locations_estimation:Tensor,
+                               diffusion_at_locations_estimation:Tensor,
+                               drift_at_locations_real:Tensor,
+                               diffusion_at_locations_real:Tensor,
+                               index_to_select=0):
+    """
+    From the drift and diffusion estimators and real 
+    """
+    # process
+    process_dimension = dimension_mask[:,0,:].sum(axis=-1).long()
+    where_one_dimension = torch.where(process_dimension == dimension_to_choose)[0]
+
+    # select for one dimension 
+    locations = locations[where_one_dimension]
+    drift_at_locations_real = drift_at_locations_real[where_one_dimension]
+    diffusion_at_locations_real = diffusion_at_locations_real[where_one_dimension]
+    drift_at_locations_estimation = drift_at_locations_estimation[where_one_dimension]
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation[where_one_dimension]
+
+    # detach and 
+    locations = locations.detach().cpu().numpy()
+    drift_at_locations_real = drift_at_locations_real.detach().cpu().numpy()
+    diffusion_at_locations_real = diffusion_at_locations_real.detach().cpu().numpy()
+    drift_at_locations_estimation = drift_at_locations_estimation.detach().cpu().numpy()
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation.detach().cpu().numpy()
+
+    # select dimension 
+    locations = locations[index_to_select,:,:dimension_to_choose]
+    drift_at_locations_real = drift_at_locations_real[index_to_select,:,:dimension_to_choose]
+    diffusion_at_locations_real = diffusion_at_locations_real[index_to_select,:,:dimension_to_choose]
+    drift_at_locations_estimation = drift_at_locations_estimation[index_to_select,:,:dimension_to_choose]
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select,:,:dimension_to_choose]
+    
+    return (locations,
+            drift_at_locations_real,
+            diffusion_at_locations_real,
+            drift_at_locations_estimation,
+            diffusion_at_locations_estimation)
+
+def select_dimension_for_plot(dimension:int,
+                              dimension_mask:Tensor,
+                              locations:Tensor,
+                              drift_at_locations_estimation:Tensor,
+                              diffusion_at_locations_estimation:Tensor,
+                              drift_at_locations_real:Tensor,
+                              diffusion_at_locations_real:Tensor,
+                              index_to_select=0):
+    """
+    From the drift and diffusion estimators and real 
+    """
+    # process
+    process_dimension = dimension_mask[:,0,:].sum(axis=-1).long()
+    where_one_dimension = torch.where(process_dimension == dimension)[0]
+
+    # select for one dimension 
+    locations = locations[where_one_dimension]
+    drift_at_locations_real = drift_at_locations_real[where_one_dimension]
+    diffusion_at_locations_real = diffusion_at_locations_real[where_one_dimension]
+    drift_at_locations_estimation = drift_at_locations_estimation[where_one_dimension]
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation[where_one_dimension]
+
+    # detach and 
+    locations = locations.detach().cpu().numpy()
+    drift_at_locations_real = drift_at_locations_real.detach().cpu().numpy()
+    diffusion_at_locations_real = diffusion_at_locations_real.detach().cpu().numpy()
+    drift_at_locations_estimation = drift_at_locations_estimation.detach().cpu().numpy()
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation.detach().cpu().numpy()
+
+    # select dimension 
+    locations = locations[index_to_select,:,:dimension]
+    drift_at_locations_real = drift_at_locations_real[index_to_select,:,:dimension]
+    diffusion_at_locations_real = diffusion_at_locations_real[index_to_select,:,:dimension]
+    drift_at_locations_estimation = drift_at_locations_estimation[index_to_select,:,:dimension]
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select,:,:dimension]
+    
+    return (locations,
+            drift_at_locations_real,
+            diffusion_at_locations_real,
+            drift_at_locations_estimation,
+            diffusion_at_locations_estimation)

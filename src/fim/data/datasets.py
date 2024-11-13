@@ -512,36 +512,44 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         self.data_params = data_params
 
         # Load data and compute cumulative lengths
-        self.read_files(data_paths)
+        self.read_files(data_params,data_paths)
 
         # Update Parameter Values from Dataset 
         #if data_params is not None:
         #    self.update_parameters(data_params)
 
-    def _read_one_bulk(self,data_path:str)->FIMSDEDatabatch:
+    def _read_one_bulk(self,data:str|FIMSDEDatabatch|Path)->FIMSDEDatabatch:
         from pathlib import Path
         data_dict = {}
-        data_path = Path(data_path)
-        for key,value in self.data_params.data_in_files.__dict__.items():
-            key_file_path = data_path / value
-            data_dict[key] = load_h5(key_file_path)
-        data_bulk = FIMSDEDatabatch(**data_dict)
-        data_bulk.convert_to_tensors()
-        return data_bulk
+        if isinstance(data,FIMSDEDatabatch):
+            return data
+        elif isinstance(data,(str,Path)):
+            data = Path(data)
+            for key,value in self.data_params.data_in_files.__dict__.items():
+                key_file_path = data / value
+                data_dict[key] = load_h5(key_file_path)
+            data_bulk = FIMSDEDatabatch(**data_dict)
+            data_bulk.convert_to_tensors()
+            return data_bulk
         
-    def read_files(self,file_paths:List[str]):
+    def read_files(self,params,file_paths:List[str]):
         """
         Reads the files and organize data such that during item selection 
         the dataset points to the file and then to the location within that file
         of the particular datapoint
         """
-        self.max_dimension = self.data_params.max_dimension
-        self.max_time_steps = self.data_params.max_time_steps
-        self.max_location_size = self.data_params.max_location_size
-        self.max_num_paths = self.data_params.max_num_paths
-
-        self.max_drift_param_size = 1
-        self.max_diffusion_param_size = 1
+        if params is not None:
+            self.max_num_paths = params.max_num_paths
+            self.max_time_steps = params.max_time_steps
+            self.max_dimension = params.max_dimension
+            self.max_location_size = params.max_location_size
+        else:
+            self.max_num_paths = 0
+            self.max_time_steps = 0
+            self.max_dimension = 0
+            self.max_location_size = 0
+            self.max_drift_param_size = 0
+            self.max_diffusion_param_size = 0
         
         for file_path in file_paths:
             one_data_bulk: FIMSDEDatabatch = self._read_one_bulk(file_path)  # Adjust loading method as necessary
@@ -559,11 +567,13 @@ class FIMSDEDataset(torch.utils.data.Dataset):
                 self.max_drift_param_size = max(self.max_drift_param_size,one_data_bulk.drift_parameters.size(1))
             if one_data_bulk.diffusion_parameters is not None:
                 self.max_diffusion_param_size = max(self.max_diffusion_param_size,one_data_bulk.diffusion_parameters.size(1))
-        
-        self.data_params.max_dimension = self.max_dimension
-        self.data_params.max_time_steps = self.max_time_steps
-        self.data_params.max_location_size = self.max_location_size
-        self.data_params.max_num_paths = self.max_num_paths
+
+        if self.data_params is not None:        
+            self.data_params.max_dimension = self.max_dimension
+            self.data_params.max_time_steps = self.max_time_steps
+            self.data_params.max_location_size = self.max_location_size
+            self.data_params.max_num_paths = self.max_num_paths
+
         self.cumulative_lengths = np.cumsum(self.lengths)
 
     def __len__(self):
@@ -609,7 +619,11 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         time_dim_padding_size = self.max_time_steps - current_time_steps
 
         if dim_padding_size > 0 or time_dim_padding_size > 0:
-            obs_values = torch.nn.functional.pad(obs_values, (0,0,0,dim_padding_size,0,time_dim_padding_size))
+            if len(obs_values.shape) == 4: # comming from h5 files
+                obs_values = torch.nn.functional.pad(obs_values, (0,0,0,dim_padding_size,0,time_dim_padding_size))
+            elif len(obs_values.shape) == 3: # comming from target data simulation
+                obs_values = torch.nn.functional.pad(obs_values, (0,dim_padding_size,0,time_dim_padding_size))
+
             obs_times = torch.nn.functional.pad(obs_times, (0,0,0,time_dim_padding_size))
              
         return obs_values, obs_times
@@ -642,10 +656,11 @@ class FIMSDEDataset(torch.utils.data.Dataset):
                 mask [B,H,D] will do 0 for hypercube positions and dimensions not on batch
         """
         mask = torch.ones_like(drift_at_locations)
-        mask[current_location:,current_dimension:] = 0.
+        mask[:,current_dimension:] = 0.
+        mask[current_location:,:] = 0.
         return mask
     
     def update_parameters(self,param):
         param.max_dimension = self.max_dimension
-        param.max_hypercube_size = self.max_hypercube_size
+        param.max_hypercube_size = self.max_location_size
         param.max_num_steps = self.max_num_steps

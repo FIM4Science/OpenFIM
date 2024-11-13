@@ -1,0 +1,323 @@
+experiment_name: dummy_sdes
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  method: "EulerMaruyama"
+  time_step: 0.01
+  num_steps: 128
+  num_paths: 30
+  num_locations: 1024
+  stochastic: true
+
+train:
+  - name: HopfBifurcation
+    data_bulk_name: hopf_1
+    redo: true
+    num_realizations: 500
+    observed_dimension: null
+    drift_params:
+      sigma:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      beta:
+        distribution: "uniform"
+        min: 0.1
+        max: 1.
+      rho:
+        distribution: "uniform"
+        min: 1.0
+        max: 10.0
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      g2:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+  - name: Lorenz63System
+    data_bulk_name: lorenz_1
+    redo: true
+    num_realizations: 500
+    observed_dimension: null
+    drift_params:
+      sigma:
+        distribution: "uniform"
+        min: 10.0
+        max: 20.0
+      beta:
+        distribution: "uniform"
+        min: 2.5
+        max: 5.0
+      rho:
+        distribution: "uniform"
+        min: 28.0
+        max: 40.0
+    diffusion_params:
+      constant_value: 1.0
+      dimensions: 3
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+  - name: DampedCubicOscillatorSystem
+    data_bulk_name: damped_1
+    num_realizations: 500
+    observed_dimension: null
+    redo: true
+    drift_params:
+      damping:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      alpha:
+        distribution: "uniform"
+        min: 1.0
+        max: 3.0
+      beta:
+        distribution: "uniform"
+        min: 0.1
+        max: 1.0
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      g2:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+  - name: SelkovGlycosis
+    data_bulk_name: selkov_1
+    num_realizations: 500
+    observed_dimension: null
+    redo: true
+    drift_params:
+      alpha:
+        distribution: "uniform"
+        min: 1.0
+        max: 3.0
+      beta:
+        distribution: "uniform"
+        min: 0.1
+        max: 3.0
+      gamma:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      g2:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+  - name: DuffingOscillator
+    data_bulk_name: duffin_1
+    num_realizations: 500
+    observed_dimension: null
+    redo: true
+    drift_params:
+      alpha:
+        distribution: "uniform"
+        min: 1.0
+        max: 3.0
+      beta:
+        distribution: "uniform"
+        min: 0.1
+        max: 3.0
+      gamma:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      g2:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+  - name: DoubleWellOneDimension
+    data_bulk_name: double_well_1
+    num_realizations: 500
+    observed_dimension: null
+    redo: true
+    drift_params:
+      alpha:
+        distribution: "uniform"
+        min: 1.0
+        max: 5.0
+      beta:
+        distribution: "uniform"
+        min: 0.5
+        max: 2.0
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 3.5
+        max: 4.
+      g2:
+        distribution: "uniform"
+        min: 1.
+        max: 1.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+test:
+  - name: Lorenz63System
+    data_bulk_name: test
+    num_realizations: 500
+    observed_dimension: null
+    redo: true
+
+    drift_params:
+      sigma:
+        distribution: "uniform"
+        min: 10.0
+        max: 20.0
+      beta:
+        distribution: "uniform"
+        min: 2.5
+        max: 5.0
+      rho:
+        distribution: "uniform"
+        min: 28.0
+        max: 40.0
+    diffusion_params:
+      constant_value: 1.0
+      dimensions: 3
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+  - name: DuffingOscillator
+    data_bulk_name: duffin_1
+    num_realizations: 500
+    observed_dimension: null
+    redo: true
+    drift_params:
+      alpha:
+        distribution: "uniform"
+        min: 1.0
+        max: 3.0
+      beta:
+        distribution: "uniform"
+        min: 0.1
+        max: 3.0
+      gamma:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      g2:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+validation:
+  - name: Lorenz63System
+    data_bulk_name: validation
+    num_realizations: 300
+    observed_dimension: null
+    redo: true
+
+    drift_params:
+      sigma:
+        distribution: "uniform"
+        min: 10.0
+        max: 20.0
+      beta:
+        distribution: "uniform"
+        min: 2.5
+        max: 5.0
+      rho:
+        distribution: "uniform"
+        min: 28.0
+        max: 40.0
+    diffusion_params:
+      constant_value: 1.0
+      dimensions: 3
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+
+  - name: DuffingOscillator
+    data_bulk_name: duffin_1
+    num_realizations: 500
+    observed_dimension: null
+    redo: true
+    drift_params:
+      alpha:
+        distribution: "uniform"
+        min: 1.0
+        max: 3.0
+      beta:
+        distribution: "uniform"
+        min: 0.1
+        max: 3.0
+      gamma:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      g2:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
