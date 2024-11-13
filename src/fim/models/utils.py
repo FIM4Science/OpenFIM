@@ -224,9 +224,8 @@ def create_matrix_from_off_diagonal(
     matrix[..., eye] = off_diagonal_elements
     if mode == "sum_row":
         matrix[..., torch.arange(n_states), torch.arange(n_states)] = matrix[:n_states, :n_states].sum(dim=-1) - diagonal_value
-        matrix[..., n_states:] = float("inf")
-        matrix[..., n_states:, :] = float("inf")
-    return matrix
+
+    return matrix[..., :n_states, :n_states]
 
 
 def create_padding_mask(mask_seq_lengths: torch.Tensor, seq_len: int) -> torch.Tensor:

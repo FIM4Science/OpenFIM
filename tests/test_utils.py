@@ -78,7 +78,7 @@ def test_create_matrix_from_off_diagonal():
     size = 3
     diagonal_value = 1.0
     expected = torch.tensor([[1, 2, 3], [4, 1, 5], [6, 7, 1]], dtype=torch.float)
-    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value)
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value, n_states=size)
     assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
 
 
@@ -87,7 +87,7 @@ def test_create_matrix_from_off_diagonal_batch():
     size = 3
     diagonal_value = 0.0
     expected = torch.tensor([[[0, 2, 3], [4, 0, 5], [6, 7, 0]], [[0, 8, 9], [10, 0, 11], [12, 13, 0]]], dtype=torch.float)
-    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value)
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value, n_states=size)
     assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
 
 
@@ -129,7 +129,7 @@ def test_create_matrix_from_off_diagonal_sum_row_n_states():
     diagonal_value = 1.0
     mode = "sum_row"
     expected = torch.tensor(
-        [[5, 2, 3, float("inf")], [5, 12, 7, float("inf")], [9, 10, 19, float("inf")], [float("inf")] * 4],
+        [[5, 2, 3], [5, 12, 7], [9, 10, 19]],
         dtype=torch.float,
     )
     result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value, mode, n_states)

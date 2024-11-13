@@ -159,7 +159,7 @@ class FIMMJP(AModel):
                 pred_offdiag_im_mean, self.n_states, mode="sum_row", n_states=self.n_states if n_states is None else n_states
             ),
             "log_var_im": create_matrix_from_off_diagonal(
-                pred_offdiag_im_logvar, self.n_states, mode="sum_row", n_states=self.n_states if n_states is None else n_states
+                torch.exp(pred_offdiag_im_logvar), self.n_states, mode="sum_row", n_states=self.n_states if n_states is None else n_states
             ),
             "init_cond": init_cond,
         }
