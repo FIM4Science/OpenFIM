@@ -202,7 +202,7 @@ def get_off_diagonal_elements(matrix: torch.Tensor) -> torch.Tensor:
 
 
 def create_matrix_from_off_diagonal(
-    off_diagonal_elements: torch.Tensor, size: int, diagonal_value: float = 0.0, mode: str = "fill"
+    off_diagonal_elements: torch.Tensor, size: int, diagonal_value: float = 0.0, mode: str = "fill", n_states: int = 1
 ) -> torch.Tensor:
     """
     Create a square matrix from its off-diagonal elements with a fixed value on the diagonal.
@@ -223,8 +223,9 @@ def create_matrix_from_off_diagonal(
     eye = torch.eye(size, dtype=bool, device=matrix.device).logical_not()
     matrix[..., eye] = off_diagonal_elements
     if mode == "sum_row":
-        matrix[..., torch.arange(size), torch.arange(size)] = matrix.sum(dim=-1) - diagonal_value
-
+        matrix[..., torch.arange(n_states), torch.arange(n_states)] = matrix[:n_states, :n_states].sum(dim=-1) - diagonal_value
+        matrix[..., n_states:] = float("inf")
+        matrix[..., n_states:, :] = float("inf")
     return matrix
 
 

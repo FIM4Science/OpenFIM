@@ -116,7 +116,7 @@ class FIMMJP(AModel):
         initial_distribution_decoder["out_features"] = self.n_states
         self.initial_distribution_decoder = create_class_instance(initial_distribution_decoder.pop("name"), initial_distribution_decoder)
 
-    def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
+    def forward(self, x: dict[str, Tensor], n_states: int = None, schedulers: dict = None, step: int = None) -> dict:
         """
         Forward pass for the model.
 
@@ -141,20 +141,26 @@ class FIMMJP(AModel):
         obs_grid = x["observation_grid"]
         if "time_normalization_factors" not in x:
             norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid)
+            x["time_normalization_factors"] = norm_constants
+            x["observation_grid_normalized"] = obs_grid
         else:
             norm_constants = x["time_normalization_factors"]
+            x["observation_grid_normalized"] = obs_grid
 
-        obs_values_one_hot = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states)
+        x["observation_values_one_hot"] = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states)
 
-        h = self.__encode(x, obs_grid, obs_values_one_hot)
-
+        h = self.__encode(x)
         pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
 
         pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
 
         out = {
-            "im": create_matrix_from_off_diagonal(pred_offdiag_im_mean, self.n_states),
-            "log_var_im": create_matrix_from_off_diagonal(pred_offdiag_im_logvar, self.n_states),
+            "im": create_matrix_from_off_diagonal(
+                pred_offdiag_im_mean, self.n_states, mode="sum_row", n_states=self.n_states if n_states is None else n_states
+            ),
+            "log_var_im": create_matrix_from_off_diagonal(
+                pred_offdiag_im_logvar, self.n_states, mode="sum_row", n_states=self.n_states if n_states is None else n_states
+            ),
             "init_cond": init_cond,
         }
         if "intensity_matrices" in x and "initial_distributions" in x:
@@ -162,14 +168,16 @@ class FIMMJP(AModel):
                 pred_offdiag_im_mean, pred_offdiag_im_logvar, init_cond, x, norm_constants.view(-1, 1), schedulers, step
             )
 
-        return out # {"losses": {"loss": 0, "ce": 0}, "logits": torch.tensor([0, 0, 0, 0]), "im": torch.tensor([0, 0, 0, 0]), "init_cond": torch.tensor([0, 0, 0, 0])}
+        return out
 
     def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
         pred_offdiag_logmean_logstd = self.intensity_matrix_decoder(h)
         init_cond = self.initial_distribution_decoder(h)
         return pred_offdiag_logmean_logstd, init_cond
 
-    def __encode(self, x: Tensor, obs_grid_normalized: Tensor, obs_values_one_hot: Tensor) -> Tensor:
+    def __encode(self, x: dict[str, Tensor]) -> Tensor:
+        obs_grid_normalized = x["observation_grid_normalized"]
+        obs_values_one_hot = x["observation_values_one_hot"]
         B, P, L = obs_grid_normalized.shape[:3]
         pos_enc = self.pos_encodings(obs_grid_normalized)
         path = torch.cat([pos_enc, obs_values_one_hot], dim=-1)

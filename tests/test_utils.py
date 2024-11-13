@@ -114,11 +114,25 @@ def test_create_matrix_from_off_diagonal_non_square():
 
 def test_create_matrix_from_off_diagonal_sum_row():
     off_diagonal_elements = torch.tensor([2, 3, 4, 5, 6, 7], dtype=torch.float)
-    size = 3
+    n_states = size = 3
     diagonal_value = 1.0
     mode = "sum_row"
     expected = torch.tensor([[5, 2, 3], [4, 9, 5], [6, 7, 13]], dtype=torch.float)
-    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value, mode)
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value, mode, n_states)
+    assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
+
+
+def test_create_matrix_from_off_diagonal_sum_row_n_states():
+    off_diagonal_elements = torch.tensor([2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 15], dtype=torch.float)
+    size = 4
+    n_states = 3
+    diagonal_value = 1.0
+    mode = "sum_row"
+    expected = torch.tensor(
+        [[5, 2, 3, float("inf")], [5, 12, 7, float("inf")], [9, 10, 19, float("inf")], [float("inf")] * 4],
+        dtype=torch.float,
+    )
+    result = create_matrix_from_off_diagonal(off_diagonal_elements, size, diagonal_value, mode, n_states)
     assert torch.equal(result, expected), f"Expected {expected}, but got {result}"
 
 

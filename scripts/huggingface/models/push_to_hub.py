@@ -28,11 +28,11 @@ initial_distribution_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers"
 mjp_config = FIMMJPConfig(
     n_states, use_adjacency_matrix, timeseries_encoder, pos_encodings, path_attn, intensity_matrix_decoder, initial_distribution_decoder
 )
-mjp = FIMMJP(mjp_config)
-mjp.load_model("/home/cvejoski/Projects/FoundationModels/FIM/results/FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_same-experiment-seed-0_11-06-1535/checkpoints/best-model")
+# mjp = FIMMJP(mjp_config)
+mjp = FIMMJP.load_model("/home/cvejoski/Projects/FoundationModels/FIM/results/FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_same-experiment-seed-0_11-06-1535/checkpoints/best-model")
 
 
-mjp.push_to_hub("FIMMJP")
+mjp.push_to_hub("cvejoski/FIMMJP")
 
 # from transformers import AutoModel
 
