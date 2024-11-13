@@ -67,3 +67,5 @@ venv/
 # plots
 *.png
 *.jpg
+
+.env
