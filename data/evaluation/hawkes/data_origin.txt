@@ -1,0 +1,5 @@
+mimic_II.pkl, mooc.pkl, retweet.pkl, stackOverflow.pkl were taken from this repository: https://github.com/aresPanos/Interpretable-Point-Processes/tree/main
+
+lastfm.csv and wikipedia.csv were taken from this repository: https://github.com/claws-lab/jodie
+
+A lot more datasets are linked here: https://github.com/aresPanos/dtpp/tree/main/data
