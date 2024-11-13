@@ -162,7 +162,7 @@ class FIMMJP(AModel):
                 pred_offdiag_im_mean, pred_offdiag_im_logvar, init_cond, x, norm_constants.view(-1, 1), schedulers, step
             )
 
-        return out
+        return out # {"losses": {"loss": 0, "ce": 0}, "logits": torch.tensor([0, 0, 0, 0]), "im": torch.tensor([0, 0, 0, 0]), "init_cond": torch.tensor([0, 0, 0, 0])}
 
     def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
         pred_offdiag_logmean_logstd = self.intensity_matrix_decoder(h)

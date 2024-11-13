@@ -113,25 +113,25 @@ class MJP(datasets.GeneratorBasedBuilder):
     DEFAULT_CONFIG_NAME = "DFR_V=0"
 
     files_to_load = {
-        "observation_times": "fine_grid_grid.pt",
+        "observation_grid": "fine_grid_grid.pt",
         "observation_values": "fine_grid_noisy_sample_paths.pt",
+        "mask_seq_lengths": "fine_grid_mask_seq_lengths.pt",
         "time_normalization_factors": "fine_grid_time_normalization_factors.pt",
-        "sequence_lengths": "fine_grid_mask_seq_lengths.pt",
-        "ground_truth_intensity_matrices": "fine_grid_intensity_matrices.pt",
+        "intensity_matrices": "fine_grid_intensity_matrices.pt",
         "adjacency_matrices": "fine_grid_adjacency_matrices.pt",
-        "ground_truth_initial_distributions": "fine_grid_initial_distributions.pt",
+        "initial_distributions": "fine_grid_initial_distributions.pt",
     }
 
     def _info(self):
         features = datasets.Features(
             {
-                "observation_times": datasets.Sequence(datasets.Sequence(datasets.Sequence(datasets.Value("float32")))),
+                "observation_grid": datasets.Sequence(datasets.Sequence(datasets.Sequence(datasets.Value("float32")))),
                 "observation_values": datasets.Sequence(datasets.Sequence(datasets.Sequence(datasets.Value("uint32")))),
                 "time_normalization_factors": datasets.Value("float32"),
-                "sequence_lengths": datasets.Sequence(datasets.Sequence(datasets.Value("int32"))),
-                "ground_truth_intensity_matrices": datasets.Sequence(datasets.Sequence(datasets.Value("float32"))),
+                "mask_seq_lengths": datasets.Sequence(datasets.Sequence(datasets.Value("int32"))),
+                "intensity_matrices": datasets.Sequence(datasets.Sequence(datasets.Value("float32"))),
                 "adjacency_matrices": datasets.Sequence(datasets.Sequence(datasets.Value("float32"))),
-                "ground_truth_initial_distributions": datasets.Sequence(datasets.Value("uint64")),
+                "initial_distributions": datasets.Sequence(datasets.Value("uint64")),
             }
         )
 
@@ -170,6 +170,6 @@ class MJP(datasets.GeneratorBasedBuilder):
             data[key].append(load_file(file_path))
         for k, v in data.items():
             data[k] = torch.cat(v)
-            print(k, data[k].shape)
-        for id in range(len(data["observation_times"])):
+
+        for id in range(len(data["observation_grid"])):
             yield id, {k: v[id].tolist() for k, v in data.items() if k in self.info.features}
