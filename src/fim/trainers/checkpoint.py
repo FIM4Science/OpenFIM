@@ -394,6 +394,7 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
                 },
                 "commit": latest_commit(),
             }
+            self.model.config.save_pretrained(save_dir)
             torch.save(model_state, save_dir / "model-checkpoint.pth")
             torch.save(state, train_state_path)
             self.__logger.info("Done Saving Model State: %s ...", save_dir)
