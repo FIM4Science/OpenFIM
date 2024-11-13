@@ -5,7 +5,7 @@ import csv
 import itertools
 import json
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass,asdict
 from functools import reduce
 from importlib import import_module
 from logging import Logger
@@ -28,6 +28,10 @@ def nametuple_to_device(named_tuple, device):
         key: (value.to(device) if isinstance(value, torch.Tensor) else value)
         for key, value in named_tuple._asdict().items()
     })
+
+def save_hyperparameters_to_yaml(hyperparams, file_path: str):
+    with open(file_path, 'w') as file:
+        yaml.dump(asdict(hyperparams), file)
 
 @dataclass
 class GenericConfig:

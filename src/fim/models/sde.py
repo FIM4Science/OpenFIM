@@ -32,8 +32,9 @@ from dataclasses import dataclass,asdict, field
 from typing import Any, Dict, Optional, Union, List,Tuple
 from fim.models.blocks.base import Mlp,TimeEncoding,TransformerModel
 from fim.utils.experiment_files import ExperimentsFiles
-from .blocks import AModel, ModelFactory
+from fim.models.blocks import AModel, ModelFactory
 from fim.data.datasets import FIMSDEDataset,FIMSDEDatabatchTuple
+from fim.data.data_generation.dynamical_systems_target import generate_all
 
 # 1. Define your query generation model (a simple linear layer can work)
 class QueryGenerator(nn.Module):
@@ -300,22 +301,36 @@ class FIMSDE(pl.LightningModule):
     """
     Stochastic Differential Equation Trainining
     """
+
     model_config:FIMSDEConfig
     data_config:FIMDatasetConfig
 
     def __init__(
             self, 
-            model_params:dict,
-            data_params:dict,
+            model_config:dict,
+            data_config:dict,
             device_map:torch.device = None,
             **kwargs,
         ):
         super(FIMSDE, self).__init__()
+
         # Save hyperparameters
         self.save_hyperparameters()
-        self.model_config = FIMSDEConfig(**model_params)
-        self.data_config = FIMDatasetConfig(**data_params)
+
+        # Set hyperparameters
+        if isinstance(model_config,dict):
+            self.model_config = FIMSDEConfig(**model_config)
+        else:
+            self.model_config = model_config
+
+        if isinstance(data_config,dict):
+            self.data_config = FIMDatasetConfig(**data_config)
+        else:
+            self.data_config = data_config
         self._create_modules()
+
+        # Set a dataset for fixed evaluation 
+        self.target_data = generate_all(data_config)
 
         if device_map is not None:
             self.to(device_map)
@@ -323,7 +338,7 @@ class FIMSDE(pl.LightningModule):
         self.log_images = False
         self.DatabatchNameTuple = FIMSDEDatabatchTuple
         # Important: This property activates manual optimization (Lightning)
-        self.automatic_optimization = True
+        self.automatic_optimization = False
         
     def _create_modules(
         self,
@@ -612,10 +627,76 @@ class FIMSDE(pl.LightningModule):
                                            forward_expressions.dimension_mask)
             
         total_loss = drift_loss + self.model_config.diffusion_loss_scale*diffusion_loss
-        losses = {"total_loss":total_loss,"drift_loss":drift_loss,"diffusion_loss":diffusion_loss}
-
+        losses = {"loss":total_loss,"drift_loss":drift_loss,"diffusion_loss":diffusion_loss}
         return losses
+
+    # ----------------------------- Lightning Functionality ---------------------------------------------
+    def prepare_batch(self,batch)->FIMSDEDatabatchTuple:
+        """lightning will convert name tuple into a full tensor for training 
+        here we create the nametuple as requiered for the model
+        """
+        databatch = self.DatabatchNameTuple(*batch)
+        return databatch
     
+    def training_step(
+            self, 
+            batch, 
+            batch_idx
+    ):
+        optimizer = self.optimizers()
+        databatch:FIMSDEDatabatchTuple = self.prepare_batch(batch)
+        losses = self.forward(databatch,training=True)
+
+        total_loss = losses["losses"]["loss"]
+        drift_loss = losses["losses"]["drift_loss"]
+        diffusion_loss = losses["losses"]["diffusion_loss"]
+
+        optimizer.zero_grad()
+        self.manual_backward(total_loss)
+        if self.model_config.clip_grad:
+           torch.nn.utils.clip_grad_norm_(self.parameters(), self.model_config.clip_max_norm)
+        optimizer.step()
+
+        self.log('loss', total_loss, on_step=True, prog_bar=True, logger=True)
+        self.log('drift_loss', drift_loss, on_step=True, prog_bar=True, logger=True)
+        self.log('diffusion_loss', diffusion_loss, on_step=True, prog_bar=True, logger=True)
+
+        return total_loss
+    
+    def validation_step(
+        self, 
+        batch, 
+        batch_idx
+    ):
+        databatch = self.prepare_batch(batch)        
+        forward_values = self.forward(databatch,training=False,return_all=True)
+
+        total_loss = forward_values.losses["loss"]
+        drift_loss = forward_values.losses["drift_loss"]
+        diffusion_loss = forward_values.losses["diffusion_loss"]
+
+        self.log('val_loss', total_loss, on_step=False, prog_bar=True, logger=True)
+        self.log('drift_loss', drift_loss, on_step=False, prog_bar=True, logger=True)
+        self.log('diffusion_loss', diffusion_loss, on_step=False, prog_bar=True, logger=True)
+
+        return total_loss
+    
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=self.model_config.learning_rate)
+
+    def on_train_epoch_start(self):
+        # Action to be executed at the start of each training epoch
+        self.log_1D_images = False
+        self.log_2D_images = False
+        self.log_3D_images = False
+
+    #def on_train_epoch_end(self):
+    #self.images_log(self.target_datatuple,batch_idx)
+    #    # Only run every `interval_epochs`
+    #    if (self.current_epoch + 1) % self.interval_epochs == 0:
+    #        self.run_periodic_function()
+
+
 ModelFactory.register("FIMSDE",FIMSDE,with_data_params=True)
 
 """

@@ -268,9 +268,11 @@ class TimeSeriesDataLoaderTorch:
                 sampler=sampler,
                 shuffle=sampler is None and n == "train",
                 batch_size=batch_size,
-                collate_fn=partial(TimeSeriesImputationDatasetTorch.collate_fn, dataset=d)
-                if isinstance(d, TimeSeriesImputationDatasetTorch)
-                else None,
+                collate_fn=(
+                    partial(TimeSeriesImputationDatasetTorch.collate_fn, dataset=d)
+                    if isinstance(d, TimeSeriesImputationDatasetTorch)
+                    else None
+                ),
                 **self.loader_kwargs,
             )
 
@@ -325,6 +327,47 @@ class TimeSeriesDataLoaderTorch:
     @property
     def test_set_size(self):
         return len(self.test)
+
+
+class FIMSDEDataloader(BaseDataLoader):
+    """
+    Dataloader for FIM SDE model
+    """
+
+    def __init__(self, **kwargs):
+        self.data_params = FIMDatasetConfig(**kwargs)
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+
+        self.loader_kwargs = self.data_params.loader_kwargs
+        self.batch_size = self.data_params.total_minibatch_size
+        self.test_batch_size = self.data_params.total_minibatch_size_test
+        self.iter = {}
+        self.dataset = self._set_datasets()
+        self._init_dataloaders(self.dataset)
+
+    def _set_datasets(self):
+        self.train_dataset = FIMSDEDataset(self.data_params, self.data_params.dataset_path_collections.train)
+        self.test_dataset = FIMSDEDataset(self.data_params, self.data_params.dataset_path_collections.test)
+        self.validation_dataset = FIMSDEDataset(self.data_params, self.data_params.dataset_path_collections.validation)
+        dataset = {"train": self.train_dataset, "test": self.test_dataset, "validation": self.validation_dataset}
+        return dataset
+
+    def update_kwargs(self, kwargs):
+        assert self.train_dataset.max_dimension == self.test_dataset.max_dimension == self.validation_dataset.max_dimension
+        assert (
+            self.train_dataset.max_time_steps == self.test_dataset.max_time_steps == self.validation_dataset.max_time_steps
+        ), "max_time_steps are not equal"
+        assert (
+            self.train_dataset.max_location_size == self.test_dataset.max_location_size == self.validation_dataset.max_location_size
+        ), "max_location_size are not equal"
+        assert (
+            self.train_dataset.max_num_paths == self.test_dataset.max_num_paths == self.validation_dataset.max_num_paths
+        ), "max_num_paths are not equal"
+
+        kwargs["dataset"]["max_dimension"] = self.train_dataset.max_dimension
+        kwargs["dataset"]["max_time_steps"] = self.train_dataset.max_time_steps
+        kwargs["dataset"]["max_location_size"] = self.train_dataset.max_location_size
+        kwargs["dataset"]["max_num_paths"] = self.train_dataset.max_num_paths
 
 
 class DataLoaderFactory:

@@ -26,6 +26,7 @@ class FIMSDEConfig:
     trunk_net_hidden_layers: Optional[int] = field(default_factory=lambda: [25])
 
     # optimizer + regularization
+    num_epochs:int = 100
     add_delta_x_to_value_encoder: bool = True
     learning_rate: float = 1.0e-5
     weight_decay: float = 1.0e-4

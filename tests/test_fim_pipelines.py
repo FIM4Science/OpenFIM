@@ -16,10 +16,11 @@ from fim.utils.plots.sde_estimation_plots import (
 )
 
 def test_pipeline():
-    model_config = asdict(FIMSDEConfig())
+    model_config = FIMSDEConfig()
     data_config = FIMDatasetConfig()
     dataloader = FIMSDEDataloader(**asdict(data_config))
-    model = FIMSDE(model_config,asdict(data_config))
+    model = FIMSDE(model_config,data_config)
+    
     databatch_target = generate_all(data_config)
 
     databatch:FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
