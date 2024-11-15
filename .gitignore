@@ -25,7 +25,7 @@ core.*
 env_config.env
 tags
 results
-evaluations
+./evaluations
 saved_evaluations
 
 # Package files
