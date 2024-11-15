@@ -5,7 +5,7 @@ experiment:
   device_map: auto # auto, cuda, cpu
 
 distributed:
-  enabled: true
+  enabled: false
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -41,7 +41,7 @@ dataset:
 
   loader_kwargs:
     batch_size: 128
-    num_workers: 16
+    num_workers: 1
     test_batch_size: 128
     pin_memory: true
     max_path_count: 300
@@ -51,7 +51,7 @@ dataset:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
       observation_values: "fine_grid_noisy_sample_paths.pt"
-      mask_seq_lengths: "fine_grid_mask_seq_lengths.pt"
+      seq_lengths: "fine_grid_mask_seq_lengths.pt"
       time_normalization_factors: "fine_grid_time_normalization_factors.pt"
       intensity_matrices: "fine_grid_intensity_matrices.pt"
       adjacency_matrices: "fine_grid_adjacency_matrices.pt"
@@ -106,7 +106,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 3000
+  epochs: &epochs 5000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
@@ -127,7 +127,7 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.00001
+      lr: 0.0001
       weight_decay: 0.0001
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple

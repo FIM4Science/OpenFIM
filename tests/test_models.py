@@ -147,15 +147,15 @@ class TestMJP:
 
         assert isinstance(out, dict)
         assert "losses" in out
-        assert "im" in out
-        assert "log_var_im" in out
+        assert "intensity_matrices" in out
+        assert "intensity_matrices_variance" in out
         assert "loss" in out["losses"]
         assert "loss_gauss" in out["losses"]
         assert "loss_initial" in out["losses"]
         assert "loss_missing_link" in out["losses"]
-        assert out["im"].shape == (batch["observation_grid"].shape[0], 6, 6)
-        assert out["log_var_im"].shape == (batch["observation_grid"].shape[0], 6, 6)
-        assert out["init_cond"].shape == (batch["observation_grid"].shape[0], 6)
+        assert out["intensity_matrices"].shape == (batch["observation_grid"].shape[0], 6, 6)
+        assert out["intensity_matrices_variance"].shape == (batch["observation_grid"].shape[0], 6, 6)
+        assert out["initial_condition"].shape == (batch["observation_grid"].shape[0], 6)
 
     def test_init_rnn(self):
         n_states = 6
@@ -196,15 +196,15 @@ class TestMJP:
 
         assert isinstance(out, dict)
         assert "losses" in out
-        assert "im" in out
-        assert "log_var_im" in out
+        assert "intensity_matrices" in out
+        assert "intensity_matrices_variance" in out
         assert "loss" in out["losses"]
         assert "loss_gauss" in out["losses"]
         assert "loss_initial" in out["losses"]
         assert "loss_missing_link" in out["losses"]
-        assert out["im"].shape == (batch["observation_grid"].shape[0], 6, 6)
-        assert out["log_var_im"].shape == (batch["observation_grid"].shape[0], 6, 6)
-        assert out["init_cond"].shape == (batch["observation_grid"].shape[0], 6)
+        assert out["intensity_matrices"].shape == (batch["observation_grid"].shape[0], 6, 6)
+        assert out["intensity_matrices_variance"].shape == (batch["observation_grid"].shape[0], 6, 6)
+        assert out["initial_condition"].shape == (batch["observation_grid"].shape[0], 6)
 
     def test_summary(self, model, dataloader):
         import torchinfo

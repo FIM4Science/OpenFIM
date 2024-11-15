@@ -257,7 +257,7 @@ class TimeSeriesDatasetTorch(torch.utils.data.Dataset):
         if ds_name is None:
             ds_name = ""
         if loading_function is None:
-            self.data = torch.load(path + ds_name + f"/{split}.pt")
+            self.data = torch.load(path + ds_name + f"/{split}.pt", weights_only=True)
         else:
             self.data = loading_function(path + ds_name)
 

@@ -30,7 +30,7 @@ dataset:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
       observation_values: "fine_grid_noisy_sample_paths.pt"
-      mask_seq_lengths: "fine_grid_mask_seq_lengths.pt"
+      seq_lengths: "fine_grid_mask_seq_lengths.pt"
       time_normalization_factors: "fine_grid_time_normalization_factors.pt"
       intensity_matrices: "fine_grid_intensity_matrices.pt"
       adjacency_matrices: "fine_grid_adjacency_matrices.pt"

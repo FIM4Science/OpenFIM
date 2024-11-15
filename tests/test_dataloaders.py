@@ -130,10 +130,11 @@ class TestFimDataLoader:
         assert dataloader is not None
         assert dataloader.train_set_size == 800
         assert dataloader.test_set_size == 200
+        target_size = [1, 31, 61, 91, 121, 151, 181, 211, 241, 271]*2 + [300]*5
         for _ in range(5):
             for ix, batch in enumerate(islice(dataloader.train_it, 100)):
                 print(ix, batch["observation_values"].shape[1])
-                # assert batch["observation_values"].shape[1] == ix * 30 + 1
+                assert batch["observation_values"].shape[1] == target_size[ix]
 
     def test_variable_num_of_paths_test(self, config: dict):
         config["loader_kwargs"]["max_path_count"] = 300

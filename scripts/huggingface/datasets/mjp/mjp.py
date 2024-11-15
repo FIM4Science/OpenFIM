@@ -115,7 +115,7 @@ class MJP(datasets.GeneratorBasedBuilder):
     files_to_load = {
         "observation_grid": "fine_grid_grid.pt",
         "observation_values": "fine_grid_noisy_sample_paths.pt",
-        "mask_seq_lengths": "fine_grid_mask_seq_lengths.pt",
+        "seq_lengths": "fine_grid_mask_seq_lengths.pt",
         "time_normalization_factors": "fine_grid_time_normalization_factors.pt",
         "intensity_matrices": "fine_grid_intensity_matrices.pt",
         "adjacency_matrices": "fine_grid_adjacency_matrices.pt",
@@ -128,7 +128,7 @@ class MJP(datasets.GeneratorBasedBuilder):
                 "observation_grid": datasets.Sequence(datasets.Sequence(datasets.Sequence(datasets.Value("float32")))),
                 "observation_values": datasets.Sequence(datasets.Sequence(datasets.Sequence(datasets.Value("uint32")))),
                 "time_normalization_factors": datasets.Value("float32"),
-                "mask_seq_lengths": datasets.Sequence(datasets.Sequence(datasets.Value("int32"))),
+                "seq_lengths": datasets.Sequence(datasets.Sequence(datasets.Value("int32"))),
                 "intensity_matrices": datasets.Sequence(datasets.Sequence(datasets.Value("float32"))),
                 "adjacency_matrices": datasets.Sequence(datasets.Sequence(datasets.Value("float32"))),
                 "initial_distributions": datasets.Sequence(datasets.Value("uint64")),

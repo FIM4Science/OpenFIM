@@ -124,6 +124,9 @@ class FIMMJP(AModel):
             x (dict[str, Tensor]): A dictionary containing the input tensors:
                 - "observation_grid": Tensor representing the observation grid.
                 - "observation_values": Tensor representing the observation values.
+                - "seq_lengths": Tensor representing the sequence lengths.
+                - Optional keys:
+                    - "time_normalization_factors": Tensor representing the time normalization factors.
                 - Optional keys for loss calculation:
                     - "intensity_matrices": Tensor representing the intensity matrices.
                     - "initial_distributions": Tensor representing the initial distributions.
@@ -133,8 +136,8 @@ class FIMMJP(AModel):
         Returns:
             dict: A dictionary containing the following keys:
                 - "im": Tensor representing the intensity matrix.
-                - "log_var_im": Tensor representing the log variance of the intensity matrix.
-                - "init_cond": Tensor representing the initial conditions.
+                - "intensity_matrices_variance": Tensor representing the log variance of the intensity matrix.
+                - "initial_condition": Tensor representing the initial conditions.
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
 
@@ -155,13 +158,16 @@ class FIMMJP(AModel):
         pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
 
         out = {
-            "im": create_matrix_from_off_diagonal(
-                pred_offdiag_im_mean, self.n_states, mode="sum_row", n_states=self.n_states if n_states is None else n_states
+            "intensity_matrices": create_matrix_from_off_diagonal(
+                pred_offdiag_im_mean, self.n_states, mode="negative_sum_row", n_states=self.n_states if n_states is None else n_states
             ),
-            "log_var_im": create_matrix_from_off_diagonal(
-                torch.exp(pred_offdiag_im_logvar), self.n_states, mode="sum_row", n_states=self.n_states if n_states is None else n_states
+            "intensity_matrices_variance": create_matrix_from_off_diagonal(
+                torch.exp(pred_offdiag_im_logvar),
+                self.n_states,
+                mode="negative_sum_row",
+                n_states=self.n_states if n_states is None else n_states,
             ),
-            "init_cond": init_cond,
+            "initial_condition": init_cond,
         }
         if "intensity_matrices" in x and "initial_distributions" in x:
             out["losses"] = self.loss(
@@ -182,7 +188,7 @@ class FIMMJP(AModel):
         pos_enc = self.pos_encodings(obs_grid_normalized)
         path = torch.cat([pos_enc, obs_values_one_hot], dim=-1)
         if isinstance(self.ts_encoder, TransformerEncoder):
-            padding_mask = create_padding_mask(x["mask_seq_lengths"].view(B * P), L)
+            padding_mask = create_padding_mask(x["seq_lengths"].view(B * P), L)
             padding_mask[:, 0] = True
             h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, 1, :].view(B, P, -1)
             if isinstance(self.path_attention, nn.MultiheadAttention):
@@ -190,8 +196,8 @@ class FIMMJP(AModel):
             else:
                 h = self.path_attention(h, h, h)
         elif isinstance(self.ts_encoder, RNNEncoder):
-            h = self.ts_encoder(path.view(B * P, L, -1), x["mask_seq_lengths"].view(B * P))
-            last_observation = x["mask_seq_lengths"].view(B * P) - 1
+            h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
+            last_observation = x["seq_lengths"].view(B * P) - 1
             h = h[torch.arange(B * P), last_observation].view(B, P, -1)
             h = self.path_attention(h, h, h)
 
