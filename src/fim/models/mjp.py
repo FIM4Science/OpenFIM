@@ -22,6 +22,7 @@ class FIMMJPConfig(PretrainedConfig):
         path_attention: dict = None,
         intensity_matrix_decoder: dict = None,
         initial_distribution_decoder: dict = None,
+        use_num_of_paths: bool = True,
         **kwargs,
     ):
         self.n_states = n_states
@@ -31,6 +32,7 @@ class FIMMJPConfig(PretrainedConfig):
         self.path_attention = path_attention
         self.intensity_matrix_decoder = intensity_matrix_decoder
         self.initial_distribution_decoder = initial_distribution_decoder
+        self.use_num_of_paths = use_num_of_paths
 
         super().__init__(**kwargs)
 
@@ -200,8 +202,8 @@ class FIMMJP(AModel):
             last_observation = x["seq_lengths"].view(B * P) - 1
             h = h[torch.arange(B * P), last_observation].view(B, P, -1)
             h = self.path_attention(h, h, h)
-
-        h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
+        if self.config.use_num_of_paths:
+            h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
         if self.use_adjacency_matrix:
             h = torch.cat([h, get_off_diagonal_elements(x["adjacency_matrix"])], dim=-1)
         return h

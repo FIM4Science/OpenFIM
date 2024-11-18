@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_same_single_gpu
+  name: FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_out_proj
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [0]
   device_map: auto # auto, cuda, cpu
@@ -58,20 +58,20 @@ dataset:
       initial_distributions: "fine_grid_initial_distributions.pt"
     data_limit: null
 
-model_dim: &model_dim 256
+model_dim: &model_dim 512
+rnn_dim: &rnn_dim 256
 
 model:
   model_type: fimmjp
   n_states: 6
   use_adjacency_matrix: false
-  use_num_of_paths: true
+  use_num_of_paths: false
 
   ts_encoder:
     name: fim.models.blocks.base.RNNEncoder
-
     rnn:
       name: torch.nn.LSTM
-      hidden_size: *model_dim
+      hidden_size: *rnn_dim
       batch_first: true
       bidirectional: true
 
@@ -82,25 +82,26 @@ model:
     name: fim.models.blocks.MultiHeadLearnableQueryAttention
     n_queries: 16
     n_heads: 1
-    embed_dim: 512
-    kv_dim: 128
+    embed_dim: *model_dim
+    # kv_dim: 128
+    output_projection: true
 
   intensity_matrix_decoder:
     name: fim.models.blocks.base.MLP
-    in_features: 2049
+    in_features: *model_dim
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
-    dropout: 0
+    dropout: 0.1
     initialization_scheme: lecun_normal
 
   initial_distribution_decoder:
     name: fim.models.blocks.base.MLP
-    in_features: 2049
+    in_features: *model_dim
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
-    dropout: 0
+    dropout: 0.1
     initialization_scheme: lecun_normal
 
 trainer:

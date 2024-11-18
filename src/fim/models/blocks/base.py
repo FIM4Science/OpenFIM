@@ -90,28 +90,24 @@ class MLP(Block):
 
 
 class MultiHeadLearnableQueryAttention(Block):
-    def __init__(self, n_queries: int, n_heads: int, embed_dim: int, kv_dim: int = None, **kwargs):
+    def __init__(self, n_queries: int, n_heads: int, embed_dim: int, kv_dim: int = None, output_projection: bool = False, **kwargs):
         super().__init__(**kwargs)
 
         self.n_queries = n_queries
         self.n_heads = n_heads
         self.kv_dim = kv_dim if kv_dim is not None else embed_dim
         self.embed_dim = embed_dim
-        self.is_same_embedding_dim_and_kv_dim = embed_dim == self.kv_dim
-        if self.is_same_embedding_dim_and_kv_dim:
-            self.head_dim = embed_dim // n_heads
-            assert self.head_dim * n_heads == embed_dim, "embedding_dim must be divisible by n_heads"
-            self.q = nn.Parameter(torch.randn(1, self.n_heads, self.n_queries, self.head_dim))
-            self.W_k = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
-            self.W_v = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
-            # self.W_o = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
-        else:
-            self.head_dim = self.kv_dim // n_heads
-            assert self.head_dim * n_heads == self.kv_dim, "kv_dim must be divisible by n_heads"
-            self.q = nn.Parameter(torch.randn(1, self.n_heads, self.n_queries, self.head_dim))
-            self.W_k = nn.Linear(self.embed_dim, self.kv_dim, bias=False)
-            self.W_v = nn.Linear(self.embed_dim, self.kv_dim, bias=False)
-            # self.W_o = nn.Linear(self.kv_dim, self.embed_dim, bias=False)
+        self.output_projection = output_projection
+
+        self.head_dim = self.kv_dim // n_heads if kv_dim else embed_dim // n_heads
+        assert self.head_dim * n_heads == (self.kv_dim if kv_dim else embed_dim), "Dimension must be divisible by n_heads"
+
+        self.q = nn.Parameter(torch.randn(1, self.n_heads, self.n_queries, self.head_dim))
+        self.W_k = nn.Linear(self.embed_dim, self.kv_dim if kv_dim else self.embed_dim, bias=False)
+        self.W_v = nn.Linear(self.embed_dim, self.kv_dim if kv_dim else self.embed_dim, bias=False)
+
+        if self.output_projection:
+            self.W_o = nn.Linear(self.kv_dim if kv_dim else self.embed_dim, self.embed_dim, bias=False)
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
         B, L, _ = k.size()
@@ -122,8 +118,12 @@ class MultiHeadLearnableQueryAttention(Block):
 
         h = scaled_dot_product_attention(q, k, v, mask)
         h = h.view(B, self.n_heads, self.n_queries, self.head_dim).permute(0, 2, 1, 3).contiguous()
+        if self.output_projection:
+            h = self.W_o(h.view(B, self.n_queries, self.n_heads * self.head_dim))[:, -1]
+        else:
+            h = h.view(B, -1)
 
-        return h.view(B, -1)
+        return h
 
 
 class TransformerBlock(Block):
