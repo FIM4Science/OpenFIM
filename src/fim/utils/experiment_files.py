@@ -26,6 +26,9 @@ class ExperimentsFiles:
         - parametes yamls
         - plot path
     """
+    model_config_yaml:str = None
+    data_config_yaml:str = None
+
     def __init__(self,experiment_dir=None,experiment_indentifier=None,delete=False):
         self.delete = delete
         self.define_experiment_folder(experiment_dir,experiment_indentifier)
@@ -45,7 +48,8 @@ class ExperimentsFiles:
         self.tensorboard_dir = os.path.join(self.experiment_dir, "logs")
         self.checkpoints_dir = os.path.join(self.experiment_dir, "checkpoints")
         self.sample_dir = os.path.join(self.experiment_dir, "sample")
-        self.params_yaml = os.path.join(self.experiment_dir, "params.yaml")  
+        self.model_config_yaml = os.path.join(self.experiment_dir, "model_config.yaml")  
+        self.data_config_yaml = os.path.join(self.experiment_dir, "data_config.yaml")
         self.plots_path  = os.path.join(self.experiment_dir, "plots_{0}.png")
         self.metrics_path = os.path.join(self.experiment_dir, "plots_{0}.json")
 

@@ -1,10 +1,10 @@
-from dataclasses import dataclass, field
-from typing import List, Optional
+import yaml
 from fim import results_path
+from typing import List, Optional
+from dataclasses import dataclass, field
 
 @dataclass
 class FIMSDEConfig:
-    
     # saving 
     experiment_name:str = "sde"
     experiment_dir:str = rf"{results_path}"
@@ -52,6 +52,12 @@ class FIMSDEConfig:
     dt_pipeline:float = 0.01
     number_of_time_steps_pipeline:int = 128
     evaluate_with_unnormalized_heads:bool = True
+
+    @classmethod
+    def from_yaml(cls, yaml_path: str) -> 'FIMSDEConfig':
+        with open(yaml_path, 'r') as file:
+            params_dict = yaml.safe_load(file)
+        return cls(**params_dict)
     
 # Example instantiation
 model_config = FIMSDEConfig(

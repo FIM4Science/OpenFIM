@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Type, TypeVar, Any, Dict
 from fim import data_path  # Assumes `data_path` provides the base path for your data files
+import yaml
 
 T = TypeVar('T')
 
@@ -57,3 +58,9 @@ class FIMDatasetConfig:
             self.data_in_files = DataInFiles.from_dict(self.data_in_files)
         if isinstance(self.dataset_path_collections, dict):
             self.dataset_path_collections = DatasetPathCollections.from_dict(self.dataset_path_collections)
+    
+    @classmethod
+    def from_yaml(cls, yaml_path: str) -> 'FIMDatasetConfig':
+        with open(yaml_path, 'r') as file:
+            params_dict = yaml.safe_load(file)
+        return cls(**params_dict)

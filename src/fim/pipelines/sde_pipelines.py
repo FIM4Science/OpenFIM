@@ -214,10 +214,8 @@ class FIMSDEPipeline:
         for step in tqdm(range(self.num_steps), desc="Simulating steps", unit="step"):
             states = self.model_euler_maruyama_step(states,databatch)  # Diffusion term
             paths[:, step + 1] = states.clone()  # Store new states
-
         return paths,times
-    
-    
+
 def sample_and_save_from_test(model,dataloaders,experiment_files):
     pipeline = FIMSDEPipeline(model)
     for batch_id,test_databatch in enumerate(dataloaders.test_it):

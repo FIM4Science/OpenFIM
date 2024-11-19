@@ -71,7 +71,9 @@ def train_fim_sde(model_config:FIMSDEConfig,data_config:FIMDatasetConfig):
     data_config = FIMDatasetConfig(**data_config)
     model = FIMSDE(model_config,data_config)
     # Set up Model
-    save_hyperparameters_to_yaml(model_config,experiment_files.params_yaml)
+    save_hyperparameters_to_yaml(model_config,experiment_files.model_config_yaml)
+    save_hyperparameters_to_yaml(data_config,experiment_files.data_config_yaml)
+
     #Set up trainers
     trainer = Trainer(
         default_root_dir=experiment_files.experiment_dir,
@@ -91,7 +93,8 @@ def train_fim_sde(model_config:FIMSDEConfig,data_config:FIMDatasetConfig):
     sample_and_save_from_test(model,dataloaders,experiment_files)
 
 if __name__=="__main__":
-    model_config = FIMSDEConfig(num_epochs=10)
+    model_config = FIMSDEConfig(num_epochs=4,
+                                log_images_every_n_epochs=2)
     data_config = FIMDatasetConfig()
     train_fim_sde(model_config,data_config)
 
