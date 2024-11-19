@@ -12,18 +12,18 @@ from fim.utils.helper import select_dimension_for_plot
 from fim.utils.plots.sde_estimation_plots import (
     plot_one_dimension,
     plot_drift_diffussion,
-    plot_3d_drift_and_diffusion,
-    plot_3d_drift_and_diffusion_
+    plot_3d_drift_and_diffusion
 )
 
 def test_plot_1d():
-    model_config = asdict(FIMSDEConfig())
+    model_config = FIMSDEConfig()
     data_config = FIMDatasetConfig()
     dataloader = FIMSDEDataloader(**asdict(data_config))
-    model = FIMSDE(model_config,asdict(data_config))
-    databatch_target = generate_all(data_config)
+    model = FIMSDE(model_config,data_config)
+    databatch_target = model.target_data
     pipeline = FIMSDEPipeline(model)
     pipeline_output = pipeline(databatch_target)
+
 
     selected_data = select_dimension_for_plot(1,
                                               databatch_target.dimension_mask,
@@ -43,13 +43,14 @@ def test_plot_1d():
                         show=True)
 
 def test_plot_2d():
-    model_config = asdict(FIMSDEConfig())
+    model_config = FIMSDEConfig()
     data_config = FIMDatasetConfig()
     dataloader = FIMSDEDataloader(**asdict(data_config))
-    model = FIMSDE(model_config,asdict(data_config))
-    databatch_target = generate_all(data_config)
+    model = FIMSDE(model_config,data_config)
+    databatch_target = model.target_data
     pipeline = FIMSDEPipeline(model)
     pipeline_output = pipeline(databatch_target)
+
 
     selected_data = select_dimension_for_plot(2,
                                               databatch_target.dimension_mask,
@@ -69,11 +70,11 @@ def test_plot_2d():
                           show=True)
 
 def test_plot_3d():
-    model_config = asdict(FIMSDEConfig())
+    model_config = FIMSDEConfig()
     data_config = FIMDatasetConfig()
     dataloader = FIMSDEDataloader(**asdict(data_config))
-    model = FIMSDE(model_config,asdict(data_config))
-    databatch_target = generate_all(data_config)
+    model = FIMSDE(model_config,data_config)
+    databatch_target = model.target_data
     pipeline = FIMSDEPipeline(model)
     pipeline_output = pipeline(databatch_target)
 
@@ -87,7 +88,7 @@ def test_plot_3d():
                                               index_to_select=0)
     
     locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
-    plot_3d_drift_and_diffusion_(locations,
+    plot_3d_drift_and_diffusion(locations,
                                 drift_at_locations_real,
                                 drift_at_locations_estimation,
                                 diffusion_at_locations_real,

@@ -11,19 +11,16 @@ from fim.utils.helper import select_dimension_for_plot
 from fim.utils.plots.sde_estimation_plots import (
     plot_one_dimension,
     plot_drift_diffussion,
-    plot_3d_drift_and_diffusion,
-    plot_3d_drift_and_diffusion_
+    plot_3d_drift_and_diffusion
 )
 
 def test_pipeline():
     model_config = FIMSDEConfig()
     data_config = FIMDatasetConfig()
-    dataloader = FIMSDEDataloader(**asdict(data_config))
-    model = FIMSDE(model_config,data_config)
     
-    databatch_target = generate_all(data_config)
+    model = FIMSDE(model_config,data_config)
+    databatch_target = model.target_data
 
-    databatch:FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
     pipeline = FIMSDEPipeline(model)
     pipeline_output = pipeline(databatch_target)
     

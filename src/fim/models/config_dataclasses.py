@@ -1,8 +1,14 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
+from fim import results_path
 
 @dataclass
 class FIMSDEConfig:
+    
+    # saving 
+    experiment_name:str = "sde"
+    experiment_dir:str = rf"{results_path}"
+
     # phi_0^t
     temporal_embedding_size: int = 19
 
@@ -26,7 +32,7 @@ class FIMSDEConfig:
     trunk_net_hidden_layers: Optional[int] = field(default_factory=lambda: [25])
 
     # optimizer + regularization
-    num_epochs:int = 100
+    num_epochs:int = 2
     add_delta_x_to_value_encoder: bool = True
     learning_rate: float = 1.0e-5
     weight_decay: float = 1.0e-4
@@ -37,6 +43,7 @@ class FIMSDEConfig:
     loss_threshold: float = 100.0
     loss_type:str = "rmse" #var, rmse
 
+    log_images_every_n_epochs:int=2
     train_with_normalized_head:bool = True
     clip_grad:bool = True
     clip_max_norm:float = 10.

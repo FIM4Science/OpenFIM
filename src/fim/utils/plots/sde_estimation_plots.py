@@ -3,7 +3,9 @@ import numpy as np
 from torch import Tensor
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-
+from fim.utils.helper import select_dimension_for_plot
+from fim.pipelines.sde_pipelines import FIMSDEPipelineOutput
+from fim.data.datasets import FIMSDEDatabatchTuple
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 def plot_one_dimension(
@@ -92,7 +94,7 @@ def plot_drift_diffussion(
     else:
         return fig  # Return the figure to log
     
-def plot_3d_drift_and_diffusion_(
+def plot_3d_drift_and_diffusion(
         locations:Tensor,
         drift_at_locations_real:Tensor,
         diffusion_at_locations_real:Tensor, 
@@ -106,19 +108,6 @@ def plot_3d_drift_and_diffusion_(
     """
     # Assuming `locations` is a NumPy array of shape (P, 3), and `estimated_drift`, `estimated_diffusion`, `ground_truth_drift`, and `ground_truth_diffusion` are also NumPy arrays of shape (P, 3).
     tolerance = 0.1  # tolerance for finding points close to the desired x_0 value
-
-    # Find indices where the first dimension of `locations` is close to `your_fixed_x_value`
-    #slice_indices = np.where(np.abs(locations[:, 0] - your_fixed_x_value) < tolerance)[0]
-
-    # Select the corresponding values at the chosen slice for both model estimates and ground truth
-    #drift_slice = drift_at_locations_estimation[slice_indices]
-    #diffusion_slice = diffusion_at_locations_estimation[slice_indices]
-
-    #ground_truth_drift_slice = drift_at_locations_real[slice_indices]
-    #ground_truth_diffusion_slice = diffusion_at_locations_real[slice_indices]
-
-    # Assuming the grid is 8x8 for visualization purposes (adjust if necessary)
-    #grid_size = int(np.sqrt(len(slice_indices)))
 
     # Define your tolerance, locations, and fixed x value as before
     slice_indices = np.where(np.abs(locations[:, 0] - your_fixed_x_value) < tolerance)[0]
@@ -185,97 +174,66 @@ def plot_3d_drift_and_diffusion_(
         for j in range(4):
             axs[j][i].set_xticks([])
             axs[j][i].set_yticks([])
+
     plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust layout to fit the suptitle
     if show:
         plt.show()
     else:
         return fig
+
+def images_log_3D(databatch_target:FIMSDEDatabatchTuple,pipeline_output:FIMSDEPipelineOutput):
+    selected_data = select_dimension_for_plot(3,
+                                              databatch_target.dimension_mask,
+                                              databatch_target.locations,
+                                              pipeline_output.drift_at_locations_estimator,
+                                              pipeline_output.diffusion_at_locations_estimator,
+                                              databatch_target.drift_at_locations,
+                                              databatch_target.diffusion_at_locations,
+                                              index_to_select=0)
     
-def find_closest_factors(n):
-    # Find factors closest to the square root of `n`
-    root = int(np.sqrt(n))
-    for i in range(root, 0, -1):
-        if n % i == 0:
-            return i, n // i
-    return n, 1
+    locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
+    fig = plot_3d_drift_and_diffusion(locations,
+        	                          drift_at_locations_real,
+        	                          drift_at_locations_estimation,
+        	                          diffusion_at_locations_real,
+        	                          diffusion_at_locations_estimation,
+        	                          your_fixed_x_value=.1,
+        	                          show=False)
+    return fig
 
-def plot_3d_drift_and_diffusion(
-    locations: Tensor,
-    drift_at_locations_real: Tensor,
-    diffusion_at_locations_real: Tensor, 
-    drift_at_locations_estimation: Tensor, 
-    diffusion_at_locations_estimation: Tensor,
-    your_fixed_x_value: float = 0.5,
-    show: bool = True,
-    pad_to_fit: bool = True
-):
-    tolerance = 1.0
-
-    # Find indices where `locations` is close to `your_fixed_x_value`
-    slice_indices = np.where(np.abs(locations[:, 0] - your_fixed_x_value) < tolerance)[0]
-
-    # Select corresponding values for model estimates and ground truth
-    drift_slice = drift_at_locations_estimation[slice_indices]
-    diffusion_slice = diffusion_at_locations_estimation[slice_indices]
-    ground_truth_drift_slice = drift_at_locations_real[slice_indices]
-    ground_truth_diffusion_slice = diffusion_at_locations_real[slice_indices]
-
-    # Get the count of points and find closest grid factors
-    points_count = len(slice_indices)
-    grid_size_x, grid_size_y = find_closest_factors(points_count)
-
-    # Optional padding if grid size doesn't match exactly
-    if pad_to_fit and grid_size_x * grid_size_y != points_count:
-        padding_needed = (grid_size_x * grid_size_y) - points_count
-        print(f"Padding with {padding_needed} zeros to fit grid shape.")
-        drift_slice = np.pad(drift_slice, ((0, padding_needed), (0, 0)))
-        diffusion_slice = np.pad(diffusion_slice, ((0, padding_needed), (0, 0)))
-        ground_truth_drift_slice = np.pad(ground_truth_drift_slice, ((0, padding_needed), (0, 0)))
-        ground_truth_diffusion_slice = np.pad(ground_truth_diffusion_slice, ((0, padding_needed), (0, 0)))
-
-    # Reshape slices for visualization
-    drift_slice_reshaped = drift_slice.reshape(grid_size_x, grid_size_y, -1)
-    diffusion_slice_reshaped = diffusion_slice.reshape(grid_size_x, grid_size_y, -1)
-    ground_truth_drift_reshaped = ground_truth_drift_slice.reshape(grid_size_x, grid_size_y, -1)
-    ground_truth_diffusion_reshaped = ground_truth_diffusion_slice.reshape(grid_size_x, grid_size_y, -1)
-
-    # Plotting
-    fig = plt.figure(figsize=(8, 8))
-    gs = GridSpec(4, 3, figure=fig, wspace=0.005, hspace=0.05)
-    fig.suptitle(f'Slice at x_0 = {your_fixed_x_value:.5f}')
-
-    axs = [[fig.add_subplot(gs[i, j]) for j in range(3)] for i in range(4)]
-
-    for i in range(3):  # Loop over dimensions 0, 1, 2
-        # Ground-truth drift and diffusion
-        axs[0][i].imshow(ground_truth_drift_reshaped[..., i], origin='lower', cmap='viridis')
-        axs[0][i].set_title(f'Dimension {i}')
-        axs[0][i].set_ylabel("Ground-Truth Drift")
-        
-        # Model drift
-        axs[1][i].imshow(drift_slice_reshaped[..., i], origin='lower', cmap='viridis')
-        axs[1][i].set_ylabel("Model Drift")
-
-        # Ground-truth diffusion
-        axs[2][i].imshow(ground_truth_diffusion_reshaped[..., i], origin='lower', cmap='viridis')
-        axs[2][i].set_ylabel("Ground-Truth Diffusion")
-
-        # Model diffusion
-        axs[3][i].imshow(diffusion_slice_reshaped[..., i], origin='lower', cmap='viridis')
-        axs[3][i].set_ylabel("Model Diffusion")
-
-        # Remove ticks and labels for non-first columns
-        if i > 0:
-            for j in range(4): 
-                axs[j][i].set_yticks([])
-                axs[j][i].set_ylabel("")
-        # Remove ticks for all axes
-        for j in range(4):
-            axs[j][i].set_xticks([])
-            axs[j][i].set_yticks([])
-
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    if show:
-        plt.show()
-    else:
-        return fig
+def images_log_2D(databatch_target:FIMSDEDatabatchTuple,pipeline_output:FIMSDEPipelineOutput):
+    selected_data = select_dimension_for_plot(2,
+                                              databatch_target.dimension_mask,
+                                              databatch_target.locations,
+                                              pipeline_output.drift_at_locations_estimator,
+                                              pipeline_output.diffusion_at_locations_estimator,
+                                              databatch_target.drift_at_locations,
+                                              databatch_target.diffusion_at_locations,
+                                              index_to_select=0)
+    locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
+    fig = plot_drift_diffussion(locations,
+                          drift_at_locations_real,
+                          diffusion_at_locations_real, 
+                          drift_at_locations_estimation, 
+                          diffusion_at_locations_estimation, 
+                          show=False)
+    return fig
+    
+def images_log_1D(databatch_target:FIMSDEDatabatchTuple,pipeline_output:FIMSDEPipelineOutput):
+    selected_data = select_dimension_for_plot(1,
+                                              databatch_target.dimension_mask,
+                                              databatch_target.locations,
+                                              pipeline_output.drift_at_locations_estimator,
+                                              pipeline_output.diffusion_at_locations_estimator,
+                                              databatch_target.drift_at_locations,
+                                              databatch_target.diffusion_at_locations,
+                                              index_to_select=0)
+    
+    locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
+    fig = plot_one_dimension(locations,
+                             drift_at_locations_real,
+                             drift_at_locations_estimation,
+                             diffusion_at_locations_real,
+                             diffusion_at_locations_estimation,
+                             show=False)
+    return fig

@@ -27,47 +27,51 @@ from fim.data.datasets import FIMSDEDatabatchTuple
 
 from fim.models.sde import FIMSDE
 from fim.models.config_dataclasses import FIMSDEConfig
-from fim.pipelines.sde_pipelines import FIMSDEPipeline
-from fim.utils.experiment_files import ExperimentsFiles
+from fim.pipelines.sde_pipelines import(
+    FIMSDEPipeline,
+    sample_and_save_from_test
+)
 
+from fim.utils.experiment_files import ExperimentsFiles
+from pathlib import Path
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.dataloaders import FIMSDEDataloader
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.utils.helper import save_hyperparameters_to_yaml
+from fim import results_path
 
-def train_fim_sde(params:FIMSDEConfig):
+def train_fim_sde(model_config:FIMSDEConfig,data_config:FIMDatasetConfig):
     """
     This function creates an MLFlow Logger and a Lightning Trainer to train FIMSDE_p
     """
-    # Experiment Files
-    experiment_files = ExperimentsFiles(experiment_indentifier=None,
-                                        delete=True)
-    # Set up TensorBoard logger
-    # logger = MLFlowLogger(experiment_name="time_series_transformer",tracking_uri='http://localhost:5000')
-    logger = TensorBoardLogger(experiment_files.tensorboard_dir, 
-                               name=experiment_files.experiment_indentifier)
+    ml_flow_folder = Path(results_path) / "mlruns"
+    experiment_name="sde"
 
+    # Experiment Files
+    experiment_files = ExperimentsFiles(experiment_indentifier=None,delete=True)
+    model_config.experiment_dir = experiment_files.experiment_dir
+    model_config.experiment_name = experiment_name
+
+    # Set up TensorBoard logger
+    logger = MLFlowLogger(experiment_name=experiment_name,
+                          tracking_uri=f"file:{ml_flow_folder}")
+    
     # Set up Model Checkpointing
     checkpoint_callback_best = ModelCheckpoint(dirpath=experiment_files.checkpoints_dir,
                                                save_top_k=1, 
                                                monitor="val_loss",
                                                filename="best-{epoch:02d}")
-    
     checkpoint_callback_last = ModelCheckpoint(dirpath=experiment_files.checkpoints_dir,
                                                save_top_k=1,
                                                monitor=None,
                                                filename="last-{epoch:02d}")
-    
-    model_config = FIMSDEConfig()
-    data_config = FIMDatasetConfig()
 
-    dataloaders = FIMSDEDataloader(**asdict(data_config))
+    data_config = asdict(data_config)
+    dataloaders = FIMSDEDataloader(**data_config)
+    data_config = FIMDatasetConfig(**data_config)
     model = FIMSDE(model_config,data_config)
-
     # Set up Model
     save_hyperparameters_to_yaml(model_config,experiment_files.params_yaml)
-    #save_hyperparameters_to_yaml(data_config,experiment_files.params_yaml)
-
     #Set up trainers
     trainer = Trainer(
         default_root_dir=experiment_files.experiment_dir,
@@ -80,9 +84,14 @@ def train_fim_sde(params:FIMSDEConfig):
     trainer.fit(model, 
                 dataloaders.train_it,
                 dataloaders.validation_it)
+    
+    # Save test samples from best model
+    checkpoint_path = experiment_files.get_lightning_checkpoint_path("best")
+    model = FIMSDE.load_from_checkpoint(checkpoint_path,model_config=model_config,data_config=data_config,map_location="cuda")
+    sample_and_save_from_test(model,dataloaders,experiment_files)
 
 if __name__=="__main__":
-    params = FIMSDEConfig(num_epochs=10,
-                          temporal_embedding_size=20)
-    train_fim_sde(params)
+    model_config = FIMSDEConfig(num_epochs=10)
+    data_config = FIMDatasetConfig()
+    train_fim_sde(model_config,data_config)
 

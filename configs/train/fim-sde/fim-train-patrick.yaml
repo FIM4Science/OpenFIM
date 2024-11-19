@@ -1,7 +1,7 @@
 seed: 0
 
 experiment:
-  name: lr_1e5_linear_spatial_embed_4x8x256_transformer
+  name: sde
   name_add_date: False # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -34,6 +34,7 @@ model:
 
   # optimizer + regularising
   add_delta_x_to_value_encoder: &add_delta_x_to_value_encoder true
+  log_images_every_n_epochs: 2
   learning_rate: &learning_rate 1.0e-5
   weight_decay: &weight_decay 1.0e-4
   dropout_rate: &dropout_rate 0.1

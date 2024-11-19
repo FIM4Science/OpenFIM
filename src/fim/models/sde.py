@@ -17,6 +17,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
 from fim.models.config_dataclasses import FIMSDEConfig
+from fim.pipelines.sde_pipelines import FIMSDEPipeline
 
 from fim.data.datasets import (
     FIMSDEDataset,
@@ -35,6 +36,12 @@ from fim.utils.experiment_files import ExperimentsFiles
 from fim.models.blocks import AModel, ModelFactory
 from fim.data.datasets import FIMSDEDataset,FIMSDEDatabatchTuple
 from fim.data.data_generation.dynamical_systems_target import generate_all
+
+from fim.utils.plots.sde_estimation_plots import (
+    images_log_1D,
+    images_log_2D,
+    images_log_3D
+)
 
 # 1. Define your query generation model (a simple linear layer can work)
 class QueryGenerator(nn.Module):
@@ -335,7 +342,6 @@ class FIMSDE(pl.LightningModule):
         if device_map is not None:
             self.to(device_map)
 
-        self.log_images = False
         self.DatabatchNameTuple = FIMSDEDatabatchTuple
         # Important: This property activates manual optimization (Lightning)
         self.automatic_optimization = False
@@ -686,61 +692,25 @@ class FIMSDE(pl.LightningModule):
 
     def on_train_epoch_start(self):
         # Action to be executed at the start of each training epoch
-        self.log_1D_images = False
-        self.log_2D_images = False
-        self.log_3D_images = False
+        if (self.current_epoch + 1) % self.model_config.log_images_every_n_epochs == 0:
+            pipeline = FIMSDEPipeline(self)
+            pipeline_sample = pipeline(self.target_data)
+            self.images_log(self.target_data,pipeline_sample)
 
-    #def on_train_epoch_end(self):
-    #self.images_log(self.target_datatuple,batch_idx)
-    #    # Only run every `interval_epochs`
-    #    if (self.current_epoch + 1) % self.interval_epochs == 0:
-    #        self.run_periodic_function()
+    def images_log(self,databatch,pipeline_sample):
+        fig = images_log_1D(databatch,pipeline_sample)
+        if fig is not None:
+            mlflow_client_ = self.logger.experiment
+            mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_1D.png")
 
+        fig = images_log_2D(databatch,pipeline_sample)
+        if fig is not None:
+            mlflow_client_ = self.logger.experiment
+            mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_2D.png")
 
-ModelFactory.register("FIMSDE",FIMSDE,with_data_params=True)
-
-"""
-    def _forward(
-            self,
-            databatch:FIMSDEDataset|FIMSDEDatabatchTuple,
-            locations:Optional[Tensor]=None,
-            training:bool=True,
-        ) -> Tuple[torch.tensor,torch.tensor]:
-        if locations is None:
-            locations = databatch.locations
-
-        B,P,T,D,_ = databatch.obs_values.shape
-        G = locations.size(1)
-
-        # include the square of the difference
-        x_full = torch.concat([databatch.obs_values,databatch.obs_values[:,:,:,:,0].unsqueeze(-1)**2],dim=-1)
-        x_flattened = x_full.view(x_full.shape[0], x_full.shape[1], x_full.shape[2], -1)
-        spatial_encoding = self.phi_0x(x_flattened) # [B,P,T,spatial_embedding_size]
-        time_encoding = self.phi_0t(databatch.obs_times) # [B,P,T,temporal_embedding_size]
-
-        # trunk 
-        trunk_encoding = self.trunk(locations) #[B,H,trunk_dim]
-        trunk_encoding = trunk_encoding[:,None,:,:].repeat(1,P,1,1)  # [B,P,H,trunk_size]
-        trunk_encoding = trunk_encoding.view(B*P,G,-1)
-
-        # embbedded input
-        U =  torch.cat([spatial_encoding,time_encoding],dim=-1) #  [B,P,T,spatial_plus_time_encoding]
-        U = self.phi_xt(U) #  [B,P,T,psi_1_tokes_dim] 
-
-        # TRANSFORMER THAT CREATES A REPRESENTATION FOR THE PATHS
-        U = U.view(B*P,T,self.psi_1_tokes_dim)
-        H = self.psi_1(torch.transpose(U,0,1))  # [T,B*P,psi_1_tokes_dim]
-        H = torch.transpose(H,0,1) # [B*P,T,psi_1_tokes_dim]
-
-        # Attention on Time -> One representation per path
-        hx,_ = self.omega_1(trunk_encoding,H,H) # [B*P,H,psi_1_tokes_dim]
-        hx = hx.view(B,P,G,-1) # [B,P,G,psi_1_tokes_dim]
-
-        # Attention on Paths -> One representation per expression
-        hx_ = hx.transpose(1,2).reshape(G*B,P,-1) # [B*G,P,psi_1_tokes_dim]
-        path_queries_ = self.path_queries[None,:,:].repeat(G*B,1,1)
-        bx,_ = self.omega_2(path_queries_,hx_,hx_)
-        bx = bx.view(B,G,-1) # [B,G,psi_1_tokes_dim]
+        fig = images_log_3D(databatch,pipeline_sample)
+        if fig is not None:
+            mlflow_client_ = self.logger.experiment
+            mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_3D.png")
         
-        return bx,hx
-"""
+ModelFactory.register("FIMSDE",FIMSDE,with_data_params=True)

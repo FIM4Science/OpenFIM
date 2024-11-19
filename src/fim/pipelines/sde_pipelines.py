@@ -1,3 +1,4 @@
+import os
 import torch
 
 import pandas as pd
@@ -215,3 +216,11 @@ class FIMSDEPipeline:
             paths[:, step + 1] = states.clone()  # Store new states
 
         return paths,times
+    
+    
+def sample_and_save_from_test(model,dataloaders,experiment_files):
+    pipeline = FIMSDEPipeline(model)
+    for batch_id,test_databatch in enumerate(dataloaders.test_it):
+        test_output = pipeline(test_databatch)
+        torch.save(test_output,
+                    os.path.join(experiment_files.sample_dir,"output_test_batch{0}.tr".format(batch_id)))
