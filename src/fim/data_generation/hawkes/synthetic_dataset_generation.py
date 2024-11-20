@@ -60,11 +60,11 @@ class HawkesDatasetGenerator():
         event_type_data = event_type_data[valid_samples]
 
         res = {
-            "baseline_data": baseline_data,
-            "kernel_grid_data": kernel_grid_data,
-            "kernel_evaluation_data": kernel_evaluation_data,
-            "event_time_data": event_time_data,
-            "event_type_data": event_type_data
+            "base_intensities": baseline_data,
+            "kernel_grids": kernel_grid_data,
+            "kernel_evaluations": kernel_evaluation_data,
+            "event_times": event_time_data,
+            "event_types": event_type_data
         }
         return res
     
