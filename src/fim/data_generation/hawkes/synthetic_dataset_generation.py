@@ -63,8 +63,8 @@ class HawkesDatasetGenerator():
             "base_intensities": baseline_data,
             "kernel_grids": kernel_grid_data,
             "kernel_evaluations": kernel_evaluation_data,
-            "event_times": event_time_data,
-            "event_types": event_type_data
+            "event_times": event_time_data[:,:,:,None],
+            "event_types": event_type_data[:,:,:,None]
         }
         return res
     

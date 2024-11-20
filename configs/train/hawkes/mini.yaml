@@ -27,11 +27,11 @@ dataset:
     test_batch_size: 72
   dataset_kwargs:
     files_to_load:
-      baseline_data: "baseline_data.pt"
-      event_time_data: "event_time_data.pt"
-      event_type_data: "event_type_data.pt"
-      kernel_evaluation_data: "kernel_evaluation_data.pt"
-      kernel_grid_data: "kernel_grid_data.pt"
+      base_intensities: "base_intensities.pt"
+      event_times: "event_times.pt"
+      event_types: "event_types.pt"
+      kernel_evaluations: "kernel_evaluations.pt"
+      kernel_grids: "kernel_grids.pt"
     data_limit: null
 
 path_embed_dim: &path_embed_dim 128

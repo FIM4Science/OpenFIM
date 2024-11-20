@@ -152,9 +152,9 @@ class FIMHawkes(AModel):
                 - "baseline_intensity": Tensor representing the predicted baseline intensity.
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
-        x["observation_values_one_hot"] = torch.nn.functional.one_hot(x["event_type_data"].long().squeeze(-1), num_classes=self.num_marks)
+        x["observation_values_one_hot"] = torch.nn.functional.one_hot(x["event_types"].long().squeeze(-1), num_classes=self.num_marks)
         
-        breakpoint()
+        obs_grid = x["event_times"]
         if "time_normalization_factors" not in x:
             norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid)
             x["time_normalization_factors"] = norm_constants
@@ -164,6 +164,8 @@ class FIMHawkes(AModel):
             x["observation_grid_normalized"] = obs_grid
 
         sequence_encodings = self.__encode_observations(x)
+        
+        breakpoint()
 
 
 
@@ -191,8 +193,8 @@ class FIMHawkes(AModel):
         obs_grid_normalized = x["observation_grid_normalized"]
         obs_values_one_hot = x["observation_values_one_hot"]
         B, P, L = obs_grid_normalized.shape[:3]
-        pos_enc = self.pos_encodings(obs_grid_normalized)
-        path = torch.cat([pos_enc, obs_values_one_hot], dim=-1)
+        time_enc = self.time_encodings(obs_grid_normalized)
+        path = torch.cat([time_enc, obs_values_one_hot], dim=-1)
         if isinstance(self.ts_encoder, TransformerEncoder):
             padding_mask = create_padding_mask(x["seq_lengths"].view(B * P), L)
             padding_mask[:, 0] = True
