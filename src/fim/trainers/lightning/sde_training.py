@@ -26,7 +26,6 @@ from fim.data.dataloaders import FIMSDEDataloader
 from fim.data.datasets import FIMSDEDatabatchTuple
 
 from fim.models.sde import FIMSDE
-from fim.models.config_dataclasses import FIMSDEConfig
 from fim.pipelines.sde_pipelines import(
     FIMSDEPipeline,
     sample_and_save_from_test
@@ -34,13 +33,19 @@ from fim.pipelines.sde_pipelines import(
 
 from fim.utils.experiment_files import ExperimentsFiles
 from pathlib import Path
+from fim.models.config_dataclasses import FIMSDEConfig
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.dataloaders import FIMSDEDataloader
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.utils.helper import save_hyperparameters_to_yaml
 from fim import results_path
 
-def train_fim_sde(model_config:FIMSDEConfig,data_config:FIMDatasetConfig):
+
+from fim.utils.helper import load_yaml
+
+# mlflow ui --port 5000
+
+def train_fim_sde(model_config:dict,data_config:dict):
     """
     This function creates an MLFlow Logger and a Lightning Trainer to train FIMSDE_p
     """
@@ -49,8 +54,8 @@ def train_fim_sde(model_config:FIMSDEConfig,data_config:FIMDatasetConfig):
 
     # Experiment Files
     experiment_files = ExperimentsFiles(experiment_indentifier=None,delete=True)
-    model_config.experiment_dir = experiment_files.experiment_dir
-    model_config.experiment_name = experiment_name
+    model_config["experiment_dir"] = experiment_files.experiment_dir
+    model_config["experiment_name"] = experiment_name
 
     # Set up TensorBoard logger
     logger = MLFlowLogger(experiment_name=experiment_name,
@@ -66,20 +71,20 @@ def train_fim_sde(model_config:FIMSDEConfig,data_config:FIMDatasetConfig):
                                                monitor=None,
                                                filename="last-{epoch:02d}")
 
-    data_config = asdict(data_config)
     dataloaders = FIMSDEDataloader(**data_config)
-    data_config = FIMDatasetConfig(**data_config)
+    data_config = dataloaders.update_kwargs(data_config)
+    model_config = dataloaders.update_kwargs(model_config)
+
     model = FIMSDE(model_config,data_config)
     # Set up Model
     save_hyperparameters_to_yaml(model_config,experiment_files.model_config_yaml)
     save_hyperparameters_to_yaml(data_config,experiment_files.data_config_yaml)
-
     #Set up trainers
     trainer = Trainer(
         default_root_dir=experiment_files.experiment_dir,
         logger=logger,
         log_every_n_steps=1,
-        max_epochs=model_config.num_epochs,
+        max_epochs=model_config["num_epochs"],
         callbacks=[checkpoint_callback_best,
                    checkpoint_callback_last]
     )
@@ -93,8 +98,16 @@ def train_fim_sde(model_config:FIMSDEConfig,data_config:FIMDatasetConfig):
     sample_and_save_from_test(model,dataloaders,experiment_files)
 
 if __name__=="__main__":
-    model_config = FIMSDEConfig(num_epochs=4,
-                                log_images_every_n_epochs=2)
-    data_config = FIMDatasetConfig()
-    train_fim_sde(model_config,data_config)
+    from fim import project_path
+    #FROM DATACLASSES
+    # model_config = FIMSDEConfig(num_epochs=4,
+    #                             log_images_every_n_epochs=2)
+    # data_config = FIMDatasetConfig()
+
+    # FROM YAML
+    parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-patrick.yaml"
+    config = load_yaml(parameters_yaml)
+    model_config = config["model"]
+    dataset_config = config["dataset"]
+    train_fim_sde(model_config,dataset_config)
 

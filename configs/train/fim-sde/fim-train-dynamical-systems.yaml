@@ -10,12 +10,11 @@ model:
   name: FIMSDE
   ###################################################################################
   # Input data (corrected by dataloader)
-  max_dimension: &max_dimension 0
-  max_time_steps: &max_time_steps 0
-  max_location_size: &max_location_size 0
-  max_num_paths: &max_num_of_paths 0
+  max_dimension: 3
+  max_time_steps: 128
+  max_location_size: 1024
+  max_num_paths: &max_num_of_paths 300
 
-  # Model 
   # phi_0^t
   temporal_embedding_size: &temporal_embedding_size 21
 
@@ -38,7 +37,6 @@ model:
   trunk_net_size: &trunk_net_size 28 
   trunk_net_hidden_layers: &trunk_net_hidden_layers [25]
 
-  # training
   # optimizer + regularising
   num_epochs: 2
   add_delta_x_to_value_encoder: &add_delta_x_to_value_encoder true
@@ -71,10 +69,10 @@ dataset:
   total_minibatch_size: &total_minibatch_size 2
   total_minibatch_size_test: &total_minibatch_size_test 2
   
-  max_dimension: *max_dimension 
-  max_time_steps: *max_time_steps 
-  max_location_size: *max_location_size 
-  max_num_paths: *max_num_of_paths 
+  max_dimension: 0
+  max_time_steps: 0
+  max_location_size: 0
+  max_num_paths: &max_num_of_paths 0
   
   data_loading_processes_count: &data_loading_processes_count 0
 

@@ -51,7 +51,6 @@ def test_plot_2d():
     pipeline = FIMSDEPipeline(model)
     pipeline_output = pipeline(databatch_target)
 
-
     selected_data = select_dimension_for_plot(2,
                                               databatch_target.dimension_mask,
                                               databatch_target.locations,
@@ -98,5 +97,5 @@ def test_plot_3d():
     
 
 if __name__=="__main__":
-    test_plot_3d()
+    test_plot_1d()
 

@@ -6,8 +6,15 @@ from dataclasses import dataclass, field
 @dataclass
 class FIMSDEConfig:
     # saving 
+    name:str="FIMSDE"
     experiment_name:str = "sde"
     experiment_dir:str = rf"{results_path}"
+
+    # input 
+    max_dimension: int = 3
+    max_time_steps: int = 128
+    max_location_size: int = 1024
+    max_num_paths: int = 30
 
     # phi_0^t
     temporal_embedding_size: int = 19

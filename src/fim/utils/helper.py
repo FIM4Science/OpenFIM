@@ -31,7 +31,9 @@ def nametuple_to_device(named_tuple, device):
 
 def save_hyperparameters_to_yaml(hyperparams, file_path: str):
     with open(file_path, 'w') as file:
-        yaml.dump(asdict(hyperparams), file)
+        if not isinstance(hyperparams,dict):
+            hyperparams = asdict(hyperparams)
+        yaml.dump(hyperparams, file)
 
 @dataclass
 class GenericConfig:

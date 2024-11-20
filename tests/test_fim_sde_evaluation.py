@@ -22,7 +22,6 @@ def test_load_model():
     dataloader = FIMSDEDataloader(**asdict(data_config))
     pipeline = FIMSDEPipeline(model)
     test_output = pipeline(model.target_data)
-    
     print(test_output.drift_at_locations_estimator)
 
     

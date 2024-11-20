@@ -18,10 +18,11 @@ from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.models.blocks import ModelFactory
 from fim.utils.helper import nametuple_to_device
 
-def test_model():
-    parameters_yaml = r"C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\configs\train\fim-sde\fim-train-patrick.yaml"
-
+def test_model_kosta_init():
+    from fim import project_path
+    parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-patrick.yaml"
     config = load_yaml(parameters_yaml,return_object=True)
+
     torch.manual_seed(int(config.experiment.seed))
     torch.cuda.manual_seed(int(config.experiment.seed))
     np.random.seed(int(config.experiment.seed))
@@ -32,15 +33,16 @@ def test_model():
     dataloader = DataLoaderFactory.create(**config["dataset"])
     if hasattr(dataloader,"update_kwargs"):
         # fim model requieres that config is updated after loading the data
-        dataloader.update_kwargs(config)
+        config = dataloader.update_kwargs(config)
+
     model = ModelFactory.create(config,device_map=device_map,resume=False)
     databatch:FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
     databatch = nametuple_to_device(databatch,device_map)
     forward_pass = model(databatch,training=True)
     print(forward_pass)
 
-def test_lightning_model():
+def test_model_():
     pass
 
 if __name__=="__main__":
-    test_model()
+    test_model_kosta_init()

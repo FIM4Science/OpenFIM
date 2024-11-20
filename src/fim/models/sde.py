@@ -25,10 +25,6 @@ from fim.data.datasets import (
     FIMSDEDatabatchTuple
 )
 
-from fim.data.dataloaders import (
-    FIMSDEDataloader
-)
-
 from dataclasses import dataclass,asdict, field
 from typing import Any, Dict, Optional, Union, List,Tuple
 from fim.models.blocks.base import Mlp,TimeEncoding,TransformerModel
@@ -308,7 +304,6 @@ class FIMSDE(pl.LightningModule):
     """
     Stochastic Differential Equation Trainining
     """
-
     model_config:FIMSDEConfig
     data_config:FIMDatasetConfig
 
@@ -334,10 +329,11 @@ class FIMSDE(pl.LightningModule):
             self.data_config = FIMDatasetConfig(**data_config)
         else:
             self.data_config = data_config
+            
         self._create_modules()
 
         # Set a dataset for fixed evaluation 
-        self.target_data = generate_all(data_config)
+        self.target_data = generate_all(self.model_config)
 
         if device_map is not None:
             self.to(device_map)
@@ -418,7 +414,7 @@ class FIMSDE(pl.LightningModule):
 
             databatch:FIMSDEpDatabatchTuple|FIMSDEpDatabatch
                 keys,values:
-                    locations (Tensor [B, H, D]) 
+                    locations (Tensor [B, G, D]) 
                         where to evaluate the drift and diffusion function 
                     obs_values (Tensor [B, P, T+1, D])
                         observation values. optionally with noise. 
@@ -432,10 +428,10 @@ class FIMSDE(pl.LightningModule):
             training (bool): 
                 flag indicating if model is in training mode. Has an impact on the output.
             
-            with B: batch size, T: number of observation times, P: number of paths, D: dimensionsm, H: number of fine grid points (locations)
+            with B: batch size, T: number of observation times, P: number of paths, D: dimensionsm, G: number of fine grid points (locations)
 
         Returns:
-            b(x) (Tensor)  [B,H,psi_1_tokes_dim] representation for system at each grid point  
+            b(x) (Tensor)  [B,G,psi_1_tokes_dim] representation for system at each grid point  
             h(x) (Tensor)  [B,P,H,psi_1_tokes_dim] representation per path at each grid point
         """
         if locations is None:
@@ -459,7 +455,7 @@ class FIMSDE(pl.LightningModule):
 
         # trunk 
         trunk_encoding = self.trunk(locations) #[B,H,trunk_dim]
-        trunk_encoding = trunk_encoding[:,None,:,:].repeat(1,P,1,1)  # [B,P,H,trunk_size]
+        trunk_encoding = trunk_encoding[:,None,:,:].repeat(1,P,1,1)  # [B,P,G,trunk_size]
         trunk_encoding = trunk_encoding.view(B*P,G,-1)
 
         # embbedded input
@@ -472,7 +468,7 @@ class FIMSDE(pl.LightningModule):
         H = torch.transpose(H,0,1) # [B*P,T,psi_1_tokes_dim]
 
         # Attention on Time -> One representation per path
-        hx,_ = self.omega_1(trunk_encoding,H,H) # [B*P,H,psi_1_tokes_dim]
+        hx,_ = self.omega_1(trunk_encoding,H,H) # [B*P,G,psi_1_tokes_dim]
         hx = hx.view(B,P,G,-1) # [B,P,G,psi_1_tokes_dim]
 
         # Attention on Paths -> One representation per expression
@@ -564,6 +560,7 @@ class FIMSDE(pl.LightningModule):
         loss_masked = torch.where((dimension_mask == 1) & torch.isfinite(loss_), loss_, torch.zeros_like(loss_))
         # Replace NaNs and Infs with zeros in the masked loss
         loss_ = torch.where(torch.isfinite(loss_masked), loss_masked, torch.zeros_like(loss_masked))
+
         # filter out 
         loss_ = loss_.sum(-1) # sum dimension
         loss_ = loss_.sum(-1) # sum time
@@ -712,5 +709,6 @@ class FIMSDE(pl.LightningModule):
         if fig is not None:
             mlflow_client_ = self.logger.experiment
             mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_3D.png")
+
         
 ModelFactory.register("FIMSDE",FIMSDE,with_data_params=True)
