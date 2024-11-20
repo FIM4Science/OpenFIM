@@ -89,6 +89,7 @@ class FIMHawkes(AModel):
         # self.gaussian_nll = nn.GaussianNLLLoss(full=True, reduction="none")
         # self.init_cross_entropy = nn.CrossEntropyLoss(reduction="none")
         
+        assert isinstance(self.Omega_1_encoder, nn.MultiheadAttention), "Omega_1_encoder must be an instance of nn.MultiheadAttention"
         assert isinstance(self.Omega_2_encoder, MultiHeadLearnableQueryAttention), "Omega_2_encoder must be an instance of MultiHeadLearnableQueryAttention"
         assert isinstance(self.Omega_3_encoder, MultiHeadLearnableQueryAttention), "Omega_3_encoder must be an instance of MultiHeadLearnableQueryAttention"
         assert isinstance(self.Omega_4_encoder, MultiHeadLearnableQueryAttention), "Omega_4_encoder must be an instance of MultiHeadLearnableQueryAttention"
@@ -112,7 +113,7 @@ class FIMHawkes(AModel):
         ts_encoder["in_features"] = self.time_encodings.out_features + self.event_type_embedding.out_features
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
         
-        trunk_net["in_features"] = self.ts_encoder.out_features
+        trunk_net["in_features"] = self.time_encodings.out_features
         self.trunk_net = create_class_instance(trunk_net.pop("name"), trunk_net)
         
         self.Omega_1_encoder = create_class_instance(Omega_1_encoder.pop("name"), Omega_1_encoder)
@@ -138,7 +139,7 @@ class FIMHawkes(AModel):
             x (dict[str, Tensor]): A dictionary containing the input tensors:
                 - "event_times": Tensor representing the event times.
                 - "event_marks": Tensor representing the event marks.
-                - "kernel_eval_times": Tensor representing the times at which to evaluate the kernel.
+                - "kernel_grids": Tensor representing the times at which to evaluate the kernel.
                 - Optional keys for loss calculation:
                     - "ground_truth_baseline_intensity": Tensor representing the ground truth baseline intensity.
                     - "ground_truth_kernel_eval_times": Tensor representing the ground truth kernel evaluation times.
@@ -163,9 +164,15 @@ class FIMHawkes(AModel):
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
 
-        sequence_encodings = self.__encode_observations(x)
+
+        sequence_encodings = self.__encode_observations(x) # [B, P, D]
+            
+        trunk_net_encodings = self.__trunk_net_encoder(x) # [B, M, L_kernel, D]
+        
+        time_dependent_path_embeddings = self.__Omega_1_encoder(trunk_net_encodings, sequence_encodings) # [B, M, L_kernel, P, D]
         
         breakpoint()
+        
 
 
 
@@ -193,37 +200,54 @@ class FIMHawkes(AModel):
         obs_grid_normalized = x["observation_grid_normalized"]
         obs_values_one_hot = x["observation_values_one_hot"]
         B, P, L = obs_grid_normalized.shape[:3]
+        
+        #FIXME: Do this inside the dataloader
+        x["seq_lengths"] = torch.tensor([L] * B * P, device=self.device)
+        x["seq_lengths"] = x["seq_lengths"].view(B, P)
+        
         time_enc = self.time_encodings(obs_grid_normalized)
-        path = torch.cat([time_enc, obs_values_one_hot], dim=-1)
-        if isinstance(self.ts_encoder, TransformerEncoder):
-            padding_mask = create_padding_mask(x["seq_lengths"].view(B * P), L)
-            padding_mask[:, 0] = True
-            h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, 1, :].view(B, P, -1)
-        elif isinstance(self.ts_encoder, RNNEncoder):
-            h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
+        state_enc = self.event_type_embedding(obs_values_one_hot)
+        path = torch.cat([time_enc, state_enc], dim=-1)
+        assert isinstance(self.ts_encoder, RNNEncoder)
+        h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
+        last_observation = x["seq_lengths"].view(B * P) - 1
+        h = h[torch.arange(B * P), last_observation].view(B, P, -1)
 
         return h
     
-    def __trunk_net_encoder(self, location_times: Tensor) -> Tensor:
-        if isinstance(self.ts_encoder, TransformerEncoder):
-            location_times = self.time_encodings(location_times)
-        return self.trunk_net(location_times)
+    def __trunk_net_encoder(self, x: dict) -> Tensor:
+        kernel_grids = x["kernel_grids"] #TODO: Dont work with the full grid
+        (B, M, L_kernel) = kernel_grids.shape
+        time_encodings = self.time_encodings(kernel_grids.view(B*M*L_kernel, -1))
+        return self.trunk_net(time_encodings).view(B, M, L_kernel, -1)
     
     def __Omega_1_encoder(self, trunk_net_encoding: Tensor, observation_encoding: Tensor) -> Tensor:
         """
         The time-dependent path embeddings.
         """
-        if isinstance(self.Omega_1_encoder, nn.MultiheadAttention):
-            h = self.Omega_1_encoder(trunk_net_encoding, observation_encoding, observation_encoding)[0][:, -1]
-        else:
-            h = self.Omega_1_encoder(trunk_net_encoding, observation_encoding, observation_encoding)        
-        return h
+        assert trunk_net_encoding.shape[0] == observation_encoding.shape[0]
+        assert trunk_net_encoding.shape[-1] == observation_encoding.shape[-1]
+        
+        B, M, L_kernel, D = trunk_net_encoding.shape
+        _, P, _ = observation_encoding.shape
+
+        # Reshape trunk_net_encoding to (B*M*L_kernel, 1, D) and expand to (B*M*L_kernel, P, D)
+        queries = trunk_net_encoding.view(B * M * L_kernel, 1, D).expand(-1, P, -1)
+
+        # Repeat observation_encoding for each (M, L_kernel) to match queries
+        keys = observation_encoding.repeat(B * M * L_kernel, 1, 1)
+        values = observation_encoding.repeat(B * M * L_kernel, 1, 1)
+        
+        h = self.Omega_1_encoder(queries, keys, values)[0]
+            
+        return h.view(B, M, L_kernel, P, -1)
+
     
-    def __Omega_2_encoder(self, observation_encoding: Tensor) -> Tensor:
+    def __Omega_2_encoder(self, sequence_encodings: Tensor) -> Tensor:
         """
         The static path embeddings.
         """
-        return self.Omega_2_encoder(None, observation_encoding, observation_encoding)
+        return self.Omega_2_encoder(None, sequence_encodings, sequence_encodings)
     
     def __Omega_3_encoder(self, time_dependent_path_embeddings: Tensor) -> Tensor:
         """

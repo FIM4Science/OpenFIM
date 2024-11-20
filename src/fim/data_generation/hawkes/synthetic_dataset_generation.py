@@ -58,13 +58,17 @@ class HawkesDatasetGenerator():
         kernel_evaluation_data = kernel_evaluation_data[valid_samples]
         event_time_data = event_time_data[valid_samples]
         event_type_data = event_type_data[valid_samples]
-
+        
+        # Reshape the data to match our requirements
+        event_time_data = event_time_data[:,:,:,None]
+        event_type_data = event_type_data[:,:,:,None]
+        
         res = {
-            "base_intensities": baseline_data,
-            "kernel_grids": kernel_grid_data,
-            "kernel_evaluations": kernel_evaluation_data,
-            "event_times": event_time_data[:,:,:,None],
-            "event_types": event_type_data[:,:,:,None]
+            "base_intensities": baseline_data, #[B, M]
+            "kernel_grids": kernel_grid_data, #[B, M, L_kernel]
+            "kernel_evaluations": kernel_evaluation_data, #[B, M, L_kernel]
+            "event_times": event_time_data, #[B, P, L, 1]
+            "event_types": event_type_data #[B, P, L, 1]
         }
         return res
     
