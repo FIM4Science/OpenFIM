@@ -17,8 +17,8 @@ class FIMMJPConfig(PretrainedConfig):
         self,
         n_states: int = 2,
         use_adjacency_matrix: bool = False,
-        ts_encoder: dict = None,
-        pos_encodings: dict = None,
+        ts_encoder: dict = None, #FIXME: Remove None for mandatory parameters
+        pos_encodings: dict = None, #FIXME: Change to time_encodings
         path_attention: dict = None,
         intensity_matrix_decoder: dict = None,
         initial_distribution_decoder: dict = None,
@@ -78,7 +78,7 @@ class FIMMJP(AModel):
         super().__init__(config, **kwargs)
         self.n_states = config.n_states
         self.use_adjacency_matrix = config.use_adjacency_matrix
-        self.ts_encoder = config.ts_encoder
+        self.ts_encoder = config.ts_encoder #FIXME: We dont need that here
         self.total_offdiagonal_transitions = self.n_states**2 - self.n_states
 
         self.__create_modules()

@@ -113,7 +113,7 @@ class MultiHeadLearnableQueryAttention(Block):
             self.W_v = nn.Linear(self.embed_dim, self.kv_dim, bias=False)
             # self.W_o = nn.Linear(self.kv_dim, self.embed_dim, bias=False)
 
-    def forward(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    def forward(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor: #FIXME: I think it would be less confusing if we not take some placeholder q as input
         B, L, _ = k.size()
 
         q = self.q.expand(B, -1, -1, -1).view(B * self.n_heads, self.n_queries, self.head_dim)
@@ -355,4 +355,17 @@ class EncoderBlock(Block):
         mlp_out = self.residual_mlp(x)
         x = self.layer_norm2(x + mlp_out)
 
+        return x
+
+
+class IdentityBlock(Block):
+    """
+    A dummy block that represents the identity function.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if "out_features" in kwargs:
+            self.out_features = kwargs["out_features"]
+            
+    def forward(self, x: dict | torch.Tensor) -> dict | torch.Tensor:
         return x

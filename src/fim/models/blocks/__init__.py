@@ -11,7 +11,7 @@ from transformers import AutoConfig, PretrainedConfig, PreTrainedModel
 
 from ...trainers.utils import is_distributed
 from ...utils.logging import RankLoggerAdapter
-from .base import MLP, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer, TransformerBlock, TransformerEncoder
+from .base import MLP, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer, TransformerBlock, TransformerEncoder, IdentityBlock
 from .normalization import MinMaxNormalization
 from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
 
@@ -27,6 +27,7 @@ __all__ = [
     DeltaTimeEncoding,
     RNNEncoder,
     MultiHeadLearnableQueryAttention,
+    IdentityBlock,
 ]
 
 
@@ -88,10 +89,10 @@ class ModelFactory:
 
     @classmethod
     def create(cls, config: dict | PretrainedConfig) -> AModel:
+        model_class = cls.model_types.get(config.get("model_type"))
         if isinstance(config, dict):
-            config = PretrainedConfig.from_dict(config)
-        model_class = cls.model_types.get(config.model_type)
+            config = model_class.config_class.from_dict(config)
         if model_class:
             return model_class(config)
         else:
-            raise ValueError("Invalid model type")
+            raise ValueError(f"Invalid model type: {config.model_type}")
