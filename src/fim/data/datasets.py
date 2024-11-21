@@ -510,13 +510,8 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         self.data = []
         self.lengths = [] 
         self.data_params = data_params
-
         # Load data and compute cumulative lengths
         self.read_files(data_params,data_paths)
-
-        # Update Parameter Values from Dataset 
-        #if data_params is not None:
-        #    self.update_parameters(data_params)
 
     def _read_one_bulk(self,data:str|FIMSDEDatabatch|Path)->FIMSDEDatabatch:
         from pathlib import Path
@@ -552,7 +547,11 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             self.max_diffusion_param_size = 0
         
         for file_path in file_paths:
-            one_data_bulk: FIMSDEDatabatch = self._read_one_bulk(file_path)  # Adjust loading method as necessary
+            if isinstance(file_path,(Path,str)):
+                one_data_bulk: FIMSDEDatabatch = self._read_one_bulk(file_path)  # Adjust loading method as necessary
+            elif isinstance(file_path,FIMSDEDatabatch):
+                one_data_bulk = file_path
+
             self.data.append(one_data_bulk)
             self.lengths.append(one_data_bulk.obs_values.size(0))  # Number of samples in this file
 
@@ -592,10 +591,11 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         # Pad and Obtain Mask of The tensors if necessary
         obs_values,obs_times = self._pad_obs_tensors(obs_values,obs_times)
         drift_at_locations,diffusion_at_locations,locations,mask = self._pad_locations_tensors(drift_at_locations,diffusion_at_locations,locations)
-        
+        if len(obs_values.shape) == 4:
+            obs_values = obs_values[:,:,:,0] 
         # Create and return the named tuple
         return FIMSDEDatabatchTuple(
-            obs_values=obs_values[:,:,:,0],
+            obs_values=obs_values,
             obs_times=obs_times,
             diffusion_at_locations=diffusion_at_locations,
             drift_at_locations=drift_at_locations,
@@ -664,3 +664,4 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         param.max_dimension = self.max_dimension
         param.max_hypercube_size = self.max_location_size
         param.max_num_steps = self.max_num_steps
+

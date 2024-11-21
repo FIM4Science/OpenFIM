@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Type, TypeVar, Any, Dict
 from fim import data_path  # Assumes `data_path` provides the base path for your data files
+from fim import project_path  # Assumes `data_path` provides the base path for your data files
 import yaml
 
 T = TypeVar('T')
@@ -37,16 +38,23 @@ class DatasetPathCollections:
 
 @dataclass
 class FIMDatasetConfig:
-    dataset_description: str = "SDE_linear_SNR_01_05_1_5_DELTA_3D"
+    name: str = "FIMSDEDataloader"
+    type:str = "synthetic" # synthetic, theory
+    dataset_description: str = "dynamical_systems"
+    #data_path:str = str(data_path)
+
+    dynamical_systems_hyperparameters_file:str = r"\configs\train\fim-sde\sde-systems-hyperparameters.yaml"
+
     total_minibatch_size: int = 2
     total_minibatch_size_test: int = 2
     data_loading_processes_count: int = 0
+
     data_in_files: DataInFiles = field(default_factory=DataInFiles)
     dataset_path_collections: DatasetPathCollections = field(default_factory=DatasetPathCollections)
-    tensorboard_figure_data: str = "test"
+
     plot_paths_count: int = 100
+    tensorboard_figure_data: str = "test"
     loader_kwargs: Dict[str, Any] = field(default_factory=lambda: {"num_workers": 2})
-    name: str = "FIMSDEDataloader"
 
     max_dimension: int = 3
     max_time_steps: int = 128
@@ -58,7 +66,9 @@ class FIMDatasetConfig:
             self.data_in_files = DataInFiles.from_dict(self.data_in_files)
         if isinstance(self.dataset_path_collections, dict):
             self.dataset_path_collections = DatasetPathCollections.from_dict(self.dataset_path_collections)
-    
+        
+        self.dynamical_systems_hyperparameters_file = rf"{project_path}"+self.dynamical_systems_hyperparameters_file
+
     @classmethod
     def from_yaml(cls, yaml_path: str) -> 'FIMDatasetConfig':
         with open(yaml_path, 'r') as file:
