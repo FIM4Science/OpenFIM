@@ -198,7 +198,7 @@ class FIMMJP(AModel):
         elif isinstance(self.ts_encoder, RNNEncoder):
             h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
             last_observation = x["seq_lengths"].view(B * P) - 1
-            h = h[torch.arange(B * P), last_observation].view(B, P, -1)
+            h = h[torch.arange(B * P), last_observation].view(B, P, -1) #TODO: We are planning to use the output of all states in the future
             h = self.path_attention(h, h, h)
 
         h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)

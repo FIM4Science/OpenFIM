@@ -164,12 +164,19 @@ class FIMHawkes(AModel):
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
 
+        #FIXME: REMOVE THIS!
+        x["kernel_grids"] = x["kernel_grids"][:,:,:10]
+        x["kernel_evaluations"] = x["kernel_evaluations"][:,:,:10]
 
-        sequence_encodings = self.__encode_observations(x) # [B, P, D]
+        sequence_encodings = self.__encode_observations(x) # [B, P, L, D]
             
         trunk_net_encodings = self.__trunk_net_encoder(x) # [B, M, L_kernel, D]
         
-        time_dependent_path_embeddings = self.__Omega_1_encoder(trunk_net_encodings, sequence_encodings) # [B, M, L_kernel, P, D]
+        time_dependent_path_embeddings = self.__Omega_1_encoder(x, trunk_net_encodings, sequence_encodings) # [B, M, L_kernel, P, D]
+        
+        breakpoint()
+        
+        state_path_embeddings = self.__Omega_2_encoder(sequence_encodings) # [B, D_2]
         
         breakpoint()
         
@@ -210,10 +217,10 @@ class FIMHawkes(AModel):
         path = torch.cat([time_enc, state_enc], dim=-1)
         assert isinstance(self.ts_encoder, RNNEncoder)
         h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
-        last_observation = x["seq_lengths"].view(B * P) - 1
-        h = h[torch.arange(B * P), last_observation].view(B, P, -1)
+        # last_observation = x["seq_lengths"].view(B * P) - 1
+        # h = h[torch.arange(B * P), last_observation].view(B, P, -1)
 
-        return h
+        return h.view(B, P, L, -1)
     
     def __trunk_net_encoder(self, x: dict) -> Tensor:
         kernel_grids = x["kernel_grids"] #TODO: Dont work with the full grid
@@ -221,27 +228,50 @@ class FIMHawkes(AModel):
         time_encodings = self.time_encodings(kernel_grids.view(B*M*L_kernel, -1))
         return self.trunk_net(time_encodings).view(B, M, L_kernel, -1)
     
-    def __Omega_1_encoder(self, trunk_net_encoding: Tensor, observation_encoding: Tensor) -> Tensor:
+    
+    ### This function should be a batched implementation of this logic:
+    # for i in range(B):
+    #     for j in range(M):
+    #         for k in range(L_kernel):
+    #             for l in range(P):
+    #                 seq_len = x["seq_lengths"][i, l]
+    #                 # Create seq_len copies of trunk_net_encoding[i,j,k]
+    #                 query = trunk_net_encoding[i,j,k].repeat(seq_len, 1)
+    #                 self.Omega_1_encoder(query, observation_encoding[i,l,:seq_len], observation_encoding[i,l,:seq_len])
+    # TODO: If there are any bugs, its likely due to this function because its a bit complex
+    def __Omega_1_encoder(self, x: dict, trunk_net_encoding: Tensor, observation_encoding: Tensor) -> Tensor:
         """
         The time-dependent path embeddings.
         """
         assert trunk_net_encoding.shape[0] == observation_encoding.shape[0]
         assert trunk_net_encoding.shape[-1] == observation_encoding.shape[-1]
-        
         B, M, L_kernel, D = trunk_net_encoding.shape
-        _, P, _ = observation_encoding.shape
-
-        # Reshape trunk_net_encoding to (B*M*L_kernel, 1, D) and expand to (B*M*L_kernel, P, D)
-        queries = trunk_net_encoding.view(B * M * L_kernel, 1, D).expand(-1, P, -1)
-
-        # Repeat observation_encoding for each (M, L_kernel) to match queries
-        keys = observation_encoding.repeat(B * M * L_kernel, 1, 1)
-        values = observation_encoding.repeat(B * M * L_kernel, 1, 1)
+        B, P, L, D = observation_encoding.shape  # Assuming L_max is the maximum possible sequence length
         
-        h = self.Omega_1_encoder(queries, keys, values)[0]
-            
-        return h.view(B, M, L_kernel, P, -1)
+        # Reshape trunk_net_encoding to (B*M*L_kernel, 1, D) and expand to (B*M*L_kernel, P, D)
+        queries = trunk_net_encoding.view(B * M * L_kernel, 1, D).contiguous().expand(-1, P, -1)
+        
+        # Reshape trunk_net_encoding to (B*M*L_kernel*P, 1, D)
+        queries = queries.reshape(B * M * L_kernel * P, 1, D)
+        
+        # Expand queries to (B*M*L_kernel*P, L, D)
+        queries = queries.expand(-1, L, -1)
 
+        # Create M*L_kernel copies of observation_encoding and reshape to (B*M*L_kernel*P, L, D)
+        # Add two dimensions for M and L_kernel
+        keys = observation_encoding.unsqueeze(1).unsqueeze(2)  # Shape: (B, 1, 1, P, L, D)
+
+        # Expand to (B, M, L_kernel, P, L, D)
+        keys = keys.expand(B, M, L_kernel, P, L, D)
+
+        # Reshape to (B * M * L_kernel * P, L, D)
+        keys = keys.reshape(B * M * L_kernel * P, L, D)
+        
+        values = keys
+        
+        h = self.Omega_1_encoder(queries, keys, values)[0][:, -1]
+            
+        return h.reshape(B, M, L_kernel, P, -1)
     
     def __Omega_2_encoder(self, sequence_encodings: Tensor) -> Tensor:
         """
