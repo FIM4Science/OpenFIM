@@ -173,11 +173,17 @@ class FIMHawkes(AModel):
             
         trunk_net_encodings = self.__trunk_net_encoder(x) # [B, M, L_kernel, D]
         
-        time_dependent_path_embeddings = self.__Omega_1_encoder(x, trunk_net_encodings, sequence_encodings) # [B, M, L_kernel, P, D]
+        time_dependent_path_embeddings = self.__Omega_1_encoder(x, trunk_net_encodings, sequence_encodings) # [B, M, L_kernel, P, D_1]
         
-        breakpoint()
+        static_path_embeddings = self.__Omega_2_encoder(sequence_encodings) # [B, P, D_2]
         
-        state_path_embeddings = self.__Omega_2_encoder(sequence_encodings) # [B, D_2]
+        time_dependent_path_summary = self.__Omega_3_encoder(time_dependent_path_embeddings) # [B, M, L_kernel, D_3]
+        
+        static_path_summary = self.__Omega_4_encoder(static_path_embeddings) # [B, D_4]
+        
+        kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel, 1]
+        
+        kernel_parameters = torch.exp(self.__kernel_parameter_decoder(static_path_summary)) # [B, M, 2]
         
         breakpoint()
         
@@ -283,13 +289,21 @@ class FIMHawkes(AModel):
         """
         The static path embeddings.
         """
-        return self.Omega_2_encoder(None, sequence_encodings, sequence_encodings)
+        B, P, L, D = sequence_encodings.shape
+        sequence_encodings = sequence_encodings.view(B*P, L, D)
+        h = self.Omega_2_encoder(None, sequence_encodings, sequence_encodings)
+        
+        return h.view(B, P, -1)
     
     def __Omega_3_encoder(self, time_dependent_path_embeddings: Tensor) -> Tensor:
         """
         The time dependent path summary.
         """
-        return self.Omega_3_encoder(None, time_dependent_path_embeddings, time_dependent_path_embeddings)
+        B, M, L_kernel, P, D_1 = time_dependent_path_embeddings.shape
+        time_dependent_path_embeddings = time_dependent_path_embeddings.view(B*M*L_kernel, P, D_1)
+        h = self.Omega_3_encoder(None, time_dependent_path_embeddings, time_dependent_path_embeddings)
+        
+        return h.view(B, M, L_kernel, -1)
     
     def __Omega_4_encoder(self, static_path_embeddings: Tensor) -> Tensor:
         """
@@ -298,10 +312,15 @@ class FIMHawkes(AModel):
         return self.Omega_4_encoder(None, static_path_embeddings, static_path_embeddings)
     
     def __kernel_value_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
-        return self.kernel_value_decoder(time_dependent_path_summary)
+        B, M, L_kernel, D_3 = time_dependent_path_summary.shape
+        time_dependent_path_summary = time_dependent_path_summary.view(B*M*L_kernel, D_3)
+        h = self.kernel_value_decoder(time_dependent_path_summary)
+        
+        return h.view(B, M, L_kernel, -1)
     
     def __kernel_parameter_decoder(self, static_path_summary: Tensor) -> Tensor:
-        return self.kernel_parameter_decoder(static_path_summary)
+        h = self.kernel_parameter_decoder(static_path_summary)
+        return h.view(-1, self.num_marks, 2)
 
     def __normalize_obs_grid(self, obs_grid: Tensor) -> tuple[Tensor, Tensor]:
         norm_constants = obs_grid.amax(dim=[-3, -2, -1])
