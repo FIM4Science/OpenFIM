@@ -8,6 +8,7 @@ from fim.data_generation.hawkes.hawkes_simulation import run_hawkes_simulation
 class HawkesDatasetGenerator():
     def __init__(self, **kwargs) -> None:
         self.num_samples_train = kwargs["num_samples_train"]
+        self.num_samples_val = kwargs["num_samples_val"]
         self.num_samples_test = kwargs["num_samples_test"]
         self.num_paths = kwargs["num_paths"]
         self.n_events_per_path = kwargs["n_events_per_path"]
@@ -23,7 +24,7 @@ class HawkesDatasetGenerator():
         return baselines, kernel_grids, kernel_evaluations, event_time, event_type
 
     def assemble(self, dtype=np.float32):
-        num_samples = self.num_samples_train + self.num_samples_test
+        num_samples = self.num_samples_train + self.num_samples_val + self.num_samples_test
         num_marks = self.kernel_sampler.num_marks
         kernel_grid_size = self.kernel_sampler.kernel_grid_size
 
