@@ -22,7 +22,7 @@ dataset:
       - data/synthetic_data/hawkes/hawkes_test/test
 
   loader_kwargs:
-    batch_size: 16
+    batch_size: 1
     num_workers: 8
     test_batch_size: 16
   dataset_kwargs:

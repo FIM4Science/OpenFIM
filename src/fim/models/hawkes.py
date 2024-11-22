@@ -141,9 +141,8 @@ class FIMHawkes(AModel):
                 - "event_marks": Tensor representing the event marks.
                 - "kernel_grids": Tensor representing the times at which to evaluate the kernel.
                 - Optional keys for loss calculation:
-                    - "ground_truth_baseline_intensity": Tensor representing the ground truth baseline intensity.
-                    - "ground_truth_kernel_eval_times": Tensor representing the ground truth kernel evaluation times.
-                    - "ground_truth_kernel_eval_values": Tensor representing the ground truth kernel evaluation values.
+                    - "base_intensities": Tensor representing the ground truth base intensity.
+                    - "kernel_evaluations": Tensor representing the ground truth kernel evaluation values.
                     - "mask_seq_lengths": Tensor representing the sequence lengths (which we use for masking).
             schedulers (dict, optional): A dictionary of schedulers for the training process. Default is None.
             step (int, optional): The current step in the training process. Default is None.
@@ -181,34 +180,30 @@ class FIMHawkes(AModel):
         
         static_path_summary = self.__Omega_4_encoder(static_path_embeddings) # [B, D_4]
         
-        kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel, 1]
+        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel, 1]
         
-        kernel_parameters = torch.exp(self.__kernel_parameter_decoder(static_path_summary)) # [B, M, 2]
+        predicted_kernel_decay_and_base_intensity = torch.exp(self.__kernel_parameter_decoder(static_path_summary)) # [B, M, 2]
+        predicted_base_intensity = predicted_kernel_decay_and_base_intensity[:,:,0]
+        predicted_kernel_decay = predicted_kernel_decay_and_base_intensity[:,:,1]
         
-        breakpoint()
-        
-
-
-
-        ##############
-
-        h = self.__encode(x, obs_grid, obs_values_one_hot)
-
-        pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
-
-        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
-
         out = {
-            "im": create_matrix_from_off_diagonal(pred_offdiag_im_mean, self.n_states),
-            "log_var_im": create_matrix_from_off_diagonal(pred_offdiag_im_logvar, self.n_states),
-            "init_cond": init_cond,
+            "predicted_kernel_values": predicted_kernel_values,
+            "predicted_base_intensity": predicted_base_intensity,
+            "predicted_kernel_decay": predicted_kernel_decay,
         }
-        if "intensity_matrices" in x and "initial_distributions" in x:
+        if "base_intensities" in x and "kernel_evaluations" in x:
             out["losses"] = self.loss(
-                pred_offdiag_im_mean, pred_offdiag_im_logvar, init_cond, x, norm_constants.view(-1, 1), schedulers, step
+                predicted_kernel_values,
+                predicted_base_intensity,
+                predicted_kernel_decay,
+                x["kernel_evaluations"],
+                x["base_intensities"],
+                schedulers,
+                step,
             )
-
+        
         return out
+        
 
     def __encode_observations(self, x: dict) -> Tensor:
         obs_grid_normalized = x["observation_grid_normalized"]
@@ -232,7 +227,7 @@ class FIMHawkes(AModel):
     def __trunk_net_encoder(self, x: dict) -> Tensor:
         kernel_grids = x["kernel_grids"] #TODO: Dont work with the full grid
         (B, M, L_kernel) = kernel_grids.shape
-        time_encodings = self.time_encodings(kernel_grids.view(B*M*L_kernel, -1))
+        time_encodings = self.time_encodings(kernel_grids.reshape(B*M*L_kernel, -1))
         return self.trunk_net(time_encodings).view(B, M, L_kernel, -1)
     
     def __Omega_1_encoder(self, x: dict, trunk_net_encoding: Tensor, observation_encoding: Tensor) -> Tensor:
@@ -329,49 +324,28 @@ class FIMHawkes(AModel):
 
     def loss(
         self,
-        pred_im: Tensor,
-        pred_logstd_im: Tensor,
-        pred_init_cond: Tensor,
-        target: dict,
-        normalization_constants: Tensor,
+        predicted_kernel_values: Tensor,
+        predicted_base_intensity: Tensor,
+        predicted_kernel_decay: Tensor,
+        target_kernel_values: Tensor,
+        target_base_intensity: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        target_im = target["intensity_matrices"]
-        target_init_cond = target["initial_distributions"]
-        adjaceny_matrix = target["adjacency_matrices"]
-        target_mean = get_off_diagonal_elements(target_im)
-        P = target["observation_grid"].shape[1]
-        adjaceny_matrix = get_off_diagonal_elements(adjaceny_matrix)
-        target_init_cond = torch.argmax(target_init_cond, dim=-1).long()
-        pred_im_std = torch.exp(pred_logstd_im)
-        loss_gauss = adjaceny_matrix * self.gaussian_nll(pred_im, target_mean, torch.pow(pred_im_std, 2))
-        loss_gauss = loss_gauss.sum() / (adjaceny_matrix.sum() + 1e-8)
-        loss_initial = self.init_cross_entropy(pred_init_cond, target_init_cond).mean()
-        zero_entries = 1.0 - adjaceny_matrix
-        loss_missing_link = normalization_constants * zero_entries * (torch.pow(pred_im, 2) + torch.pow(pred_im_std, 2))
-        loss_missing_link = loss_missing_link.sum() / (zero_entries.sum() + 1e-8)
-        rmse_loss = torch.sqrt(torch.mean((target_mean - pred_im) ** 2))
+        predicted_kernel_values = predicted_kernel_values * torch.exp(-predicted_kernel_decay.unsqueeze(-1))
+        
+        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_values - target_kernel_values) ** 2))
+        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2))
+        
+        loss_1 = kernel_rmse + base_intensity_rmse
+        
+        loss = loss_1
 
-        gaus_cons = schedulers.get("gauss_nll")(step) if schedulers else torch.tensor(1.0)
-        init_cons = schedulers.get("init_cross_entropy")(step) if schedulers else torch.tensor(1.0)
-        missing_link_cons = schedulers.get("missing_link")(step) if schedulers else torch.tensor(1.0)
-        gaus_cons = gaus_cons.to(self.device)
-        init_cons = init_cons.to(self.device)
-        missing_link_cons = missing_link_cons.to(self.device)
-
-        loss = gaus_cons * loss_gauss + init_cons * loss_initial + missing_link_cons * loss_missing_link
-        # loss = rmse_loss
         return {
             "loss": loss,
-            "loss_gauss": loss_gauss,
-            "loss_initial": loss_initial,
-            "loss_missing_link": loss_missing_link,
-            "rmse_loss": rmse_loss,
-            "beta_gauss_nll": gaus_cons,
-            "beta_init_cross_entropy": init_cons,
-            "beta_missing_link": missing_link_cons,
-            "number_of_paths": torch.tensor(P, device=self.device),
+            "loss_1": loss_1,
+            "kernel_rmse": kernel_rmse,
+            "base_intensity_rmse": base_intensity_rmse,
         }
 
     def metric(self, y: Any, y_target: Any) -> Dict:
