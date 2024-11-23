@@ -112,9 +112,7 @@ def evaluate_hyperparameter_setting(
             label="target",
             linestyle="--",
         )
-        ax.plot(
-            times_prediction[sample_ids[i], :, dim], sample_path_prediction[sample_ids[i], :, dim], label="prediction"
-        )
+        ax.plot(times_prediction[sample_ids[i], :, dim], sample_path_prediction[sample_ids[i], :, dim], label="prediction")
     ax.legend()
 
     fig.suptitle("predictions")
@@ -165,9 +163,7 @@ if __name__ == "__main__":
             model_abbr = None
         # window_count = config["model"]["window_count"]
         overlap = config["model"]["overlap"]
-        output_folder_base = (
-            f"reports/FIMWindowed/SynthData_500k/{window_count}windows_{int(100*overlap)}%overlap/{model_abbr}/"
-        )
+        output_folder_base = f"reports/FIMWindowed/SynthData_500k/{window_count}windows_{int(100*overlap)}%overlap/{model_abbr}/"
         os.makedirs(output_folder_base, exist_ok=True)
         evaluate_hyperparameter_setting(model, output_folder_base)
 

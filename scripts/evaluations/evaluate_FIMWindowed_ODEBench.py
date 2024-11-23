@@ -172,9 +172,7 @@ def evaluate_hyperparameter_setting(model, dim: int, sigma: str, rho: str, outpu
             label="target",
             linestyle="--",
         )
-        ax.plot(
-            times_prediction[sample_ids[i], :, dim], sample_path_prediction[sample_ids[i], :, dim], label="prediction"
-        )
+        ax.plot(times_prediction[sample_ids[i], :, dim], sample_path_prediction[sample_ids[i], :, dim], label="prediction")
     ax.legend()
 
     fig.suptitle(f"ODEBench predictions for sigma={sigma}, rho={rho}")
@@ -283,9 +281,7 @@ if __name__ == "__main__":
             model_abbr = None
         # window_count = config["model"]["window_count"]
         overlap = config["model"]["overlap"]
-        output_folder_base = (
-            f"reports/FIMWindowed/ODEBench/{window_count}windows_{int(100*overlap)}%overlap/{model_abbr}/"
-        )
+        output_folder_base = f"reports/FIMWindowed/ODEBench/{window_count}windows_{int(100*overlap)}%overlap/{model_abbr}/"
         os.makedirs(output_folder_base, exist_ok=True)
         # print(f"Running evaluation for window_count={window_count}, model={model_abbr}")
         # use itertools.product to loop over all hyperparameters
