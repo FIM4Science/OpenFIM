@@ -1,9 +1,10 @@
-import numpy as np
-from tqdm import tqdm
 from multiprocessing import Pool
 
-from fim.leftovers_from_old_library import create_class_instance
+import numpy as np
+from tqdm import tqdm
+
 from fim.data_generation.hawkes.hawkes_simulation import run_hawkes_simulation
+from fim.leftovers_from_old_library import create_class_instance
 
 
 class HawkesDatasetGenerator:
@@ -22,8 +23,8 @@ class HawkesDatasetGenerator:
 
     def assemble(self, dtype=np.float32):
         num_samples = self.num_samples_train + self.num_samples_test
-        num_marks = self.kernel_sampler.num_marks
-        kernel_grid_size = self.kernel_sampler.kernel_grid_size
+        _num_marks = self.kernel_sampler.num_marks
+        _kernel_grid_size = self.kernel_sampler.kernel_grid_size
 
         baseline_data = []
         kernel_grid_data = []
