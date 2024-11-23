@@ -197,12 +197,11 @@ class RNNEncoder(Block):
         return self.rnn.hidden_size * 2 if self.rnn.bidirectional else self.rnn.hidden_size
 
     def init_params(self):
-        ...
-        # for name, param in self.rnn.named_parameters():
-        #     if "weight" in name:
-        #         nn.init.orthogonal_(param)
-        #     elif "bias" in name:
-        #         nn.init.zeros_(param)
+        for name, param in self.rnn.named_parameters():
+            if "weight" in name:
+                nn.init.orthogonal_(param)
+            elif "bias" in name:
+                nn.init.zeros_(param)
 
 
 class TransformerEncoder(Block):
