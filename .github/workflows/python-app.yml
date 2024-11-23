@@ -4,11 +4,11 @@
 name: Python application
 
 on:
-  push: 
-    branches: 
+  push:
+    branches:
       - "**"
   pull_request:
-    branches: 
+    branches:
       - "develop"
 
 permissions:
@@ -16,27 +16,27 @@ permissions:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.12"
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    - name: Lint code with Ruff
-      run: ruff check --output-format=github --target-version=py312
-    - name: Check code formatting with Ruff
-      run: ruff format --diff --target-version=py312
-      continue-on-error: true
-    - name: Install project
-      run: |
-        pip install .
-    - name: Test with pytest
-      run: |
-        pytest tests --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Lint code with Ruff
+        run: ruff check --output-format=github --target-version=py312
+      - name: Check code formatting with Ruff
+        run: ruff format --diff --target-version=py312
+        continue-on-error: true
+      - name: Install project
+        run: |
+          pip install .
+      - name: Test with pytest
+        run: |
+          pytest tests --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
