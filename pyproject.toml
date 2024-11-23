@@ -89,3 +89,16 @@ skip-magic-trailing-comma = false
 
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
+
+[tool.pylint]
+disable = [
+   "C0103", # Invalid variable name
+   "C0114", # Missing module docstring
+   #    "C0115",  # Missing class docstring
+   #    "C0116",  # Missing function or method docstring
+   #    "R0903",  # Too few public methods
+   #    "R0913",  # Too many arguments
+   #    "R0914",  # Too many local variables
+   #    "R0915",  # Too many statements
+]
+max-line-length = 140

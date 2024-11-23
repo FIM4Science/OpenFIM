@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import torch
 from torch import Tensor, nn
+from torch.nn.functional import one_hot
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from fim.models.blocks import AModel, ModelFactory, RNNEncoder, TransformerEncoder
@@ -11,6 +12,30 @@ from fim.utils.helper import create_class_instance
 
 
 class FIMMJPConfig(PretrainedConfig):
+    """
+    FIMMJPConfig is a configuration class for the FIMMJP model.
+    Attributes:
+        model_type (str): The type of the model, default is "fimmjp".
+        n_states (int): Number of states in the model. Default is 2.
+        use_adjacency_matrix (bool): Whether to use an adjacency matrix. Default is False.
+        ts_encoder (dict): Configuration for the time series encoder. Default is None.
+        pos_encodings (dict): Configuration for the positional encodings. Default is None.
+        path_attention (dict): Configuration for the path attention mechanism. Default is None.
+        intensity_matrix_decoder (dict): Configuration for the intensity matrix decoder. Default is None.
+        initial_distribution_decoder (dict): Configuration for the initial distribution decoder. Default is None.
+        use_num_of_paths (bool): Whether to use the number of paths. Default is True.
+    Args:
+        n_states (int, optional): Number of states in the model. Default is 2.
+        use_adjacency_matrix (bool, optional): Whether to use an adjacency matrix. Default is False.
+        ts_encoder (dict, optional): Configuration for the time series encoder. Default is None.
+        pos_encodings (dict, optional): Configuration for the positional encodings. Default is None.
+        path_attention (dict, optional): Configuration for the path attention mechanism. Default is None.
+        intensity_matrix_decoder (dict, optional): Configuration for the intensity matrix decoder. Default is None.
+        initial_distribution_decoder (dict, optional): Configuration for the initial distribution decoder. Default is None.
+        use_num_of_paths (bool, optional): Whether to use the number of paths. Default is True.
+        **kwargs: Additional keyword arguments.
+    """
+
     model_type = "fimmjp"
 
     def __init__(
@@ -39,12 +64,29 @@ class FIMMJPConfig(PretrainedConfig):
 
 class FIMMJP(AModel):
     """
-    FIMMJP: A Neural Recognition Model for Zero-Shot Inference of Markov Jump Processes
-    This class implements a neural recognition model for zero-shot inference of Markov jump processes (MJPs) on bounded state spaces from noisy and sparse observations. The methodology is based on the following paper:
-    Markov jump processes are continuous-time stochastic processes which describe dynamical systems evolving in discrete state spaces. These processes find wide application in the natural sciences and machine learning, but their inference is known to be far from trivial. In this work we introduce a methodology for zero-shot inference of Markov jump processes (MJPs), on bounded state spaces, from noisy and sparse observations, which consists of two components. First, a broad probability distribution over families of MJPs, as well as over possible observation times and noise mechanisms, with which we simulate a synthetic dataset of hidden MJPs and their noisy observations. Second, a neural recognition model that processes subsets of the simulated observations, and that is trained to output the initial condition and rate matrix of the target MJP in a supervised way. We empirically demonstrate that one and the same (pretrained) recognition model can infer, in a zero-shot fashion, hidden MJPs evolving in state spaces of different dimensionalities. Specifically, we infer MJPs which describe (i) discrete flashing ratchet systems, which are a type of Brownian motors, and the conformational dynamics in (ii) molecular simulations, (iii) experimental ion channel data and (iv) simple protein folding models. What is more, we show that our model performs on par with state-of-the-art models which are trained on the target datasets.
+    **FIMMJP: A Neural Recognition Model for Zero-Shot Inference of Markov Jump Processes**
 
-    It is model from the paper:"Foundation Inference Models for Markov Jump Processes" --- https://arxiv.org/abs/2406.06419.
-    Attributes:
+    This class implements a neural recognition model for zero-shot inference of Markov jump processes (MJPs)
+    on bounded state spaces from noisy and sparse observations. The methodology is based on the following paper:
+
+    Markov jump processes are continuous-time stochastic processes which describe dynamical systems evolving in discrete state spaces.
+    These processes find wide application in the natural sciences and machine learning, but their inference is known to be far from trivial.
+    In this work we introduce a methodology for zero-shot inference of Markov jump processes (MJPs),
+    on bounded state spaces, from noisy and sparse observations, which consists of two components.
+
+    First, a broad probability distribution over families of MJPs, as well as over possible observation times and noise mechanisms,
+    with which we simulate a synthetic dataset of hidden MJPs and their noisy observations. Second, a neural recognition model that
+    processes subsets of the simulated observations, and that is trained to output the initial condition and rate matrix of the target
+    MJP in a supervised way.
+
+    We empirically demonstrate that one and the same (pretrained) recognition model can infer, in a zero-shot fashion,
+    hidden MJPs evolving in state spaces of different dimensionalities. Specifically, we infer MJPs which describe
+    *(i) discrete flashing ratchet systems*, which are a type of Brownian motors, and the conformational dynamics in
+    *(ii) molecular simulations*, *(iii) experimental ion channel data* and *(iv) simple protein folding models*.
+    What is more, we show that our model performs on par with state-of-the-art models which are trained on the target datasets.
+
+    It is model from the paper: **"Foundation Inference Models for Markov Jump Processes"** --- https://arxiv.org/abs/2406.06419.
+    **Attributes:**
         n_states (int): Number of states in the Markov jump process.
         use_adjacency_matrix (bool): Whether to use an adjacency matrix.
         ts_encoder (dict | TransformerEncoder): Time series encoder.
@@ -55,7 +97,7 @@ class FIMMJP(AModel):
         gaussian_nll (nn.GaussianNLLLoss): Gaussian negative log-likelihood loss.
         init_cross_entropy (nn.CrossEntropyLoss): Cross-entropy loss for initial distribution.
 
-    Methods:
+    **Methods:**
         forward(x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
             Forward pass of the model.
         __decode(h: Tensor) -> tuple[Tensor, Tensor]:
@@ -66,7 +108,8 @@ class FIMMJP(AModel):
             Denormalize the predicted off-diagonal mean and log-variance.
         __normalize_obs_grid(obs_grid: Tensor) -> tuple[Tensor, Tensor]:
             Normalize the observation grid.
-        loss(pred_im: Tensor, pred_logvar_im: Tensor, pred_init_cond: Tensor, target_im: Tensor, target_init_cond: Tensor, adjaceny_matrix: Tensor, normalization_constants: Tensor, schedulers: dict = None, step: int = None) -> dict:
+        loss(pred_im: Tensor, pred_logvar_im: Tensor, pred_init_cond: Tensor, target_im: Tensor, target_init_cond: Tensor,
+            adjaceny_matrix: Tensor, normalization_constants: Tensor, schedulers: dict = None, step: int = None) -> dict:
             Compute the loss for the model.
         new_stats() -> dict:
             Initialize new statistics.
@@ -143,9 +186,7 @@ class FIMMJP(AModel):
 
         norm_constants = self.__normalize_observation_grid(x)
 
-        x["observation_values_one_hot"] = torch.nn.functional.one_hot(
-            x["observation_values"].long().squeeze(-1), num_classes=self.config.n_states
-        )
+        x["observation_values_one_hot"] = one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.config.n_states)
 
         h = self.__encode(x)
         pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
