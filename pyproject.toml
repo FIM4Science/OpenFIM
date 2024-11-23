@@ -47,6 +47,7 @@ dependencies = [
    "recommonmark",
    "colorlog",
    "torchinfo",
+   "ruff",
 ]
 
 
