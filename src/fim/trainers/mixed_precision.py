@@ -1,7 +1,7 @@
 import torch
 import torch.cuda.nccl as nccl
 import torch.distributed as dist
-from pkg_resources import packaging
+from packaging.version import Version
 from torch.distributed.fsdp import MixedPrecision
 
 
@@ -44,7 +44,7 @@ def is_bfloat_supported() -> bool:
     return (
         torch.version.cuda
         and torch.cuda.is_bf16_supported()
-        and packaging.version.parse(torch.version.cuda).release >= (11, 0)
+        and Version(torch.version.cuda).release >= Version("11.0")
         and dist.is_nccl_available()
         and nccl.version() >= (2, 10)
     )

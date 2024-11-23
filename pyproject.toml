@@ -15,7 +15,7 @@ authors = [
 
 ]
 license = { file = "LICENSE.txt" }
-requires-python = ">=3.12"
+requires-python = ">=3.10,<3.13"
 dependencies = [
    "torch==2.5.0",
    "transformers==4.46.0",

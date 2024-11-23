@@ -39,14 +39,6 @@ Optional and needed only once after `git clone`:
 
    and check out the configuration under `.pre-commit-config.yaml`. The `-n, --no-verify` flag of `git commit` can be used to deactivate pre-commit hooks temporarily.
 
-4. Install [nbstripout] git hooks to remove the output cells of committed notebooks with:
-
-   ```bash
-   nbstripout --install --attributes notebooks/.gitattributes
-   ```
-
-   This is useful to avoid large diffs due to plots in your notebooks. A simple `nbstripout --uninstall` will revert these changes.
-
 Then take a look into the `scripts` and `notebooks` folders.
 
 ## Usage

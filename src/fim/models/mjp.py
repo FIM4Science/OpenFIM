@@ -78,15 +78,11 @@ class FIMMJP(AModel):
 
     def __init__(self, config: FIMMJPConfig, **kwargs):
         super().__init__(config, **kwargs)
-        self.n_states = config.n_states
-        self.use_adjacency_matrix = config.use_adjacency_matrix
-        self.ts_encoder = config.ts_encoder
-        self.total_offdiagonal_transitions = self.n_states**2 - self.n_states
-
-        self.__create_modules()
-
+        self.total_offdiagonal_transitions = self.config.n_states**2 - self.config.n_states
         self.gaussian_nll = nn.GaussianNLLLoss(full=True, reduction="none")
         self.init_cross_entropy = nn.CrossEntropyLoss(reduction="none")
+
+        self.__create_modules()
 
     def __create_modules(self):
         pos_encodings = copy.deepcopy(self.config.pos_encodings)
@@ -96,26 +92,28 @@ class FIMMJP(AModel):
         initial_distribution_decoder = copy.deepcopy(self.config.initial_distribution_decoder)
 
         if ts_encoder["name"] == "fim.models.blocks.base.TransformerEncoder":
-            pos_encodings["out_features"] -= self.n_states
+            pos_encodings["out_features"] -= self.config.n_states
         self.pos_encodings = create_class_instance(pos_encodings.pop("name"), pos_encodings)
 
-        ts_encoder["in_features"] = self.n_states + self.pos_encodings.out_features
+        ts_encoder["in_features"] = self.config.n_states + self.pos_encodings.out_features
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
 
         self.path_attention = create_class_instance(path_attention.pop("name"), path_attention)
 
         in_features = intensity_matrix_decoder.get(
-            "in_features", self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.use_adjacency_matrix else 1)
+            "in_features",
+            self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
         )
         intensity_matrix_decoder["in_features"] = in_features
         intensity_matrix_decoder["out_features"] = 2 * self.total_offdiagonal_transitions
         self.intensity_matrix_decoder = create_class_instance(intensity_matrix_decoder.pop("name"), intensity_matrix_decoder)
 
         in_features = initial_distribution_decoder.get(
-            "in_features", self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.use_adjacency_matrix else 1)
+            "in_features",
+            self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
         )
         initial_distribution_decoder["in_features"] = in_features
-        initial_distribution_decoder["out_features"] = self.n_states
+        initial_distribution_decoder["out_features"] = self.config.n_states
         self.initial_distribution_decoder = create_class_instance(initial_distribution_decoder.pop("name"), initial_distribution_decoder)
 
     def forward(self, x: dict[str, Tensor], n_states: int = None, schedulers: dict = None, step: int = None) -> dict:
@@ -143,6 +141,60 @@ class FIMMJP(AModel):
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
 
+        norm_constants = self.__normalize_observation_grid(x)
+
+        x["observation_values_one_hot"] = torch.nn.functional.one_hot(
+            x["observation_values"].long().squeeze(-1), num_classes=self.config.n_states
+        )
+
+        h = self.__encode(x)
+        pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
+
+        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
+
+        out = self.__prepare_output(n_states, init_cond, pred_offdiag_im_mean, pred_offdiag_im_logvar)
+        self.__calculate_train_loss_if_targe_exists(
+            x, schedulers, step, norm_constants, init_cond, pred_offdiag_im_mean, pred_offdiag_im_logvar, out
+        )
+
+        return out
+
+    def __calculate_train_loss_if_targe_exists(
+        self,
+        x: dict[str, Tensor],
+        schedulers: dict,
+        step: int,
+        norm_constants: Tensor,
+        init_cond: Tensor,
+        pred_offdiag_im_mean: Tensor,
+        pred_offdiag_im_logvar: Tensor,
+        out: dict,
+    ):
+        if "intensity_matrices" in x and "initial_distributions" in x:
+            out["losses"] = self.loss(
+                pred_offdiag_im_mean, pred_offdiag_im_logvar, init_cond, x, norm_constants.view(-1, 1), schedulers, step
+            )
+
+    def __prepare_output(self, n_states: int, init_cond: Tensor, pred_offdiag_im_mean: Tensor, pred_offdiag_im_logvar: Tensor) -> dict:
+        out = {
+            "intensity_matrices": create_matrix_from_off_diagonal(
+                pred_offdiag_im_mean,
+                self.config.n_states,
+                mode="negative_sum_row",
+                n_states=self.config.n_states if n_states is None else n_states,
+            ),
+            "intensity_matrices_variance": create_matrix_from_off_diagonal(
+                torch.exp(pred_offdiag_im_logvar),
+                self.config.n_states,
+                mode="negative_sum_row",
+                n_states=self.config.n_states if n_states is None else n_states,
+            ),
+            "initial_condition": init_cond,
+        }
+
+        return out
+
+    def __normalize_observation_grid(self, x: dict[str, Tensor]) -> Tensor:
         obs_grid = x["observation_grid"]
         if "time_normalization_factors" not in x:
             norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid)
@@ -151,32 +203,7 @@ class FIMMJP(AModel):
         else:
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
-
-        x["observation_values_one_hot"] = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states)
-
-        h = self.__encode(x)
-        pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
-
-        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
-
-        out = {
-            "intensity_matrices": create_matrix_from_off_diagonal(
-                pred_offdiag_im_mean, self.n_states, mode="negative_sum_row", n_states=self.n_states if n_states is None else n_states
-            ),
-            "intensity_matrices_variance": create_matrix_from_off_diagonal(
-                torch.exp(pred_offdiag_im_logvar),
-                self.n_states,
-                mode="negative_sum_row",
-                n_states=self.n_states if n_states is None else n_states,
-            ),
-            "initial_condition": init_cond,
-        }
-        if "intensity_matrices" in x and "initial_distributions" in x:
-            out["losses"] = self.loss(
-                pred_offdiag_im_mean, pred_offdiag_im_logvar, init_cond, x, norm_constants.view(-1, 1), schedulers, step
-            )
-
-        return out
+        return norm_constants
 
     def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
         pred_offdiag_logmean_logstd = self.intensity_matrix_decoder(h)
@@ -204,7 +231,7 @@ class FIMMJP(AModel):
             h = self.path_attention(h, h, h)
         if self.config.use_num_of_paths:
             h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
-        if self.use_adjacency_matrix:
+        if self.config.use_adjacency_matrix:
             h = torch.cat([h, get_off_diagonal_elements(x["adjacency_matrix"])], dim=-1)
         return h
 
