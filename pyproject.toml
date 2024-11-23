@@ -70,13 +70,15 @@ select = ["C", "E", "F", "I", "W"]
 [tool.ruff]
 line-length = 140
 
-# Ignore import violations in all `__init__.py` files.
+
 [tool.ruff.lint.per-file-ignores]
+"**" = ["F841"]
 "__init__.py" = ["E402", "F401", "F403", "F811"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
 known-first-party = ["fim"]
+
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
@@ -95,6 +97,7 @@ line-ending = "auto"
 disable = [
    "C0103", # Invalid variable name
    "C0114", # Missing module docstring
+
    #    "C0115",  # Missing class docstring
    #    "C0116",  # Missing function or method docstring
    #    "R0903",  # Too few public methods

@@ -10,6 +10,7 @@ from fim.utils.helper import create_class_instance
 
 eps = 1e-6
 
+
 class BaseNormalization(Block):
     """Base class for normalization. Need to implement
     forward (normalization of a tensor, optionally with observation mask),

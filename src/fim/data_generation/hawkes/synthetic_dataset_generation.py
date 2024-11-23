@@ -5,7 +5,8 @@ from multiprocessing import Pool
 from fim.leftovers_from_old_library import create_class_instance
 from fim.data_generation.hawkes.hawkes_simulation import run_hawkes_simulation
 
-class HawkesDatasetGenerator():
+
+class HawkesDatasetGenerator:
     def __init__(self, **kwargs) -> None:
         self.num_samples_train = kwargs["num_samples_train"]
         self.num_samples_test = kwargs["num_samples_test"]
@@ -13,13 +14,10 @@ class HawkesDatasetGenerator():
         self.n_events_per_path = kwargs["n_events_per_path"]
         self.num_procs = kwargs["num_procs"]
         self.kernel_sampler = create_class_instance(kwargs["kernel_sampler"])
-    
+
     def _generate_sample(self, _):
         baselines, kernel_grids, kernel_evaluations = self.kernel_sampler()
-        event_time, event_type = run_hawkes_simulation(
-            baselines, kernel_grids, kernel_evaluations, 
-            self.num_paths, self.n_events_per_path
-        )
+        event_time, event_type = run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, self.num_paths, self.n_events_per_path)
         return baselines, kernel_grids, kernel_evaluations, event_time, event_type
 
     def assemble(self, dtype=np.float32):
@@ -40,8 +38,8 @@ class HawkesDatasetGenerator():
                 kernel_grid_data.append(kernel_grids)
                 kernel_evaluation_data.append(kernel_evaluations)
                 event_time_data.append(event_time)
-                event_type_data.append(event_type) 
-        
+                event_type_data.append(event_type)
+
         baseline_data = np.array(baseline_data, dtype=dtype)
         kernel_grid_data = np.array(kernel_grid_data, dtype=dtype)
         kernel_evaluation_data = np.array(kernel_evaluation_data, dtype=dtype)
@@ -49,7 +47,7 @@ class HawkesDatasetGenerator():
         event_type_data = np.array(event_type_data, dtype=dtype)
 
         # Detect invalid samples, that is, samples with no events
-        valid_samples = np.sum(event_time_data, axis=(1,2)) != 0
+        valid_samples = np.sum(event_time_data, axis=(1, 2)) != 0
         print("Ratio of invalid samples: ", (num_samples - np.sum(valid_samples)) / num_samples)
 
         # Remove invalid samples
@@ -64,22 +62,24 @@ class HawkesDatasetGenerator():
             "kernel_grid_data": kernel_grid_data,
             "kernel_evaluation_data": kernel_evaluation_data,
             "event_time_data": event_time_data,
-            "event_type_data": event_type_data
+            "event_type_data": event_type_data,
         }
         return res
-    
-    
-class HawkesKernelSampler():
+
+
+class HawkesKernelSampler:
     def __init__(self, **kwargs) -> None:
         self.num_marks = kwargs["num_marks"]
         self.kernel_grid_size = kwargs["kernel_grid_size"]
         self.baseline_sampler = create_class_instance(kwargs["baseline_sampler"])
-        self.kernel_function_samplers = [create_class_instance(kernel_function_sampler) for kernel_function_sampler in kwargs["kernel_function_samplers"].values()]
-        
-    def  __call__(self):
+        self.kernel_function_samplers = [
+            create_class_instance(kernel_function_sampler) for kernel_function_sampler in kwargs["kernel_function_samplers"].values()
+        ]
+
+    def __call__(self):
         """
         Sample the parameters for the Hawkes kernel.
-        
+
         Returns:
         kernel_grids: np.array
             The time grids on which the kernels get evaluated.
@@ -97,5 +97,3 @@ class HawkesKernelSampler():
             kernel_evaluations.append(values)
             baselines.append(self.baseline_sampler())
         return baselines, np.array(kernel_grids), np.array(kernel_evaluations)
-
-        
