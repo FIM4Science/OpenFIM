@@ -164,8 +164,8 @@ class FIMHawkes(AModel):
             x["observation_grid_normalized"] = obs_grid
 
         #FIXME: REMOVE THIS!
-        x["kernel_grids"] = x["kernel_grids"][:,:,:10]
-        x["kernel_evaluations"] = x["kernel_evaluations"][:,:,:10]
+        x["kernel_grids"] = x["kernel_grids"][:, :, ::10]
+        x["kernel_evaluations"] = x["kernel_evaluations"][:,:,::10]
         print("WARNING: Kernel grids and evaluations are truncated to 10")
 
         sequence_encodings = self.__encode_observations(x) # [B, P, L, D]
@@ -180,7 +180,7 @@ class FIMHawkes(AModel):
         
         static_path_summary = self.__Omega_4_encoder(static_path_embeddings) # [B, D_4]
         
-        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel, 1]
+        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary).squeeze() # [B, M, L_kernel]
         
         predicted_kernel_decay_and_base_intensity = torch.exp(self.__kernel_parameter_decoder(static_path_summary)) # [B, M, 2]
         predicted_base_intensity = predicted_kernel_decay_and_base_intensity[:,:,0]
@@ -332,10 +332,13 @@ class FIMHawkes(AModel):
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        predicted_kernel_values = predicted_kernel_values * torch.exp(-predicted_kernel_decay.unsqueeze(-1))
+        predicted_kernel_function = predicted_kernel_values * torch.exp(-predicted_kernel_decay.unsqueeze(-1))
         
-        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_values - target_kernel_values) ** 2))
+        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2))
         base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2))
+        
+        print("Prediction", predicted_kernel_function)  
+        print("Target", target_kernel_values)      
         
         loss_1 = kernel_rmse + base_intensity_rmse
         

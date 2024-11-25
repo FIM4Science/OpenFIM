@@ -1,14 +1,15 @@
 process_type: &process_type "hawkes" # hawkes, mjp, etc.
-dataset_name: &dataset_name "hawkes_test"
+dataset_name: &dataset_name "10k_hawkes_exp"
 
 data_generator:
   class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesDatasetGenerator
-  num_samples_train: &num_samples_train 100
-  num_samples_val: &num_samples_val 10
-  num_samples_test: &num_samples_test 10
+  num_samples_train: &num_samples_train 10000
+  num_samples_val: &num_samples_val 1000
+  num_samples_test: &num_samples_test 1000
   num_paths: 500
   n_events_per_path: 300
   num_procs: 16
+  num_chunks: 100 #TODO: We currently dont store the data chunk wise because the dataloader is not ready for it
   kernel_sampler:
     class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesKernelSampler
     num_marks: 1

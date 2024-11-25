@@ -19,7 +19,7 @@ dataset:
       - data/synthetic_data/hawkes/hawkes_test/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/hawkes_test/test
+      - data/synthetic_data/hawkes/hawkes_test/val
 
   loader_kwargs:
     batch_size: 1

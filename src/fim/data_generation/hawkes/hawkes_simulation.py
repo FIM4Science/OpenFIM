@@ -2,7 +2,7 @@ import numpy as np
 
 from tick.hawkes import SimuHawkes, HawkesKernelTimeFunc
     
-def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths, n_events_per_path):
+def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths, n_events_per_path, seed=0):
     """
     Run a Hawkes simulation with the given kernels.
     
@@ -24,7 +24,7 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
     event_types: np.array [num_paths, n_events_per_path]
         The event types.
     """
-    hawkes = SimuHawkes(baseline=baselines, max_jumps=n_events_per_path, seed=1093, verbose=False)
+    hawkes = SimuHawkes(baseline=baselines, max_jumps=n_events_per_path, seed=seed, verbose=False)
     for i in range(len(kernel_grids)):
         kernel = HawkesKernelTimeFunc(t_values=kernel_grids[i], y_values=kernel_evaluations[i])
         hawkes.set_kernel(i, i, kernel)

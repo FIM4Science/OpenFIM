@@ -1,4 +1,8 @@
+import os
+import random
+import time
 import numpy as np
+import torch
 from tqdm import tqdm
 from multiprocessing import Pool
 
@@ -13,13 +17,14 @@ class HawkesDatasetGenerator():
         self.num_paths = kwargs["num_paths"]
         self.n_events_per_path = kwargs["n_events_per_path"]
         self.num_procs = kwargs["num_procs"]
+        self.num_chunks = kwargs["num_chunks"]
         self.kernel_sampler = create_class_instance(kwargs["kernel_sampler"])
     
-    def _generate_sample(self, _):
+    def _generate_sample(self, seed=0):
         baselines, kernel_grids, kernel_evaluations = self.kernel_sampler()
         event_time, event_type = run_hawkes_simulation(
             baselines, kernel_grids, kernel_evaluations, 
-            self.num_paths, self.n_events_per_path
+            self.num_paths, self.n_events_per_path, seed=seed
         )
         return baselines, kernel_grids, kernel_evaluations, event_time, event_type
 
@@ -34,15 +39,26 @@ class HawkesDatasetGenerator():
         event_time_data = []
         event_type_data = []
 
+        num_chunks = self.num_chunks
+        samples_per_chunk = num_samples // num_chunks
+        chunks = [
+            range(i * samples_per_chunk, (i + 1) * samples_per_chunk)
+            for i in range(num_chunks)
+        ]
+
+        # Handle any remaining samples
+        if num_samples % num_chunks != 0:
+            chunks.append(range(num_chunks * samples_per_chunk, num_samples))
+
         with Pool(self.num_procs) as pool:
-            for result in tqdm(pool.imap(self._generate_sample, range(num_samples)), total=num_samples):
+            for result in tqdm(pool.imap(self._generate_chunk, chunks), total=len(chunks)):
                 baselines, kernel_grids, kernel_evaluations, event_time, event_type = result
-                baseline_data.append(baselines)
-                kernel_grid_data.append(kernel_grids)
-                kernel_evaluation_data.append(kernel_evaluations)
-                event_time_data.append(event_time)
-                event_type_data.append(event_type) 
-        
+                baseline_data.extend(baselines)
+                kernel_grid_data.extend(kernel_grids)
+                kernel_evaluation_data.extend(kernel_evaluations)
+                event_time_data.extend(event_time)
+                event_type_data.extend(event_type) 
+
         baseline_data = np.array(baseline_data, dtype=dtype)
         kernel_grid_data = np.array(kernel_grid_data, dtype=dtype)
         kernel_evaluation_data = np.array(kernel_evaluation_data, dtype=dtype)
@@ -72,6 +88,24 @@ class HawkesDatasetGenerator():
             "event_types": event_type_data #[B, P, L, 1]
         }
         return res
+    
+    def _generate_chunk(self, chunk_range):
+        baselines = []
+        kernel_grids = []
+        kernel_evaluations = []
+        event_times = []
+        event_types = []
+              
+        for sample_idx in chunk_range:
+            np.random.seed(sample_idx) # TODO: Check if we can make this faster
+            baseline, kernel_grid, kernel_evaluation, event_time, event_type = self._generate_sample(seed=sample_idx)
+            baselines.append(baseline)
+            kernel_grids.append(kernel_grid)
+            kernel_evaluations.append(kernel_evaluation)
+            event_times.append(event_time)
+            event_types.append(event_type)
+        
+        return baselines, kernel_grids, kernel_evaluations, event_times, event_types
     
     
 class HawkesKernelSampler():
