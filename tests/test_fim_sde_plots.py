@@ -97,5 +97,5 @@ def test_plot_3d():
     
 
 if __name__=="__main__":
-    test_plot_1d()
+    test_plot_3d()
 

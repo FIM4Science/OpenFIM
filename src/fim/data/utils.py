@@ -10,6 +10,10 @@ import numpy as np
 import torch
 from pathlib import Path
 
+import torch
+from typing import List
+
+
 def load_ODEBench_as_torch(directory: str) -> dict:
     """Loads data from the ODEBench dataset (given in cphefs dir) as torch tensors."""
     data = {}

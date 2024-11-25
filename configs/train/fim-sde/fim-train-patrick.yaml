@@ -70,7 +70,14 @@ dataset:
 
   total_minibatch_size: &total_minibatch_size 2
   total_minibatch_size_test: &total_minibatch_size_test 2
-  
+
+  random_num_paths_n_grid: true
+  min_number_of_paths_per_batch: 10  
+  max_number_of_paths_per_batch: 300
+
+  min_number_of_grid_per_batch: 50 
+  max_number_of_grid_per_batch: 1024 
+
   max_dimension: *max_dimension 
   max_time_steps: *max_time_steps 
   max_location_size: *max_location_size 

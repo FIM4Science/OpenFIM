@@ -49,6 +49,14 @@ class FIMDatasetConfig:
     total_minibatch_size_test: int = 2
     data_loading_processes_count: int = 0
 
+    random_num_paths_n_grid:bool = True
+
+    min_number_of_paths_per_batch:int = 10  
+    max_number_of_paths_per_batch:int = 300
+
+    min_number_of_grid_per_batch:int = 50 
+    max_number_of_grid_per_batch:int = 1024 
+
     data_in_files: DataInFiles = field(default_factory=DataInFiles)
     dataset_path_collections: DatasetPathCollections = field(default_factory=DatasetPathCollections)
 

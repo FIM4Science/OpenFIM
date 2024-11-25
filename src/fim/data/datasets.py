@@ -23,6 +23,7 @@ from .utils import load_file, split_into_variable_windows
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim .data.utils import load_h5
 
+
 class HFDataset(torch.utils.data.Dataset):
     """
     Base class for time series datasets.
@@ -501,7 +502,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
     """
     First simple dataset to train a Neural Operator
     """
-    def __init__(self,data_params:FIMDatasetConfig=None,data_paths:Optional[List[str]]=None):
+    def __init__(self,data_config:FIMDatasetConfig=None,data_paths:Optional[List[str]]=None):
         """
         Args:
             data_paths (List[str]): list of locations of .h5 files requiered to load the data
@@ -509,9 +510,10 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         # To keep track of the number of samples in each file
         self.data = []
         self.lengths = [] 
-        self.data_params = data_params
+        self.data_config = data_config
+
         # Load data and compute cumulative lengths
-        self.read_files(data_params,data_paths)
+        self.read_files(data_config,data_paths)
 
     def _read_one_bulk(self,data:str|FIMSDEDatabatch|Path)->FIMSDEDatabatch:
         from pathlib import Path
@@ -520,7 +522,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             return data
         elif isinstance(data,(str,Path)):
             data = Path(data)
-            for key,value in self.data_params.data_in_files.__dict__.items():
+            for key,value in self.data_config.data_in_files.__dict__.items():
                 key_file_path = data / value
                 data_dict[key] = load_h5(key_file_path)
             data_bulk = FIMSDEDatabatch(**data_dict)
@@ -567,11 +569,11 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             if one_data_bulk.diffusion_parameters is not None:
                 self.max_diffusion_param_size = max(self.max_diffusion_param_size,one_data_bulk.diffusion_parameters.size(1))
 
-        if self.data_params is not None:        
-            self.data_params.max_dimension = self.max_dimension
-            self.data_params.max_time_steps = self.max_time_steps
-            self.data_params.max_location_size = self.max_location_size
-            self.data_params.max_num_paths = self.max_num_paths
+        if self.data_config is not None:        
+            self.data_config.max_dimension = self.max_dimension
+            self.data_config.max_time_steps = self.max_time_steps
+            self.data_config.max_location_size = self.max_location_size
+            self.data_config.max_num_paths = self.max_num_paths
 
         self.cumulative_lengths = np.cumsum(self.lengths)
 
@@ -593,14 +595,52 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         drift_at_locations,diffusion_at_locations,locations,mask = self._pad_locations_tensors(drift_at_locations,diffusion_at_locations,locations)
         if len(obs_values.shape) == 4:
             obs_values = obs_values[:,:,:,0] 
+        
+        # select a smaller set of paths
+        #obs_values,obs_times,diffusion_at_locations,drift_at_locations,locations,mask = self._select_paths_and_grid(obs_values,obs_times,diffusion_at_locations,drift_at_locations,locations,mask)
+
         # Create and return the named tuple
         return FIMSDEDatabatchTuple(
             obs_values=obs_values,
             obs_times=obs_times,
-            diffusion_at_locations=diffusion_at_locations,
             drift_at_locations=drift_at_locations,
+            diffusion_at_locations=diffusion_at_locations,
             locations=diffusion_at_locations,
             dimension_mask=mask
+        )
+
+    def _select_paths_and_grid(
+            self,
+            obs_values:torch.Tensor,
+            obs_times:torch.Tensor,
+            drift_at_locations:torch.Tensor,
+            diffusion_at_locations:torch.Tensor,
+            locations:torch.Tensor,
+            dimension_mask:torch.Tensor
+            ):
+        
+        
+        P = obs_values.size(0)
+        G = locations.size(0)
+
+        number_of_paths = torch.randint(self.min_number_of_paths_per_batch,min(self.max_number_of_paths_per_batch,P),size=(1,))[0]
+        number_of_grids = torch.randint(self.min_number_of_grid_per_batch,min(G,self.max_number_of_grid_per_batch),size=(1,))[0]
+
+        obs_values = obs_values[:number_of_paths]
+        obs_times = obs_times[:number_of_paths]
+
+        drift_at_locations = drift_at_locations[:number_of_grids]
+        diffusion_at_locations = diffusion_at_locations[:number_of_grids]
+        locations = locations[:number_of_grids]
+        dimension_mask = dimension_mask[:number_of_grids]
+
+        return (
+            obs_values,
+            obs_times,
+            drift_at_locations,
+            diffusion_at_locations,
+            locations,
+            dimension_mask
         )
 
     def _get_file_and_sample_index(self, idx):
