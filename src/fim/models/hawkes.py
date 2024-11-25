@@ -258,12 +258,12 @@ class FIMHawkes(AModel):
 
         # Prepare queries
         queries = trunk_net_encoding.view(B * M * L_kernel, 1, D).expand(-1, P, -1)
-        queries = queries.reshape(B * M * L_kernel * P, 1, D)
+        queries = queries.contiguous().view(B * M * L_kernel * P, 1, D)
         queries = queries.expand(-1, L, -1)  # Shape: (B*M*L_kernel*P, L, D)
 
         # Prepare keys and values
         keys = observation_encoding.unsqueeze(1).unsqueeze(2)  # Shape: (B,1,1,P,L,D)
-        keys = keys.expand(B, M, L_kernel, P, L, D).reshape(B * M * L_kernel * P, L, D)
+        keys = keys.expand(B, M, L_kernel, P, L, D).contiguous().view(B * M * L_kernel * P, L, D)
         values = keys
 
         # Create key_padding_mask based on seq_lengths
@@ -337,8 +337,8 @@ class FIMHawkes(AModel):
         kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2))
         base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2))
         
-        print("Prediction", predicted_kernel_function)  
-        print("Target", target_kernel_values)      
+        # print("Prediction", predicted_kernel_function)  
+        # print("Target", target_kernel_values)      
         
         loss_1 = kernel_rmse + base_intensity_rmse
         
