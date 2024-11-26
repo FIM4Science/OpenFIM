@@ -15,7 +15,7 @@ from fim.data.datasets import (
 
 from dataclasses import field
 from typing import Dict, Optional, Tuple
-from fim.models.blocks.base import Mlp,TimeEncoding,TransformerModel
+from fim.models.blocks.base import MLP,TransformerModel
 from fim.models.blocks import ModelFactory
 from fim.data.data_generation.dynamical_systems_target import generate_all
 from fim.data.config_dataclasses import FIMDatasetConfig
@@ -336,15 +336,15 @@ class FIMSDE(pl.LightningModule):
         self.psi_1_tokes_dim = self.model_config.sequence_encoding_tokenizer*self.model_config.sequence_encoding_transformer_heads
 
         # basic embedding
-        self.phi_0t = TimeEncoding(self.model_config.temporal_embedding_size)
-        self.phi_0x = Mlp(
+        self.phi_0t = SineTimeEncoding(self.model_config.temporal_embedding_size)
+        self.phi_0x = MLP(
             in_features=x_dimension_full,
             out_features=self.model_config.spatial_embedding_size,
             hidden_layers=self.model_config.spatial_embedding_hidden_layers
         )
 
         # trunk network
-        self.trunk = Mlp(
+        self.trunk = MLP(
             in_features=x_dimension,
             out_features=self.psi_1_tokes_dim,
             hidden_layers=self.model_config.trunk_net_hidden_layers
