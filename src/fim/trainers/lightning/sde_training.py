@@ -2,41 +2,22 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 import os
-import time
 
-import torch
-import shutil
-import numpy as np
-import torch.nn as nn
 
 from pathlib import Path
-from dataclasses import dataclass
-from dataclasses import dataclass,asdict, field
-from typing import Any, Dict, Optional, Union, List,Tuple
 
 from lightning.pytorch import Trainer
-from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch.loggers import MLFlowLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.loggers import TensorBoardLogger
 
-from dataclasses import asdict
-from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.dataloaders import FIMSDEDataloader
-from fim.data.datasets import FIMSDEDatabatchTuple
 
 from fim.models.sde import FIMSDE
 from fim.pipelines.sde_pipelines import(
-    FIMSDEPipeline,
     sample_and_save_from_test
 )
 
 from fim.utils.experiment_files import ExperimentsFiles
-from pathlib import Path
-from fim.models.config_dataclasses import FIMSDEConfig
-from fim.data.config_dataclasses import FIMDatasetConfig
-from fim.data.dataloaders import FIMSDEDataloader
-from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.utils.helper import save_hyperparameters_to_yaml
 from fim import results_path
 
@@ -60,10 +41,10 @@ def train_fim_sde(model_config:dict,data_config:dict):
     # Set up TensorBoard logger
     logger = MLFlowLogger(experiment_name=experiment_name,
                           tracking_uri=f"file:{ml_flow_folder}")
-    
+
     # Set up Model Checkpointing
     checkpoint_callback_best = ModelCheckpoint(dirpath=experiment_files.checkpoints_dir,
-                                               save_top_k=1, 
+                                               save_top_k=1,
                                                monitor="val_loss",
                                                filename="best-{epoch:02d}")
     checkpoint_callback_last = ModelCheckpoint(dirpath=experiment_files.checkpoints_dir,
@@ -88,10 +69,10 @@ def train_fim_sde(model_config:dict,data_config:dict):
         callbacks=[checkpoint_callback_best,
                    checkpoint_callback_last]
     )
-    trainer.fit(model, 
+    trainer.fit(model,
                 dataloaders.train_it,
                 dataloaders.validation_it)
-    
+
     # Save test samples from best model
     checkpoint_path = experiment_files.get_lightning_checkpoint_path("best")
     model = FIMSDE.load_from_checkpoint(checkpoint_path,model_config=model_config,data_config=data_config,map_location="cuda")

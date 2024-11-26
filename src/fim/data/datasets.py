@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from collections import namedtuple
 
 from collections import defaultdict
-from typing import Optional, Union
+from typing import Union
 
 import torch
 import torch.utils
@@ -474,7 +474,7 @@ class FIMSDEDatabatch:
     drift_parameters: torch.Tensor | np.ndarray = None
     process_label:torch.Tensor | np.ndarray = None
     process_dimension:torch.Tensor | np.ndarray = None
-    
+
     def convert_to_tensors(self):
         for field in self.__dataclass_fields__:
             value = getattr(self, field)
@@ -509,7 +509,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         """
         # To keep track of the number of samples in each file
         self.data = []
-        self.lengths = [] 
+        self.lengths = []
         self.data_config = data_config
 
         # Load data and compute cumulative lengths
@@ -528,7 +528,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             data_bulk = FIMSDEDatabatch(**data_dict)
             data_bulk.convert_to_tensors()
             return data_bulk
-        
+
     def read_files(self,params,file_paths:List[str]):
         """
         Reads the files and organize data such that during item selection 
@@ -547,7 +547,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             self.max_location_size = 0
             self.max_drift_param_size = 0
             self.max_diffusion_param_size = 0
-        
+
         for file_path in file_paths:
             if isinstance(file_path,(Path,str)):
                 one_data_bulk: FIMSDEDatabatch = self._read_one_bulk(file_path)  # Adjust loading method as necessary
@@ -569,7 +569,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             if one_data_bulk.diffusion_parameters is not None:
                 self.max_diffusion_param_size = max(self.max_diffusion_param_size,one_data_bulk.diffusion_parameters.size(1))
 
-        if self.data_config is not None:        
+        if self.data_config is not None:
             self.data_config.max_dimension = self.max_dimension
             self.data_config.max_time_steps = self.max_time_steps
             self.data_config.max_location_size = self.max_location_size
@@ -584,7 +584,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         # Obtains index of the associated file and item whithin the file
         file_idx, sample_idx = self._get_file_and_sample_index(idx)
         data_bulk:FIMSDEDatabatch = self.data[file_idx]
-        # Get the tensor from the appropriate file 
+        # Get the tensor from the appropriate file
         obs_values = data_bulk.obs_values[sample_idx]
         obs_times = data_bulk.obs_times[sample_idx]
         diffusion_at_locations = data_bulk.diffusion_at_locations[sample_idx]
@@ -594,8 +594,8 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         obs_values,obs_times = self._pad_obs_tensors(obs_values,obs_times)
         drift_at_locations,diffusion_at_locations,locations,mask = self._pad_locations_tensors(drift_at_locations,diffusion_at_locations,locations)
         if len(obs_values.shape) == 4:
-            obs_values = obs_values[:,:,:,0] 
-        
+            obs_values = obs_values[:,:,:,0]
+
         # select a smaller set of paths
         #obs_values,obs_times,diffusion_at_locations,drift_at_locations,locations,mask = self._select_paths_and_grid(obs_values,obs_times,diffusion_at_locations,drift_at_locations,locations,mask)
 
@@ -618,8 +618,8 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             locations:torch.Tensor,
             dimension_mask:torch.Tensor
             ):
-        
-        
+
+
         P = obs_values.size(0)
         G = locations.size(0)
 
@@ -665,7 +665,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
                 obs_values = torch.nn.functional.pad(obs_values, (0,dim_padding_size,0,time_dim_padding_size))
 
             obs_times = torch.nn.functional.pad(obs_times, (0,0,0,time_dim_padding_size))
-             
+
         return obs_values, obs_times
 
     def _pad_locations_tensors(self,drift_at_locations,diffusion_at_locations,locations):
@@ -699,7 +699,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         mask[:,current_dimension:] = 0.
         mask[current_location:,:] = 0.
         return mask
-    
+
     def update_parameters(self,param):
         param.max_dimension = self.max_dimension
         param.max_hypercube_size = self.max_location_size

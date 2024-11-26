@@ -1,37 +1,24 @@
-import os
-import time
-import yaml
 
 import torch
-import shutil
-import numpy as np
 import torch.nn as nn
 from torch import Tensor
 
-from pathlib import Path
 import lightning.pytorch as pl
 from dataclasses import dataclass
-from lightning.pytorch import Trainer
-from torch.utils.data import Dataset, DataLoader
-from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.loggers import TensorBoardLogger
 
 from fim.models.config_dataclasses import FIMSDEConfig
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
 
 from fim.data.datasets import (
-    FIMSDEDataset,
-    FIMSDEDatabatch,
     FIMSDEDatabatchTuple
 )
 
-from dataclasses import dataclass,asdict, field
-from typing import Any, Dict, Optional, Union, List,Tuple
+from dataclasses import field
+from typing import Dict, Optional, Tuple
 from fim.models.blocks.base import Mlp,TimeEncoding,TransformerModel
-from fim.utils.experiment_files import ExperimentsFiles
-from fim.models.blocks import AModel, ModelFactory
-from fim.data.datasets import FIMSDEDataset,FIMSDEDatabatchTuple
+from fim.models.blocks import ModelFactory
 from fim.data.data_generation.dynamical_systems_target import generate_all
+from fim.data.config_dataclasses import FIMDatasetConfig
 
 from fim.utils.plots.sde_estimation_plots import (
     images_log_1D,
@@ -47,7 +34,7 @@ class QueryGenerator(nn.Module):
 
     def forward(self, x):
         return self.linear(x)
-    
+
 # 2. Define a static query matrix as a learnable parameter
 class StaticQuery(nn.Module):
     def __init__(self, num_steps, query_dim):
@@ -56,9 +43,6 @@ class StaticQuery(nn.Module):
 
     def forward(self):
         return self.queries
-
-from fim.models.config_dataclasses import FIMSDEConfig
-from fim.data.config_dataclasses import FIMDatasetConfig
 
 @dataclass
 class FIMSDEForward:
@@ -88,7 +72,7 @@ class FIMSDEForward:
     drift_target: Optional[Tensor] = None  # [B,P,G,D]
     diffusion_target: Optional[Tensor] = None  # [B,P,G,D]
 
-    # Data 
+    # Data
     locations: Optional[Tensor] = None  # [B,P,G,D]
     obs_times: Optional[Tensor] = None  # [B,P,T,1]
     obs_values: Optional[Tensor] = None  # [B,P,T,D]
@@ -134,7 +118,7 @@ class FIMSDEForward:
         self.diffusion_target = diffusion_data
         self.is_target_set = True
 
-    def set_forward_estimators(self, drift_estimator: Tensor, diffusion_estimator: Tensor, 
+    def set_forward_estimators(self, drift_estimator: Tensor, diffusion_estimator: Tensor,
                                var_drift_estimator: Tensor, var_diffusion_estimator: Tensor):
         """
         Sets estimators for forward pass.
@@ -177,7 +161,7 @@ class FIMSDEForward:
         # Normalize locations using the same range
         if self.locations is not None:
             self.locations = (self.locations - self.min_border_factor*self.min_obs_values) / self.range_obs_vals
-        
+
         # Normalize obs_times by dividing by max_obs_times
         obs_time_reshaped = self.obs_times.view(B, P * T, 1)
         self.max_obs_times = obs_time_reshaped.max(dim=1, keepdim=True).values.unsqueeze(1)  # [B,1,1,1]
@@ -192,7 +176,7 @@ class FIMSDEForward:
             # scale from times normalisation
             drift_data = drift_data / self.range_obs_times
             drift_data = drift_data*self.range_obs_vals
-        
+
         if diffusion_data is not None:
             # scale from times normalisation
             diffusion_data = diffusion_data/torch.sqrt(self.range_obs_vals)
@@ -218,17 +202,17 @@ class FIMSDEForward:
             # scale from times normalisation
             diffusion_data = diffusion_data*torch.sqrt(self.range_obs_vals)
             diffusion_data = diffusion_data/self.range_obs_times
-        
+
         # var part
         if var_drift_data is not None:
             var_drift_data = var_drift_data - torch.log(self.range_obs_vals) + torch.log(self.range_obs_times)
 
         if var_diffusion_data is not None:
             var_diffusion_data = var_diffusion_data - torch.log(self.range_obs_vals)+ .5*torch.log(self.range_obs_times)
- 
-                                                                                                    
+
+
         return drift_data,diffusion_data
-    
+
     def normalize_targets(self):
         """Normalizes target data (drift_data and diffusion_data) using shared min/max values from data."""
         if not self.is_target_normalized:
@@ -238,7 +222,7 @@ class FIMSDEForward:
                                                                                   self.diffusion_target,
                                                                                   None)
         self.is_target_normalized = True
- 
+
     def normalize_estimators(self):
         """Normalizes estimator data (drift and diffusion estimators) using shared min/max values from data."""
         if not self.is_estimator_normalized:
@@ -308,7 +292,7 @@ class FIMSDE(pl.LightningModule):
     data_config:FIMDatasetConfig
 
     def __init__(
-            self, 
+            self,
             model_config:dict,
             data_config:dict,
             device_map:torch.device = None,
@@ -329,10 +313,10 @@ class FIMSDE(pl.LightningModule):
             self.data_config = FIMDatasetConfig(**data_config)
         else:
             self.data_config = data_config
-            
+
         self._create_modules()
 
-        # Set a dataset for fixed evaluation 
+        # Set a dataset for fixed evaluation
         self.target_data = generate_all(self.model_config)
 
         if device_map is not None:
@@ -341,7 +325,7 @@ class FIMSDE(pl.LightningModule):
         self.DatabatchNameTuple = FIMSDEDatabatchTuple
         # Important: This property activates manual optimization (Lightning)
         self.automatic_optimization = False
-        
+
     def _create_modules(
         self,
     ):
@@ -371,14 +355,14 @@ class FIMSDE(pl.LightningModule):
                         self.psi_1_tokes_dim)
 
         # path transformer (causal encoding of paths)
-        self.psi_1 = TransformerModel(input_dim=self.psi_1_tokes_dim, 
-                                nhead=self.model_config.sequence_encoding_transformer_heads, 
-                                hidden_dim=self.model_config.sequence_encoding_transformer_hidden_size, 
+        self.psi_1 = TransformerModel(input_dim=self.psi_1_tokes_dim,
+                                nhead=self.model_config.sequence_encoding_transformer_heads,
+                                hidden_dim=self.model_config.sequence_encoding_transformer_hidden_size,
                                 nlayers=self.model_config.sequence_encoding_transformer_layers)
 
         # time attention
         self.omega_1 = nn.MultiheadAttention(
-            self.psi_1_tokes_dim, 
+            self.psi_1_tokes_dim,
             self.model_config.combining_transformer_heads,
             batch_first=True,
         )
@@ -387,7 +371,7 @@ class FIMSDE(pl.LightningModule):
         self.path_queries = nn.Parameter(torch.randn(1, self.psi_1_tokes_dim))
 
         self.omega_2 = nn.MultiheadAttention(
-            self.psi_1_tokes_dim, 
+            self.psi_1_tokes_dim,
             self.model_config.combining_transformer_heads,
             batch_first=True,
         )
@@ -438,7 +422,7 @@ class FIMSDE(pl.LightningModule):
             locations = databatch.locations
 
         B,P,T,D = databatch.obs_values.shape
-        T = T-1 
+        T = T-1
         G = locations.size(1)
 
         # include the square of the difference
@@ -453,14 +437,14 @@ class FIMSDE(pl.LightningModule):
         spatial_encoding = self.phi_0x(x_full) # [B,P,T,spatial_embedding_size]
         time_encoding = self.phi_0t(obs_times) # [B,P,T,temporal_embedding_size]
 
-        # trunk 
+        # trunk
         trunk_encoding = self.trunk(locations) #[B,H,trunk_dim]
         trunk_encoding = trunk_encoding[:,None,:,:].repeat(1,P,1,1)  # [B,P,G,trunk_size]
         trunk_encoding = trunk_encoding.view(B*P,G,-1)
 
         # embbedded input
         U =  torch.cat([spatial_encoding,time_encoding],dim=-1) #  [B,P,T,spatial_plus_time_encoding]
-        U = self.phi_xt(U) #  [B,P,T,psi_1_tokes_dim] 
+        U = self.phi_xt(U) #  [B,P,T,psi_1_tokes_dim]
 
         # TRANSFORMER THAT CREATES A REPRESENTATION FOR THE PATHS
         U = U.view(B*P,T,self.psi_1_tokes_dim)
@@ -476,7 +460,7 @@ class FIMSDE(pl.LightningModule):
         path_queries_ = self.path_queries[None,:,:].repeat(G*B,1,1)
         bx,_ = self.omega_2(path_queries_,hx_,hx_)
         bx = bx.view(B,G,-1) # [B,G,psi_1_tokes_dim]
-        
+
         return bx,hx
 
     def forward(
@@ -520,16 +504,16 @@ class FIMSDE(pl.LightningModule):
         log_var_drift_estimator = self.log_var_drift_head(bx)
         diffusion_estimator = self.diffusion_head(bx)
         log_var_diffusion_estimator = self.log_var_diffusion_head(bx)
-        
+
         forward_expressions.set_forward_estimators(drift_estimator=drift_estimator,
                                                    diffusion_estimator=diffusion_estimator,
                                                    var_drift_estimator=log_var_drift_estimator,
                                                    var_diffusion_estimator=log_var_diffusion_estimator)
-        
+
         # Loss
         forward_expressions.set_target_data(drift_data=databatch.drift_at_locations,
                                             diffusion_data=databatch.diffusion_at_locations)
-        
+
         # Returns
         if training:
             losses = self.loss(forward_expressions)
@@ -540,14 +524,14 @@ class FIMSDE(pl.LightningModule):
                 forward_expressions.set_losses(losses)
                 forward_expressions.unnormalize_all()
                 return forward_expressions
-            
+
             if return_heads:
                 forward_expressions.unnormalize_all()
                 return (forward_expressions.drift_estimator,
                         forward_expressions.log_var_drift_estimator,
                         forward_expressions.diffusion_estimator,
                         forward_expressions.log_var_diffusion_estimator)
-    
+
     def var_loss(self,estimator,target,log_var_estimator,dimension_mask):
         """
         loss with log var
@@ -561,13 +545,13 @@ class FIMSDE(pl.LightningModule):
         # Replace NaNs and Infs with zeros in the masked loss
         loss_ = torch.where(torch.isfinite(loss_masked), loss_masked, torch.zeros_like(loss_masked))
 
-        # filter out 
+        # filter out
         loss_ = loss_.sum(-1) # sum dimension
         loss_ = loss_.sum(-1) # sum time
         loss_ = torch.sqrt(loss_.mean())
 
         return loss_
-    
+
     def rmse_loss(self,estimator,target,dimension_mask):
         """
         root mean square loss applying the dimension masks
@@ -584,7 +568,7 @@ class FIMSDE(pl.LightningModule):
         loss_ = loss_.sum(-1)
         loss_ = torch.sqrt(loss_.mean())
         return loss_
-    
+
     def loss(
             self,
             forward_expressions:FIMSDEForward,
@@ -613,22 +597,22 @@ class FIMSDE(pl.LightningModule):
             drift_loss = self.rmse_loss(forward_expressions.drift_estimator,
                                         forward_expressions.drift_target,
                                         forward_expressions.dimension_mask)
-            
+
             diffusion_loss = self.rmse_loss(forward_expressions.diffusion_estimator,
                                         forward_expressions.diffusion_target,
                                         forward_expressions.dimension_mask)
-            
+
         elif self.model_config.loss_type == "var":
             drift_loss = self.var_loss(forward_expressions.drift_estimator,
                                        forward_expressions.drift_target,
                                        forward_expressions.log_var_drift_estimator,
                                        forward_expressions.dimension_mask)
-            
+
             diffusion_loss = self.var_loss(forward_expressions.diffusion_estimator,
                                            forward_expressions.diffusion_target,
                                            forward_expressions.log_var_diffusion_estimator,
                                            forward_expressions.dimension_mask)
-            
+
         total_loss = drift_loss + self.model_config.diffusion_loss_scale*diffusion_loss
         losses = {"loss":total_loss,"drift_loss":drift_loss,"diffusion_loss":diffusion_loss}
         return losses
@@ -640,10 +624,10 @@ class FIMSDE(pl.LightningModule):
         """
         databatch = self.DatabatchNameTuple(*batch)
         return databatch
-    
+
     def training_step(
-            self, 
-            batch, 
+            self,
+            batch,
             batch_idx
     ):
         optimizer = self.optimizers()
@@ -665,13 +649,13 @@ class FIMSDE(pl.LightningModule):
         self.log('diffusion_loss', diffusion_loss, on_step=True, prog_bar=True, logger=True)
 
         return total_loss
-    
+
     def validation_step(
-        self, 
-        batch, 
+        self,
+        batch,
         batch_idx
     ):
-        databatch = self.prepare_batch(batch)        
+        databatch = self.prepare_batch(batch)
         forward_values = self.forward(databatch,training=False,return_all=True)
 
         total_loss = forward_values.losses["loss"]
@@ -683,7 +667,7 @@ class FIMSDE(pl.LightningModule):
         self.log('diffusion_loss', diffusion_loss, on_step=False, prog_bar=True, logger=True)
 
         return total_loss
-    
+
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.model_config.learning_rate)
 
@@ -710,5 +694,4 @@ class FIMSDE(pl.LightningModule):
             mlflow_client_ = self.logger.experiment
             mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_3D.png")
 
-        
 ModelFactory.register("FIMSDE",FIMSDE,with_data_params=True)

@@ -1,15 +1,12 @@
 import os
 import torch
 
-import pandas as pd
-from typing import Optional
 from dataclasses import dataclass
 
 from torch import Tensor
 from fim.data.datasets import FIMSDEDatabatchTuple,FIMSDEDatabatch
 
 from tqdm import tqdm  # Import tqdm for the progress bar
-from torch import Tensor
 from typing import Tuple
 from fim.models.config_dataclasses import FIMSDEConfig
 
@@ -28,14 +25,14 @@ class FIMSDEPipelineOutput:
 
 class FIMSDEPipeline:
     """
-    This pipeline follows the Huggingface transformers specs 
+    This pipeline follows the Huggingface transformers specs
 
     Inference Pipeline For SDE
     """
-   
+
     config:FIMSDEConfig
     model:torch.nn
-    
+
     def __init__(
             self,
             model:str,
@@ -57,7 +54,7 @@ class FIMSDEPipeline:
         """sent databatch to device of model"""
         databatch = nametuple_to_device(databatch,self.device)
         return databatch
-    
+
     def _evaluate_at_grid(self,databatch:FIMSDEDatabatchTuple,locations=None):
         """
         """
@@ -76,10 +73,10 @@ class FIMSDEPipeline:
             locations:Tensor=None
         ):
         self.model.eval()
-        
+
         with torch.no_grad():
             databatch = self.preprocess(databatch) # sent to device
-            
+
             # evaluate paths
             if evaluate_paths:
                 paths,times = self.model_euler_maruyama_loop(databatch,initial_states)
@@ -91,7 +88,7 @@ class FIMSDEPipeline:
                 drift_at_locations,diffusion_at_locations = self._evaluate_at_grid(databatch,locations)
             else:
                 drift_at_locations,diffusion_at_locations = None, None
-            
+
             # returns
             return FIMSDEPipelineOutput(
                 locations=databatch.locations,
@@ -100,7 +97,7 @@ class FIMSDEPipeline:
                 path=paths,
                 time=times
             )
-    
+
     def postprocess(self, model_outputs):
         pass
 
@@ -113,7 +110,7 @@ class FIMSDEPipeline:
         dimensions = databatch.obs_values.size(3)
         num_paths = databatch.obs_values.size(0)
         states = torch.nn.functional.sigmoid(torch.normal(0., 1., size=(num_paths, dimensions),device=self.device))
-        return states 
+        return states
 
     def model_as_drift_n_diffusion(
         self,
@@ -134,7 +131,7 @@ class FIMSDEPipeline:
         """
         D = X.size(1)
         B = X.size(0)
-        X = X.unsqueeze(1) 
+        X = X.unsqueeze(1)
 
         # Create a mask based on the dimensions
         dimension_mask = databatch.dimension_mask[:,0,:] #[B,D]
@@ -201,7 +198,7 @@ class FIMSDEPipeline:
         if initial_states is None:
             states = self.sample_initial_states(databatch)
         else:
-            states = initial_states 
+            states = initial_states
 
         # Store paths
         paths = torch.zeros((num_paths, self.num_steps + 1, dimensions),device=self.device)  # +1 for initial state

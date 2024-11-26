@@ -389,7 +389,7 @@ def generate_double_well(params):
             "num_locations": 1024,
             "stochastic": True
     }
-    
+
     dynamical_model = DoubleWellOneDimension(process_hyperparameters)
     path_generator = PathGenerator(dataset_type="FIMSDEpDataset",
                                    system=dynamical_model,
@@ -401,17 +401,17 @@ def pad_from_dataset(data:FIMSDEDatabatch,sample_idx:int,dataset:FIMSDEDataset)-
     """
     performs the padding of one element of a FIMSDEpDataBulk using a dataset
     """
-    # Get the tensor from the appropriate file 
+    # Get the tensor from the appropriate file
     obs_values = data.obs_values[sample_idx]
     obs_times = data.obs_times[sample_idx]
     diffusion_at_locations = data.diffusion_at_locations[sample_idx]
     drift_at_locations = data.drift_at_locations[sample_idx]
     locations = data.locations[sample_idx]
-    
+
     #diffusion_parameters = data.diffusion_parameters[sample_idx]
     #drift_parameters = data.drift_parameters[sample_idx]
 
-    
+
     # Pad and Obtain Mask of The tensors if necessary
     obs_values,obs_times = dataset._pad_obs_tensors(obs_values,obs_times)
     drift_at_locations,diffusion_at_locations,locations,mask = dataset._pad_locations_tensors(drift_at_locations,diffusion_at_locations,locations)
@@ -462,12 +462,12 @@ def generate_all(params:FIMSDEConfig)->FIMSDEDatabatchTuple:
                 duffing_data,
                 damped_linear_data,
                 double_well_data]
-    
+
     # creates dataset since this object has all the padding functionality
     dataset = FIMSDEDataset(None,all_data)
     # as only one sample was create for each data set we use sample_idx = 0
     all_data_tuples = [pad_from_dataset(data=data,sample_idx=0,dataset=dataset) for data in all_data]
     #concat all the tuples
     data_tuple = concat_name_tuple(all_data_tuples,FIMSDEDatabatchTuple)
-    return data_tuple    
+    return data_tuple
 

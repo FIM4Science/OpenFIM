@@ -1,23 +1,8 @@
-import os
-from pathlib import Path
 import torch
-import numpy as np
-import matplotlib.pyplot as plt
-from dataclasses import dataclass
-from fim.utils.grids import define_mesh_points
-
-from typing import List,Tuple,Union,Optional
-from fim.data.datasets import FIMSDEDatabatchTuple,FIMSDEDatabatch
 
 
-import torch
-import yaml
-import numpy as np
+
 from abc import ABC, abstractmethod
-from scipy.integrate import odeint
-from collections import namedtuple
-from scipy.integrate import odeint
-from dataclasses import dataclass, field
 from torch import Tensor
 
 class DynamicalSystem(ABC):
@@ -71,7 +56,7 @@ class DynamicalSystem(ABC):
     def sample_diffusion_params_generic(self, num_paths):
         # Initialize an empty list to store the sampled parameters
         samples_list = []
-        
+
         # Iterate through each parameter in diffusion_params
         for key, config in self.diffusion_params.items():
             # Check the distribution type for each parameter
@@ -80,21 +65,21 @@ class DynamicalSystem(ABC):
                 param_max = config["max"]
                 param_dist = torch.distributions.uniform.Uniform(param_min, param_max)
                 param_samples = param_dist.sample((num_paths,))
-            
+
             elif config["distribution"] == "fix":
                 # If fixed, fill with the fixed value
                 param_samples = torch.full((num_paths,), config.get("fix_value", 0.0))
-            
+
             else:
                 # Raise an error for unsupported distribution types
                 raise ValueError(f"Unsupported distribution type '{config['distribution']}' for parameter '{key}'")
-            
+
             # Append the sampled tensor to the list
             samples_list.append(param_samples)
-        
+
         # Stack all samples along the second dimension to create the final tensor
         return torch.stack(samples_list, dim=1)
-    
+
     def sample_initial_states_generic(self, num_paths):
         if self.initial_state["distribution"] == "normal":
             mean = self.initial_state['mean']
@@ -108,7 +93,7 @@ class DynamicalSystem(ABC):
             initial_states = torch.sigmoid(initial_states)
 
         return initial_states
-    
+
 class Lorenz63System(DynamicalSystem):
     """
     """
@@ -132,7 +117,7 @@ class Lorenz63System(DynamicalSystem):
     def sample_drift_params(self, num_paths):
         if self.drift_params["sigma"]["distribution"] == "uniform":
             sigma_dist = torch.distributions.uniform.Uniform(
-                self.drift_params['sigma']['min'], 
+                self.drift_params['sigma']['min'],
                 self.drift_params['sigma']['max']
             )
             sigma_samples = sigma_dist.sample((num_paths,))
@@ -141,7 +126,7 @@ class Lorenz63System(DynamicalSystem):
 
         if self.drift_params["beta"]["distribution"] == "uniform":
             beta_dist = torch.distributions.uniform.Uniform(
-                self.drift_params['beta']['min'], 
+                self.drift_params['beta']['min'],
                 self.drift_params['beta']['max']
             )
             beta_samples = beta_dist.sample((num_paths,))
@@ -150,7 +135,7 @@ class Lorenz63System(DynamicalSystem):
 
         if self.drift_params["rho"]["distribution"] == "uniform":
             rho_dist = torch.distributions.uniform.Uniform(
-                self.drift_params['rho']['min'], 
+                self.drift_params['rho']['min'],
                 self.drift_params['rho']['max']
             )
             rho_samples = rho_dist.sample((num_paths,))
@@ -202,7 +187,7 @@ class HopfBifurcation(DynamicalSystem):
     def sample_drift_params(self, num_paths):
         if self.drift_params["sigma"]["distribution"] == "uniform":
             sigma_dist = torch.distributions.uniform.Uniform(
-                self.drift_params['sigma']['min'], 
+                self.drift_params['sigma']['min'],
                 self.drift_params['sigma']['max']
             )
             sigma_samples = sigma_dist.sample((num_paths,))
@@ -211,7 +196,7 @@ class HopfBifurcation(DynamicalSystem):
 
         if self.drift_params["beta"]["distribution"] == "uniform":
             beta_dist = torch.distributions.uniform.Uniform(
-                self.drift_params['beta']['min'], 
+                self.drift_params['beta']['min'],
                 self.drift_params['beta']['max']
             )
             beta_samples = beta_dist.sample((num_paths,))
@@ -220,7 +205,7 @@ class HopfBifurcation(DynamicalSystem):
 
         if self.drift_params["rho"]["distribution"] == "uniform":
             rho_dist = torch.distributions.uniform.Uniform(
-                self.drift_params['rho']['min'], 
+                self.drift_params['rho']['min'],
                 self.drift_params['rho']['max']
             )
             rho_samples = rho_dist.sample((num_paths,))
@@ -235,7 +220,7 @@ class HopfBifurcation(DynamicalSystem):
 
     def sample_initial_states(self, num_paths):
         return self.sample_initial_states_generic(num_paths)
-    
+
 class DampedCubicOscillatorSystem(DynamicalSystem):
     name_str:str = "DampedCubicOscillatorSystem"
     state_dim:int = 2
@@ -373,7 +358,7 @@ class DuffingOscillator(DynamicalSystem):
 
     def sample_initial_states(self, num_paths):
         return self.sample_initial_states_generic(num_paths)
-    
+
 class SelkovGlycosis(DynamicalSystem):
     name_str:str = "SelkovGlycosis"
     state_dim:int = 2

@@ -1,13 +1,10 @@
-import os 
 from dataclasses import asdict
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.dataloaders import FIMSDEDataloader
-from fim.data.datasets import FIMSDEDatabatchTuple
 
 from fim.models.sde import FIMSDE
 from fim.models.config_dataclasses import FIMSDEConfig
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
-from fim.data.data_generation.dynamical_systems_target import generate_all
 from fim.utils.helper import select_dimension_for_plot
 from fim.utils.plots.sde_estimation_plots import (
     plot_one_dimension,
@@ -33,7 +30,7 @@ def test_plot_1d():
                                               databatch_target.drift_at_locations,
                                               databatch_target.diffusion_at_locations,
                                               index_to_select=0)
-    
+
     locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
     plot_one_dimension(locations,
                         drift_at_locations_real,
@@ -59,13 +56,13 @@ def test_plot_2d():
                                               databatch_target.drift_at_locations,
                                               databatch_target.diffusion_at_locations,
                                               index_to_select=0)
-    
+
     locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
     plot_drift_diffussion(locations,
                           drift_at_locations_real,
-                          diffusion_at_locations_real, 
-                          drift_at_locations_estimation, 
-                          diffusion_at_locations_estimation, 
+                          diffusion_at_locations_real,
+                          drift_at_locations_estimation,
+                          diffusion_at_locations_estimation,
                           show=True)
 
 def test_plot_3d():
@@ -85,7 +82,7 @@ def test_plot_3d():
                                               databatch_target.drift_at_locations,
                                               databatch_target.diffusion_at_locations,
                                               index_to_select=0)
-    
+
     locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
     plot_3d_drift_and_diffusion(locations,
                                 drift_at_locations_real,
@@ -94,7 +91,7 @@ def test_plot_3d():
                                 diffusion_at_locations_estimation,
                                 your_fixed_x_value=.1,
                                 show=True)
-    
+
 
 if __name__=="__main__":
     test_plot_3d()

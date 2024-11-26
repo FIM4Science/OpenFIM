@@ -43,12 +43,12 @@ def plot_one_dimension(
         plt.show()
     else:
         return fig
-    
+
 def plot_drift_diffussion(
         locations:Tensor,
         drift_at_locations_real:Tensor,
-        diffusion_at_locations_real:Tensor, 
-        drift_at_locations_estimation:Tensor, 
+        diffusion_at_locations_real:Tensor,
+        drift_at_locations_estimation:Tensor,
         diffusion_at_locations_estimation:Tensor,
         show:bool=True
     ):
@@ -93,12 +93,12 @@ def plot_drift_diffussion(
         plt.show()
     else:
         return fig  # Return the figure to log
-    
+
 def plot_3d_drift_and_diffusion(
         locations:Tensor,
         drift_at_locations_real:Tensor,
-        diffusion_at_locations_real:Tensor, 
-        drift_at_locations_estimation:Tensor, 
+        diffusion_at_locations_real:Tensor,
+        drift_at_locations_estimation:Tensor,
         diffusion_at_locations_estimation:Tensor,
         your_fixed_x_value:float = -1.,
         show:bool=True
@@ -152,7 +152,7 @@ def plot_3d_drift_and_diffusion(
         axs[0][i].imshow(ground_truth_drift_reshaped[..., i], origin='lower', cmap='viridis')
         axs[0][i].set_title(f'Dimension {i}')
         axs[0][i].set_ylabel("Ground-Truth Drift")
-        
+
         # Model drift
         axs[1][i].imshow(drift_slice_reshaped[..., i], origin='lower', cmap='viridis')
         axs[1][i].set_ylabel("Model Drift")
@@ -190,7 +190,7 @@ def images_log_3D(databatch_target:FIMSDEDatabatchTuple,pipeline_output:FIMSDEPi
                                               databatch_target.drift_at_locations,
                                               databatch_target.diffusion_at_locations,
                                               index_to_select=0)
-    
+
     locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
     fig = plot_3d_drift_and_diffusion(locations,
         	                          drift_at_locations_real,
@@ -213,12 +213,12 @@ def images_log_2D(databatch_target:FIMSDEDatabatchTuple,pipeline_output:FIMSDEPi
     locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
     fig = plot_drift_diffussion(locations,
                           drift_at_locations_real,
-                          diffusion_at_locations_real, 
-                          drift_at_locations_estimation, 
-                          diffusion_at_locations_estimation, 
+                          diffusion_at_locations_real,
+                          drift_at_locations_estimation,
+                          diffusion_at_locations_estimation,
                           show=False)
     return fig
-    
+
 def images_log_1D(databatch_target:FIMSDEDatabatchTuple,pipeline_output:FIMSDEPipelineOutput):
     selected_data = select_dimension_for_plot(1,
                                               databatch_target.dimension_mask,
@@ -228,7 +228,7 @@ def images_log_1D(databatch_target:FIMSDEDatabatchTuple,pipeline_output:FIMSDEPi
                                               databatch_target.drift_at_locations,
                                               databatch_target.diffusion_at_locations,
                                               index_to_select=0)
-    
+
     locations,drift_at_locations_real,diffusion_at_locations_real,drift_at_locations_estimation,diffusion_at_locations_estimation = selected_data
     fig = plot_one_dimension(locations,
                              drift_at_locations_real,

@@ -51,11 +51,11 @@ class FIMDatasetConfig:
 
     random_num_paths_n_grid:bool = True
 
-    min_number_of_paths_per_batch:int = 10  
+    min_number_of_paths_per_batch:int = 10
     max_number_of_paths_per_batch:int = 300
 
-    min_number_of_grid_per_batch:int = 50 
-    max_number_of_grid_per_batch:int = 1024 
+    min_number_of_grid_per_batch:int = 50
+    max_number_of_grid_per_batch:int = 1024
 
     data_in_files: DataInFiles = field(default_factory=DataInFiles)
     dataset_path_collections: DatasetPathCollections = field(default_factory=DatasetPathCollections)
@@ -74,7 +74,7 @@ class FIMDatasetConfig:
             self.data_in_files = DataInFiles.from_dict(self.data_in_files)
         if isinstance(self.dataset_path_collections, dict):
             self.dataset_path_collections = DatasetPathCollections.from_dict(self.dataset_path_collections)
-        
+
         self.dynamical_systems_hyperparameters_file = rf"{project_path}"+self.dynamical_systems_hyperparameters_file
 
     @classmethod

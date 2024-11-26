@@ -1,12 +1,8 @@
-import os
-import fim
 from torch.utils.data import DataLoader
 from fim.data.dataloaders import (
     DataLoaderFactory
 )
 from fim.utils.helper import (
-    GenericConfig, 
-    expand_params, 
     load_yaml
 )
 
@@ -38,7 +34,6 @@ def test_synthetic_dataloaders():
     print(databatch.diffusion_at_locations.shape)
 
 def test_models_from_yaml():
-    import os
     from fim import project_path
     yaml_file = rf"{project_path}\configs\train\fim-sde\sde-systems-hyperparameters.yaml"
     dataset_type,experiment_name,train_studies,test_studies,validation_studies = define_dynamicals_models_from_yaml(yaml_file,return_data=True)

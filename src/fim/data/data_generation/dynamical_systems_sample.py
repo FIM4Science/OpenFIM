@@ -1,28 +1,18 @@
 import os
 from pathlib import Path
 import torch
-import numpy as np
-import matplotlib.pyplot as plt
-from dataclasses import dataclass
 from fim.utils.grids import (
     define_mesh_points,
     random_size_consecutive_locations
 )
 
-from typing import List,Tuple,Union,Optional
+from typing import List,Tuple
 from fim.data.datasets import (
-    FIMSDEDatabatch,
-    FIMSDEDatabatchTuple
+    FIMSDEDatabatch
 )
 
-import torch
 import yaml
-import numpy as np
-from scipy.integrate import odeint
-from collections import namedtuple
-from scipy.integrate import odeint
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 
 from fim.data.data_generation.dynamical_systems import (
     DynamicalSystem,
@@ -31,7 +21,7 @@ from fim.data.data_generation.dynamical_systems import (
 )
 
 # ------------------------------------------------------------------------------------------
-# INTEGRATORS 
+# INTEGRATORS
 
 class SDEIntegrator(ABC):
     @abstractmethod
@@ -56,7 +46,7 @@ class EulerMaruyama(SDEIntegrator):
 INTERGRATORS_METHODS = {"EulerMaruyama":EulerMaruyama}
 
 # ------------------------------------------------------------------------------------------
-# PATH GENERATORS 
+# PATH GENERATORS
 
 class PathGenerator:
     """
@@ -116,10 +106,10 @@ class PathGenerator:
         """
         states = self.system.sample_initial_states(self.total_num_paths)
 
-        drift_params = self.system.sample_drift_params(self.num_realizations) #[num_realizations,max_drift_params] 
+        drift_params = self.system.sample_drift_params(self.num_realizations) #[num_realizations,max_drift_params]
         diffusion_params = self.system.sample_diffusion_params(self.num_realizations)#[num_realizations,max_diffusion_params]
 
-        # repeats according to the numbr of paths per parameter realization 
+        # repeats according to the numbr of paths per parameter realization
         drift_params_repeated = torch.repeat_interleave(drift_params,self.num_paths,0)
         diffusion_params_repeated = torch.repeat_interleave(diffusion_params,self.num_paths,0)
 
@@ -141,7 +131,7 @@ class PathGenerator:
         hidden_times = hidden_times.view(self.num_realizations,self.num_paths,self.num_steps+1,-1)
 
         return self.define_bulk(hidden_paths,hidden_times,drift_params,diffusion_params)
-    
+
     def define_bulk(self,hidden_paths,hidden_times,drift_params,diffusion_params)->FIMSDEDatabatch:
         """
         Evaluates cases for the different data bulks
@@ -167,7 +157,7 @@ class PathGenerator:
                                               hidden_times,
                                               drift_params,
                                               diffusion_params)
-    
+
     def define_fim_sde_data(
         self,
         obs_values,
@@ -196,11 +186,11 @@ class PathGenerator:
 
         drift_at_hypercube = self.system.drift(hypercube_,None,drift_params_)
         drift_at_hypercube = drift_at_hypercube.reshape(num_paths,num_hypercube_points,dimensions)
-        
+
         diffusion_at_hypercube = self.system.diffusion(hypercube_,None,diffusion_parameters_)
         diffusion_at_hypercube = diffusion_at_hypercube.reshape(num_paths,num_hypercube_points,dimensions)
         hypercube_ = hypercube_.reshape(num_paths,num_hypercube_points,dimensions)
-        
+
         data = FIMSDEDatabatch(
             locations=hypercube_,
             obs_times=obs_times,
@@ -213,7 +203,7 @@ class PathGenerator:
             process_dimension=process_dimension
         )
         return data
-   
+
     def time_observations_and_mask(
             self,
             hidden_paths,
@@ -258,7 +248,7 @@ class PathGenerator:
             return obs_values
         else:
             return obs_values
-    
+
 def set_up_a_dynamical_system(
         dataset_type:str,
         params_yaml:dict,
@@ -285,7 +275,7 @@ def set_up_a_dynamical_system(
     dynamical_name_str = params_yaml.get("name", "")
     study_name_str = params_yaml.get("data_bulk_name", "default")
     redo_study = params_yaml.get("redo", False)
-    
+
     study_path = Path(os.path.join(experiment_dir,study_name_str+".tr"))
 
     if dynamical_name_str in DYNAMICAL_SYSTEM_TO_MODELS.keys():
@@ -311,7 +301,7 @@ def set_up_a_dynamical_system(
             else:
                 data = torch.load(study_path)
                 return data
-    
+
     return dynamical_model
 
 def define_dynamicals_models_from_yaml(
@@ -347,7 +337,7 @@ def define_dynamicals_models_from_yaml(
 
     # data type
     dataset_type = data["dataset_type"]
-    # integrator params 
+    # integrator params
     integrator_params = data["integration"]
 
     # generate the data
@@ -355,15 +345,15 @@ def define_dynamicals_models_from_yaml(
     test_studies:List[DynamicalSystem|FIMSDEDatabatch] = []
     validation_studies:List[DynamicalSystem|FIMSDEDatabatch] = []
 
-    for params_yaml in data['train']:        
+    for params_yaml in data['train']:
         compartment_model = set_up_a_dynamical_system(dataset_type,params_yaml,integrator_params,experiment_dir,return_data)
         train_studies.append(compartment_model)
 
-    for params_yaml in data['test']:        
+    for params_yaml in data['test']:
         compartment_model = set_up_a_dynamical_system(dataset_type,params_yaml,integrator_params,experiment_dir,return_data)
         test_studies.append(compartment_model)
 
-    for params_yaml in data['validation']:        
+    for params_yaml in data['validation']:
         compartment_model =  set_up_a_dynamical_system(dataset_type,params_yaml,integrator_params,experiment_dir,return_data)
         validation_studies.append(compartment_model)
 
