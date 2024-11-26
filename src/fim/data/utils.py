@@ -10,9 +10,6 @@ import numpy as np
 import torch
 from pathlib import Path
 
-import torch
-from typing import List
-
 
 def load_ODEBench_as_torch(directory: str) -> dict:
     """Loads data from the ODEBench dataset (given in cphefs dir) as torch tensors."""
@@ -298,6 +295,7 @@ def load_file(file_path):
             return h5py.File(file_path, "r")
         case _:
             raise ValueError(f"Unsupported file type {file_type}.")
+
 
 def load_h5(path: Path):
     "Array in .h5 is under 'data' key"

@@ -5,7 +5,7 @@ import csv
 import itertools
 import json
 from collections import OrderedDict
-from dataclasses import dataclass,asdict
+from dataclasses import dataclass, asdict
 from functools import reduce
 from importlib import import_module
 from logging import Logger
@@ -20,20 +20,23 @@ from torch.optim.lr_scheduler import LRScheduler
 
 T = TypeVar("T", str, bytes)
 
+
 def check_model_devices(x):
     return x.parameters().__next__().device
 
+
 def nametuple_to_device(named_tuple, device):
-    return named_tuple._replace(**{
-        key: (value.to(device) if isinstance(value, torch.Tensor) else value)
-        for key, value in named_tuple._asdict().items()
-    })
+    return named_tuple._replace(
+        **{key: (value.to(device) if isinstance(value, torch.Tensor) else value) for key, value in named_tuple._asdict().items()}
+    )
+
 
 def save_hyperparameters_to_yaml(hyperparams, file_path: str):
-    with open(file_path, 'w') as file:
-        if not isinstance(hyperparams,dict):
+    with open(file_path, "w") as file:
+        if not isinstance(hyperparams, dict):
             hyperparams = asdict(hyperparams)
         yaml.dump(hyperparams, file)
+
 
 @dataclass
 class GenericConfig:
@@ -644,86 +647,96 @@ def filter_keys_by_part(dictionary: OrderedDict, part: str):
             filtered_dict[key] = value
     return filtered_dict
 
-def select_dimension_for_plot_(dimension_to_choose:int,
-                               dimension_mask:Tensor,
-                               locations:Tensor,
-                               drift_at_locations_estimation:Tensor,
-                               diffusion_at_locations_estimation:Tensor,
-                               drift_at_locations_real:Tensor,
-                               diffusion_at_locations_real:Tensor,
-                               index_to_select=0):
+
+def select_dimension_for_plot_(
+    dimension_to_choose: int,
+    dimension_mask: Tensor,
+    locations: Tensor,
+    drift_at_locations_estimation: Tensor,
+    diffusion_at_locations_estimation: Tensor,
+    drift_at_locations_real: Tensor,
+    diffusion_at_locations_real: Tensor,
+    index_to_select=0,
+):
     """
-    From the drift and diffusion estimators and real 
+    From the drift and diffusion estimators and real
     """
     # process
-    process_dimension = dimension_mask[:,0,:].sum(axis=-1).long()
+    process_dimension = dimension_mask[:, 0, :].sum(axis=-1).long()
     where_one_dimension = torch.where(process_dimension == dimension_to_choose)[0]
 
-    # select for one dimension 
+    # select for one dimension
     locations = locations[where_one_dimension]
     drift_at_locations_real = drift_at_locations_real[where_one_dimension]
     diffusion_at_locations_real = diffusion_at_locations_real[where_one_dimension]
     drift_at_locations_estimation = drift_at_locations_estimation[where_one_dimension]
     diffusion_at_locations_estimation = diffusion_at_locations_estimation[where_one_dimension]
 
-    # detach and 
+    # detach and
     locations = locations.detach().cpu().numpy()
     drift_at_locations_real = drift_at_locations_real.detach().cpu().numpy()
     diffusion_at_locations_real = diffusion_at_locations_real.detach().cpu().numpy()
     drift_at_locations_estimation = drift_at_locations_estimation.detach().cpu().numpy()
     diffusion_at_locations_estimation = diffusion_at_locations_estimation.detach().cpu().numpy()
 
-    # select dimension 
-    locations = locations[index_to_select,:,:dimension_to_choose]
-    drift_at_locations_real = drift_at_locations_real[index_to_select,:,:dimension_to_choose]
-    diffusion_at_locations_real = diffusion_at_locations_real[index_to_select,:,:dimension_to_choose]
-    drift_at_locations_estimation = drift_at_locations_estimation[index_to_select,:,:dimension_to_choose]
-    diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select,:,:dimension_to_choose]
-    
-    return (locations,
-            drift_at_locations_real,
-            diffusion_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_estimation)
+    # select dimension
+    locations = locations[index_to_select, :, :dimension_to_choose]
+    drift_at_locations_real = drift_at_locations_real[index_to_select, :, :dimension_to_choose]
+    diffusion_at_locations_real = diffusion_at_locations_real[index_to_select, :, :dimension_to_choose]
+    drift_at_locations_estimation = drift_at_locations_estimation[index_to_select, :, :dimension_to_choose]
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select, :, :dimension_to_choose]
 
-def select_dimension_for_plot(dimension:int,
-                              dimension_mask:Tensor,
-                              locations:Tensor,
-                              drift_at_locations_estimation:Tensor,
-                              diffusion_at_locations_estimation:Tensor,
-                              drift_at_locations_real:Tensor,
-                              diffusion_at_locations_real:Tensor,
-                              index_to_select=0):
+    return (
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+    )
+
+
+def select_dimension_for_plot(
+    dimension: int,
+    dimension_mask: Tensor,
+    locations: Tensor,
+    drift_at_locations_estimation: Tensor,
+    diffusion_at_locations_estimation: Tensor,
+    drift_at_locations_real: Tensor,
+    diffusion_at_locations_real: Tensor,
+    index_to_select=0,
+):
     """
-    From the drift and diffusion estimators and real 
+    From the drift and diffusion estimators and real
     """
     # process
-    process_dimension = dimension_mask[:,0,:].sum(axis=-1).long()
+    process_dimension = dimension_mask[:, 0, :].sum(axis=-1).long()
     where_one_dimension = torch.where(process_dimension == dimension)[0]
 
-    # select for one dimension 
+    # select for one dimension
     locations = locations[where_one_dimension]
     drift_at_locations_real = drift_at_locations_real[where_one_dimension]
     diffusion_at_locations_real = diffusion_at_locations_real[where_one_dimension]
     drift_at_locations_estimation = drift_at_locations_estimation[where_one_dimension]
     diffusion_at_locations_estimation = diffusion_at_locations_estimation[where_one_dimension]
 
-    # detach and 
+    # detach and
     locations = locations.detach().cpu().numpy()
     drift_at_locations_real = drift_at_locations_real.detach().cpu().numpy()
     diffusion_at_locations_real = diffusion_at_locations_real.detach().cpu().numpy()
     drift_at_locations_estimation = drift_at_locations_estimation.detach().cpu().numpy()
     diffusion_at_locations_estimation = diffusion_at_locations_estimation.detach().cpu().numpy()
 
-    # select dimension 
-    locations = locations[index_to_select,:,:dimension]
-    drift_at_locations_real = drift_at_locations_real[index_to_select,:,:dimension]
-    diffusion_at_locations_real = diffusion_at_locations_real[index_to_select,:,:dimension]
-    drift_at_locations_estimation = drift_at_locations_estimation[index_to_select,:,:dimension]
-    diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select,:,:dimension]
-    
-    return (locations,
-            drift_at_locations_real,
-            diffusion_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_estimation)
+    # select dimension
+    locations = locations[index_to_select, :, :dimension]
+    drift_at_locations_real = drift_at_locations_real[index_to_select, :, :dimension]
+    diffusion_at_locations_real = diffusion_at_locations_real[index_to_select, :, :dimension]
+    drift_at_locations_estimation = drift_at_locations_estimation[index_to_select, :, :dimension]
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select, :, :dimension]
+
+    return (
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+    )

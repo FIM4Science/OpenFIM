@@ -7,14 +7,15 @@ from fim.data.data_generation.dynamical_systems import (
     DampedLinearOscillatorSystem,
     DuffingOscillator,
     SelkovGlycosis,
-    DoubleWellOneDimension
+    DoubleWellOneDimension,
 )
 
 from fim.models.config_dataclasses import FIMSDEConfig
 from fim.data.data_generation.dynamical_systems_sample import PathGenerator
-from fim.data.datasets import FIMSDEDatabatchTuple,FIMSDEDatabatch,FIMSDEDataset
+from fim.data.datasets import FIMSDEDatabatchTuple, FIMSDEDatabatch, FIMSDEDataset
 
-def concat_name_tuple(tuples_list,MyTuple):
+
+def concat_name_tuple(tuples_list, MyTuple):
     # Initialize dictionaries to hold lists of tensors for each field
     concat_tensors = {field: [] for field in MyTuple._fields}
 
@@ -32,7 +33,8 @@ def concat_name_tuple(tuples_list,MyTuple):
     new_tuple = MyTuple(**concatenated_tensors)
     return new_tuple
 
-def generate_lorenz(params:FIMSDEConfig):
+
+def generate_lorenz(params: FIMSDEConfig):
     process_hyperparameters = {
         "name": "Lorenz63System",
         "data_bulk_name": "lorenz_theory",
@@ -41,43 +43,37 @@ def generate_lorenz(params:FIMSDEConfig):
         "observed_dimension": None,
         "drift_params": {
             "sigma": {
-            "distribution": "fix",
-            "fix_value": 10.0,
+                "distribution": "fix",
+                "fix_value": 10.0,
             },
             "beta": {
-            "distribution": "fix",
-            "fix_value": 2.66666666,
+                "distribution": "fix",
+                "fix_value": 2.66666666,
             },
             "rho": {
-            "distribution": "fix",
-            "fix_value": 28.0,
-            }
+                "distribution": "fix",
+                "fix_value": 28.0,
+            },
         },
-        "diffusion_params": {
-            "constant_value": 1.0,
-            "dimensions": 3
-        },
-        "initial_state": {
-            "distribution": "fix",
-            "fix_value": [-8.,7.,27.],
-            "activation": None
-        },
+        "diffusion_params": {"constant_value": 1.0, "dimensions": 3},
+        "initial_state": {"distribution": "fix", "fix_value": [-8.0, 7.0, 27.0], "activation": None},
     }
-    integration_config =  {
-            "method": "EulerMaruyama",
-            "time_step": 0.01,
-            "num_steps": params.max_time_steps,
-            "num_paths": params.max_num_paths,
-            "num_locations": 1024,
-            "stochastic": True
+    integration_config = {
+        "method": "EulerMaruyama",
+        "time_step": 0.01,
+        "num_steps": params.max_time_steps,
+        "num_paths": params.max_num_paths,
+        "num_locations": 1024,
+        "stochastic": True,
     }
     dynamical_model = Lorenz63System(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset",system=dynamical_model,integrator_params=integration_config)
+    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
     data = path_generator.generate_paths()
 
     return data
 
-def generate_duffing(params:FIMSDEConfig):
+
+def generate_duffing(params: FIMSDEConfig):
     process_hyperparameters = {
         "name": "DuffingOscillator",
         "data_bulk_name": "duffing_theory",
@@ -86,52 +82,38 @@ def generate_duffing(params:FIMSDEConfig):
         "observed_dimension": None,
         "drift_params": {
             "alpha": {
-            "distribution": "fix",
-            "fix_value": 1.0,
+                "distribution": "fix",
+                "fix_value": 1.0,
             },
             "beta": {
-            "distribution": "fix",
-            "fix_value": 1.,
+                "distribution": "fix",
+                "fix_value": 1.0,
             },
             "gamma": {
-            "distribution": "fix",
-            "fix_value": 0.35,
-            }
-        },
-        "diffusion_params": {
-            "g1": {
                 "distribution": "fix",
-                "fix_value": 1.
-                },
-                "g2": {
-                "distribution": "fix",
-                "fix_value": 1.
-                }
+                "fix_value": 0.35,
+            },
         },
-        "initial_state": {
-            "distribution": "fix",
-            "fix_value": [3.,2.],
-            "activation": None
-        },
+        "diffusion_params": {"g1": {"distribution": "fix", "fix_value": 1.0}, "g2": {"distribution": "fix", "fix_value": 1.0}},
+        "initial_state": {"distribution": "fix", "fix_value": [3.0, 2.0], "activation": None},
     }
-    integration_config =  {
-            "method": "EulerMaruyama",
-            "time_step": 0.01,
-            "num_steps": params.max_time_steps,
-            "num_paths": params.max_num_paths,
-            "num_locations": 1024,
-            "stochastic": True
+    integration_config = {
+        "method": "EulerMaruyama",
+        "time_step": 0.01,
+        "num_steps": params.max_time_steps,
+        "num_paths": params.max_num_paths,
+        "num_locations": 1024,
+        "stochastic": True,
     }
 
     dynamical_model = DuffingOscillator(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset",
-                                   system=dynamical_model,
-                                   integrator_params=integration_config)
+    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
     data = path_generator.generate_paths()
 
     return data
 
-def generate_hopf(params:FIMSDEConfig):
+
+def generate_hopf(params: FIMSDEConfig):
     process_hyperparameters = {
         "name": "HopfBifurcation",
         "data_bulk_name": "hopf_theory",
@@ -140,52 +122,38 @@ def generate_hopf(params:FIMSDEConfig):
         "observed_dimension": None,
         "drift_params": {
             "sigma": {
-            "distribution": "fix",
-            "fix_value": 0.5,
+                "distribution": "fix",
+                "fix_value": 0.5,
             },
             "beta": {
-            "distribution": "fix",
-            "fix_value": 0.5,
+                "distribution": "fix",
+                "fix_value": 0.5,
             },
             "rho": {
-            "distribution": "fix",
-            "fix_value": 1.,
-            }
-        },
-        "diffusion_params": {
-            "g1": {
                 "distribution": "fix",
-                "fix_value": 1.
-                },
-                "g2": {
-                "distribution": "fix",
-                "fix_value": 1.
-                }
+                "fix_value": 1.0,
+            },
         },
-        "initial_state": {
-            "distribution": "fix",
-            "fix_value": [2.,2.],
-            "activation": None
-        },
+        "diffusion_params": {"g1": {"distribution": "fix", "fix_value": 1.0}, "g2": {"distribution": "fix", "fix_value": 1.0}},
+        "initial_state": {"distribution": "fix", "fix_value": [2.0, 2.0], "activation": None},
     }
-    integration_config =  {
-            "method": "EulerMaruyama",
-            "time_step": 0.01,
-            "num_steps": params.max_time_steps,
-            "num_paths": params.max_num_paths,
-            "num_locations": 1024,
-            "stochastic": True
+    integration_config = {
+        "method": "EulerMaruyama",
+        "time_step": 0.01,
+        "num_steps": params.max_time_steps,
+        "num_paths": params.max_num_paths,
+        "num_locations": 1024,
+        "stochastic": True,
     }
 
     dynamical_model = HopfBifurcation(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset",
-                                   system=dynamical_model,
-                                   integrator_params=integration_config)
+    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
     data = path_generator.generate_paths()
 
     return data
 
-def generate_selkov(params:FIMSDEConfig):
+
+def generate_selkov(params: FIMSDEConfig):
     process_hyperparameters = {
         "name": "SelkovGlycosis",
         "data_bulk_name": "selkov_theory",
@@ -194,52 +162,38 @@ def generate_selkov(params:FIMSDEConfig):
         "observed_dimension": None,
         "drift_params": {
             "alpha": {
-            "distribution": "fix",
-            "fix_value": 0.08,
+                "distribution": "fix",
+                "fix_value": 0.08,
             },
             "beta": {
-            "distribution": "fix",
-            "fix_value": 0.08,
+                "distribution": "fix",
+                "fix_value": 0.08,
             },
             "gamma": {
-            "distribution": "fix",
-            "fix_value": 0.6,
-            }
-        },
-        "diffusion_params": {
-            "g1": {
                 "distribution": "fix",
-                "fix_value": 1.
-                },
-                "g2": {
-                "distribution": "fix",
-                "fix_value": 1.
-                }
+                "fix_value": 0.6,
+            },
         },
-        "initial_state": {
-            "distribution": "fix",
-            "fix_value": [0.7,1.25],
-            "activation": None
-        },
+        "diffusion_params": {"g1": {"distribution": "fix", "fix_value": 1.0}, "g2": {"distribution": "fix", "fix_value": 1.0}},
+        "initial_state": {"distribution": "fix", "fix_value": [0.7, 1.25], "activation": None},
     }
-    integration_config =  {
-            "method": "EulerMaruyama",
-            "time_step": 0.01,
-            "num_steps": params.max_time_steps,
-            "num_paths": params.max_num_paths,
-            "num_locations": 1024,
-            "stochastic": True
+    integration_config = {
+        "method": "EulerMaruyama",
+        "time_step": 0.01,
+        "num_steps": params.max_time_steps,
+        "num_paths": params.max_num_paths,
+        "num_locations": 1024,
+        "stochastic": True,
     }
 
     dynamical_model = SelkovGlycosis(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset",
-                                   system=dynamical_model,
-                                   integrator_params=integration_config)
+    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
     data = path_generator.generate_paths()
 
     return data
 
-def generate_damped_cubic(params:FIMSDEConfig):
+
+def generate_damped_cubic(params: FIMSDEConfig):
     process_hyperparameters = {
         "name": "DampedCubicOscillatorSystem",
         "data_bulk_name": "damped_cubic_theory",
@@ -248,52 +202,38 @@ def generate_damped_cubic(params:FIMSDEConfig):
         "observed_dimension": None,
         "drift_params": {
             "damping": {
-            "distribution": "fix",
-            "fix_value": 0.1,
+                "distribution": "fix",
+                "fix_value": 0.1,
             },
             "alpha": {
-            "distribution": "fix",
-            "fix_value": 2.0,
+                "distribution": "fix",
+                "fix_value": 2.0,
             },
             "beta": {
-            "distribution": "fix",
-            "fix_value": 2.0,
-            }
-        },
-        "diffusion_params": {
-            "g1": {
                 "distribution": "fix",
-                "fix_value": 1.
-                },
-                "g2": {
-                "distribution": "fix",
-                "fix_value": 1.
-                }
+                "fix_value": 2.0,
+            },
         },
-        "initial_state": {
-            "distribution": "fix",
-            "fix_value": [0.,1.],
-            "activation": None
-        },
+        "diffusion_params": {"g1": {"distribution": "fix", "fix_value": 1.0}, "g2": {"distribution": "fix", "fix_value": 1.0}},
+        "initial_state": {"distribution": "fix", "fix_value": [0.0, 1.0], "activation": None},
     }
-    integration_config =  {
-            "method": "EulerMaruyama",
-            "time_step": 0.01,
-            "num_steps": params.max_time_steps,
-            "num_paths": params.max_num_paths,
-            "num_locations": 1024,
-            "stochastic": True
+    integration_config = {
+        "method": "EulerMaruyama",
+        "time_step": 0.01,
+        "num_steps": params.max_time_steps,
+        "num_paths": params.max_num_paths,
+        "num_locations": 1024,
+        "stochastic": True,
     }
 
     dynamical_model = DampedCubicOscillatorSystem(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset",
-                                   system=dynamical_model,
-                                   integrator_params=integration_config)
+    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
     data = path_generator.generate_paths()
 
     return data
 
-def generate_damped_linear(params:FIMSDEConfig):
+
+def generate_damped_linear(params: FIMSDEConfig):
     process_hyperparameters = {
         "name": "DampedLinearOscillatorSystem",
         "data_bulk_name": "damped_linear_theory",
@@ -302,50 +242,36 @@ def generate_damped_linear(params:FIMSDEConfig):
         "observed_dimension": None,
         "drift_params": {
             "damping": {
-            "distribution": "fix",
-            "fix_value": 0.1,
+                "distribution": "fix",
+                "fix_value": 0.1,
             },
             "alpha": {
-            "distribution": "fix",
-            "fix_value": 2.0,
+                "distribution": "fix",
+                "fix_value": 2.0,
             },
             "beta": {
-            "distribution": "fix",
-            "fix_value": 2.0,
-            }
-        },
-        "diffusion_params": {
-            "g1": {
                 "distribution": "fix",
-                "fix_value": 1.
-                },
-                "g2": {
-                "distribution": "fix",
-                "fix_value": 1.
-                }
+                "fix_value": 2.0,
+            },
         },
-        "initial_state": {
-            "distribution": "fix",
-            "fix_value": [2.5,-5.],
-            "activation": None
-        },
+        "diffusion_params": {"g1": {"distribution": "fix", "fix_value": 1.0}, "g2": {"distribution": "fix", "fix_value": 1.0}},
+        "initial_state": {"distribution": "fix", "fix_value": [2.5, -5.0], "activation": None},
     }
-    integration_config =  {
-            "method": "EulerMaruyama",
-            "time_step": 0.01,
-            "num_steps": params.max_time_steps,
-            "num_paths": params.max_num_paths,
-            "num_locations": 1024,
-            "stochastic": True
+    integration_config = {
+        "method": "EulerMaruyama",
+        "time_step": 0.01,
+        "num_steps": params.max_time_steps,
+        "num_paths": params.max_num_paths,
+        "num_locations": 1024,
+        "stochastic": True,
     }
 
     dynamical_model = DampedLinearOscillatorSystem(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset",
-                                   system=dynamical_model,
-                                   integrator_params=integration_config)
+    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
     data = path_generator.generate_paths()
 
     return data
+
 
 def generate_double_well(params):
     process_hyperparameters = {
@@ -356,48 +282,38 @@ def generate_double_well(params):
         "observed_dimension": None,
         "drift_params": {
             "alpha": {
-            "distribution": "fix",
-            "fix_value": 0.1,
+                "distribution": "fix",
+                "fix_value": 0.1,
             },
             "beta": {
-            "distribution": "fix",
-            "fix_value": 2.0,
-            }
-        },
-        "diffusion_params": {
-            "g1": {
                 "distribution": "fix",
-                "fix_value": 4.
-                },
-            "g2": {
-                "distribution": "fix",
-                "fix_value": 1.25
-                }
+                "fix_value": 2.0,
+            },
         },
+        "diffusion_params": {"g1": {"distribution": "fix", "fix_value": 4.0}, "g2": {"distribution": "fix", "fix_value": 1.25}},
         "initial_state": {
             "distribution": "normal",
-            "mean": 0.,
-            "std_dev": 1.,
-            "activation":None,
+            "mean": 0.0,
+            "std_dev": 1.0,
+            "activation": None,
         },
     }
-    integration_config =  {
-            "method": "EulerMaruyama",
-            "time_step": 0.01,
-            "num_steps": params.max_time_steps,
-            "num_paths": params.max_num_paths,
-            "num_locations": 1024,
-            "stochastic": True
+    integration_config = {
+        "method": "EulerMaruyama",
+        "time_step": 0.01,
+        "num_steps": params.max_time_steps,
+        "num_paths": params.max_num_paths,
+        "num_locations": 1024,
+        "stochastic": True,
     }
 
     dynamical_model = DoubleWellOneDimension(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset",
-                                   system=dynamical_model,
-                                   integrator_params=integration_config)
+    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
     data = path_generator.generate_paths()
     return data
 
-def pad_from_dataset(data:FIMSDEDatabatch,sample_idx:int,dataset:FIMSDEDataset)->FIMSDEDatabatchTuple:
+
+def pad_from_dataset(data: FIMSDEDatabatch, sample_idx: int, dataset: FIMSDEDataset) -> FIMSDEDatabatchTuple:
     """
     performs the padding of one element of a FIMSDEpDataBulk using a dataset
     """
@@ -408,31 +324,33 @@ def pad_from_dataset(data:FIMSDEDatabatch,sample_idx:int,dataset:FIMSDEDataset)-
     drift_at_locations = data.drift_at_locations[sample_idx]
     locations = data.locations[sample_idx]
 
-    #diffusion_parameters = data.diffusion_parameters[sample_idx]
-    #drift_parameters = data.drift_parameters[sample_idx]
-
+    # diffusion_parameters = data.diffusion_parameters[sample_idx]
+    # drift_parameters = data.drift_parameters[sample_idx]
 
     # Pad and Obtain Mask of The tensors if necessary
-    obs_values,obs_times = dataset._pad_obs_tensors(obs_values,obs_times)
-    drift_at_locations,diffusion_at_locations,locations,mask = dataset._pad_locations_tensors(drift_at_locations,diffusion_at_locations,locations)
-
-    #drift_parameters = dataset._pad_drift_params(drift_parameters)
-    #diffusion_parameters = dataset._pad_diffusion_params(diffusion_parameters)
-
-    return FIMSDEDatabatchTuple(
-            obs_values=obs_values,
-            obs_times=obs_times,
-            diffusion_at_locations=diffusion_at_locations,
-            drift_at_locations=drift_at_locations,
-            locations=locations,
-            #diffusion_parameters=diffusion_parameters,
-            #drift_parameters=drift_parameters,
-            #process_label=process_label,
-            #process_dimension=process_dimension,
-            dimension_mask=mask
+    obs_values, obs_times = dataset._pad_obs_tensors(obs_values, obs_times)
+    drift_at_locations, diffusion_at_locations, locations, mask = dataset._pad_locations_tensors(
+        drift_at_locations, diffusion_at_locations, locations
     )
 
-def generate_all(params:FIMSDEConfig)->FIMSDEDatabatchTuple:
+    # drift_parameters = dataset._pad_drift_params(drift_parameters)
+    # diffusion_parameters = dataset._pad_diffusion_params(diffusion_parameters)
+
+    return FIMSDEDatabatchTuple(
+        obs_values=obs_values,
+        obs_times=obs_times,
+        diffusion_at_locations=diffusion_at_locations,
+        drift_at_locations=drift_at_locations,
+        locations=locations,
+        # diffusion_parameters=diffusion_parameters,
+        # drift_parameters=drift_parameters,
+        # process_label=process_label,
+        # process_dimension=process_dimension,
+        dimension_mask=mask,
+    )
+
+
+def generate_all(params: FIMSDEConfig) -> FIMSDEDatabatchTuple:
     """
     creates a databatch with all the target data
 
@@ -455,19 +373,12 @@ def generate_all(params:FIMSDEConfig)->FIMSDEDatabatchTuple:
     damped_linear_data = generate_damped_linear(params)
     double_well_data = generate_double_well(params)
 
-    all_data = [lorenz_data,
-                hopf_data,
-                damped_cubic_data,
-                selkov_data,
-                duffing_data,
-                damped_linear_data,
-                double_well_data]
+    all_data = [lorenz_data, hopf_data, damped_cubic_data, selkov_data, duffing_data, damped_linear_data, double_well_data]
 
     # creates dataset since this object has all the padding functionality
-    dataset = FIMSDEDataset(None,all_data)
+    dataset = FIMSDEDataset(None, all_data)
     # as only one sample was create for each data set we use sample_idx = 0
-    all_data_tuples = [pad_from_dataset(data=data,sample_idx=0,dataset=dataset) for data in all_data]
-    #concat all the tuples
-    data_tuple = concat_name_tuple(all_data_tuples,FIMSDEDatabatchTuple)
+    all_data_tuples = [pad_from_dataset(data=data, sample_idx=0, dataset=dataset) for data in all_data]
+    # concat all the tuples
+    data_tuple = concat_name_tuple(all_data_tuples, FIMSDEDatabatchTuple)
     return data_tuple
-

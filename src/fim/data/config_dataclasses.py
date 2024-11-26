@@ -4,7 +4,8 @@ from fim import data_path  # Assumes `data_path` provides the base path for your
 from fim import project_path  # Assumes `data_path` provides the base path for your data files
 import yaml
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 @dataclass
 class DataInFiles:
@@ -18,44 +19,44 @@ class DataInFiles:
     def from_dict(cls: Type[T], data: dict) -> T:
         return cls(**data)
 
+
 @dataclass
 class DatasetPathCollections:
-    train: List[str] = field(default_factory=lambda: [
-        f"{data_path}/processed/state_sde/linear/dim-1/1",
-        f"{data_path}/processed/state_sde/linear/dim-2/1",
-        f"{data_path}/processed/state_sde/linear/dim-3/1"
-    ])
-    test: List[str] = field(default_factory=lambda: [
-        f"{data_path}/processed/state_sde/linear/dim-2/1"
-    ])
-    validation: List[str] = field(default_factory=lambda: [
-        f"{data_path}/processed/state_sde/linear/dim-2/1"
-    ])
+    train: List[str] = field(
+        default_factory=lambda: [
+            f"{data_path}/processed/state_sde/linear/dim-1/1",
+            f"{data_path}/processed/state_sde/linear/dim-2/1",
+            f"{data_path}/processed/state_sde/linear/dim-3/1",
+        ]
+    )
+    test: List[str] = field(default_factory=lambda: [f"{data_path}/processed/state_sde/linear/dim-2/1"])
+    validation: List[str] = field(default_factory=lambda: [f"{data_path}/processed/state_sde/linear/dim-2/1"])
 
     @classmethod
     def from_dict(cls: Type[T], data: dict) -> T:
         return cls(**data)
 
+
 @dataclass
 class FIMDatasetConfig:
     name: str = "FIMSDEDataloader"
-    type:str = "synthetic" # synthetic, theory
+    type: str = "synthetic"  # synthetic, theory
     dataset_description: str = "dynamical_systems"
-    #data_path:str = str(data_path)
+    # data_path:str = str(data_path)
 
-    dynamical_systems_hyperparameters_file:str = r"\configs\train\fim-sde\sde-systems-hyperparameters.yaml"
+    dynamical_systems_hyperparameters_file: str = r"\configs\train\fim-sde\sde-systems-hyperparameters.yaml"
 
     total_minibatch_size: int = 2
     total_minibatch_size_test: int = 2
     data_loading_processes_count: int = 0
 
-    random_num_paths_n_grid:bool = True
+    random_num_paths_n_grid: bool = True
 
-    min_number_of_paths_per_batch:int = 10
-    max_number_of_paths_per_batch:int = 300
+    min_number_of_paths_per_batch: int = 10
+    max_number_of_paths_per_batch: int = 300
 
-    min_number_of_grid_per_batch:int = 50
-    max_number_of_grid_per_batch:int = 1024
+    min_number_of_grid_per_batch: int = 50
+    max_number_of_grid_per_batch: int = 1024
 
     data_in_files: DataInFiles = field(default_factory=DataInFiles)
     dataset_path_collections: DatasetPathCollections = field(default_factory=DatasetPathCollections)
@@ -75,10 +76,10 @@ class FIMDatasetConfig:
         if isinstance(self.dataset_path_collections, dict):
             self.dataset_path_collections = DatasetPathCollections.from_dict(self.dataset_path_collections)
 
-        self.dynamical_systems_hyperparameters_file = rf"{project_path}"+self.dynamical_systems_hyperparameters_file
+        self.dynamical_systems_hyperparameters_file = rf"{project_path}" + self.dynamical_systems_hyperparameters_file
 
     @classmethod
-    def from_yaml(cls, yaml_path: str) -> 'FIMDatasetConfig':
-        with open(yaml_path, 'r') as file:
+    def from_yaml(cls, yaml_path: str) -> "FIMDatasetConfig":
+        with open(yaml_path, "r") as file:
             params_dict = yaml.safe_load(file)
         return cls(**params_dict)

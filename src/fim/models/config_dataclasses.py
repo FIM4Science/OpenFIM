@@ -1,16 +1,17 @@
 import yaml
 from fim import results_path
-from typing import List, Optional
+from typing import Optional
 from dataclasses import dataclass, field
+
 
 @dataclass
 class FIMSDEConfig:
-    # saving 
-    name:str="FIMSDE"
-    experiment_name:str = "sde"
-    experiment_dir:str = rf"{results_path}"
+    # saving
+    name: str = "FIMSDE"
+    experiment_name: str = "sde"
+    experiment_dir: str = rf"{results_path}"
 
-    # input 
+    # input
     max_dimension: int = 3
     max_time_steps: int = 128
     max_location_size: int = 1024
@@ -39,7 +40,7 @@ class FIMSDEConfig:
     trunk_net_hidden_layers: Optional[int] = field(default_factory=lambda: [25])
 
     # optimizer + regularization
-    num_epochs:int = 2
+    num_epochs: int = 2
     add_delta_x_to_value_encoder: bool = True
     learning_rate: float = 1.0e-5
     weight_decay: float = 1.0e-4
@@ -48,24 +49,25 @@ class FIMSDEConfig:
     # loss settings
     diffusion_loss_scale: float = 1.0
     loss_threshold: float = 100.0
-    loss_type:str = "rmse" #var, rmse
+    loss_type: str = "rmse"  # var, rmse
 
-    log_images_every_n_epochs:int=2
-    train_with_normalized_head:bool = True
-    clip_grad:bool = True
-    clip_max_norm:float = 10.
+    log_images_every_n_epochs: int = 2
+    train_with_normalized_head: bool = True
+    clip_grad: bool = True
+    clip_max_norm: float = 10.0
 
     # INFERENCE/PIPELINE ------------------------------------------------------------
-    dt_pipeline:float = 0.01
-    number_of_time_steps_pipeline:int = 128
-    evaluate_with_unnormalized_heads:bool = True
+    dt_pipeline: float = 0.01
+    number_of_time_steps_pipeline: int = 128
+    evaluate_with_unnormalized_heads: bool = True
 
     @classmethod
-    def from_yaml(cls, yaml_path: str) -> 'FIMSDEConfig':
-        with open(yaml_path, 'r') as file:
+    def from_yaml(cls, yaml_path: str) -> "FIMSDEConfig":
+        with open(yaml_path, "r") as file:
             params_dict = yaml.safe_load(file)
         return cls(**params_dict)
-    
+
+
 # Example instantiation
 model_config = FIMSDEConfig(
     temporal_embedding_size=256,
@@ -84,5 +86,5 @@ model_config = FIMSDEConfig(
     weight_decay=1.0e-4,
     dropout_rate=0.1,
     diffusion_loss_scale=1.0,
-    loss_threshold=100.0
+    loss_threshold=100.0,
 )

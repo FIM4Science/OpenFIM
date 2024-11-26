@@ -1,21 +1,19 @@
 import torch
 import numpy as np
 
-from fim.data.dataloaders import (
-    DataLoaderFactory
-)
-from fim.utils.helper import (
-    load_yaml
-)
+from fim.data.dataloaders import DataLoaderFactory
+from fim.utils.helper import load_yaml
 
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.models.blocks import ModelFactory
 from fim.utils.helper import nametuple_to_device
 
+
 def test_model_kosta_init():
     from fim import project_path
+
     parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-patrick.yaml"
-    config = load_yaml(parameters_yaml,return_object=True)
+    config = load_yaml(parameters_yaml, return_object=True)
 
     torch.manual_seed(int(config.experiment.seed))
     torch.cuda.manual_seed(int(config.experiment.seed))
@@ -25,18 +23,20 @@ def test_model_kosta_init():
 
     config = config.to_dict()
     dataloader = DataLoaderFactory.create(**config["dataset"])
-    if hasattr(dataloader,"update_kwargs"):
+    if hasattr(dataloader, "update_kwargs"):
         # fim model requieres that config is updated after loading the data
         config = dataloader.update_kwargs(config)
 
-    model = ModelFactory.create(config,device_map=device_map,resume=False)
-    databatch:FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
-    databatch = nametuple_to_device(databatch,device_map)
-    forward_pass = model(databatch,training=True)
+    model = ModelFactory.create(config, device_map=device_map, resume=False)
+    databatch: FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
+    databatch = nametuple_to_device(databatch, device_map)
+    forward_pass = model(databatch, training=True)
     print(forward_pass)
+
 
 def test_model_():
     pass
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     test_model_kosta_init()
