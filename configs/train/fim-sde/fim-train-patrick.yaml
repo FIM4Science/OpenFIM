@@ -4,7 +4,7 @@ experiment:
   name: sde
   name_add_date: False # if true, the current date & time will be added to the experiment name
   seed: 10
-  device_map: cuda # auto, cuda, cpu
+  device_map: cpu # auto, cuda, cpu
 
 model:
   name: FIMSDE
@@ -15,7 +15,7 @@ model:
   max_location_size: &max_location_size 0
   max_num_paths: &max_num_of_paths 0
 
-  # Model 
+  # Model
   # phi_0^t
   temporal_embedding_size: &temporal_embedding_size 21
 
@@ -25,17 +25,17 @@ model:
 
   # psi_1
   sequence_encoding_tokenizer: &sequence_encoding_tokenizer 10
-  sequence_encoding_transformer_hidden_size: &sequence_encoding_transformer_hidden_size 28 
+  sequence_encoding_transformer_hidden_size: &sequence_encoding_transformer_hidden_size 28
   sequence_encoding_transformer_heads: &sequence_encoding_transformer_heads 1
   sequence_encoding_transformer_layers: &sequence_encoding_transformer_layers 1
 
   # Omega_1
-  combining_transformer_hidden_size: &combining_transformer_hidden_size 28 
+  combining_transformer_hidden_size: &combining_transformer_hidden_size 28
   combining_transformer_heads: &combining_transformer_heads 2
   combining_transformer_layers: &combining_transformer_layers 1
 
   # phi_1
-  trunk_net_size: &trunk_net_size 28 
+  trunk_net_size: &trunk_net_size 28
   trunk_net_hidden_layers: &trunk_net_hidden_layers [25]
 
   # training
@@ -47,7 +47,7 @@ model:
   weight_decay: &weight_decay 1.0e-4
   dropout_rate: &dropout_rate 0.1
 
-  #loss 
+  #loss
   diffusion_loss_scale: 1.0
   loss_threshold: 100.0
   loss_type: "rmse" #var, rmse
@@ -72,17 +72,17 @@ dataset:
   total_minibatch_size_test: &total_minibatch_size_test 2
 
   random_num_paths_n_grid: true
-  min_number_of_paths_per_batch: 10  
+  min_number_of_paths_per_batch: 10
   max_number_of_paths_per_batch: 300
 
-  min_number_of_grid_per_batch: 50 
-  max_number_of_grid_per_batch: 1024 
+  min_number_of_grid_per_batch: 50
+  max_number_of_grid_per_batch: 1024
 
-  max_dimension: *max_dimension 
-  max_time_steps: *max_time_steps 
-  max_location_size: *max_location_size 
-  max_num_paths: *max_num_of_paths 
-  
+  max_dimension: *max_dimension
+  max_time_steps: *max_time_steps
+  max_location_size: *max_location_size
+  max_num_paths: *max_num_of_paths
+
   data_loading_processes_count: &data_loading_processes_count 0
 
   data_in_files: &data_in_files
@@ -94,18 +94,16 @@ dataset:
 
   dataset_path_collections: &dataset_path_collections
     train:
-      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-1\1
-      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-2\1
-      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-3\1
+      - processed\state_sde\linear\dim-1\1
+      - processed\state_sde\linear\dim-2\1
+      - processed\state_sde\linear\dim-3\1
     test:
-      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-2\1
+      - processed\state_sde\linear\dim-2\1
     validation:
-      - C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\data\processed\state_sde\linear\dim-2\1
-      
+      - processed\state_sde\linear\dim-2\1
+
   tensorboard_figure_data: &tensorboard_figure_data "test" # "test" or "train"
   plot_paths_count: &plot_paths_count 100
 
   loader_kwargs:
     num_workers: 2
-
-  

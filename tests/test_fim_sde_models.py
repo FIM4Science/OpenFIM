@@ -1,18 +1,18 @@
-import torch
+import os
+
 import numpy as np
+import torch
 
 from fim.data.dataloaders import DataLoaderFactory
-from fim.utils.helper import load_yaml
-
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.models.blocks import ModelFactory
-from fim.utils.helper import nametuple_to_device
+from fim.utils.helper import load_yaml, nametuple_to_device
 
 
 def test_model_kosta_init():
     from fim import project_path
 
-    parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-patrick.yaml"
+    parameters_yaml = os.path.join(project_path, "configs", "train", "fim-sde", "fim-train-patrick.yaml")
     config = load_yaml(parameters_yaml, return_object=True)
 
     torch.manual_seed(int(config.experiment.seed))

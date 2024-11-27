@@ -1,24 +1,17 @@
 import os
-from fim import project_path
-
-
 from pathlib import Path
 
 from lightning.pytorch import Trainer
-from lightning.pytorch.loggers import MLFlowLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.loggers import MLFlowLogger
 
+from fim import project_path, results_path
 from fim.data.dataloaders import FIMSDEDataloader
-
 from fim.models.sde import FIMSDE
 from fim.pipelines.sde_pipelines import sample_and_save_from_test
-
 from fim.utils.experiment_files import ExperimentsFiles
-from fim.utils.helper import save_hyperparameters_to_yaml
-from fim import results_path
+from fim.utils.helper import load_yaml, save_hyperparameters_to_yaml
 
-
-from fim.utils.helper import load_yaml
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -77,7 +70,7 @@ if __name__ == "__main__":
     # data_config = FIMDatasetConfig()
 
     # FROM YAML
-    parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-patrick.yaml"
+    parameters_yaml = os.path.join(project_path, "configs", "train", "fim-sde", "fim-train-patrick.yaml")
     config = load_yaml(parameters_yaml)
     model_config = config["model"]
     dataset_config = config["dataset"]

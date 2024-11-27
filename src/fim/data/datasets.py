@@ -1,27 +1,26 @@
 import logging
 import math
+import os
 import pathlib
+from collections import defaultdict, namedtuple
+from dataclasses import dataclass
+from typing import List, Optional, Union
 
 import numpy as np
-from typing import List, Optional
-from dataclasses import dataclass
-from collections import namedtuple
-
-from collections import defaultdict
-from typing import Union
-
 import torch
 import torch.utils
 import torch.utils.data
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
 from torch.utils.data import default_collate
 
+from fim import data_path
+from fim.data.config_dataclasses import FIMDatasetConfig
+from fim.data.utils import load_h5
+
 from ..typing import Path, Paths
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
 from .utils import load_file, split_into_variable_windows
-from fim.data.config_dataclasses import FIMDatasetConfig
-from fim.data.utils import load_h5
 
 
 class HFDataset(torch.utils.data.Dataset):
@@ -524,6 +523,24 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         # Load data and compute cumulative lengths
         self.read_files(data_config, data_paths)
 
+    def _prepare_file_path(self, file_path: Path | str | FIMSDEDatabatch) -> Path | str | FIMSDEDatabatch:
+        """
+        Translate data paths format to os. Prepend fim data_dir path if passed paths are not absolute.
+        """
+        if isinstance(file_path, str):
+            # translate path format
+            if os.name == "posix":
+                file_path = file_path.replace("\\", "/")
+
+            elif os.name == "nt":
+                file_path = file_path.replace("/", "\\")
+
+            # prepend fim data dir
+            if not os.path.isabs(file_path):
+                file_path = os.path.join(data_path, file_path)
+
+        return file_path
+
     def _read_one_bulk(self, data: str | FIMSDEDatabatch | Path) -> FIMSDEDatabatch:
         from pathlib import Path
 
@@ -559,6 +576,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             self.max_diffusion_param_size = 0
 
         for file_path in file_paths:
+            file_path = self._prepare_file_path(file_path)
             if isinstance(file_path, (Path, str)):
                 one_data_bulk: FIMSDEDatabatch = self._read_one_bulk(file_path)  # Adjust loading method as necessary
             elif isinstance(file_path, FIMSDEDatabatch):
