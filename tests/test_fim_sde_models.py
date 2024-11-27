@@ -27,7 +27,7 @@ def test_model_kosta_init():
         # fim model requieres that config is updated after loading the data
         config = dataloader.update_kwargs(config)
 
-    model = ModelFactory.create(config, device_map=device_map, resume=False)
+    model = ModelFactory.create_deprecated(config, device_map=device_map, resume=False)
     databatch: FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
     databatch = nametuple_to_device(databatch, device_map)
     forward_pass = model(databatch, training=True)

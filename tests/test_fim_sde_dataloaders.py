@@ -8,7 +8,9 @@ from fim.data.data_generation.dynamical_systems_sample import define_dynamicals_
 
 
 def test_datasets():
-    parameters_yaml = r"C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\configs\train\fim-sde\fim-train-patrick.yaml"
+    from fim import project_path
+
+    parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-patrick.yaml"
     config = load_yaml(parameters_yaml, return_object=True)
     config_data: FIMDatasetConfig = FIMDatasetConfig(**config.dataset.to_dict())
     train_dataset = FIMSDEDataset(config_data, config_data.dataset_path_collections.train)
@@ -18,7 +20,9 @@ def test_datasets():
 
 
 def test_dataloaders():
-    parameters_yaml = r"C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\configs\train\fim-sde\fim-train-patrick.yaml"
+    from fim import project_path
+
+    parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-patrick.yaml"
     config = load_yaml(parameters_yaml, return_object=True)
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
     databatch: FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())
@@ -26,7 +30,9 @@ def test_dataloaders():
 
 
 def test_synthetic_dataloaders():
-    parameters_yaml = r"C:\Users\cesar\Desktop\Projects\FoundationModels\FIM\configs\train\fim-sde\fim-train-dynamical-systems.yaml"
+    from fim import project_path
+
+    parameters_yaml = rf"{project_path}\configs\train\fim-sde\fim-train-dynamical-systems.yaml"
     config = load_yaml(parameters_yaml, return_object=True)
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
     databatch: FIMSDEDatabatchTuple = next(dataloader.train_it.__iter__())

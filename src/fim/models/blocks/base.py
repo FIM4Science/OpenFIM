@@ -8,6 +8,9 @@ from torch.nn.functional import scaled_dot_product_attention
 
 from ...trainers.utils import is_distributed
 from ...utils.helper import create_class_instance
+from torch.nn import TransformerEncoder as TransformerEncoderNN
+from torch.nn import TransformerEncoderLayer
+from ..utils import SinActivation
 
 
 class Block(nn.Module):
@@ -235,6 +238,19 @@ class MaskedSequential(nn.Sequential):
         return x
 
 
+class TransformerModel(Block):
+    def __init__(self, input_dim, nhead, hidden_dim, nlayers):
+        super(TransformerModel, self).__init__()
+        self.model_type = "Transformer"
+        self.encoder_layer = TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
+        self.transformer_encoder = TransformerEncoderNN(self.encoder_layer, num_layers=nlayers)
+        self.input_dim = input_dim
+
+    def forward(self, src):
+        output = self.transformer_encoder(src)
+        return output
+
+
 class Transformer(Block):
     """The encoder block of the transformer model as defined in 'Vaswani, A. et al. Attention is all you need'."""
 
@@ -375,3 +391,39 @@ class IdentityBlock(Block):
 
     def forward(self, x: dict | torch.Tensor) -> dict | torch.Tensor:
         return x
+
+
+class TimeEncoding(Block):
+    """
+    Implements the time encoding as described in "Multi-time attention networks for irregularly sampled time series, Shukla & Marlin, 2020".
+
+    Each time point t is encoded as a vector of dimension d_time:
+        - first element: linear embedding of t: w_0*t + b_0
+        - remaining elements: sinusoidal embedding of t with different frequencies: sin(w_i*t + b_i) for i in {1, ..., d_time-1}
+    w_j and b_j are learnable parameters.
+    """
+
+    def __init__(self, dim_time: int):
+        """
+        Args:
+            d_time (int): Dimension of the time representation
+        """
+        super(TimeEncoding, self).__init__()
+
+        self.d_time = dim_time
+
+        self.linear_embedding = nn.Linear(1, 1, bias=True)
+        self.periodic_embedding = nn.Sequential(nn.Linear(1, dim_time - 1, bias=True), SinActivation())
+
+    def forward(self, grid: torch.Tensor):
+        """
+        Args:
+            grid (torch.Tensor): Grid of time points, shape (batch_size, seq_len, 1)
+
+        Returns:
+            torch.Tensor: Time encoding, shape (batch_size, seq_len, d_time)
+        """
+        linear = self.linear_embedding(grid)
+        periodic = self.periodic_embedding(grid)
+
+        return torch.cat([linear, periodic], dim=-1)
