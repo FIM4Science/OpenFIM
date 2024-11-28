@@ -9,6 +9,8 @@ from fim.models.gaussian_processes.utils import define_mesh_points
 from typing import Tuple, List
 from abc import ABC, abstractmethod
 
+from fim.data.datasets import FIMSDEDatabatch
+
 
 class MultivariateNormalWithJitter(gpdst.MultivariateNormal):
     """
@@ -50,14 +52,24 @@ class MultivariateNormalWithJitter(gpdst.MultivariateNormal):
 
 
 @dataclass
+class IntegrationConfig:
+    method: str = "EulerMaruyama"
+    time_step: float = 0.01
+    num_steps: int = 128
+    num_paths: int = 30
+    num_locations: int = 1024
+    stochastic: bool = True
+
+
+@dataclass
 class SDEGPsConfig:
     dimensions: int = 2
 
     # samples sizes
-    number_of_kernel_samples: int = 99  # Fix: Added default value
-    number_of_functions_per_kernel: int = 100
+    number_of_kernel_samples: int = 50  # Fix: Added default value
+    number_of_functions_per_kernel: int = 20
     number_of_kernels_per_file: int = 100
-    total_number_of_paths: int = 10000
+    total_number_of_realizations: int = 10000
 
     # inducing points
     type_of_inducing_points: str = "random_uniform"
@@ -73,13 +85,13 @@ class SDEGPsConfig:
     kernel_length_scale: dict = field(default_factory=lambda: {"name": "uniform", "min": 0.1, "max": 10.0})
 
     def __post_init__(self):
-        self.total_number_of_paths = self.number_of_kernel_samples * self.number_of_functions_per_kernel
+        self.total_number_of_realizations = self.number_of_kernel_samples * self.number_of_functions_per_kernel
 
 
 class InducingPointGPFunction(ABC):
     """
 
-    This abatract class defines all objects requiered to sample functions from a GP prior
+    This abstract class defines all objects requiered to sample functions from a GP prior
     with the use of inducing points. The functions to be sampled will be such that
     we generate number_of_kernel_samples and number_of_functions_per_kernel. This will
     be used to define the drift and the diffusion function.
@@ -100,10 +112,11 @@ class InducingPointGPFunction(ABC):
     ):
         self.config = config
         self.dimensions = config.dimensions
-        self.num_inducing_points = config.number_of_inducing_points
         self.num_kernel_samples = config.number_of_kernel_samples
         self.num_functions_per_kernel = config.number_of_functions_per_kernel
         self.inducing_points = inducing_points
+        self.num_inducing_points = inducing_points.size(0)
+
         assert self.inducing_points.size(1) == config.dimensions
 
         self.kernels = self.sample_and_set_kernels()
@@ -215,9 +228,13 @@ class InducingPointGPFunction(ABC):
             K_input_inducing_per_dimension = []
             for dimension_index in range(self.config.dimensions):
                 X0_per_kernel = X0[kernel_index, ...]
+                number_of_functions_per_kernel, number_of_paths, dimensions = X0_per_kernel.shape
+                X0_per_kernel = X0_per_kernel.reshape(number_of_functions_per_kernel * number_of_paths, dimensions)
                 multivariate_kernel: list = self.kernels[kernel_index]
                 kernel_per_dimension: Kernel = multivariate_kernel[dimension_index]
-                K_input_inducing_ = kernel_per_dimension.forward(X0_per_kernel, self.inducing_points).unsqueeze(0).unsqueeze(-1)
+                K_input_inducing_ = kernel_per_dimension.forward(X0_per_kernel, self.inducing_points)
+                K_input_inducing_ = K_input_inducing_.reshape(number_of_functions_per_kernel, number_of_paths, self.num_inducing_points)
+                K_input_inducing_ = K_input_inducing_.unsqueeze(0).unsqueeze(-1)
                 K_input_inducing_per_dimension.append(K_input_inducing_)
             K_input_inducing_per_dimension = torch.concatenate(K_input_inducing_per_dimension, dim=-1)
             K_input_inducing.append(K_input_inducing_per_dimension)
@@ -226,11 +243,16 @@ class InducingPointGPFunction(ABC):
 
     def __call__(self, X0):
         """
-        X0
+        X0:  (number_of_kernel_samples,
+              number_of_functions_per_kernel,
+              number_of_paths,
+              dimensions)
         """
         K_inducing_inducing_inv, inducing_functions = self.get_inducing_function()
         K_input_inducing = self.evaluate_kernel_input_inducing(X0)
-        function_approximation = torch.einsum("kpid,kpijd,kpjd->kpd", K_input_inducing, K_inducing_inducing_inv, inducing_functions)
+        function_approximation = torch.einsum(
+            "kfpid,kfpijd,kfpjd->kfpd", K_input_inducing, K_inducing_inducing_inv[:, :, None, :, :], inducing_functions[:, :, None, :, :]
+        )
         return function_approximation
 
 
@@ -276,13 +298,19 @@ KERNELS_FUNCTIONS = {"ScaleRBF": ScaleRBF}
 class SDEGPDynamicalSystem:
     """ """
 
-    def __init__(self, config: SDEGPsConfig):
+    def __init__(self, config: SDEGPsConfig, integration_config: IntegrationConfig):
         self.config = config
+        self.integration_config = integration_config
         self.dimensions = config.dimensions
         self.num_inducing_points = config.number_of_inducing_points
         self.num_kernel_samples = config.number_of_kernel_samples
         self.num_functions_per_kernel = config.number_of_functions_per_kernel
         self.kernels = []
+
+        self.num_steps = integration_config.num_steps
+        self.num_paths = integration_config.num_paths
+        self.dt = integration_config.time_step
+        self.num_locations = integration_config.num_locations
 
         self.inducing_points = define_mesh_points(
             total_points=config.number_of_inducing_points, n_dims=config.dimensions, ranges=config.inducing_point_ranges
@@ -290,3 +318,79 @@ class SDEGPDynamicalSystem:
 
         self.drift = KERNELS_FUNCTIONS[config.drift_kernel_name](config, inducing_points=self.inducing_points)
         self.diffusion = KERNELS_FUNCTIONS[config.diffusion_kernel_name](config, inducing_points=self.inducing_points)
+
+    def generate_paths(self) -> FIMSDEDatabatch:
+        """
+        generate paths such that every realization of the parameters
+        has a num of paths
+
+        Returns
+            DataBulk (FIMPOODEDataBulk|FIMSDEpDataBulk)
+        """
+        states = self.sample_initial_states()
+        # paths
+        hidden_paths = torch.zeros(
+            (self.num_kernel_samples, self.num_functions_per_kernel, self.num_paths, self.num_steps + 1, self.dimensions)
+        )
+        hidden_paths[:, :, :, 0, :] = states.clone()
+        # times
+        hidden_times = torch.linspace(0.0, self.num_steps * self.dt, self.num_steps + 1)
+        hidden_times = hidden_times[None, None, None, :].repeat(
+            self.num_kernel_samples, self.num_functions_per_kernel, self.num_paths, 1
+        )  # [total_num_paths,max_diffusion_params]
+        # go trough iterator
+        for step in range(self.num_steps):
+            drift = self.drift(states)
+            diffusion = self.diffusion(states)
+            states = states + drift * self.dt + diffusion * torch.sqrt(torch.tensor(self.dt)) * torch.randn_like(states)
+            hidden_paths[:, :, :, step + 1, :] = states.clone()
+
+        return self.define_fim_sde_data(hidden_paths, hidden_times)
+
+    def sample_initial_states(self):
+        """ """
+        states = torch.empty(
+            self.config.number_of_kernel_samples,
+            self.config.number_of_functions_per_kernel,
+            self.integration_config.num_paths,
+            self.config.dimensions,
+        ).uniform_(-1.0, 1.0)
+        return states
+
+    def define_fim_sde_data(self, obs_values, obs_times) -> FIMSDEDatabatch:
+        """
+        Defines hyper cube and evaluates drift and diffusion there
+
+        Args:
+            data:  obs_values,obs_times,drift_parameters,diffusion_parameters
+        """
+        process_dimension = torch.full((obs_values.size(0), 1), self.dimensions)
+        num_kernel_samples, num_functions_per_kernel, number_of_paths, num_steps, dimensions = obs_values.shape
+        total_number_of_realizations = num_kernel_samples * num_functions_per_kernel
+
+        locations = define_mesh_points(self.num_locations, dimensions)
+        num_locations = locations.size(0)
+
+        locations = locations[None, None, :, :].repeat((self.num_kernel_samples, self.num_functions_per_kernel, 1, 1))
+        drift_at_locations = self.drift(locations)
+        diffusion_at_locations = self.diffusion(locations)
+
+        obs_times = obs_times.reshape(total_number_of_realizations, number_of_paths, num_steps)
+        obs_values = obs_values.reshape(total_number_of_realizations, number_of_paths, num_steps, dimensions)
+
+        locations = locations.reshape(total_number_of_realizations, num_locations, dimensions)
+        diffusion_at_locations = diffusion_at_locations.reshape(total_number_of_realizations, num_locations, dimensions)
+        drift_at_locations = drift_at_locations.reshape(total_number_of_realizations, num_locations, dimensions)
+
+        data = FIMSDEDatabatch(
+            locations=locations,
+            obs_times=obs_times,
+            obs_values=obs_values,
+            diffusion_at_locations=diffusion_at_locations,
+            drift_at_locations=drift_at_locations,
+            # diffusion_parameters=diffusion_parameters,
+            # drift_parameters=drift_parameters,
+            # process_label=process_label,
+            process_dimension=process_dimension,
+        )
+        return data
