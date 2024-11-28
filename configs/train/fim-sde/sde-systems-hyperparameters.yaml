@@ -9,6 +9,9 @@ integration:
   num_locations: 1024
   stochastic: true
 
+locations:
+  type: random_cube
+
 train:
   - name: HopfBifurcation
     data_bulk_name: hopf_1
@@ -197,6 +200,108 @@ train:
       mean: 0.0
       std_dev: 1.0
       activation: "sigmoid"
+
+  - name: Degree2Polynomial
+    data_bulk_name: drift_linear_diff_squared_dim_2
+    num_realizations: 500
+    observed_dimension: null
+    state_dim: 2
+    redo: true
+    drift_params:
+      constant:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+      degree_1:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+      degree_2_squared:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_2_mixed:
+        distribution: "fix"
+        fix_value: 0.0
+      scale:
+        sample_per_dimension: global_sample_scale_per_dimension
+        distribution: uniform
+        min: 0
+        max: 1
+    diffusion_params:
+      constant:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+      degree_1:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_2_squared:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+      degree_2_mixed:
+        distribution: "fix"
+        fix_value: 0.0
+      scale:
+        sample_per_dimension: global_sample_scale_per_dimension
+        distribution: uniform
+        min: 0
+        max: 1
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: null
+
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: 500
+    observed_dimension: null
+    state_dim: 3
+    redo: true
+    drift_params:
+      constant:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_1:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_2_squared:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_2_mixed:
+        distribution: "fix"
+        fix_value: 0.0
+    diffusion_params:
+      constant:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+      degree_1:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+      degree_2_squared:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+      degree_2_mixed:
+        distribution: "normal"
+        mean: 0.0
+        std: 1.0
+        bernoulli_survival_rate: 0.5
+    initial_state:
+      distribution: "uniform"
+      min: -10
+      max: 10
+      activation: null
 
 test:
   - name: Lorenz63System

@@ -1,15 +1,21 @@
 import os
-from pathlib import Path
-import torch
-from fim.utils.grids import define_mesh_points, random_size_consecutive_locations
-
-from typing import List, Tuple
-from fim.data.datasets import FIMSDEDatabatch
-
-import yaml
 from abc import ABC, abstractmethod
+from copy import copy
+from pathlib import Path
+from typing import List, Tuple
 
-from fim.data.data_generation.dynamical_systems import DynamicalSystem, DYNAMICAL_SYSTEM_TO_MODELS
+import torch
+import yaml
+
+from fim.data.data_generation.dynamical_systems import DYNAMICAL_SYSTEM_TO_MODELS, DynamicalSystem
+from fim.data.datasets import FIMSDEDatabatch
+from fim.utils.grids import (
+    define_mesh_points,
+    define_random_surrounding_cube,
+    define_regular_surrounding_cube,
+    random_size_consecutive_locations,
+)
+
 
 # ------------------------------------------------------------------------------------------
 # INTEGRATORS
@@ -54,7 +60,7 @@ class PathGenerator:
 
     system: DynamicalSystem
 
-    def __init__(self, dataset_type: str, system: DynamicalSystem, integrator_params: dict):
+    def __init__(self, dataset_type: str, system: DynamicalSystem, integrator_params: dict, locations_params: dict):
         """
         Args:
             -dataset_type (str): which type of dataset will be used
@@ -68,6 +74,13 @@ class PathGenerator:
 
         self.num_realizations = self.system.num_realizations
         self.state_dim = self.system.state_dim
+
+        # locations setup
+        self.locations_type = locations_params.get("type", "unit_cube")
+        assert self.locations_type in ["unit_cube", "regular_cube", "random_cube"]
+        local_locations_params = copy(locations_params)  # to reuse same dict for multiple generations
+        local_locations_params.pop("type")
+        self.locations_kwargs = local_locations_params
 
         # includes paths and realizations
         self.num_paths = integrator_params["num_paths"]
@@ -154,44 +167,71 @@ class PathGenerator:
                 diffusion_params,
             )
 
-    def define_fim_sde_data(self, obs_values, obs_times, drift_parameters, diffusion_parameters) -> FIMSDEDatabatch:
+    def define_locations(self, obs_values):
         """
-        Defines hyper cube and evaluates drift and diffusion there
+        Defines locations where drift and diffusion are evaluated at.
 
         Args:
-            data:  obs_values,obs_times,drift_parameters,diffusion_parameters
+            obs_values: Observations of paths from multiple equations. Shape: [num_realizations, num_paths, num_obs, D]
+
+        Retunrs:
+            locations: Points in locations per equation. Shape: [num_realizations, num_locations, D]
         """
-        process_dimension = torch.full((obs_values.size(0), 1), self.system.state_dim)
 
-        num_paths = obs_values.size(0)
-        dimensions = obs_values.size(3)
+        num_realizations, _, _, D = obs_values.shape
 
-        hypercube_locations = define_mesh_points(self.num_locations, dimensions)
-        num_hypercube_points = hypercube_locations.size(0)
-        hypercube_ = hypercube_locations.repeat((self.num_realizations, 1))
+        if self.locations_type == "unit_cube":
+            locations = define_mesh_points(self.num_locations, D, **self.locations_kwargs)  # [num_locations, D]
+            locations = torch.repeat_interleave(locations.unsqueeze(0), repeats=num_realizations, dim=0)
 
-        drift_params_ = drift_parameters.repeat_interleave(num_hypercube_points, 0)
-        diffusion_parameters_ = diffusion_parameters.repeat_interleave(num_hypercube_points, 0)
+        elif self.locations_type == "regular_cube":
+            locations = define_regular_surrounding_cube(self.num_locations, obs_values, **self.locations_kwargs)
 
-        drift_at_hypercube = self.system.drift(hypercube_, None, drift_params_)
-        drift_at_hypercube = drift_at_hypercube.reshape(num_paths, num_hypercube_points, dimensions)
+        elif self.locations_type == "random_cube":
+            locations = define_random_surrounding_cube(self.num_locations, obs_values, **self.locations_kwargs)
 
-        diffusion_at_hypercube = self.system.diffusion(hypercube_, None, diffusion_parameters_)
-        diffusion_at_hypercube = diffusion_at_hypercube.reshape(num_paths, num_hypercube_points, dimensions)
-        hypercube_ = hypercube_.reshape(num_paths, num_hypercube_points, dimensions)
+        return locations
 
-        data = FIMSDEDatabatch(
-            locations=hypercube_,
+    def define_fim_sde_data(self, obs_values, obs_times, drift_parameters, diffusion_parameters) -> FIMSDEDatabatch:
+        """
+        Define locations and evaluate drift and diffusion at them.
+        Store generated data in FIMSDEDatabatch.
+
+        Args:
+            obs_times (Tensor): Shape [num_realizations, num_paths, num_obs, 1]
+            obs_values (Tensor): Shape [num_realizations, num_paths, num_obs, D]
+            drift/diffusion_parameters (Tensor): Parametes observations were geneated with. Shape [num_realizations, ...]
+
+        returns:
+            data (FIMSDEDatabatch): Generated data stored in a FIMSDEDatabatch.
+        """
+        num_realizations, _, _, D = obs_values.shape
+
+        process_dimension = torch.full((num_realizations, 1), self.system.state_dim)  # [num_realizations, 1]
+
+        locations = self.define_locations(obs_values)  # [num_realizations, num_locations, D]
+        num_locations = locations.shape[-2]
+
+        # evaluate vector fields of all realizations at all locations
+        locations_repeated = locations.reshape(-1, D)
+        drift_params_repeated = drift_parameters.repeat_interleave(num_locations, 0)  # [num_realizations * num_locations, ...]
+        diffusion_params_repeated = diffusion_parameters.repeat_interleave(num_locations, 0)
+
+        drift_at_locations = self.system.drift(locations_repeated, None, drift_params_repeated)  # [num_realizations * num_locations, D]
+        diffusion_at_locations = self.system.diffusion(locations_repeated, None, diffusion_params_repeated)
+
+        # add realization axis to evaluations at locations
+        drift_at_locations = drift_at_locations.reshape(num_realizations, num_locations, D)  # [num_realizations, num_locations, D]
+        diffusion_at_locations = diffusion_at_locations.reshape(num_realizations, num_locations, D)
+
+        return FIMSDEDatabatch(
+            locations=locations,
             obs_times=obs_times,
             obs_values=obs_values,
-            diffusion_at_locations=diffusion_at_hypercube,
-            drift_at_locations=drift_at_hypercube,
-            # diffusion_parameters=diffusion_parameters,
-            # drift_parameters=drift_parameters,
-            # process_label=process_label,
+            diffusion_at_locations=diffusion_at_locations,
+            drift_at_locations=drift_at_locations,
             process_dimension=process_dimension,
         )
-        return data
 
     def time_observations_and_mask(self, hidden_paths, hidden_times):
         """
@@ -241,6 +281,7 @@ def set_up_a_dynamical_system(
     dataset_type: str,
     params_yaml: dict,
     integrator_params: dict,
+    locations_params: dict,
     experiment_dir: str,
     return_data: bool = True,
 ) -> DynamicalSystem | FIMSDEDatabatch:
@@ -253,7 +294,8 @@ def set_up_a_dynamical_system(
     Args:
         -dataset_type (str): which type of dataset will be used
         -params_yaml (dict): dynamical system model parameters as dict
-        -integrator_params: itegrator parameters
+        -integrator_params: integrator parameters
+        -locations_params: locations parameters
         -experiment_dir (str): where all the models data is saved
         -return_data (bool): if true returns the FIMSDEpDataBulk otherwise the model
 
@@ -274,14 +316,14 @@ def set_up_a_dynamical_system(
         data: FIMSDEDatabatch
         # study data does not exist we generated again
         if not study_path.exists():
-            path_generator = PathGenerator(dataset_type, dynamical_model, integrator_params)
+            path_generator = PathGenerator(dataset_type, dynamical_model, integrator_params, locations_params)
             data = path_generator.generate_paths()
             torch.save(data, study_path)
             return data
         else:
             # data exist but we must simulate again
             if redo_study:
-                path_generator = PathGenerator(dataset_type, dynamical_model, integrator_params)
+                path_generator = PathGenerator(dataset_type, dynamical_model, integrator_params, locations_params)
                 data = path_generator.generate_paths()
                 torch.save(data, study_path)
                 return data
@@ -326,6 +368,8 @@ def define_dynamicals_models_from_yaml(
     dataset_type = data["dataset_type"]
     # integrator params
     integrator_params = data["integration"]
+    # locations params
+    locations_params = data["locations"]
 
     # generate the data
     train_studies: List[DynamicalSystem | FIMSDEDatabatch] = []
@@ -333,15 +377,21 @@ def define_dynamicals_models_from_yaml(
     validation_studies: List[DynamicalSystem | FIMSDEDatabatch] = []
 
     for params_yaml in data["train"]:
-        compartment_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+        compartment_model = set_up_a_dynamical_system(
+            dataset_type, params_yaml, integrator_params, locations_params, experiment_dir, return_data
+        )
         train_studies.append(compartment_model)
 
     for params_yaml in data["test"]:
-        compartment_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+        compartment_model = set_up_a_dynamical_system(
+            dataset_type, params_yaml, integrator_params, locations_params, experiment_dir, return_data
+        )
         test_studies.append(compartment_model)
 
     for params_yaml in data["validation"]:
-        compartment_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+        compartment_model = set_up_a_dynamical_system(
+            dataset_type, params_yaml, integrator_params, locations_params, experiment_dir, return_data
+        )
         validation_studies.append(compartment_model)
 
     return (dataset_type, experiment_name, train_studies, test_studies, validation_studies)

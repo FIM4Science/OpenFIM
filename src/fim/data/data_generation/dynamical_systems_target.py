@@ -1,18 +1,17 @@
 import torch
 
 from fim.data.data_generation.dynamical_systems import (
-    Lorenz63System,
-    HopfBifurcation,
     DampedCubicOscillatorSystem,
     DampedLinearOscillatorSystem,
-    DuffingOscillator,
-    SelkovGlycosis,
     DoubleWellOneDimension,
+    DuffingOscillator,
+    HopfBifurcation,
+    Lorenz63System,
+    SelkovGlycosis,
 )
-
-from fim.models.config_dataclasses import FIMSDEConfig
 from fim.data.data_generation.dynamical_systems_sample import PathGenerator
-from fim.data.datasets import FIMSDEDatabatchTuple, FIMSDEDatabatch, FIMSDEDataset
+from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple, FIMSDEDataset
+from fim.models.config_dataclasses import FIMSDEConfig
 
 
 def concat_name_tuple(tuples_list, MyTuple):
@@ -66,8 +65,12 @@ def generate_lorenz(params: FIMSDEConfig):
         "num_locations": 1024,
         "stochastic": True,
     }
+    locations_params = {"type": "unit_cube"}
+
     dynamical_model = Lorenz63System(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config, locations_params=locations_params
+    )
     data = path_generator.generate_paths()
 
     return data
@@ -105,9 +108,12 @@ def generate_duffing(params: FIMSDEConfig):
         "num_locations": 1024,
         "stochastic": True,
     }
+    locations_params = {"type": "unit_cube"}
 
     dynamical_model = DuffingOscillator(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config, locations_params=locations_params
+    )
     data = path_generator.generate_paths()
 
     return data
@@ -145,9 +151,12 @@ def generate_hopf(params: FIMSDEConfig):
         "num_locations": 1024,
         "stochastic": True,
     }
+    locations_params = {"type": "unit_cube"}
 
     dynamical_model = HopfBifurcation(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config, locations_params=locations_params
+    )
     data = path_generator.generate_paths()
 
     return data
@@ -185,9 +194,12 @@ def generate_selkov(params: FIMSDEConfig):
         "num_locations": 1024,
         "stochastic": True,
     }
+    locations_params = {"type": "unit_cube"}
 
     dynamical_model = SelkovGlycosis(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config, locations_params=locations_params
+    )
     data = path_generator.generate_paths()
 
     return data
@@ -225,9 +237,12 @@ def generate_damped_cubic(params: FIMSDEConfig):
         "num_locations": 1024,
         "stochastic": True,
     }
+    locations_params = {"type": "unit_cube"}
 
     dynamical_model = DampedCubicOscillatorSystem(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config, locations_params=locations_params
+    )
     data = path_generator.generate_paths()
 
     return data
@@ -265,9 +280,12 @@ def generate_damped_linear(params: FIMSDEConfig):
         "num_locations": 1024,
         "stochastic": True,
     }
+    locations_params = {"type": "unit_cube"}
 
     dynamical_model = DampedLinearOscillatorSystem(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config, locations_params=locations_params
+    )
     data = path_generator.generate_paths()
 
     return data
@@ -306,9 +324,12 @@ def generate_double_well(params):
         "num_locations": 1024,
         "stochastic": True,
     }
+    locations_params = {"type": "unit_cube"}
 
     dynamical_model = DoubleWellOneDimension(process_hyperparameters)
-    path_generator = PathGenerator(dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config)
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=dynamical_model, integrator_params=integration_config, locations_params=locations_params
+    )
     data = path_generator.generate_paths()
     return data
 
