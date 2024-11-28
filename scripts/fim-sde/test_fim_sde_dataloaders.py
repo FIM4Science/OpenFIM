@@ -53,4 +53,4 @@ def test_models_from_yaml():
 
 
 if __name__ == "__main__":
-    test_dataloaders()
+    test_models_from_yaml()

@@ -317,7 +317,7 @@ def define_dynamicals_models_from_yaml(
 
     # check the experiment folder exist
     experiment_name = data["experiment_name"]
-    experiment_dir = os.path.join(data_path, experiment_name)
+    experiment_dir = os.path.join(data_path, "processed", experiment_name)
     if not os.path.exists(experiment_dir):
         # Create the folder
         os.makedirs(experiment_dir)
