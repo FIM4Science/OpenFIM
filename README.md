@@ -1,6 +1,16 @@
 # FIM
 
+<div align="center">
+  <a href="https://github.com/cvejoski/FIM/actions/workflows/ci.yml">
+    <img src="https://github.com/cvejoski/FIM/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/cvejoski/FIM/blob/main/LICENSE.txt">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
+  </a>
+</div>
+
 This project contains all the models developed in the "Foundation Models for Inference" series of papers.
+
 
 ## Table of Contents
 - FIM
