@@ -4,9 +4,8 @@ from fim.data.datasets import FIMSDEDatabatch
 import pytest
 import torch
 
+
 # Assuming SDEGPsConfig and SDEGPDynamicalSystem are imported or defined in the same file.
-
-
 class TestInducingPointFunctions:
     @pytest.fixture(autouse=True)
     def setup(self):
