@@ -16,17 +16,17 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/hawkes_test/train
+      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/train
       # - data/synthetic_data/hawkes/10k_hawkes_exp/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/hawkes_test/val
+      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/val
       # - data/synthetic_data/hawkes/10k_hawkes_exp/val
 
   loader_kwargs:
-    batch_size: 1
+    batch_size: 2
     num_workers: 0
-    test_batch_size: 16
+    test_batch_size: 2
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"
