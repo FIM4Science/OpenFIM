@@ -79,7 +79,7 @@ class TestTrainMJP:
 
     def test_trainer_mjp(self, results_dir):
         TRAIN_CONF = test_data_path / "config" / "mjp_homogeneous_mini.yaml"
-        print(results_dir)
+
         config = load_yaml(TRAIN_CONF, True)
         config.trainer.experiment_dir = results_dir
         dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
