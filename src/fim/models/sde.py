@@ -1,23 +1,19 @@
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Self, Tuple
+
+import lightning.pytorch as pl
 import torch
 import torch.nn as nn
 from torch import Tensor
 
-import lightning.pytorch as pl
-from dataclasses import dataclass
-
+from fim.data.config_dataclasses import FIMDatasetConfig
+from fim.data.data_generation.dynamical_systems_target import generate_all
+from fim.data.datasets import FIMSDEDatabatchTuple
+from fim.models.blocks import ModelFactory
+from fim.models.blocks.base import MLP, TransformerModel
 from fim.models.blocks.positional_encodings import SineTimeEncoding
 from fim.models.config_dataclasses import FIMSDEConfig
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
-
-from fim.data.datasets import FIMSDEDatabatchTuple
-
-from dataclasses import field
-from typing import Dict, Optional, Tuple
-from fim.models.blocks.base import MLP, TransformerModel
-from fim.models.blocks import ModelFactory
-from fim.data.data_generation.dynamical_systems_target import generate_all
-from fim.data.config_dataclasses import FIMDatasetConfig
-
 from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
 
 
@@ -39,6 +35,403 @@ class StaticQuery(nn.Module):
 
     def forward(self):
         return self.queries
+
+
+class NormalizationStats:
+    """
+    Stores statistics needed to map values into a particular interval.
+    """
+
+    def __init__(self, values: Tensor, normalized_min: float = -1, normalized_max: float = 1):
+        # values and target interval boundaries
+        self.normalized_min, self.normalized_max = normalized_min, normalized_max
+        self.unnormalized_min, self.unnormalized_max = self.get_unnormalized_stats(values)
+
+        # batch and observed dimension for reference
+        self.batch_size = self.unnormalized_min.shape[0]
+        self.dim = self.unnormalized_min.shape[-1]
+
+        # apply transform map over three axes: batch, time, dimension
+        transform_map_grad = torch.func.grad(self.transform_map)
+        transform_map_grad_grad = torch.func.grad(transform_map_grad)
+
+        self.batch_transform_map = torch.vmap(torch.vmap(torch.vmap(self.transform_map)))
+        self.batch_transform_map_grad = torch.vmap(torch.vmap(torch.vmap(transform_map_grad)))
+        self.batch_transform_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(transform_map_grad_grad)))
+
+    @staticmethod
+    def transform_map(value: Tensor, src_min: Tensor, src_max: Tensor, tar_min: Tensor, tar_max: Tensor) -> Tensor:
+        """
+        Apply the (linear) transformation of interval [src_min, src_max] to [tar_max, tar_max] to the passed value.
+        I.e. evaluate the map x -> (x - src_min) / (src_max - src_min) * (tar_max - tar_min) + tar_min.
+
+        Args:
+            value (Tensor): Shape: []
+            src_min, src_max (Tensor): Boundaries of source interval. Shape: []
+            tar_min, tar_max (Tensor): Boundaries of target interval. Shape: []
+
+        Returns:
+            transformed_value (Tensor): Image of value under interval transformation. Shape: []
+        """
+        assert value.ndim == 0, "Got value.ndim == " + str(value.ndim) + ", expected 0"
+
+        tar_range = tar_max - tar_min
+        src_range = src_max - src_min
+
+        src_range = torch.clip(src_range, min=1e-6)
+
+        transformed_value = (value - src_min) * tar_range / src_range + tar_min
+        assert transformed_value.ndim == 0, "Got transformed_value.ndim == " + str(transformed_value.ndim) + ", expected 0"
+
+        return transformed_value
+
+    @staticmethod
+    def squash_intermediate_dims(values: Tensor) -> tuple[Tensor, tuple]:
+        """
+        Reshape values from [B, ..., D] to [B, *, D] momentarily. Return original shape for later reshaping.
+
+        Args:
+            values (Tensor): tensor to reshape. Shape: [B, ..., D]
+
+        Returns:
+            reshaped_values (Tensor): Shape: [B, *, D]
+            original_shape: original shape of values for further use
+        """
+
+        original_shape = values.shape
+        B, D = values.shape[0], values.shape[-1]
+        reshaped_values = values.reshape(B, -1, D)
+
+        return reshaped_values, original_shape
+
+    def get_unnormalized_stats(self, values: Tensor) -> tuple[Tensor]:
+        """
+        Return min and max of passed values along all dimensions 1 to -2.
+
+        Args:
+            values (Tensor): Shape: [B, ..., D]
+
+        Returns:
+            min, max (Tensor): Statistics of inputs along all dimensions 1 to -2. Shape: [B, D]
+        """
+        # Squash intermediate dimensions from values
+        values, _ = self.squash_intermediate_dims(values)
+
+        values_min = torch.amin(values, dim=-2)
+        values_max = torch.amax(values, dim=-2)
+
+        return values_min, values_max
+
+    def get_intervals_boundaries(self, shape: tuple) -> tuple[Tensor]:
+        """
+        Return normalization statistics (attributes) as tensors in required shape.
+
+        Args:
+            shape (tuple): Expected shape. Must be of length 3, specifically (B, *, D), where self.unnormalized_...shape == [B, D].
+
+        Returns:
+            normalization_stats (tuple[Tensor]): tensors needed to describe normalization map
+
+        """
+        assert len(shape) == 3, "Expect 3 dimensions, got " + str(len(shape)) + ". Passed shape: " + str(shape)
+
+        unnormalized_min = self.unnormalized_min.unsqueeze(-2).expand(shape)  # [B, *, D]
+        unnormalized_max = self.unnormalized_max.unsqueeze(-2).expand(shape)  # [B, *, D]
+
+        normalized_min = self.normalized_min * torch.ones_like(unnormalized_min)  # [B, *, D]
+        normalized_max = self.normalized_max * torch.ones_like(unnormalized_max)  # [B, *, D]
+
+        assert unnormalized_min.ndim == 3
+        assert unnormalized_max.ndim == 3
+
+        return unnormalized_min, unnormalized_max, normalized_min, normalized_max
+
+    def normalization_map(self, values: Tensor, derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        (Derivative of) normalization based on previously set statistics, i.e. evaluate the map
+        x -> (x - unnormalized_min) / (unnormalized_max - unnormalized_min) * (normalized_max - normalized_min) + normalized_min
+        at all values.
+
+        Args:
+            values (Tensor): Values to normalized based on previously set statistics. Shape: [B, ..., D]
+            derivative_num (int): Derivative of normalization map to return.
+
+        Returns:
+            (derivative) of image of values under normalization_map: Normalized values. Shape: [B, ..., D]
+        """
+        assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
+        assert values.shape[0] == self.batch_size, "Got batch size " + str(values.shape[0]) + ", expected " + str(self.batch_size)
+        assert values.shape[-1] == self.dim, "Got dimension " + str(values.shape[-1]) + ", expected " + str(self.dim)
+
+        # Squash intermediate dimensions from values
+        values, original_shape = self.squash_intermediate_dims(values)
+
+        unnormalized_min, unnormalized_max, normalized_min, normalized_max = self.get_intervals_boundaries(values.shape)
+
+        # apply transformation from unnormalized to normalized
+        if derivative_num == 0:
+            out = self.batch_transform_map(values, unnormalized_min, unnormalized_max, normalized_min, normalized_max)
+
+        elif derivative_num == 1:
+            out = self.batch_transform_map_grad(values, unnormalized_min, unnormalized_max, normalized_min, normalized_max)
+
+        elif derivative_num == 2:
+            out = self.batch_transform_map_grad_grad(values, unnormalized_min, unnormalized_max, normalized_min, normalized_max)
+
+        else:
+            raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
+
+        # Reintroduce intermediate dimensions from values
+        out = out.reshape(original_shape)
+
+        return out
+
+    def inverse_normalization_map(self, values: Tensor, derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        (Derivative of) inverse normalization of the passed values based on previously set statistics, i.e. evaluate the map
+        x -> (x - normalized_min) / (normalized_max - normalized_min) * (unnormalized_max - unnormalized_min) + unnormalized_min
+        at all values.
+
+        Args:
+            values (Tensor): Values to apply inverse normalization based on previously set statistics to. Shape: [B, ..., D]
+            derivative_num (int): Derivative of inverse normalization map to return.
+
+        Returns:
+            renormalized_values: Reormalized values. Shape: [B, ..., D]
+        """
+        assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
+        assert values.shape[0] == self.batch_size, "Got batch size " + str(values.shape[0]) + ", expected " + str(self.batch_size)
+        assert values.shape[-1] == self.dim, "Got dimension " + str(values.shape[-1]) + ", expected " + str(self.dim)
+
+        # Squash intermediate dimensions from values
+        values, original_shape = self.squash_intermediate_dims(values)
+
+        unnormalized_min, unnormalized_max, normalized_min, normalized_max = self.get_intervals_boundaries(values.shape)
+
+        # apply transformation from normalized to unnormalized
+        if derivative_num == 0:
+            out = self.batch_transform_map(values, normalized_min, normalized_max, unnormalized_min, unnormalized_max)
+
+        elif derivative_num == 1:
+            out = self.batch_transform_map_grad(values, normalized_min, normalized_max, unnormalized_min, unnormalized_max)
+
+        elif derivative_num == 2:
+            out = self.batch_transform_map_grad_grad(values, normalized_min, normalized_max, unnormalized_min, unnormalized_max)
+
+        else:
+            raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
+
+        # Reintroduce intermediate dimensions from values
+        out = out.reshape(original_shape)
+
+        return out
+
+
+@dataclass(eq=False)
+class SDEConcepts:
+    """
+    Stores SDE concepts, i.e. drift and diffusion, at some locations.
+    Optionally store (learned) variances, indicating certainty.
+    A flag keeps track of the normalization status of these concepts.
+    """
+
+    # all attributes are of shape [B, ..., D]
+    locations: Tensor
+    drift: Tensor
+    diffusion: Tensor
+    log_var_drift: Tensor | None = None
+    log_var_diffusion: Tensor | None = None
+    normalized: bool = False
+
+    def __eq__(self, other: object) -> bool:
+        """
+        Define equality by closeness of attributes. If log_var... is only in one, return False.
+        """
+        rtol: float = 1e-5
+        atol: float = 1e-6
+
+        is_equal: bool = True
+
+        is_equal = is_equal and torch.allclose(self.locations, other.locations, atol=atol, rtol=rtol)
+        is_equal = is_equal and torch.allclose(self.drift, other.drift, atol=atol, rtol=rtol)
+        is_equal = is_equal and torch.allclose(self.diffusion, other.diffusion, atol=atol, rtol=rtol)
+
+        if self.log_var_drift is not None and other.log_var_drift is not None:
+            is_equal = is_equal and torch.allclose(self.log_var_drift, other.log_var_drift, atol=atol, rtol=rtol)
+
+        elif self.log_var_drift is None and other.log_var_drift is None:
+            pass
+
+        else:
+            is_equal = False
+
+        if self.log_var_diffusion is not None and other.log_var_diffusion is not None:
+            is_equal = is_equal and torch.allclose(self.log_var_diffusion, other.log_var_diffusion, atol=atol, rtol=rtol)
+
+        elif self.log_var_diffusion is None and other.log_var_diffusion is None:
+            pass
+
+        else:
+            is_equal = False
+
+        is_equal = is_equal and (self.normalized == other.normalized)
+
+        return is_equal
+
+    @classmethod
+    def from_dbt(cls, databatch: FIMSDEDatabatchTuple | None, normalized: Optional[bool] = False) -> Self:
+        """
+        Construct SDEConcepts from FIMSDEDatabatchTuple.
+
+        Args:
+            databatch (FIMSDEDatabatchTuple | None): Data to extract locations and concepts from. Return None if not passed.
+            normalized (bool): Flag if data in databatch is normalized. Default: False.
+
+        Returns:
+            sde_concepts (SDEConcepts): SDEConcepts with locations, drift and diffusion extracted from FIMSDEDatabatchTuple.
+        """
+        if databatch is not None:
+            if (
+                databatch.locations is not None
+                and databatch.drift_at_locations is not None
+                and databatch.diffusion_at_locations is not None
+            ):
+                return cls(
+                    locations=databatch.locations,
+                    drift=databatch.drift_at_locations,
+                    diffusion=databatch.diffusion_at_locations,
+                    log_var_drift=None,
+                    log_var_diffusion=None,
+                    normalized=normalized,
+                )
+
+        else:
+            return None
+
+    def _assert_shape(self) -> None:
+        """
+        Assert that all attributes are of same shape.
+        """
+        broadcasted_shape = torch.broadcast_shapes(self.locations.shape, self.drift.shape, self.diffusion.shape)
+
+        if self.log_var_drift is not None:
+            broadcasted_shape = torch.broadcast_shapes(broadcasted_shape, self.log_var_drift.shape)
+
+        if self.log_var_diffusion is not None:
+            broadcasted_shape = torch.broadcast_shapes(broadcasted_shape, self.log_var_diffusion.shape)
+
+    def _state_transformation(self, states_norm_stats: NormalizationStats, normalize: bool) -> None:
+        """
+        Apply the transformation to concepts induced by the transformation of the states from the NormalizationStats.
+
+        Args:
+            states_norm_stats (NormalizationStats): Underlying transformations of states.
+            normalize (bool): If true, applies transformation induced by normalization, else by the inverse of normalization.
+        """
+        self._assert_shape()
+
+        # evaluate gradient of the normalization map at the respective locations
+        if normalize is True:
+            grad = states_norm_stats.normalization_map(self.locations, derivative_num=1)
+            grad_grad = states_norm_stats.normalization_map(self.locations, derivative_num=2)
+
+        else:
+            grad = states_norm_stats.inverse_normalization_map(self.locations, derivative_num=1)
+            grad_grad = states_norm_stats.inverse_normalization_map(self.locations, derivative_num=2)
+
+        log_grad = torch.log(grad)
+
+        # transform equation by Ito's formula
+        self.drift = self.drift * grad + 1 / 2 * self.diffusion**2 * grad_grad
+        self.diffusion = self.diffusion * grad
+
+        if self.log_var_drift is not None:
+            self.log_var_drift = self.log_var_drift + 2 * log_grad
+
+        if self.log_var_diffusion is not None:
+            self.log_var_diffusion = self.log_var_diffusion + 2 * log_grad
+
+        self._assert_shape()
+
+    def _time_transformation(self, time_norm_stats: NormalizationStats, normalize: bool) -> None:
+        """
+        Apply the transformation to concepts induced by the transformation of time from the NormalizationStats.
+
+        Args:
+            time_norm_stats (NormalizationStats): Underlying transformations of time.
+            normalize (bool): If true, applies transformation induced by normalization, else by the inverse of normalization.
+        """
+        self._assert_shape()
+
+        # need gradient of reverse map for transformation
+        # as concepts are purely state dependent, can pass in dummy value to time normalization
+        dummy_times = torch.zeros_like(self.locations[..., 0].unsqueeze(-1))  # [..., 1]
+
+        if normalize is True:
+            inverse_grad = time_norm_stats.inverse_normalization_map(dummy_times, derivative_num=1)
+
+        else:
+            inverse_grad = time_norm_stats.normalization_map(dummy_times, derivative_num=1)
+
+        log_inverse_grad = torch.log(inverse_grad)
+
+        # transform equation by Oksendal, Theorem 8.5.7
+        self.drift = self.drift * inverse_grad
+        self.diffusion = self.diffusion * torch.sqrt(inverse_grad)
+
+        if self.log_var_drift is not None:
+            self.log_var_drift = self.log_var_drift + 2 * log_inverse_grad
+
+        if self.log_var_diffusion is not None:
+            self.log_var_diffusion = self.log_var_diffusion + log_inverse_grad
+
+        self._assert_shape()
+
+    def _locations_transformation(self, states_norm_stats: NormalizationStats, normalize: bool) -> None:
+        """
+        Apply transformation of states to the locations at which equation concepts are evaluated at.
+
+        Args:
+            states_norm_stats (NormalizationStats): Specifies transformations of states.
+            normalize (bool): If true, applies transformation induced by normalization, else by the inverse of normalization.
+        """
+        self._assert_shape()
+
+        if normalize is True:
+            self.locations = states_norm_stats.normalization_map(self.locations)
+
+        else:
+            self.locations = states_norm_stats.inverse_normalization_map(self.locations)
+
+        self._assert_shape()
+
+    def normalize(self, states_norm_stats: NormalizationStats, time_norm_stats: NormalizationStats) -> None:
+        """
+        Normalize locations and concepts if not already normalized.
+
+        Args:
+            states_norm_stats, time_norm_stats (NormalizationStats): Specifies normalizations to apply.
+        """
+        if self.normalized is False:
+            self._state_transformation(states_norm_stats, normalize=True)
+            self._locations_transformation(states_norm_stats, normalize=True)
+            self._time_transformation(time_norm_stats, normalize=True)
+
+            self.normalized = True
+
+    def renormalize(self, states_norm_stats: NormalizationStats, time_norm_stats: NormalizationStats) -> None:
+        """
+        Reormalize locations and concepts if not already renormalized.
+
+        Args:
+            states_norm_stats, time_norm_stats (NormalizationStats): Specifies renormalizations to apply.
+        """
+        if self.normalized is True:
+            self._state_transformation(states_norm_stats, normalize=False)
+            self._locations_transformation(states_norm_stats, normalize=False)
+            self._time_transformation(time_norm_stats, normalize=False)
+
+            self.normalized = False
 
 
 @dataclass
