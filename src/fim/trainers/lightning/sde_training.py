@@ -67,7 +67,6 @@ if __name__ == "__main__":
     # FROM DATACLASSES
     # model_config = FIMSDEConfig(num_epochs=4,
     #                             log_images_every_n_epochs=2)
-    # data_config = FIMDatasetConfig()
 
     # FROM YAML
     parameters_yaml = os.path.join(project_path, "configs", "train", "fim-sde", "fim-train-patrick.yaml")

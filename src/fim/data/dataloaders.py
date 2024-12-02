@@ -337,6 +337,7 @@ class TimeSeriesDataLoaderTorch:
 class FIMSDEDataloader(BaseDataLoader):
     """
     Dataloader for FIM SDE model
+
     """
 
     def __init__(self, **kwargs):
