@@ -12,12 +12,13 @@ from functools import reduce
 from importlib import import_module
 from logging import Logger
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, TypeVar, Union
+from typing import Dict, Iterable, List, Optional, Tuple, TypeVar, Union
 
 import numpy as np
 import torch
 import yaml
 from scipy import linalg as la
+from torch.optim.lr_scheduler import LRScheduler
 
 
 T = TypeVar("T", str, bytes)
@@ -554,7 +555,23 @@ def create_optimizers(model, config: Dict[str, GenericConfig]):
     return optimizers
 
 
-def create_lr_schedulers(schedulers_config: Dict[str, GenericConfig], optimizer, last_epoch=None):
+def create_lr_schedulers(schedulers_config: Dict[str, GenericConfig], optimizer, last_epoch=None) -> List[Tuple[str, LRScheduler]]:
+    """
+    Create learning rate schedulers based on the provided configuration.
+
+    Args:
+        schedulers_config (Dict[str, GenericConfig]): A dictionary containing the configuration for the schedulers.
+        optimizer (torch.optim.Optimizer): The optimizer for which to schedule the learning rate.
+        last_epoch (int, optional): The index of the last epoch. Default is None.
+
+    Returns:
+        List[Tuple[str, torch.optim.lr_scheduler.LRScheduler]]: A list of tuples where each tuple contains the step type
+        ('epoch' or 'iteration') and the corresponding learning rate scheduler.
+
+    Special Case:
+        If the scheduler name is "torch.optim.lr_scheduler.SequentialLR", the function will handle it by building a sequence
+        of schedulers using the `_build_sequence_of_schedulers` helper function.
+    """
     schedulers = []
     schedulers_config_ = copy.deepcopy(schedulers_config)
     if not isinstance(schedulers_config_, list):
@@ -564,9 +581,19 @@ def create_lr_schedulers(schedulers_config: Dict[str, GenericConfig], optimizer,
         if last_epoch is not None:
             scheduler_config["last_epoch"] = last_epoch
         step_type = scheduler_config.pop("step_type", "epoch")
+        if scheduler_config["name"] == "torch.optim.lr_scheduler.SequentialLR":
+            scheduler_config = _build_sequence_of_schedulers(optimizer, scheduler_config)
         scheduler = create_class_instance(scheduler_config.pop("name"), scheduler_config, optimizer)
         schedulers.append((step_type, scheduler))
     return schedulers
+
+
+def _build_sequence_of_schedulers(optimizer, scheduler_config: dict) -> dict:
+    seq_schedulers = []
+    for scheduler in scheduler_config["schedulers"]:
+        seq_schedulers.append(create_class_instance(scheduler.pop("name"), scheduler, optimizer))
+        scheduler_config["schedulers"] = seq_schedulers
+    return scheduler_config
 
 
 def create_schedulers(schedulers_config: dict, max_steps: int, steps_in_epoch: int) -> dict:

@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_MJP_Homogeneous
+  name: FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_miss_link_w_single_gpu_test
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [0]
   device_map: auto # auto, cuda, cpu
@@ -57,7 +57,7 @@ dataset:
       intensity_matrices: "fine_grid_intensity_matrices.pt"
       adjacency_matrices: "fine_grid_adjacency_matrices.pt"
       initial_distributions: "fine_grid_initial_distributions.pt"
-    data_limit: null
+    data_limit: 200
 
 model_dim: &model_dim 256
 
@@ -116,23 +116,26 @@ trainer:
   experiment_dir: ./results/
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      beta: 100.0
+      beta: 1.0
       label: gauss_nll
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: init_cross_entropy
       beta: 1.0
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: missing_link
-      beta: 1.0
+      beta: 50.0
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.0001
+      lr: 0.001
       weight_decay: 0.0001
       # gradient_norm_clipping: 10
-      # schedulers: !!python/tuple
-      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
-      #     T_max: *epochs
-      #     eta_min: 0.0000001
-      #     last_epoch: -1
+      schedulers: !!python/tuple
+        - name: torch.optim.lr_scheduler.SequentialLR
+          schedulers: !!python/tuple
+            - name: torch.optim.lr_scheduler.CosineAnnealingLR
+              T_max: *epochs
+              eta_min: 0.0000001
+              last_epoch: -1
+          milestones: !!python/tuple [100]
