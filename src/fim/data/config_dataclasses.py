@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from typing import List, Type, TypeVar, Any, Dict
 from fim import data_path  # Assumes `data_path` provides the base path for your data files
@@ -76,7 +77,7 @@ class FIMDatasetConfig:
         if isinstance(self.dataset_path_collections, dict):
             self.dataset_path_collections = DatasetPathCollections.from_dict(self.dataset_path_collections)
 
-        self.dynamical_systems_hyperparameters_file = rf"{project_path}" + self.dynamical_systems_hyperparameters_file
+        self.dynamical_systems_hyperparameters_file = os.path.join(project_path, self.dynamical_systems_hyperparameters_file)
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "FIMDatasetConfig":

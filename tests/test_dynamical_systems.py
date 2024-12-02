@@ -1,8 +1,12 @@
 from fim.data.data_generation.gp_dynamical_systems import SDEGPsConfig, IntegrationConfig, SDEGPDynamicalSystem, ScaleRBF
+from fim.data.data_generation.gp_dynamical_systems import define_dynamicals_models_from_yaml
 from fim.models.gaussian_processes.utils import define_mesh_points
-from fim.data.datasets import FIMSDEDatabatch
+from fim.data.dataloaders import FIMSDEDataloader
+from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple
 import pytest
 import torch
+import os
+from fim.data.config_dataclasses import FIMDatasetConfig
 
 
 # Assuming SDEGPsConfig and SDEGPDynamicalSystem are imported or defined in the same file.
@@ -78,3 +82,37 @@ class TestSDEGPDynamicalSystem:
         data: FIMSDEDatabatch = self.system.generate_paths()
 
         assert data.obs_values.shape == expected_shape, f"Expected shape {expected_shape}, but got {data.obs_values.shape}"
+
+    def test_generate_and_save_from_yaml_file(self):
+        from fim import project_path
+
+        yaml_path = os.path.join(project_path, "tests", "resources", "config", "gp-sde-systems-hyperparameters.yaml")
+        dataset_type, experiment_name, train_studies, test_studies, validation_studies = define_dynamicals_models_from_yaml(
+            yaml_path, return_data=True
+        )
+
+        # Check that train_studies is a list
+        assert isinstance(train_studies, list), f"Expected train_studies to be a list, but got {type(train_studies)}"
+
+        # Check that all components of train_studies are strings
+        for study in train_studies:
+            assert isinstance(study, FIMSDEDatabatch), f"Expected element in train_studies to be of type str, but got {type(study)}"
+
+            # Check that train_studies is a list
+        assert isinstance(test_studies, list), f"Expected train_studies to be a list, but got {type(train_studies)}"
+
+        # Check that all components of train_studies are strings
+        for study in test_studies:
+            assert isinstance(study, FIMSDEDatabatch), f"Expected element in train_studies to be of type str, but got {type(study)}"
+
+    def test_dataloader_from_yaml(self):
+        from dataclasses import asdict
+
+        yaml_path = str(os.path.join("tests", "resources", "config", "gp-sde-systems-hyperparameters.yaml"))
+        data_config = FIMDatasetConfig(
+            dynamical_systems_hyperparameters_file=yaml_path, type="theory", random_num_paths_n_grid=False, total_minibatch_size=32
+        )
+        dataloaders = FIMSDEDataloader(**asdict(data_config))
+        databatch: FIMSDEDatabatchTuple = next(dataloaders.train_it.__iter__())
+        print(databatch.drift_at_locations.shape)
+        assert dataloaders is not None

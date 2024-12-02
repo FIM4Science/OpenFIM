@@ -22,7 +22,7 @@ from .utils import get_path_counts
 
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.models.config_dataclasses import FIMSDEConfig
-from fim.data.data_generation.dynamical_systems_sample import define_dynamicals_models_from_yaml
+from fim.data.data_generation.gp_dynamical_systems import define_dynamicals_models_from_yaml
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
@@ -334,6 +334,7 @@ class TimeSeriesDataLoaderTorch:
 class FIMSDEDataloader(BaseDataLoader):
     """
     Dataloader for FIM SDE model
+
     """
 
     def __init__(self, **kwargs):

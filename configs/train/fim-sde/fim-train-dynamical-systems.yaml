@@ -15,7 +15,7 @@ model:
   max_location_size: &max_location_size 0
   max_num_paths: &max_num_of_paths 0
 
-  # Model 
+  # Model
   # phi_0^t
   temporal_embedding_size: &temporal_embedding_size 21
 
@@ -25,17 +25,17 @@ model:
 
   # psi_1
   sequence_encoding_tokenizer: &sequence_encoding_tokenizer 10
-  sequence_encoding_transformer_hidden_size: &sequence_encoding_transformer_hidden_size 28 
+  sequence_encoding_transformer_hidden_size: &sequence_encoding_transformer_hidden_size 28
   sequence_encoding_transformer_heads: &sequence_encoding_transformer_heads 1
   sequence_encoding_transformer_layers: &sequence_encoding_transformer_layers 1
 
   # Omega_1
-  combining_transformer_hidden_size: &combining_transformer_hidden_size 28 
+  combining_transformer_hidden_size: &combining_transformer_hidden_size 28
   combining_transformer_heads: &combining_transformer_heads 2
   combining_transformer_layers: &combining_transformer_layers 1
 
   # phi_1
-  trunk_net_size: &trunk_net_size 28 
+  trunk_net_size: &trunk_net_size 28
   trunk_net_hidden_layers: &trunk_net_hidden_layers [25]
 
   # training
@@ -47,7 +47,7 @@ model:
   weight_decay: &weight_decay 1.0e-4
   dropout_rate: &dropout_rate 0.1
 
-  #loss 
+  #loss
   diffusion_loss_scale: 1.0
   loss_threshold: 100.0
   loss_type: "rmse" #var, rmse
@@ -68,18 +68,15 @@ dataset:
   name: FIMSDEDataloader
   type: theory # synthetic, theory
   dataset_description: &dataset_description dynamical_systems
-  dynamical_systems_hyperparameters_file: \configs\train\fim-sde\sde-systems-hyperparameters.yaml
+  dynamical_systems_hyperparameters_file: configs\train\fim-sde\sde-systems-hyperparameters.yaml
 
   total_minibatch_size: &total_minibatch_size 2
   total_minibatch_size_test: &total_minibatch_size_test 2
-  
-  max_dimension: *max_dimension 
-  max_time_steps: *max_time_steps 
-  max_location_size: *max_location_size 
-  max_num_paths: *max_num_of_paths 
-  
+
+  max_dimension: *max_dimension
+  max_time_steps: *max_time_steps
+  max_location_size: *max_location_size
+  max_num_paths: *max_num_of_paths
+
   loader_kwargs:
     num_workers: 2
-
-  
-  

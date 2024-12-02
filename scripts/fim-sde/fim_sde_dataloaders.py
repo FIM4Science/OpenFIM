@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.data_generation.dynamical_systems_sample import define_dynamicals_models_from_yaml
-from fim.data.dataloaders import DataLoaderFactory
+from fim.data.dataloaders import DataLoaderFactory, FIMSDEDataloader
 from fim.data.datasets import FIMSDEDatabatchTuple, FIMSDEDataset
 from fim.utils.helper import load_yaml
 
@@ -52,5 +52,17 @@ def test_models_from_yaml():
     print(train_studies[0])
 
 
+def test_dataloader_from_yaml_gp():
+    from dataclasses import asdict
+
+    yaml_path = str(os.path.join("tests", "resources", "config", "gp-sde-systems-hyperparameters.yaml"))
+    data_config = FIMDatasetConfig(
+        dynamical_systems_hyperparameters_file=yaml_path, type="theory", random_num_paths_n_grid=True, total_minibatch_size=32
+    )
+    dataloaders = FIMSDEDataloader(**asdict(data_config))
+    databatch: FIMSDEDatabatchTuple = next(dataloaders.train_it.__iter__())
+    print(databatch.drift_at_locations.shape)
+
+
 if __name__ == "__main__":
-    test_models_from_yaml()
+    test_dataloader_from_yaml_gp()

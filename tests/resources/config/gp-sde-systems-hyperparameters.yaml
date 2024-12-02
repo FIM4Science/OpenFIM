@@ -1,0 +1,130 @@
+experiment_name: gps_dummy_sdes
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  method: "EulerMaruyama"
+  time_step: 0.01
+  num_steps: 128
+  num_paths: 30
+  num_locations: 1024
+  stochastic: true
+
+train:
+  - SDEGPsConfig:
+      file_name: "dirft_rbf_diffusion_rbf"
+      redo: true
+      dimensions: 2
+      number_of_kernel_samples: 5
+      number_of_functions_per_kernel: 10
+      number_of_kernels_per_file: 100
+      total_number_of_realizations: 10000
+      type_of_inducing_points: "random_uniform"
+      number_of_inducing_points: 10
+      inducing_point_ranges:
+        - [-1.0, 1.0]
+        - [-1.0, 1.0]
+      scale_kernel: true
+      drift_kernel_name: "ScaleRBF"
+      diffusion_kernel_name: "ScaleRBF"
+      kernel_sigma:
+        name: "uniform"
+        min: 0.1
+        max: 10.0
+      kernel_length_scale:
+        name: "uniform"
+        min: 0.1
+        max: 10.0
+      initial_state:
+        name: "uniform"
+        min: -1.0
+        max: 1.0
+  - name: HopfBifurcation
+    data_bulk_name: hopf_1
+    redo: true
+    num_realizations: 500
+    observed_dimension: null
+    drift_params:
+      sigma:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      beta:
+        distribution: "uniform"
+        min: 0.1
+        max: 1.
+      rho:
+        distribution: "uniform"
+        min: 1.0
+        max: 10.0
+    diffusion_params:
+      g1:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+      g2:
+        distribution: "uniform"
+        min: 0.1
+        max: 0.5
+    initial_state:
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: "sigmoid"
+test:
+  - SDEGPsConfig:
+      file_name: "test"
+      redo: true
+      dimensions: 2
+      number_of_kernel_samples: 5
+      number_of_functions_per_kernel: 10
+      number_of_kernels_per_file: 100
+      total_number_of_realizations: 10000
+      type_of_inducing_points: "random_uniform"
+      number_of_inducing_points: 10
+      inducing_point_ranges:
+        - [-1.0, 1.0]
+        - [-1.0, 1.0]
+      scale_kernel: true
+      drift_kernel_name: "ScaleRBF"
+      diffusion_kernel_name: "ScaleRBF"
+      kernel_sigma:
+        name: "uniform"
+        min: 0.1
+        max: 10.0
+      kernel_length_scale:
+        name: "uniform"
+        min: 0.1
+        max: 10.0
+      initial_state:
+        name: "uniform"
+        min: -1.0
+        max: 1.0
+validation:
+  - SDEGPsConfig:
+      file_name: "validation"
+      redo: true
+      dimensions: 2
+      number_of_kernel_samples: 5
+      number_of_functions_per_kernel: 10
+      number_of_kernels_per_file: 100
+      total_number_of_realizations: 10000
+      type_of_inducing_points: "random_uniform"
+      number_of_inducing_points: 10
+      inducing_point_ranges:
+        - [-1.0, 1.0]
+        - [-1.0, 1.0]
+      scale_kernel: true
+      drift_kernel_name: "ScaleRBF"
+      diffusion_kernel_name: "ScaleRBF"
+      kernel_sigma:
+        name: "uniform"
+        min: 0.1
+        max: 10.0
+      kernel_length_scale:
+        name: "uniform"
+        min: 0.1
+        max: 10.0
+      initial_state:
+        name: "uniform"
+        min: -1.0
+        max: 1.0

@@ -1,3 +1,4 @@
+import os
 import torch
 from torch import Tensor
 import numpy as np
@@ -5,11 +6,15 @@ from gpytorch.kernels import Kernel, RBFKernel, ScaleKernel
 from dataclasses import dataclass, field
 import gpytorch.distributions as gpdst
 from fim.models.gaussian_processes.utils import define_mesh_points
+from fim.data.data_generation.dynamical_systems import DynamicalSystem
+from fim.data.data_generation.dynamical_systems_sample import set_up_a_dynamical_system
 
+from pathlib import Path
 from typing import Tuple, List
 from abc import ABC, abstractmethod
 
 from fim.data.datasets import FIMSDEDatabatch
+import yaml
 
 
 class MultivariateNormalWithJitter(gpdst.MultivariateNormal):
@@ -63,8 +68,10 @@ class IntegrationConfig:
 
 @dataclass
 class SDEGPsConfig:
+    redo: bool = False
     dimensions: int = 2
-
+    type: str = "gps"
+    file_name: str = "sdes_gps"
     # samples sizes
     number_of_kernel_samples: int = 50  # Fix: Added default value
     number_of_functions_per_kernel: int = 20
@@ -83,6 +90,7 @@ class SDEGPsConfig:
 
     kernel_sigma: dict = field(default_factory=lambda: {"name": "uniform", "min": 0.1, "max": 10.0})
     kernel_length_scale: dict = field(default_factory=lambda: {"name": "uniform", "min": 0.1, "max": 10.0})
+    initial_state: dict = field(default_factory=lambda: {"name": "uniform", "min": 0.1, "max": 10.0})
 
     def __post_init__(self):
         self.total_number_of_realizations = self.number_of_kernel_samples * self.number_of_functions_per_kernel
@@ -327,25 +335,27 @@ class SDEGPDynamicalSystem:
         Returns
             DataBulk (FIMPOODEDataBulk|FIMSDEpDataBulk)
         """
-        states = self.sample_initial_states()
-        # paths
-        hidden_paths = torch.zeros(
-            (self.num_kernel_samples, self.num_functions_per_kernel, self.num_paths, self.num_steps + 1, self.dimensions)
-        )
-        hidden_paths[:, :, :, 0, :] = states.clone()
-        # times
-        hidden_times = torch.linspace(0.0, self.num_steps * self.dt, self.num_steps + 1)
-        hidden_times = hidden_times[None, None, None, :].repeat(
-            self.num_kernel_samples, self.num_functions_per_kernel, self.num_paths, 1
-        )  # [total_num_paths,max_diffusion_params]
-        # go trough iterator
-        for step in range(self.num_steps):
-            drift = self.drift(states)
-            diffusion = self.diffusion(states)
-            states = states + drift * self.dt + diffusion * torch.sqrt(torch.tensor(self.dt)) * torch.randn_like(states)
-            hidden_paths[:, :, :, step + 1, :] = states.clone()
+        with torch.no_grad():
+            states = self.sample_initial_states()
+            # paths
+            hidden_paths = torch.zeros(
+                (self.num_kernel_samples, self.num_functions_per_kernel, self.num_paths, self.num_steps + 1, self.dimensions)
+            )
+            hidden_paths[:, :, :, 0, :] = states.clone()
+            # times
+            hidden_times = torch.linspace(0.0, self.num_steps * self.dt, self.num_steps + 1)
+            hidden_times = hidden_times[None, None, None, :].repeat(
+                self.num_kernel_samples, self.num_functions_per_kernel, self.num_paths, 1
+            )  # [total_num_paths,max_diffusion_params]
+            # go trough iterator
+            for step in range(self.num_steps):
+                drift = self.drift(states)
+                diffusion = self.diffusion(states)
+                states = states + drift * self.dt + diffusion * torch.sqrt(torch.tensor(self.dt)) * torch.randn_like(states)
+                hidden_paths[:, :, :, step + 1, :] = states.clone()
 
-        return self.define_fim_sde_data(hidden_paths, hidden_times)
+            hidden_times = hidden_times.unsqueeze(-1)
+            return self.define_fim_sde_data(hidden_paths, hidden_times)
 
     def sample_initial_states(self):
         """ """
@@ -375,7 +385,7 @@ class SDEGPDynamicalSystem:
         drift_at_locations = self.drift(locations)
         diffusion_at_locations = self.diffusion(locations)
 
-        obs_times = obs_times.reshape(total_number_of_realizations, number_of_paths, num_steps)
+        obs_times = obs_times.reshape(total_number_of_realizations, number_of_paths, num_steps, 1)
         obs_values = obs_values.reshape(total_number_of_realizations, number_of_paths, num_steps, dimensions)
 
         locations = locations.reshape(total_number_of_realizations, num_locations, dimensions)
@@ -394,3 +404,126 @@ class SDEGPDynamicalSystem:
             process_dimension=process_dimension,
         )
         return data
+
+
+def set_up_a_gp_dynamical_system(
+    dataset_type: str,
+    params_yaml: dict,
+    integrator_params: dict,
+    experiment_dir: str,
+    return_data: bool = True,
+) -> DynamicalSystem | FIMSDEDatabatch:
+    """
+    Takes a dict of parameters from yaml and creates
+    the dynamical system model and generate the data accordingly
+    every time the data is generated it will be saved and will only be
+    regenerated is so desided
+
+    Args:
+        -dataset_type (str): which type of dataset will be used
+        -params_yaml (dict): dynamical system model parameters as dict
+        -integrator_params: itegrator parameters
+        -experiment_dir (str): where all the models data is saved
+        -return_data (bool): if true returns the FIMSDEpDataBulk otherwise the model
+
+    Returns
+        SDEGPDynamicalSystem|FIMSDEpDataBulk
+    """
+    integrator_config = IntegrationConfig(**integrator_params)
+    sdegp_config = SDEGPsConfig(**params_yaml)
+
+    study_name_str = params_yaml.get("file_name", "default")
+    redo_study = params_yaml.get("redo", False)
+    study_path = Path(os.path.join(experiment_dir, study_name_str + ".tr"))
+
+    # Create an instance of OneCompartmentModelParams with the loaded values
+    dynamical_model = system = SDEGPDynamicalSystem(sdegp_config, integrator_config)
+    if return_data:
+        data: FIMSDEDatabatch
+        # study data does not exist we generated again
+        if not study_path.exists():
+            data = dynamical_model.generate_paths()
+            torch.save(data, study_path)
+            return data
+        else:
+            # data exist but we must simulate again
+            if redo_study:
+                data = dynamical_model.generate_paths()
+                torch.save(data, study_path)
+                return data
+            # data exist and we take it
+            else:
+                data = torch.load(study_path)
+                return data
+    return system
+
+
+def define_dynamicals_models_from_yaml(
+    yaml_file: str,
+    return_data: bool = True,
+) -> Tuple[
+    str,
+    List[DynamicalSystem | SDEGPDynamicalSystem | FIMSDEDatabatch],
+    List[DynamicalSystem | SDEGPDynamicalSystem | FIMSDEDatabatch],
+    List[DynamicalSystem | SDEGPDynamicalSystem | FIMSDEDatabatch],
+]:
+    """
+    Function to load or generate different studies from a yaml file,
+    this is the function that will allow the dataloader to get the data
+    from the dynamic simulations
+
+    Args:
+        yaml_file: str of yaml file that contains a list of hyper parameters
+        from different compartment models, one such hyperparameters allows the
+        the set_up_a_study function (above) to generate one population study
+
+        return_data: bool if false will return the dynamic system if true
+                     will return the DataBulk object
+    """
+    from fim import data_path
+
+    with open(yaml_file, "r") as file:
+        data = yaml.safe_load(file)
+
+    # check the experiment folder exist
+    experiment_name = data["experiment_name"]
+    experiment_dir = os.path.join(data_path, "processed", experiment_name)
+    if not os.path.exists(experiment_dir):
+        # Create the folder
+        os.makedirs(experiment_dir)
+
+    # data type
+    dataset_type = data["dataset_type"]
+    # integrator params
+    integrator_params = data["integration"]
+
+    # generate the data
+    train_studies: List[DynamicalSystem | SDEGPDynamicalSystem, FIMSDEDatabatch] = []
+    test_studies: List[DynamicalSystem | SDEGPDynamicalSystem, FIMSDEDatabatch] = []
+    validation_studies: List[DynamicalSystem | SDEGPDynamicalSystem, FIMSDEDatabatch] = []
+
+    for params_yaml in data["train"]:
+        if "SDEGPsConfig" in params_yaml.keys():
+            params_yaml_ = params_yaml["SDEGPsConfig"]
+            data_or_model = set_up_a_gp_dynamical_system(dataset_type, params_yaml_, integrator_params, experiment_dir, return_data)
+        else:
+            data_or_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+        train_studies.append(data_or_model)
+
+    for params_yaml in data["test"]:
+        if "SDEGPsConfig" in params_yaml.keys():
+            params_yaml_ = params_yaml["SDEGPsConfig"]
+            data_or_model = set_up_a_gp_dynamical_system(dataset_type, params_yaml_, integrator_params, experiment_dir, return_data)
+        else:
+            data_or_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+        test_studies.append(data_or_model)
+
+    for params_yaml in data["validation"]:
+        if "SDEGPsConfig" in params_yaml.keys():
+            params_yaml_ = params_yaml["SDEGPsConfig"]
+            data_or_model = set_up_a_gp_dynamical_system(dataset_type, params_yaml_, integrator_params, experiment_dir, return_data)
+        else:
+            data_or_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+        validation_studies.append(data_or_model)
+
+    return (dataset_type, experiment_name, train_studies, test_studies, validation_studies)
