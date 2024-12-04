@@ -1,6 +1,8 @@
+exclude: "^docs/conf.py"
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v3.4.0
+    rev: v4.4.0
     hooks:
       - id: check-ast
       - id: check-builtin-literals
@@ -22,6 +24,11 @@ repos:
       - id: mixed-line-ending
         args: ["--fix=lf"] # replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
 
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.11.5
+    hooks:
+      - id: isort
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.3.5
@@ -33,3 +40,10 @@ repos:
       - id: ruff-format
         args: [--check]
       - id: ruff-format
+
+  # Check for misspells in documentation files:
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.2.5
+    hooks:
+      - id: codespell
+        args: ["--ignore-words-list=docs/spelling_wordlist.txt"]
