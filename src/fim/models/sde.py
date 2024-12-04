@@ -1,10 +1,11 @@
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Self, Tuple
+from dataclasses import dataclass
+from typing import Optional, Self, Tuple
 
 import lightning.pytorch as pl
 import torch
 import torch.nn as nn
 from torch import Tensor
+from transformers import PretrainedConfig
 
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.data_generation.dynamical_systems_target import generate_all
@@ -279,7 +280,7 @@ class SDEConcepts:
         return is_equal
 
     @classmethod
-    def from_dbt(cls, databatch: FIMSDEDatabatchTuple | None, normalized: Optional[bool] = False) -> Self:
+    def from_dbt(cls, databatch: FIMSDEDatabatchTuple | None, normalized: Optional[bool] = False) -> Self | None:
         """
         Construct SDEConcepts from FIMSDEDatabatchTuple.
 
@@ -434,236 +435,143 @@ class SDEConcepts:
             self.normalized = False
 
 
-@dataclass
-class FIMSDEForward:
+class FIMSDEConfigHugging(PretrainedConfig):
     """
-    This class carries all objects required for the forward pass evaluation
-    and subsequent loss evaluation, this includes input and target data
-    as well as all the estimator heads.
+    FIMSDEConfig is a configuration class for the FIMSDE model.
 
-    THE MAIN GOAL IS TO KEEP TRACK OF HOW NORMALIZATIONS ARE
-    PERFORMED AND WHEN
-
-    WE ASSUME THAT THE INITIAL VALUE OF THE TIME IS 0
-
-    B: batch size
-    P: number of paths
-    T: number of time steps
-    G: grid size
-    D: dimensions
+    Attributes:
+        name (str): Name of the configuration. Default is "FIMSDE".
+        experiment_name (str): Name of the experiment. Default is "sde".
+        experiment_dir (str): Directory for experiment results. Default is results_path.
+        max_dimension (int): Maximum input dimensions. Default is 3.
+        max_time_steps (int): Maximum time steps. Default is 128.
+        max_location_size (int): Maximum location size. Default is 1024.
+        max_num_paths (int): Maximum number of paths. Default is 30.
+        temporal_embedding_size (int): Size of temporal embedding. Default is 19.
+        spatial_embedding_size (int): Size of spatial embedding. Default is 19.
+        spatial_embedding_hidden_layers (list[int]): Hidden layers for spatial embedding. Default is [25].
+        sequence_encoding_tokenizer (int): Tokenizer size for sequence encoding. Default is 5.
+        sequence_encoding_transformer_hidden_size (int): Hidden size for transformer in sequence encoding. Default is 50.
+        sequence_encoding_transformer_heads (int): Number of heads in transformer for sequence encoding. Default is 1.
+        sequence_encoding_transformer_layers (int): Number of layers in transformer for sequence encoding. Default is 1.
+        combining_transformer_hidden_size (int): Hidden size for combining transformer. Default is 50.
+        combining_transformer_heads (int): Number of heads in combining transformer. Default is 1.
+        combining_transformer_layers (int): Number of layers in combining transformer. Default is 1.
+        trunk_net_size (int): Size of trunk network. Default is 50.
+        trunk_net_hidden_layers (list[int]): Hidden layers for trunk network. Default is [25].
+        values_norm_min (float): lower normalized values range boundary. Default is -1.
+        values_norm_max (float): upper normalized values range boundary. Default is 1.
+        times_norm_min (float): lower normalized times range boundary. Default is 0.
+        times_norm_max (float): upper normalized times range boundary. Default is 1.
+        loss_filter_nans (bool): Default is True.
+        num_epochs (int): Number of epochs. Default is 2.
+        add_delta_x_to_value_encoder (bool): Whether to add delta x to value encoder. Default is True.
+        learning_rate (float): Learning rate. Default is 1.0e-5.
+        weight_decay (float): Weight decay. Default is 1.0e-4.
+        dropout_rate (float): Dropout rate. Default is 0.1.
+        diffusion_loss_scale (float): Scale for diffusion loss. Default is 1.0.
+        loss_threshold (float): Threshold for loss. Default is 100.0.
+        loss_type (str): Type of loss. Default is "rmse".
+        log_images_every_n_epochs (int): Log images every n epochs. Default is 2.
+        train_with_normalized_head (bool): Train with normalized head. Default is True.
+        clip_grad (bool): Whether to clip gradients. Default is True.
+        clip_max_norm (float): Maximum norm for gradient clipping. Default is 10.0.
+        skip_nan_grads (bool): Skip optimizer update if (at least one) gradient is Nan. Default is True.
+        dt_pipeline (float): Time step for pipeline. Default is 0.01.
+        number_of_time_steps_pipeline (int): Number of time steps in the pipeline. Default is 128.
+        evaluate_with_unnormalized_heads (bool): Evaluate with unnormalized heads. Default is True.
     """
 
-    # Estimators (Learned Concepts)
-    drift_estimator: Optional[Tensor] = None  # [B,P,G,D]
-    log_var_drift_estimator: Optional[Tensor] = None  # [B,P,G,D]
-    diffusion_estimator: Optional[Tensor] = None  # [B,P,G,D]
-    log_var_diffusion_estimator: Optional[Tensor] = None  # [B,P,G,D]
+    model_type = "fimsde"
 
-    # Targets (Data Concepts)
-    drift_target: Optional[Tensor] = None  # [B,P,G,D]
-    diffusion_target: Optional[Tensor] = None  # [B,P,G,D]
-
-    # Data
-    locations: Optional[Tensor] = None  # [B,P,G,D]
-    obs_times: Optional[Tensor] = None  # [B,P,T,1]
-    obs_values: Optional[Tensor] = None  # [B,P,T,D]
-
-    # Normalization stats
-    max_obs_times: Optional[Tensor] = None  # [B,P,T,1]
-    max_obs_values: Optional[Tensor] = None  # [B,1,D]
-    min_obs_values: Optional[Tensor] = None  # [B,1,D]
-
-    range_obs_vals: Optional[Tensor] = None  # [B,1,D]
-    range_obs_times: Optional[Tensor] = None  # [B,1,D]
-
-    # masks
-    obs_mask: Optional[Tensor] = None  # [B,P,T,D]
-    dimension_mask: Optional[Tensor] = None  # [B,P,T,D]
-
-    # Basic stats and flags
-    is_data_set: bool = False
-    is_target_set: bool = False
-    is_estimator_set: bool = False
-
-    is_input_normalized: bool = False
-    is_target_normalized: bool = False
-    is_estimator_normalized: bool = False
-
-    # loss
-    losses: Dict[str, Tensor] = field(default_factory=lambda: {})
-
-    min_border_factor: float = 2.0
-
-    def set_input_data(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Tensor, locations: Tensor, dimension_mask: Tensor):
-        """Sets observation data and related variables."""
-        self.obs_times = obs_times
-        self.obs_values = obs_values
-        self.obs_mask = obs_mask
-        self.locations = locations
-        self.dimension_mask = dimension_mask
-        self.is_data_set = True
-
-    def set_target_data(self, drift_data: Tensor, diffusion_data: Tensor):
-        """Sets target data for drift and diffusion."""
-        self.drift_target = drift_data
-        self.diffusion_target = diffusion_data
-        self.is_target_set = True
-
-    def set_forward_estimators(
-        self, drift_estimator: Tensor, diffusion_estimator: Tensor, var_drift_estimator: Tensor, var_diffusion_estimator: Tensor
+    def __init__(
+        self,
+        name: str = "FIMSDE",
+        experiment_name: str = "sde",
+        experiment_dir: str = rf"{results_path}",
+        max_dimension: int = 3,
+        max_time_steps: int = 128,
+        max_location_size: int = 1024,
+        max_num_paths: int = 30,
+        temporal_embedding_size: int = 19,
+        spatial_embedding_size: int = 19,
+        spatial_embedding_hidden_layers: list[int] = None,
+        sequence_encoding_tokenizer: int = 5,
+        sequence_encoding_transformer_hidden_size: int = 50,
+        sequence_encoding_transformer_heads: int = 1,
+        sequence_encoding_transformer_layers: int = 1,
+        combining_transformer_hidden_size: int = 50,
+        combining_transformer_heads: int = 1,
+        combining_transformer_layers: int = 1,
+        trunk_net_size: int = 50,
+        trunk_net_hidden_layers: list[int] = None,
+        values_norm_min: float = -1.0,
+        values_norm_max: float = 1.0,
+        times_norm_min: float = 0.0,
+        times_norm_max: float = 1.0,
+        loss_filter_nans: bool = True,
+        lightning_training: bool = True,
+        num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)
+        add_delta_x_to_value_encoder: bool = True,
+        learning_rate: float = 1.0e-5,
+        weight_decay: float = 1.0e-4,
+        dropout_rate: float = 0.1,
+        diffusion_loss_scale: float = 1.0,
+        loss_threshold: float = 100.0,
+        loss_type: str = "rmse",
+        log_images_every_n_epochs: int = 2,
+        train_with_normalized_head: bool = True,
+        clip_grad: bool = True,
+        clip_max_norm: float = 10.0,
+        skip_nan_grads: bool = True,
+        dt_pipeline: float = 0.01,
+        number_of_time_steps_pipeline: int = 128,
+        evaluate_with_unnormalized_heads: bool = True,
     ):
-        """
-        Sets estimators for forward pass.
-
-        IF INPUT DATA IS NORMALIZED WHEN ESTIMATOR IS SET
-        ESTIMATOR IS ASSUMED NORMALIZED
-        """
-        self.drift_estimator = drift_estimator
-        self.diffusion_estimator = diffusion_estimator
-        self.log_var_drift_estimator = var_drift_estimator
-        self.log_var_diffusion_estimator = var_diffusion_estimator
-
-        if self.is_input_normalized:
-            self.is_estimator_normalized = True
-        else:
-            self.is_estimator_normalized = False
-
-    def set_losses(self, losses):
-        """Set the losses"""
-        self.losses = losses
-
-    def normalize_input(self):
-        """
-        Normalizes observation data, locations, and time using shared min/max values.
-
-        TAKEN FROM THE APPPENDIX B.1
-        """
-        # Flatten obs_values across P and T for computing min/max
-        B, P, T, D = self.obs_values.shape
-        obs_values_reshaped = self.obs_values.view(B, P * T, D)
-
-        # Calculate min, max, and range for normalization (excluding time)
-        self.min_obs_values = obs_values_reshaped.min(dim=1, keepdim=True).values.unsqueeze(1)
-        self.max_obs_values = obs_values_reshaped.max(dim=1, keepdim=True).values.unsqueeze(1)
-        self.range_obs_vals = (self.max_obs_values - self.min_border_factor * self.min_obs_values).unsqueeze(1)
-
-        # Normalize obs_values
-        self.obs_values = (self.obs_values - self.min_border_factor * self.min_obs_values) / self.range_obs_vals
-
-        # Normalize locations using the same range
-        if self.locations is not None:
-            self.locations = (self.locations - self.min_border_factor * self.min_obs_values) / self.range_obs_vals
-
-        # Normalize obs_times by dividing by max_obs_times
-        obs_time_reshaped = self.obs_times.view(B, P * T, 1)
-        self.max_obs_times = obs_time_reshaped.max(dim=1, keepdim=True).values.unsqueeze(1)  # [B,1,1,1]
-        self.range_obs_times = self.max_obs_times  # times are assumed to start at zero
-
-        self.obs_times = self.obs_times / self.range_obs_times
-        self.is_input_normalized = True
-
-    def normalize_concepts(self, drift_data, var_drift_data, diffusion_data, var_diffusion_data):
-        # Normalize drift and diffusion targets
-        if drift_data is not None:
-            # scale from times normalisation
-            drift_data = drift_data / self.range_obs_times
-            drift_data = drift_data * self.range_obs_vals
-
-        if diffusion_data is not None:
-            # scale from times normalisation
-            diffusion_data = diffusion_data / torch.sqrt(self.range_obs_vals)
-            diffusion_data = diffusion_data * self.range_obs_times
-
-        # var part
-        if var_drift_data is not None:
-            var_drift_data = var_drift_data + 2 * torch.log(self.range_obs_vals) - 2 * torch.log(self.range_obs_times)
-
-        if var_diffusion_data is not None:
-            var_diffusion_data = var_diffusion_data + 2.0 * torch.log(self.range_obs_vals) - torch.log(self.range_obs_times)
-
-        return drift_data, diffusion_data
-
-    def unnormalize_concepts(self, drift_data, var_drift_data, diffusion_data, var_diffusion_data):
-        # Normalize drift and diffusion targets
-        if drift_data is not None:
-            # scale from times normalisation
-            drift_data = drift_data * self.range_obs_times
-            drift_data = drift_data / self.range_obs_vals
-
-        if diffusion_data is not None:
-            # scale from times normalisation
-            diffusion_data = diffusion_data * torch.sqrt(self.range_obs_vals)
-            diffusion_data = diffusion_data / self.range_obs_times
-
-        # var part
-        if var_drift_data is not None:
-            var_drift_data = var_drift_data - torch.log(self.range_obs_vals) + torch.log(self.range_obs_times)
-
-        if var_diffusion_data is not None:
-            var_diffusion_data = var_diffusion_data - torch.log(self.range_obs_vals) + 0.5 * torch.log(self.range_obs_times)
-
-        return drift_data, diffusion_data
-
-    def normalize_targets(self):
-        """Normalizes target data (drift_data and diffusion_data) using shared min/max values from data."""
-        if not self.is_target_normalized:
-            if self.is_target_set:
-                self.drift_target, self.diffusion_target = self.normalize_concepts(self.drift_target, None, self.diffusion_target, None)
-        self.is_target_normalized = True
-
-    def normalize_estimators(self):
-        """Normalizes estimator data (drift and diffusion estimators) using shared min/max values from data."""
-        if not self.is_estimator_normalized:
-            if self.is_estimator_set:
-                self.drift_estimator, self.diffusion_estimator = self.normalize_concepts(
-                    self.drift_estimator, self.log_var_drift_estimator, self.diffusion_estimator, self.log_var_diffusion_estimator
-                )
-        self.is_estimator_normalized = True
-
-    def unnormalize_input(self):
-        """Restores original scale for normalized fields."""
-        if not self.is_input_normalized:
-            return
-
-        # Restore original scale for obs_values and locations
-        self.obs_values = self.obs_values * self.range_obs_vals + self.min_obs_values
-        if self.locations is not None:
-            self.locations = self.locations * self.range_obs_vals + self.min_obs_values
-
-        # Restore original scale for obs_times
-        self.obs_times = self.obs_times * self.range_obs_times
-
-        self.is_input_normalized = False
-
-    def unnormalize_targets(self):
-        if self.is_target_normalized:
-            if self.is_target_set:
-                self.drift_target, self.diffusion_target = self.unnormalize_concepts(self.drift_target, None, self.diffusion_target, None)
-        self.is_target_normalized = True
-
-    def unnormalize_estimators(self):
-        if self.is_estimator_normalized:
-            if self.is_estimator_set:
-                self.drift_estimator, self.diffusion_estimator = self.unnormalize_concepts(
-                    self.drift_estimator, self.log_var_drift_estimator, self.diffusion_estimator, self.log_var_diffusion_estimator
-                )
-        self.is_estimator_normalized = True
-
-    def normalize_all(self):
-        if not self.is_input_normalized:
-            self.normalize_input()
-        if not self.is_estimator_normalized:
-            self.normalize_estimators()
-        if not self.is_target_normalized:
-            self.normalize_targets()
-
-    def unnormalize_all(self):
-        if self.is_input_normalized:
-            self.unnormalize_input()
-        if self.is_estimator_normalized:
-            self.unnormalize_estimators()
-        if self.is_target_normalized:
-            self.unnormalize_targets()
+        self.name = name
+        self.experiment_name = experiment_name
+        self.experiment_dir = experiment_dir
+        self.max_dimension = max_dimension
+        self.max_time_steps = max_time_steps
+        self.max_location_size = max_location_size
+        self.max_num_paths = max_num_paths
+        self.temporal_embedding_size = temporal_embedding_size
+        self.spatial_embedding_size = spatial_embedding_size
+        self.spatial_embedding_hidden_layers = spatial_embedding_hidden_layers or [25]
+        self.sequence_encoding_tokenizer = sequence_encoding_tokenizer
+        self.sequence_encoding_transformer_hidden_size = sequence_encoding_transformer_hidden_size
+        self.sequence_encoding_transformer_heads = sequence_encoding_transformer_heads
+        self.sequence_encoding_transformer_layers = sequence_encoding_transformer_layers
+        self.combining_transformer_hidden_size = combining_transformer_hidden_size
+        self.combining_transformer_heads = combining_transformer_heads
+        self.combining_transformer_layers = combining_transformer_layers
+        self.trunk_net_size = trunk_net_size
+        self.trunk_net_hidden_layers = trunk_net_hidden_layers or [25]
+        # normalization
+        self.values_norm_min = values_norm_min
+        self.values_norm_max = values_norm_max
+        self.times_norm_min = times_norm_min
+        self.times_norm_max = times_norm_max
+        # regularization
+        self.loss_filter_nans = loss_filter_nans
+        # training variables
+        self.num_epochs = num_epochs
+        self.lightning_training = lightning_training
+        self.add_delta_x_to_value_encoder = add_delta_x_to_value_encoder
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.dropout_rate = dropout_rate
+        self.diffusion_loss_scale = diffusion_loss_scale
+        self.loss_threshold = loss_threshold
+        self.loss_type = loss_type
+        self.log_images_every_n_epochs = log_images_every_n_epochs
+        self.train_with_normalized_head = train_with_normalized_head
+        self.clip_grad = clip_grad
+        self.clip_max_norm = clip_max_norm
+        self.skip_nan_grads = skip_nan_grads
+        self.dt_pipeline = dt_pipeline
+        self.number_of_time_steps_pipeline = number_of_time_steps_pipeline
+        self.evaluate_with_unnormalized_heads = evaluate_with_unnormalized_heads
 
 
 # 3. Model Following FIM conventions
@@ -768,74 +676,52 @@ class FIMSDE(pl.LightningModule):
         self.diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.data_config.max_dimension)
         self.log_var_diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.data_config.max_dimension)
 
-    def path_encoding(
-        self,
-        databatch: FIMSDEDatabatchTuple,
-        locations: Optional[Tensor] = None,
-    ) -> Tuple[torch.tensor, torch.tensor]:
+    def path_encoding(self, obs_times: Tensor, obs_values: Tensor, locations: Tensor) -> Tuple[torch.tensor, torch.tensor]:
         """
         This function obtains the paths encodings with functional
         attention, the intent is to provide a representation for
         the series of paths
 
         Args:
-
-            databatch:FIMSDEpDatabatchTuple|FIMSDEpDatabatch
-                keys,values:
-                    locations (Tensor [B, G, D])
-                        where to evaluate the drift and diffusion function
-                    obs_values (Tensor [B, P, T+1, D])
-                        observation values. optionally with noise.
-                    obs_times (Tensor [B, P, T+1, 1])
-                    observation_mask (dtype: bool)
-                        (0: value is observed, 1: value is masked out)
-
-            locations (tensor):
-                where to evaluate the drift and diffusion function
-
-            training (bool):
-                flag indicating if model is in training mode. Has an impact on the output.
-
-            with B: batch size, T: number of observation times, P: number of paths, D: dimensionsm, G: number of fine grid points (locations)
+            obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
+            obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
+            locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
+            where B: batch size P: number of paths T: number of time steps G: location grid size D: dimensions
 
         Returns:
             b(x) (Tensor)  [B,G,psi_1_tokes_dim] representation for system at each grid point
-            h(x) (Tensor)  [B,P,H,psi_1_tokes_dim] representation per path at each grid point
+            h(x) (Tensor)  [B,P,G,psi_1_tokes_dim] representation per path at each grid point
         """
-        if locations is None:
-            locations = databatch.locations
 
-        B, P, T, D = databatch.obs_values.shape
+        B, P, T, D = obs_values.shape
         T = T - 1
         G = locations.size(1)
 
-        # include the square of the difference
-        X = databatch.obs_values[:, :, :-1, :]
-        dX = databatch.obs_values[:, :, 1:, :] - databatch.obs_values[:, :, :-1, :]
-        obs_times = databatch.obs_times[:, :, :-1, :]
-
-        dX2 = dX**2
-        x_full = torch.cat([X.unsqueeze(-1), dX.unsqueeze(-1), dX2.unsqueeze(-1)], dim=-1)
-        x_full = x_full.view(x_full.shape[0], x_full.shape[1], x_full.shape[2], -1)
-
-        spatial_encoding = self.phi_0x(x_full)  # [B,P,T,spatial_embedding_size]
-        time_encoding = self.phi_0t(obs_times)  # [B,P,T,temporal_embedding_size]
-
-        # trunk
-        trunk_encoding = self.trunk(locations)  # [B,H,trunk_dim]
+        # Trunk
+        trunk_encoding = self.trunk(locations)  # [B,G,trunk_dim]
         trunk_encoding = trunk_encoding[:, None, :, :].repeat(1, P, 1, 1)  # [B,P,G,trunk_size]
         trunk_encoding = trunk_encoding.view(B * P, G, -1)
 
-        # embbedded input
+        # Embbedded input; include difference and squared difference to next observation -> drop last observation
+        X = obs_values[:, :, :-1, :]
+        dX = obs_values[:, :, 1:, :] - obs_values[:, :, :-1, :]
+        dX2 = dX**2
+
+        x_full = torch.cat([X, dX, dX2], dim=-1)  # [B,P,T,3*D]
+        spatial_encoding = self.phi_0x(x_full)  # [B,P,T,spatial_embedding_size]
+
+        obs_times = obs_times[:, :, :-1, :]  # [B,P,T,1]
+        time_encoding = self.phi_0t(obs_times)  # [B,P,T,temporal_embedding_size]
+
         U = torch.cat([spatial_encoding, time_encoding], dim=-1)  #  [B,P,T,spatial_plus_time_encoding]
         U = self.phi_xt(U)  #  [B,P,T,psi_1_tokes_dim]
 
-        # TRANSFORMER THAT CREATES A REPRESENTATION FOR THE PATHS
+        # Transformer that creates a representation for the paths
         U = U.view(B * P, T, self.psi_1_tokes_dim)
         H = self.psi_1(torch.transpose(U, 0, 1))  # [T,B*P,psi_1_tokes_dim]
         H = torch.transpose(H, 0, 1)  # [B*P,T,psi_1_tokes_dim]
 
-        # Attention on Time -> One representation per path
+        # Attention on Time -> One representation per path and location
         hx, _ = self.omega_1(trunk_encoding, H, H)  # [B*P,G,psi_1_tokes_dim]
         hx = hx.view(B, P, G, -1)  # [B,P,G,psi_1_tokes_dim]
 
@@ -848,166 +734,364 @@ class FIMSDE(pl.LightningModule):
         return bx, hx
 
     def forward(
-        self,
-        databatch: FIMSDEDatabatchTuple,
-        locations: Optional[Tensor] = None,
-        training: bool = True,
-        return_all: bool = False,
-        return_heads: bool = False,
-    ) -> Tuple[Tensor] | FIMSDEForward:
+        self, databatch: FIMSDEDatabatchTuple, locations: Optional[Tensor] = None, training: bool = True, return_losses: bool = False
+    ) -> dict | tuple[SDEConcepts, dict]:
         """
         Args:
-            databatch FIMPOODEDataBulk
-            training (bool) if True returns Dict
+            databatch (FIMSDEDatabatchTuple):
+                obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
+                obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
+                locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
+                drift/diffusion_at_locations (Tensor): ground-truth concepts at locations. Shape: [B, G, D]
+                dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
+                where B: batch size P: number of paths T: number of time steps G: location grid size D: dimensions
+
+            training (bool): if True returns only dict with losses, including training objective
+            return_losses (bool): is True computes and returns losses, even if training is False
 
             Returns
-                if training true returns Dict of losses
+                estimated_concepts (SDEConcepts): Estimated concepts at locations. Shape: [B, G, D]
+                if training == True or return_losses == True return (additionally):
+                    losses (dict): training objective has key "loss", other keys are auxiliary for monitoring
 
-                if return_all true returns FIMSDEForward with everything
         """
-        # Dataclass to Handle Normalization
-        forward_expressions = FIMSDEForward()
+        assert not hasattr(
+            databatch, "obs_mask"
+        ), "Observation masking not implemented yet. Neither in model forward, nor in neural operator or loss."
 
-        if hasattr(databatch, "obs_mask"):
-            obs_mask = databatch.obs_mask
-        else:
-            obs_mask = None
+        # Default to passed locations, otherwise use databatch.locations
+        if locations is None:
+            locations = databatch.locations
 
-        forward_expressions.set_input_data(
-            obs_times=databatch.obs_times,
-            obs_values=databatch.obs_values,
-            obs_mask=obs_mask,
-            locations=databatch.locations,
-            dimension_mask=databatch.dimension_mask,
+        # Instance normalization
+        values_norm_stats = NormalizationStats(
+            databatch.obs_values, normalized_min=self.model_config.values_norm_min, normalized_max=self.model_config.values_norm_max
         )
-        forward_expressions.normalize_input()
+        obs_values = values_norm_stats.normalization_map(databatch.obs_values)
+        locations = values_norm_stats.normalization_map(locations)
 
-        # Path Encoding
-        bx, hx = self.path_encoding(databatch, locations)
+        times_norm_stats = NormalizationStats(
+            databatch.obs_times, normalized_min=self.model_config.times_norm_min, normalized_max=self.model_config.times_norm_max
+        )
+        obs_times = times_norm_stats.normalization_map(databatch.obs_times)
 
-        # Drift Heads
+        # Encoding paths and locations into encoding per location
+        bx, _ = self.path_encoding(obs_times, obs_values, locations)  # [B, G, psi_1_tokes_dim]
+
+        # Heads: [B, G, D]
         drift_estimator = self.drift_head(bx)
         log_var_drift_estimator = self.log_var_drift_head(bx)
         diffusion_estimator = self.diffusion_head(bx)
         log_var_diffusion_estimator = self.log_var_diffusion_head(bx)
 
-        forward_expressions.set_forward_estimators(
-            drift_estimator=drift_estimator,
-            diffusion_estimator=diffusion_estimator,
-            var_drift_estimator=log_var_drift_estimator,
-            var_diffusion_estimator=log_var_diffusion_estimator,
+        estimated_concepts = SDEConcepts(
+            locations=locations,
+            drift=drift_estimator,
+            diffusion=diffusion_estimator,
+            log_var_drift=log_var_drift_estimator,
+            log_var_diffusion=log_var_diffusion_estimator,
+            normalized=True,
         )
 
-        # Loss
-        forward_expressions.set_target_data(drift_data=databatch.drift_at_locations, diffusion_data=databatch.diffusion_at_locations)
+        # Losses
+        target_concepts: SDEConcepts | None = SDEConcepts.from_dbt(databatch)
+
+        if hasattr(databatch, "dimension_mask"):
+            dimension_mask = databatch.dimension_mask
+
+        else:
+            dimension_mask = torch.ones(estimated_concepts.drift.shape, dtype=bool)
 
         # Returns
-        if training:
-            losses = self.loss(forward_expressions)
-            return {"losses": losses}
+        if training is True:
+            losses: dict = self.loss(estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask)
+            return losses
+
         else:
-            if return_all:
-                losses = self.loss(forward_expressions)
-                forward_expressions.set_losses(losses)
-                forward_expressions.unnormalize_all()
-                return forward_expressions
+            estimated_concepts.renormalize(values_norm_stats, times_norm_stats)
 
-            if return_heads:
-                forward_expressions.unnormalize_all()
-                return (
-                    forward_expressions.drift_estimator,
-                    forward_expressions.log_var_drift_estimator,
-                    forward_expressions.diffusion_estimator,
-                    forward_expressions.log_var_diffusion_estimator,
-                )
+            if return_losses is True:
+                losses: dict = self.loss(estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask)
+                return estimated_concepts, losses
 
-    def var_loss(self, estimator, target, log_var_estimator, dimension_mask):
+            else:
+                return estimated_concepts
+
+    @staticmethod
+    def gaussian_nll_at_locations(estimated: Tensor, log_var_estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
         """
-        loss with log var
+        Return (diagonal) gaussian NLL of target under estimated distribution. Mask indicates which values (in last dimension) to include.
+
+        Args:
+            estimated (Tensor): Mean estimated of target. Shape: [B, G, D]
+            log_var_estimated (Tensor): Log of variance of estimated of target. Shape: [B, G, D]
+            target (Tensor): Target values to compute the NLL of. Shape: [B, G, D]
+            mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+
+        Return:
+            nll (Tensor): Gaussian NLL, (regularized) averaged over all batches and grid points. Shape: []
         """
-        loss_ = (estimator - target) ** 2.0
-        var = torch.exp(log_var_estimator)
-        loss_ = loss_ / (2.0 * var) + 0.5 * log_var_estimator
+        assert estimated.ndim == 3, "Got " + str(estimated.ndim)
+        assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
+        assert estimated.shape == log_var_estimated.shape, "Got " + str(estimated.shape) + " and " + str(log_var_estimated.shape)
+        assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
 
-        # Apply the dimension mask and keep finite values
-        loss_masked = torch.where((dimension_mask == 1) & torch.isfinite(loss_), loss_, torch.zeros_like(loss_))
-        # Replace NaNs and Infs with zeros in the masked loss
-        loss_ = torch.where(torch.isfinite(loss_masked), loss_masked, torch.zeros_like(loss_masked))
+        # (diagonal) gaussian NLL per dimension
+        var_estimated = torch.exp(log_var_estimated)
+        nll_per_dim = (
+            (estimated - target) ** 2 / (2 * var_estimated)
+            + 1 / 2 * log_var_estimated
+            + 1 / 2 * torch.log(2 * torch.pi * torch.ones_like(estimated))
+        )  # [B, G, D]
 
-        # filter out
-        loss_ = loss_.sum(-1)  # sum dimension
-        loss_ = loss_.sum(-1)  # sum time
-        loss_ = torch.sqrt(loss_.mean())
+        # sum over non-masked values
+        nll = torch.sum(mask * nll_per_dim, dim=-1)  # [B, G]
 
-        return loss_
+        assert nll.ndim == 2, "Got " + str(nll.ndim)
 
-    def rmse_loss(self, estimator, target, dimension_mask):
+        return nll
+
+    @staticmethod
+    def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
         """
-        root mean square loss applying the dimension masks
+        Return RMSE between target and estimated values per location. Mask indicates which values (in last dimension) to include.
+
+        Args:
+            estimated (Tensor): estimated of target values. Shape: [B, G, D]
+            target (Tensor): Target values. Shape: [B, G, D]
+            mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+
+        Return:
+            rmse (Tensor): RMSE at locations. Shape: [B, G]
         """
-        loss_ = (estimator - target) ** 2.0
+        assert estimated.ndim == 3, "Got " + str(estimated.ndim)
+        assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
+        assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
 
-        # Apply the dimension mask and keep finite values
-        loss_masked = torch.where((dimension_mask == 1) & torch.isfinite(loss_), loss_, torch.zeros_like(loss_))
-        # Replace NaNs and Infs with zeros in the masked loss
-        loss_ = torch.where(torch.isfinite(loss_masked), loss_masked, torch.zeros_like(loss_masked))
+        # squared error at non-masked values
+        se = mask * (estimated - target) ** 2
+        se = torch.sum(se, dim=-1)  # [B, G]
 
-        # Filter out NaNs in the masked tensor
-        loss_ = loss_.sum(-1)
-        loss_ = loss_.sum(-1)
-        loss_ = torch.sqrt(loss_.mean())
-        return loss_
+        # mean over non-masked values
+        non_masked_values_count = torch.sum(mask, dim=-1)
+        mse = se / torch.clip(non_masked_values_count, min=1)  # [B, G]
+
+        # take root per location
+        rmse = torch.sqrt(mse)  # [B, G]
+
+        assert rmse.ndim == 2, "Got " + str(rmse.ndim)
+
+        return rmse
+
+    @staticmethod
+    def filter_nans_from_vector_fields(estimated: Tensor, log_var_estimated: Tensor | None, target: Tensor, mask: Tensor) -> tuple[Tensor]:
+        """
+        Filter locations where either estimate or target is Nan (or infinite). Record percentage of inifnite values (of non-masked values).
+
+        Args:
+            vector field values (Tensor): Vector fields to filter. Shape: [B, G, D]
+            mask (Tensor): 0 masks padded values to ignore in percentage calculation. Shape: [B, G, D]
+
+        Returns
+            filtered vector field values (Tensor): Shape: [B, G, D]
+            are_finite_mask (Tensor): marks finite values with 1. Shape: [B, G, D]
+            estimated / target infinite perc (Tensor): Percentage of infinites in batch. Shape: []
+        """
+        # mask Nans per vector field
+        estimated_is_finite_mask = torch.isfinite(estimated)
+        target_is_finite_mask = torch.isfinite(target)
+
+        if log_var_estimated is not None:
+            estimated_is_finite_mask = estimated_is_finite_mask * torch.isfinite(torch.exp(log_var_estimated))
+
+        # combine masks
+        are_finite_mask = estimated_is_finite_mask * target_is_finite_mask
+
+        # fill Nans with 0s
+        estimated = torch.where(are_finite_mask, estimated, 0.0)
+        target = torch.where(are_finite_mask, target, 0.0)
+
+        if log_var_estimated is not None:
+            log_var_estimated = torch.where(are_finite_mask, log_var_estimated, 0.0)
+
+        # percentage of infinite values in batch, considering already masked values
+        non_masked_values_count = torch.clip(torch.sum(mask), min=1)
+        estimated_is_infinite_perc = (
+            torch.sum(torch.logical_not(estimated_is_finite_mask) * mask, dtype=torch.float32) / non_masked_values_count
+        )
+        target_is_infinite_perc = torch.sum(torch.logical_not(target_is_finite_mask) * mask, dtype=torch.float32) / non_masked_values_count
+
+        return estimated, log_var_estimated, target, are_finite_mask, estimated_is_infinite_perc, target_is_infinite_perc
+
+    @staticmethod
+    def filter_loss_at_locations(loss_at_locations: Tensor, threshold: Optional[float] = None) -> tuple[Tensor]:
+        """
+        Return mask that filters losses at locations if they are Nan or (optionally) above a threshold. Record statistics about the filtered locations.
+
+        Args:
+            loss_at_locations (Tensor): Single loss value per location. Shape: [B, G]
+            threshold (Optional[float]): If passed, filter out locations with loss above threshold.
+
+        Returns:
+            filter_mask (Tensor): Masks Nans or above threshold values with 0. Shape: [B, G]
+            filtered_loss_locations_perc (Tensor): Percentage of filtered locations in batch. Shape: []
+        """
+        # mask locations with non-Nan loss values
+        loss_is_finite_mask = torch.isfinite(loss_at_locations)  # [B, G]
+
+        # mask locations below theshold
+        if threshold is not None:
+            loss_below_threshold_mask = torch.abs(loss_at_locations) <= threshold
+
+        else:
+            loss_below_threshold_mask = torch.ones_like(loss_is_finite_mask).bool()
+
+        # combine locations masks
+        loss_at_locations_mask = loss_is_finite_mask * loss_below_threshold_mask  # [B, G]
+
+        assert loss_at_locations.ndim == 2
+        assert loss_at_locations_mask.ndim == 2
+
+        # record statistics of locations with nan or above threshold loss
+        filtered_loss_locations_perc = torch.logical_not(loss_at_locations_mask).mean(dtype=torch.float32)  # []
+
+        return loss_at_locations_mask, filtered_loss_locations_perc
+
+    def vector_field_loss(self, estimated: Tensor, log_var_estimated: Tensor | None, target: Tensor, mask: Tensor) -> tuple[Tensor]:
+        """
+        Compute (regularized) loss of vector field values at locations. Return statistics about regularization for monitoring.
+        Regularizations:
+            Remove Nans and infinite values in passed vector fields.
+            Per location, remove Nans and infinite values from calculated loss.
+            Per location, remove losses exceeding a threshold.
+
+        Args:
+            vector field values (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
+            mask (Tensor): 0 masks padded values to ignore in loss calculation. Shape: [B, G, D]
+
+        Returns
+            loss (Tensor): Loss of vector field. Shape: []
+            filtered_loss_locations_perc (Tensor): Percentage of locations where loss is above threshold or Nan. Shape: []
+            estimated_is_infinite_perc (Tensor): Percentage of locations where estimated vector field is Nan. Shape: []
+            target_is_infinite_perc (Tensor): Percentage of locations where target vector field is Nan. Shape: []
+        """
+        # comparing vector field should have 3 dimensions and equal shape
+        assert estimated.ndim == 3
+        assert estimated.shape == target.shape
+        assert estimated.shape == mask.shape
+        if log_var_estimated is not None:
+            assert estimated.shape == log_var_estimated.shape
+
+        # filter Nans and infinite values
+        if self.model_config.loss_filter_nans:
+            estimated, log_var_estimated, target, are_finite_mask, estimated_is_infinite_perc, target_is_infinite_perc = (
+                self.filter_nans_from_vector_fields(estimated, log_var_estimated, target, mask)
+            )
+            mask = mask * are_finite_mask
+
+        else:
+            estimated_is_infinite_perc, target_is_infinite_perc = None, None
+
+        # ensure: compute gradients at non-masked values
+        estimated = estimated * mask
+        target = target * mask
+        if log_var_estimated is not None:
+            log_var_estimated = log_var_estimated * mask
+
+        # compute loss per location
+        if self.model_config.loss_type == "rmse":
+            loss_at_locations = self.rmse_at_locations(estimated, target, mask)  # [B, G]
+
+        elif self.model_config.loss_type == "var":
+            assert log_var_estimated is not None, "Must pass ´log_var_estimated` to compute nll loss."
+            loss_at_locations = self.gaussian_nll_at_locations(estimated, log_var_estimated, target, mask)  # [B, G]
+
+        else:
+            raise ValueError("`loss_type` must be `rmse` or `var`, got " + self.model_config.loss_type)
+
+        # filter out Nans or above threshold locations from loss
+        loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(
+            loss_at_locations, self.model_config.loss_threshold
+        )
+
+        # mean loss at non-masked locations
+        non_masked_values_count = torch.sum(loss_at_locations_mask)
+        loss = torch.sum(loss_at_locations_mask * loss_at_locations) / torch.clip(non_masked_values_count, min=1)  # []
+
+        return loss, filtered_loss_locations_perc, estimated_is_infinite_perc, target_is_infinite_perc
 
     def loss(
         self,
-        forward_expressions: FIMSDEForward,
+        estimated_concepts: SDEConcepts,
+        target_concepts: SDEConcepts | None,
+        values_norm_stats: NormalizationStats,
+        times_norm_stats: NormalizationStats,
+        dimension_mask: Optional[Tensor] = None,
     ):
         """
-        forward_expressions
-
-        Compute the loss of the FIMODE_mix model (in original space).
-            Makes sure that the mask is included in the computation of the loss
-
-        The loss consists of supervised losses
-            - rmse of the vector field values at fine grid points
+        Compute supervised losses (RMSE or NLL) of sde concepts at non-padded dimensions.
 
         Args:
-            forward_expressions (FIMSDEForward):
+            estimated_concepts (SDEConcepts): Learned SDEConcepts. Shape: [B, G, D]
+            target_concepts (SDEConcepts ): Ground-truth, target SDEConcepts. Shape: [B, G, D]
+            values_norm_stats (NormalizationStats): Values instance normalization statistics.
+            times_norm_stats (NormalizationStats): Times instance normalization statistics.
+            dimension_mask (Optional[Tensor]): Masks padded dimensions to ignore in loss computations. Shape: [B, G, D]
+
         Returns:
-            Tensor: {"total_loss":total_loss,"drift_loss":drift_loss,"diffusion_loss":diffusion_loss}
+            losses (dict):
+                total_loss (Tensor): Training objective: drift_loss + diffusion_scale * diffusion_loss. Shape: []
+                drift_loss (Tensor): RMSE or NLL of drift estimation wrt. ground-truth. Shape: []
+                diffusion_loss (Tensor): RMSE or NLL of diffusion estimation wrt. ground-truth. Shape: []
+                + statistics about Nans and infinities during computations
         """
-        # ENSURES THAT ESTIMATOR AND TARGET LIE IN THE SAME UNITS
-        if self.model_config.train_with_normalized_head:
-            forward_expressions.normalize_all()
+        assert target_concepts is not None, "Need ground-truth concepts at locations to compute train losses."
+
+        if dimension_mask is None:
+            dimension_mask = torch.ones(estimated_concepts.drift.shape, dtype=bool)
+
         else:
-            forward_expressions.unnormalize_all()
+            dimension_mask = dimension_mask.bool()
 
-        if self.model_config.loss_type == "rmse":
-            drift_loss = self.rmse_loss(
-                forward_expressions.drift_estimator, forward_expressions.drift_target, forward_expressions.dimension_mask
-            )
+        assert dimension_mask.shape == estimated_concepts.drift.shape, (
+            "Shapes of mask " + str(dimension_mask.shape) + " and concepts " + str(estimated_concepts.drift.shape) + " need to be equal."
+        )
 
-            diffusion_loss = self.rmse_loss(
-                forward_expressions.diffusion_estimator, forward_expressions.diffusion_target, forward_expressions.dimension_mask
-            )
+        # Ensure that estimation and target are on same normalization
+        if self.model_config.train_with_normalized_head:
+            estimated_concepts.normalize(values_norm_stats, times_norm_stats)
+            target_concepts.normalize(values_norm_stats, times_norm_stats)
+        else:
+            estimated_concepts.renormalize(values_norm_stats, times_norm_stats)
+            target_concepts.renormalize(values_norm_stats, times_norm_stats)
 
-        elif self.model_config.loss_type == "var":
-            drift_loss = self.var_loss(
-                forward_expressions.drift_estimator,
-                forward_expressions.drift_target,
-                forward_expressions.log_var_drift_estimator,
-                forward_expressions.dimension_mask,
-            )
+        # compute loss per vector field
+        drift_loss, drift_loss_above_threshold_or_nan_perc, drift_estimated_is_infinite_perc, drift_target_is_infinite_perc = (
+            self.vector_field_loss(estimated_concepts.drift, estimated_concepts.log_var_drift, target_concepts.drift, dimension_mask)
+        )
+        (
+            diffusion_loss,
+            diffusion_loss_above_threshold_or_nan_perc,
+            diffusion_estimated_is_infinite_perc,
+            diffusion_target_is_infinite_perc,
+        ) = self.vector_field_loss(
+            estimated_concepts.diffusion, estimated_concepts.log_var_diffusion, target_concepts.diffusion, dimension_mask
+        )
 
-            diffusion_loss = self.var_loss(
-                forward_expressions.diffusion_estimator,
-                forward_expressions.diffusion_target,
-                forward_expressions.log_var_diffusion_estimator,
-                forward_expressions.dimension_mask,
-            )
-
+        # assemble losses
         total_loss = drift_loss + self.model_config.diffusion_loss_scale * diffusion_loss
-        losses = {"loss": total_loss, "drift_loss": drift_loss, "diffusion_loss": diffusion_loss}
+        losses = {
+            "loss": total_loss,
+            "drift_loss": drift_loss,
+            "diffusion_loss": diffusion_loss,
+            "drift_loss_above_threshold_or_nan_perc": drift_loss_above_threshold_or_nan_perc,
+            "diffusion_loss_above_threshold_or_nan_perc": diffusion_loss_above_threshold_or_nan_perc,
+            "drift_estimated_is_infinite_perc": drift_estimated_is_infinite_perc,
+            "diffusion_estimated_is_infinite_perc": diffusion_estimated_is_infinite_perc,
+            "drift_target_is_infinite_perc": drift_target_is_infinite_perc,
+            "diffusion_target_is_infinite_perc": diffusion_target_is_infinite_perc,
+        }
+
         return losses
 
     # ----------------------------- Lightning Functionality ---------------------------------------------
@@ -1023,33 +1107,41 @@ class FIMSDE(pl.LightningModule):
         databatch: FIMSDEDatabatchTuple = self.prepare_batch(batch)
         losses = self.forward(databatch, training=True)
 
-        total_loss = losses["losses"]["loss"]
-        drift_loss = losses["losses"]["drift_loss"]
-        diffusion_loss = losses["losses"]["diffusion_loss"]
+        total_loss = losses.get("loss")
 
         optimizer.zero_grad()
         self.manual_backward(total_loss)
         if self.model_config.clip_grad:
             torch.nn.utils.clip_grad_norm_(self.parameters(), self.model_config.clip_max_norm)
-        optimizer.step()
 
-        self.log("loss", total_loss, on_step=True, prog_bar=True, logger=True)
-        self.log("drift_loss", drift_loss, on_step=True, prog_bar=True, logger=True)
-        self.log("diffusion_loss", diffusion_loss, on_step=True, prog_bar=True, logger=True)
+        if self.model_config.skip_nan_grads is True:  # skip updates if gradients contain Nans
+            grad_is_finite = [torch.isfinite(p.grad).all() if p.grad is not None else True for p in self.parameters()]
+            if all(grad_is_finite):
+                optimizer.step()
+
+        else:
+            optimizer.step()
+
+        prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
+
+        for label, loss in losses.items():
+            prog_bar = label in prog_bar_labels
+            self.log(label, loss, on_step=True, prog_bar=prog_bar, logger=True)
 
         return total_loss
 
     def validation_step(self, batch, batch_idx):
         databatch = self.prepare_batch(batch)
-        forward_values = self.forward(databatch, training=False, return_all=True)
+        _, losses = self.forward(databatch, training=False, return_losses=True)
 
-        total_loss = forward_values.losses["loss"]
-        drift_loss = forward_values.losses["drift_loss"]
-        diffusion_loss = forward_values.losses["diffusion_loss"]
+        total_loss = losses.get("loss")
 
-        self.log("val_loss", total_loss, on_step=False, prog_bar=True, logger=True)
-        self.log("drift_loss", drift_loss, on_step=False, prog_bar=True, logger=True)
-        self.log("diffusion_loss", diffusion_loss, on_step=False, prog_bar=True, logger=True)
+        losses["val_loss"] = losses.pop("loss")  # take loss as val_loss
+        prog_bar_labels = ["val_loss", "drift_loss", "diffusion_loss"]
+
+        for label, loss in losses.items():
+            prog_bar = label in prog_bar_labels
+            self.log(label, loss, on_step=False, prog_bar=prog_bar, logger=True)
 
         return total_loss
 

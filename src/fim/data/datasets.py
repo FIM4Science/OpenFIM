@@ -341,7 +341,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
 
     def __post_init__(self):
         self.logger.debug(
-            f"Time Series Dataset (Torch) for Imputation with {self.window_count} windows and {int(100*self.overlap)}% overlap loaded successfully."
+            f"Time Series Dataset (Torch) for Imputation with {self.window_count} windows and {int(100 * self.overlap)}% overlap loaded successfully."
         )
 
     def __getitem__(self, idx):
@@ -635,7 +635,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             obs_times=obs_times,
             drift_at_locations=drift_at_locations,
             diffusion_at_locations=diffusion_at_locations,
-            locations=diffusion_at_locations,
+            locations=locations,
             dimension_mask=mask,
         )
 

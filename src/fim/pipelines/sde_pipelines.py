@@ -1,16 +1,14 @@
 import os
-import torch
-
 from dataclasses import dataclass
-
-from torch import Tensor
-from fim.data.datasets import FIMSDEDatabatchTuple, FIMSDEDatabatch
-
-from tqdm import tqdm  # Import tqdm for the progress bar
 from typing import Tuple
-from fim.models.config_dataclasses import FIMSDEConfig
 
-from fim.utils.helper import nametuple_to_device, check_model_devices
+import torch
+from torch import Tensor
+from tqdm import tqdm  # Import tqdm for the progress bar
+
+from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple
+from fim.models.config_dataclasses import FIMSDEConfig
+from fim.utils.helper import check_model_devices, nametuple_to_device
 
 
 @dataclass
@@ -58,9 +56,8 @@ class FIMSDEPipeline:
         """ """
         if locations is None:
             locations = databatch.locations
-        heads = self.model(databatch, locations, training=False, return_heads=True)
-        drift_estimator, var_drift_estimator, diffusion_estimator, var_diffusion_estimator = heads
-        return drift_estimator, diffusion_estimator
+        estimated_concepts = self.model(databatch, locations, training=False)
+        return estimated_concepts.drift, estimated_concepts.diffusion
 
     def __call__(
         self,
@@ -127,13 +124,12 @@ class FIMSDEPipeline:
         # Create a mask based on the dimensions
         dimension_mask = databatch.dimension_mask[:, 0, :]  # [B,D]
 
-        # DRIFT
-        heads = self.model(databatch, X, training=False, return_heads=True)
-        drift_estimator, var_drift_estimator, diffusion_estimator, var_diffusion_estimator = heads
+        # Get concepts at X
+        estimated_concepts = self.model(databatch, X, training=False)
 
         # Apply the mask to X and Remove the Grid Shape
-        drift = drift_estimator.squeeze() * dimension_mask.float()  # Zero out elements where mask is False
-        diffusion = diffusion_estimator.squeeze() * dimension_mask.float()  # Zero out elements where mask is False
+        drift = estimated_concepts.drift.squeeze() * dimension_mask.float()  # Zero out elements where mask is False
+        diffusion = estimated_concepts.diffusion.squeeze() * dimension_mask.float()  # Zero out elements where mask is False
 
         return drift, diffusion
 
