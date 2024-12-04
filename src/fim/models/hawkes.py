@@ -160,8 +160,6 @@ class FIMHawkes(AModel):
                 - "baseline_intensity": Tensor representing the predicted baseline intensity.
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
-        x["event_times"] = x["event_times"][:,:,:100]
-        x["event_types"] = x["event_types"][:,:,:100]
         x["observation_values_one_hot"] = torch.nn.functional.one_hot(x["event_types"].long().squeeze(-1), num_classes=self.num_marks)
 
         obs_grid = x["event_times"]
@@ -190,7 +188,7 @@ class FIMHawkes(AModel):
 
         static_path_summary = self.__Omega_4_encoder(static_path_embeddings)  # [B, D_4]
 
-        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary).squeeze()  # [B, M, L_kernel]
+        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel]
 
         predicted_kernel_decay_and_base_intensity = torch.exp(self.__kernel_parameter_decoder(static_path_summary))  # [B, M, 2]
         predicted_base_intensity = predicted_kernel_decay_and_base_intensity[:, :, 0]
@@ -320,7 +318,7 @@ class FIMHawkes(AModel):
         time_dependent_path_summary = time_dependent_path_summary.view(B * M * L_kernel, D_3)
         h = self.kernel_value_decoder(time_dependent_path_summary)
 
-        return h.view(B, M, L_kernel, -1)
+        return h.view(B, M, L_kernel)
 
     def __kernel_parameter_decoder(self, static_path_summary: Tensor) -> Tensor:
         h = self.kernel_parameter_decoder(static_path_summary)
@@ -341,6 +339,9 @@ class FIMHawkes(AModel):
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
+        assert target_kernel_values.shape == predicted_kernel_values.shape
+        assert target_base_intensity.shape == predicted_base_intensity.shape
+        
         predicted_kernel_function = predicted_kernel_values * torch.exp(-predicted_kernel_decay.unsqueeze(-1))
 
         kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2))

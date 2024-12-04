@@ -42,7 +42,7 @@ class HawkesDatasetGenerator:
         event_time_data = []
         event_type_data = []
 
-        num_chunks = self.num_chunks
+        num_chunks = min(self.num_chunks, num_samples)
         samples_per_chunk = num_samples // num_chunks
         chunks = [
             range(i * samples_per_chunk, (i + 1) * samples_per_chunk)
