@@ -16,12 +16,10 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/train
-      # - data/synthetic_data/hawkes/10k_hawkes_exp/train
-
+      - tests/resources/data/hawkes/10_hawkes_exp_300_paths_100_events/train
+    
     validation: !!python/tuple
-      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/val
-      # - data/synthetic_data/hawkes/10k_hawkes_exp/val
+      - tests/resources/data/hawkes/10_hawkes_exp_300_paths_100_events/val
 
   loader_kwargs:
     batch_size: 1
@@ -34,7 +32,7 @@ dataset:
       event_types: "event_types.pt"
       kernel_evaluations: "kernel_evaluations.pt"
       kernel_grids: "kernel_grids.pt"
-     data_limit: 10
+    data_limit: 10
 
 rnn_embed_dim: &rnn_embed_dim 64 # Has to be half of path_embed_dim for bidirectional LSTM
 path_embed_dim: &path_embed_dim 128
