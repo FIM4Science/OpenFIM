@@ -1,20 +1,12 @@
 from copy import deepcopy
 from pathlib import Path
-from typing import Optional
 
 import click
-import numpy as np
 from fim.leftovers_from_old_library import save_in_yaml, create_class_instance, load_config
 
+
 @click.command()
-@click.option(
-    "-c",
-    "--config",
-    "cfg_path",
-    required=True,
-    type=click.Path(exists=True),
-    help="path to config file"
-)
+@click.option("-c", "--config", "cfg_path", required=True, type=click.Path(exists=True), help="path to config file")
 def generate_data(cfg_path: Path) -> None:
     cfg: dict = load_config(cfg_path)
     cfg_copy: dict = deepcopy(cfg)
@@ -30,7 +22,7 @@ def generate_data(cfg_path: Path) -> None:
 
     data_generator = create_class_instance(cfg["data_generator"])
     data = data_generator.assemble()
-    
+
     # save data
     data_saver = create_class_instance(cfg["data_saver"])
     data_saver(data)

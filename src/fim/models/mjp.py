@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import torch
 from torch import Tensor, nn
+from torch.nn.functional import one_hot
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from fim.models.blocks import AModel, ModelFactory, RNNEncoder, TransformerEncoder
@@ -11,6 +12,30 @@ from fim.utils.helper import create_class_instance
 
 
 class FIMMJPConfig(PretrainedConfig):
+    """
+    FIMMJPConfig is a configuration class for the FIMMJP model.
+    Attributes:
+        model_type (str): The type of the model, default is "fimmjp".
+        n_states (int): Number of states in the model. Default is 2.
+        use_adjacency_matrix (bool): Whether to use an adjacency matrix. Default is False.
+        ts_encoder (dict): Configuration for the time series encoder. Default is None.
+        pos_encodings (dict): Configuration for the positional encodings. Default is None.
+        path_attention (dict): Configuration for the path attention mechanism. Default is None.
+        intensity_matrix_decoder (dict): Configuration for the intensity matrix decoder. Default is None.
+        initial_distribution_decoder (dict): Configuration for the initial distribution decoder. Default is None.
+        use_num_of_paths (bool): Whether to use the number of paths. Default is True.
+    Args:
+        n_states (int, optional): Number of states in the model. Default is 2.
+        use_adjacency_matrix (bool, optional): Whether to use an adjacency matrix. Default is False.
+        ts_encoder (dict, optional): Configuration for the time series encoder. Default is None.
+        pos_encodings (dict, optional): Configuration for the positional encodings. Default is None.
+        path_attention (dict, optional): Configuration for the path attention mechanism. Default is None.
+        intensity_matrix_decoder (dict, optional): Configuration for the intensity matrix decoder. Default is None.
+        initial_distribution_decoder (dict, optional): Configuration for the initial distribution decoder. Default is None.
+        use_num_of_paths (bool, optional): Whether to use the number of paths. Default is True.
+        **kwargs: Additional keyword arguments.
+    """
+
     model_type = "fimmjp"
 
     def __init__(
@@ -22,6 +47,7 @@ class FIMMJPConfig(PretrainedConfig):
         path_attention: dict = None,
         intensity_matrix_decoder: dict = None,
         initial_distribution_decoder: dict = None,
+        use_num_of_paths: bool = True,
         **kwargs,
     ):
         self.n_states = n_states
@@ -31,18 +57,36 @@ class FIMMJPConfig(PretrainedConfig):
         self.path_attention = path_attention
         self.intensity_matrix_decoder = intensity_matrix_decoder
         self.initial_distribution_decoder = initial_distribution_decoder
+        self.use_num_of_paths = use_num_of_paths
 
         super().__init__(**kwargs)
 
 
 class FIMMJP(AModel):
     """
-    FIMMJP: A Neural Recognition Model for Zero-Shot Inference of Markov Jump Processes
-    This class implements a neural recognition model for zero-shot inference of Markov jump processes (MJPs) on bounded state spaces from noisy and sparse observations. The methodology is based on the following paper:
-    Markov jump processes are continuous-time stochastic processes which describe dynamical systems evolving in discrete state spaces. These processes find wide application in the natural sciences and machine learning, but their inference is known to be far from trivial. In this work we introduce a methodology for zero-shot inference of Markov jump processes (MJPs), on bounded state spaces, from noisy and sparse observations, which consists of two components. First, a broad probability distribution over families of MJPs, as well as over possible observation times and noise mechanisms, with which we simulate a synthetic dataset of hidden MJPs and their noisy observations. Second, a neural recognition model that processes subsets of the simulated observations, and that is trained to output the initial condition and rate matrix of the target MJP in a supervised way. We empirically demonstrate that one and the same (pretrained) recognition model can infer, in a zero-shot fashion, hidden MJPs evolving in state spaces of different dimensionalities. Specifically, we infer MJPs which describe (i) discrete flashing ratchet systems, which are a type of Brownian motors, and the conformational dynamics in (ii) molecular simulations, (iii) experimental ion channel data and (iv) simple protein folding models. What is more, we show that our model performs on par with state-of-the-art models which are trained on the target datasets.
+    **FIMMJP: A Neural Recognition Model for Zero-Shot Inference of Markov Jump Processes**
 
-    It is model from the paper:"Foundation Inference Models for Markov Jump Processes" --- https://arxiv.org/abs/2406.06419.
-    Attributes:
+    This class implements a neural recognition model for zero-shot inference of Markov jump processes (MJPs)
+    on bounded state spaces from noisy and sparse observations. The methodology is based on the following paper:
+
+    Markov jump processes are continuous-time stochastic processes which describe dynamical systems evolving in discrete state spaces.
+    These processes find wide application in the natural sciences and machine learning, but their inference is known to be far from trivial.
+    In this work we introduce a methodology for zero-shot inference of Markov jump processes (MJPs),
+    on bounded state spaces, from noisy and sparse observations, which consists of two components.
+
+    First, a broad probability distribution over families of MJPs, as well as over possible observation times and noise mechanisms,
+    with which we simulate a synthetic dataset of hidden MJPs and their noisy observations. Second, a neural recognition model that
+    processes subsets of the simulated observations, and that is trained to output the initial condition and rate matrix of the target
+    MJP in a supervised way.
+
+    We empirically demonstrate that one and the same (pretrained) recognition model can infer, in a zero-shot fashion,
+    hidden MJPs evolving in state spaces of different dimensionalities. Specifically, we infer MJPs which describe
+    *(i) discrete flashing ratchet systems*, which are a type of Brownian motors, and the conformational dynamics in
+    *(ii) molecular simulations*, *(iii) experimental ion channel data* and *(iv) simple protein folding models*.
+    What is more, we show that our model performs on par with state-of-the-art models which are trained on the target datasets.
+
+    It is model from the paper: **"Foundation Inference Models for Markov Jump Processes"** --- https://arxiv.org/abs/2406.06419.
+    **Attributes:**
         n_states (int): Number of states in the Markov jump process.
         use_adjacency_matrix (bool): Whether to use an adjacency matrix.
         ts_encoder (dict | TransformerEncoder): Time series encoder.
@@ -53,7 +97,7 @@ class FIMMJP(AModel):
         gaussian_nll (nn.GaussianNLLLoss): Gaussian negative log-likelihood loss.
         init_cross_entropy (nn.CrossEntropyLoss): Cross-entropy loss for initial distribution.
 
-    Methods:
+    **Methods:**
         forward(x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
             Forward pass of the model.
         __decode(h: Tensor) -> tuple[Tensor, Tensor]:
@@ -64,7 +108,8 @@ class FIMMJP(AModel):
             Denormalize the predicted off-diagonal mean and log-variance.
         __normalize_obs_grid(obs_grid: Tensor) -> tuple[Tensor, Tensor]:
             Normalize the observation grid.
-        loss(pred_im: Tensor, pred_logvar_im: Tensor, pred_init_cond: Tensor, target_im: Tensor, target_init_cond: Tensor, adjaceny_matrix: Tensor, normalization_constants: Tensor, schedulers: dict = None, step: int = None) -> dict:
+        loss(pred_im: Tensor, pred_logvar_im: Tensor, pred_init_cond: Tensor, target_im: Tensor, target_init_cond: Tensor,
+            adjaceny_matrix: Tensor, normalization_constants: Tensor, schedulers: dict = None, step: int = None) -> dict:
             Compute the loss for the model.
         new_stats() -> dict:
             Initialize new statistics.
@@ -76,15 +121,11 @@ class FIMMJP(AModel):
 
     def __init__(self, config: FIMMJPConfig, **kwargs):
         super().__init__(config, **kwargs)
-        self.n_states = config.n_states
-        self.use_adjacency_matrix = config.use_adjacency_matrix
-        self.ts_encoder = config.ts_encoder #FIXME: We dont need that here
-        self.total_offdiagonal_transitions = self.n_states**2 - self.n_states
-
-        self.__create_modules()
-
+        self.total_offdiagonal_transitions = self.config.n_states**2 - self.config.n_states
         self.gaussian_nll = nn.GaussianNLLLoss(full=True, reduction="none")
         self.init_cross_entropy = nn.CrossEntropyLoss(reduction="none")
+
+        self.__create_modules()
 
     def __create_modules(self):
         pos_encodings = copy.deepcopy(self.config.pos_encodings)
@@ -94,26 +135,28 @@ class FIMMJP(AModel):
         initial_distribution_decoder = copy.deepcopy(self.config.initial_distribution_decoder)
 
         if ts_encoder["name"] == "fim.models.blocks.base.TransformerEncoder":
-            pos_encodings["out_features"] -= self.n_states
+            pos_encodings["out_features"] -= self.config.n_states
         self.pos_encodings = create_class_instance(pos_encodings.pop("name"), pos_encodings)
 
-        ts_encoder["in_features"] = self.n_states + self.pos_encodings.out_features
+        ts_encoder["in_features"] = self.config.n_states + self.pos_encodings.out_features
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
 
         self.path_attention = create_class_instance(path_attention.pop("name"), path_attention)
 
         in_features = intensity_matrix_decoder.get(
-            "in_features", self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.use_adjacency_matrix else 1)
+            "in_features",
+            self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
         )
         intensity_matrix_decoder["in_features"] = in_features
         intensity_matrix_decoder["out_features"] = 2 * self.total_offdiagonal_transitions
         self.intensity_matrix_decoder = create_class_instance(intensity_matrix_decoder.pop("name"), intensity_matrix_decoder)
 
         in_features = initial_distribution_decoder.get(
-            "in_features", self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.use_adjacency_matrix else 1)
+            "in_features",
+            self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
         )
         initial_distribution_decoder["in_features"] = in_features
-        initial_distribution_decoder["out_features"] = self.n_states
+        initial_distribution_decoder["out_features"] = self.config.n_states
         self.initial_distribution_decoder = create_class_instance(initial_distribution_decoder.pop("name"), initial_distribution_decoder)
 
     def forward(self, x: dict[str, Tensor], n_states: int = None, schedulers: dict = None, step: int = None) -> dict:
@@ -141,6 +184,58 @@ class FIMMJP(AModel):
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
 
+        norm_constants = self.__normalize_observation_grid(x)
+
+        x["observation_values_one_hot"] = one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.config.n_states)
+
+        h = self.__encode(x)
+        pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
+
+        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
+
+        out = self.__prepare_output(n_states, init_cond, pred_offdiag_im_mean, pred_offdiag_im_logvar)
+        self.__calculate_train_loss_if_targe_exists(
+            x, schedulers, step, norm_constants, init_cond, pred_offdiag_im_mean, pred_offdiag_im_logvar, out
+        )
+
+        return out
+
+    def __calculate_train_loss_if_targe_exists(
+        self,
+        x: dict[str, Tensor],
+        schedulers: dict,
+        step: int,
+        norm_constants: Tensor,
+        init_cond: Tensor,
+        pred_offdiag_im_mean: Tensor,
+        pred_offdiag_im_logvar: Tensor,
+        out: dict,
+    ):
+        if "intensity_matrices" in x and "initial_distributions" in x:
+            out["losses"] = self.loss(
+                pred_offdiag_im_mean, pred_offdiag_im_logvar, init_cond, x, norm_constants.view(-1, 1), schedulers, step
+            )
+
+    def __prepare_output(self, n_states: int, init_cond: Tensor, pred_offdiag_im_mean: Tensor, pred_offdiag_im_logvar: Tensor) -> dict:
+        out = {
+            "intensity_matrices": create_matrix_from_off_diagonal(
+                pred_offdiag_im_mean,
+                self.config.n_states,
+                mode="negative_sum_row",
+                n_states=self.config.n_states if n_states is None else n_states,
+            ),
+            "intensity_matrices_variance": create_matrix_from_off_diagonal(
+                torch.exp(pred_offdiag_im_logvar),
+                self.config.n_states,
+                mode="negative_sum_row",
+                n_states=self.config.n_states if n_states is None else n_states,
+            ),
+            "initial_condition": init_cond,
+        }
+
+        return out
+
+    def __normalize_observation_grid(self, x: dict[str, Tensor]) -> Tensor:
         obs_grid = x["observation_grid"]
         if "time_normalization_factors" not in x:
             norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid)
@@ -149,32 +244,7 @@ class FIMMJP(AModel):
         else:
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
-
-        x["observation_values_one_hot"] = torch.nn.functional.one_hot(x["observation_values"].long().squeeze(-1), num_classes=self.n_states)
-
-        h = self.__encode(x)
-        pred_offdiag_im_mean_logvar, init_cond = self.__decode(h)
-
-        pred_offdiag_im_mean, pred_offdiag_im_logvar = self.__denormalize_offdiag_mean_logstd(norm_constants, pred_offdiag_im_mean_logvar)
-
-        out = {
-            "intensity_matrices": create_matrix_from_off_diagonal(
-                pred_offdiag_im_mean, self.n_states, mode="negative_sum_row", n_states=self.n_states if n_states is None else n_states
-            ),
-            "intensity_matrices_variance": create_matrix_from_off_diagonal(
-                torch.exp(pred_offdiag_im_logvar),
-                self.n_states,
-                mode="negative_sum_row",
-                n_states=self.n_states if n_states is None else n_states,
-            ),
-            "initial_condition": init_cond,
-        }
-        if "intensity_matrices" in x and "initial_distributions" in x:
-            out["losses"] = self.loss(
-                pred_offdiag_im_mean, pred_offdiag_im_logvar, init_cond, x, norm_constants.view(-1, 1), schedulers, step
-            )
-
-        return out
+        return norm_constants
 
     def __decode(self, h: Tensor) -> tuple[Tensor, Tensor]:
         pred_offdiag_logmean_logstd = self.intensity_matrix_decoder(h)
@@ -200,9 +270,9 @@ class FIMMJP(AModel):
             last_observation = x["seq_lengths"].view(B * P) - 1
             h = h[torch.arange(B * P), last_observation].view(B, P, -1) #TODO: We are planning to use the output of all states in the future
             h = self.path_attention(h, h, h)
-
-        h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
-        if self.use_adjacency_matrix:
+        if self.config.use_num_of_paths:
+            h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)
+        if self.config.use_adjacency_matrix:
             h = torch.cat([h, get_off_diagonal_elements(x["adjacency_matrix"])], dim=-1)
         return h
 

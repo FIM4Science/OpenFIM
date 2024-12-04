@@ -1,7 +1,6 @@
 import numpy as np
 import click
 import json
-import matplotlib.pyplot as plt
 import time
 from pathlib import Path
 import pandas as pd
@@ -14,9 +13,9 @@ from fim.utils.helper import load_yaml
 import logging
 
 
-
 setup_logging()
 logger = RankLoggerAdapter(logging.getLogger(__name__))
+
 
 class Dataset:
     def __init__(self, **kwargs):
@@ -35,7 +34,12 @@ class Dataset:
         self.predict_physical_quantities = kwargs.get("predict_physical_quantities", False)
         self.batch_size = kwargs.get("batch_size")
 
-        if self.observation_times_file is None or self.observation_values_file is None or self.time_normalization_factors_file is None or self.sequence_lengths_file is None:
+        if (
+            self.observation_times_file is None
+            or self.observation_values_file is None
+            or self.time_normalization_factors_file is None
+            or self.sequence_lengths_file is None
+        ):
             raise ValueError("Missing required file!")
 
         with open(self.path + "/" + self.observation_times_file, "rb") as f:
@@ -47,10 +51,10 @@ class Dataset:
         with open(self.path + "/" + self.sequence_lengths_file, "rb") as f:
             self.sequence_lengths = pickle.load(f)
         if self.max_num_samples is not None:
-            self.observation_times = self.observation_times[:self.max_num_samples]
-            self.observation_values = self.observation_values[:self.max_num_samples]
-            self.time_normalization_factors = self.time_normalization_factors[:self.max_num_samples]
-            self.sequence_lengths = self.sequence_lengths[:self.max_num_samples]
+            self.observation_times = self.observation_times[: self.max_num_samples]
+            self.observation_values = self.observation_values[: self.max_num_samples]
+            self.time_normalization_factors = self.time_normalization_factors[: self.max_num_samples]
+            self.sequence_lengths = self.sequence_lengths[: self.max_num_samples]
 
         if self.ground_truth_intensity_matrices_file is not None:
             with open(self.path + "/" + self.ground_truth_intensity_matrices_file, "rb") as f:
@@ -63,7 +67,7 @@ class Dataset:
                 self.adjacency_matrices = pickle.load(f)
         else:
             num_samples = self.observation_times.shape[0]
-            self.adjacency_matrices = torch.Tensor(num_samples*[torch.ones((self.num_states, self.num_states))])
+            self.adjacency_matrices = torch.Tensor(num_samples * [torch.ones((self.num_states, self.num_states))])
 
         if self.ground_truth_initial_distributions_file is not None:
             with open(self.path + "/" + self.ground_truth_initial_distributions_file, "rb") as f:
@@ -71,13 +75,14 @@ class Dataset:
         else:
             self.ground_truth_initial_distributions = None
 
+
 def off_diagonal_elements_to_matrix(n, vector, set_diagonal_to_minus_row_sum=False):
     """
     Construct a matrix of size nxn from a vector of off-diagonal elements
     """
     upper_indices = torch.triu_indices(n, k=1)  # Get indices of upper triangular elements
     lower_indices = torch.tril_indices(n, k=-1)  # Get indices of lower triangular elements
-    upper_values, lower_values = vector[:len(upper_indices[0])], vector[len(upper_indices[0]):]
+    upper_values, lower_values = vector[: len(upper_indices[0])], vector[len(upper_indices[0]) :]
     upper_matrix = torch.zeros((n, n))
     lower_matrix = torch.zeros((n, n))
     upper_matrix = upper_matrix.at[upper_indices].set(upper_values)
@@ -86,6 +91,7 @@ def off_diagonal_elements_to_matrix(n, vector, set_diagonal_to_minus_row_sum=Fal
     if set_diagonal_to_minus_row_sum:
         A = A - torch.diag(torch.sum(A, axis=-1))
     return A
+
 
 def get_stationary_distribution_and_relaxation_time(intensity_matrix):
     """
@@ -109,6 +115,7 @@ def get_stationary_distribution_and_relaxation_time(intensity_matrix):
     is_oscillating = ~np.isclose(np.imag(w[idx[0]]), 0)
     return stationary_distribution, relaxation_time, is_oscillating
 
+
 def get_mean_first_passage_times(intensity_matrix):
     """
     Compute the mean first passage times as defined in https://arxiv.org/pdf/2305.19744.pdf appendix B.
@@ -127,6 +134,7 @@ def get_mean_first_passage_times(intensity_matrix):
             p += 1
     return mean_first_passage_times
 
+
 def get_ordered_time_scales(intensity_matrix):
     """
     Compute the time scales as defined in https://arxiv.org/pdf/2305.19744.pdf appendix B.
@@ -142,6 +150,7 @@ def get_ordered_time_scales(intensity_matrix):
     idx = idx[::-1]
     return 1 / np.abs(w[idx])
 
+
 def off_diagonal_elements_to_flattened_vector(matrix):
     """
     Extract off-diagonal elements of a matrix and flatten them into a vector.
@@ -152,6 +161,7 @@ def off_diagonal_elements_to_flattened_vector(matrix):
     upper_values, lower_values = matrix[upper_indices], matrix[lower_indices]
     vector = torch.concatenate([upper_values, lower_values], axis=-1)
     return vector
+
 
 def off_diagonal_elements_to_flattened_vector_np(matrix):
     """
@@ -164,16 +174,39 @@ def off_diagonal_elements_to_flattened_vector_np(matrix):
     vector = np.concatenate([upper_values, lower_values], axis=-1)
     return vector
 
+
 def intensity_matrix_to_dfr_parameters(num_states, intensity_matrix):
     """
     Compute the parameters V, r, b from the intensity matrix of the flashing ratchet model
     """
     if num_states != 6:
         raise NotImplementedError("Only 6 states are supported")
-    r = (intensity_matrix[0,3] + intensity_matrix[1,4] + intensity_matrix[2,5] + intensity_matrix[3,0] + intensity_matrix[4,1] + intensity_matrix[5,2])/6
-    b = (intensity_matrix[3,4] + intensity_matrix[3,5] + intensity_matrix[4,3] + intensity_matrix[4,5] + intensity_matrix[5,3] + intensity_matrix[5,4])/6
-    V = (-2*np.log(intensity_matrix[0,1]) + -2*np.log(intensity_matrix[0,2])/2 + -2*np.log(intensity_matrix[1,0])/-1 + -2*np.log(intensity_matrix[1,2]) + -2*np.log(intensity_matrix[2,0])/-2 + -2*np.log(intensity_matrix[2,1])/-1)/6
+    r = (
+        intensity_matrix[0, 3]
+        + intensity_matrix[1, 4]
+        + intensity_matrix[2, 5]
+        + intensity_matrix[3, 0]
+        + intensity_matrix[4, 1]
+        + intensity_matrix[5, 2]
+    ) / 6
+    b = (
+        intensity_matrix[3, 4]
+        + intensity_matrix[3, 5]
+        + intensity_matrix[4, 3]
+        + intensity_matrix[4, 5]
+        + intensity_matrix[5, 3]
+        + intensity_matrix[5, 4]
+    ) / 6
+    V = (
+        -2 * np.log(intensity_matrix[0, 1])
+        + -2 * np.log(intensity_matrix[0, 2]) / 2
+        + -2 * np.log(intensity_matrix[1, 0]) / -1
+        + -2 * np.log(intensity_matrix[1, 2])
+        + -2 * np.log(intensity_matrix[2, 0]) / -2
+        + -2 * np.log(intensity_matrix[2, 1]) / -1
+    ) / 6
     return V, r, b
+
 
 def solve_homogenous_master_equation_exp(grids, p0, intensity_matrices):
     """
@@ -212,10 +245,12 @@ def solve_homogenous_master_equation_exp(grids, p0, intensity_matrices):
 
     return res
 
+
 def get_solutions_of_master_eq(initial_distribution, intensity_matrix, end_time=5, grid_size=100):
-    grid = np.linspace(0, end_time, grid_size).reshape(1,grid_size,1)
-    intensity_matrix_grid = np.array([intensity_matrix for _ in range(grid_size)]).reshape(1,grid_size,6,6)
+    grid = np.linspace(0, end_time, grid_size).reshape(1, grid_size, 1)
+    intensity_matrix_grid = np.array([intensity_matrix for _ in range(grid_size)]).reshape(1, grid_size, 6, 6)
     return solve_homogenous_master_equation_exp(grid, initial_distribution, intensity_matrix_grid)
+
 
 def compute_entropy_production(initial_distribution, intensity_matrix, end_time=5, grid_size=100):
     """
@@ -227,28 +262,29 @@ def compute_entropy_production(initial_distribution, intensity_matrix, end_time=
     intensity_matrix: [num_states, num_states]
     """
     p_t = get_solutions_of_master_eq(initial_distribution, intensity_matrix, end_time, grid_size)[0]
-    
+
     intensity_matrix = np.array(intensity_matrix)
     # Set diagonal of intensity matrix to zero
     np.fill_diagonal(intensity_matrix, 0)
-    
+
     # Expand dimensions to match p_t
     expanded_intensity_matrix = intensity_matrix[None, :, :]
-    
+
     # Compute the products for each pair and avoid division by zero
     p_n_m = p_t[:, :, None] * expanded_intensity_matrix
     p_m_n = p_t[:, None, :] * np.transpose(expanded_intensity_matrix, (0, 2, 1))
-    
+
     # Compute log ratios, safely handling zero entries
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         log_ratio = np.log(p_n_m / p_m_n)
         log_ratio[np.isnan(log_ratio)] = 0  # Set NaNs resulting from 0/0 to 0
-    
+
     # Compute entropy production for each time step
     entropy = np.sum(p_t[:, :, None] * expanded_intensity_matrix * log_ratio, axis=(1, 2))
-    
+
     # Return the average entropy production
     return np.mean(entropy)
+
 
 def compute_ground_truth_dfr_intensity_matrix(num_states, T, V, r, b):
     """
@@ -288,7 +324,6 @@ def compute_ground_truth_dfr_intensity_matrix(num_states, T, V, r, b):
     return A
 
 
-
 class Model:
     def __init__(self, **kwargs):
         self.name = kwargs.get("name")
@@ -319,13 +354,13 @@ class Model:
             if dataset.batch_size is None:
                 dataset.batch_size = num_samples
             for i in range(0, num_samples, dataset.batch_size):
-                observation_times = dataset.observation_times[i:i+dataset.batch_size]
-                observation_values = dataset.observation_values[i:i+dataset.batch_size]
-                sequence_lengths = dataset.sequence_lengths[i:i+dataset.batch_size]
-                time_normalization_factors = dataset.time_normalization_factors[i:i+dataset.batch_size]
-                adjacency_matrices = dataset.adjacency_matrices[i:i+dataset.batch_size]
+                observation_times = dataset.observation_times[i : i + dataset.batch_size]
+                observation_values = dataset.observation_values[i : i + dataset.batch_size]
+                sequence_lengths = dataset.sequence_lengths[i : i + dataset.batch_size]
+                time_normalization_factors = dataset.time_normalization_factors[i : i + dataset.batch_size]
+                adjacency_matrices = dataset.adjacency_matrices[i : i + dataset.batch_size]
                 call_input = (observation_times, observation_values, sequence_lengths, time_normalization_factors, adjacency_matrices)
-                train =  False 
+                train = False
                 model_output, updated_states = self.model_dict["vmap_model_call"](self.state.variables, train, *call_input)
                 embeddings, means, log_std, initial_distribution = model_output
                 confidence = torch.exp(log_std)
@@ -342,9 +377,15 @@ class Model:
             # We now split the paths into different batches with evaluation_path_count paths in each batch
             num_batches_per_sample = dataset.observation_times.shape[1] // evaluation_path_count
             for i in range(num_samples):
-                observation_times = dataset.observation_times[i, :num_batches_per_sample*evaluation_path_count].reshape(num_batches_per_sample, evaluation_path_count, dataset.observation_times.shape[2], dataset.observation_times.shape[3])
-                observation_values = dataset.observation_values[i, :num_batches_per_sample*evaluation_path_count].reshape(num_batches_per_sample, evaluation_path_count, dataset.observation_times.shape[2], dataset.observation_times.shape[3])
-                sequence_lengths = dataset.sequence_lengths[i, :num_batches_per_sample*evaluation_path_count].reshape(num_batches_per_sample, evaluation_path_count, 1)
+                observation_times = dataset.observation_times[i, : num_batches_per_sample * evaluation_path_count].reshape(
+                    num_batches_per_sample, evaluation_path_count, dataset.observation_times.shape[2], dataset.observation_times.shape[3]
+                )
+                observation_values = dataset.observation_values[i, : num_batches_per_sample * evaluation_path_count].reshape(
+                    num_batches_per_sample, evaluation_path_count, dataset.observation_times.shape[2], dataset.observation_times.shape[3]
+                )
+                sequence_lengths = dataset.sequence_lengths[i, : num_batches_per_sample * evaluation_path_count].reshape(
+                    num_batches_per_sample, evaluation_path_count, 1
+                )
                 time_normalization_factors = torch.Tensor([dataset.time_normalization_factors[i]] * num_batches_per_sample)
                 adjacency_matrices = torch.Tensor([dataset.adjacency_matrices[i]] * num_batches_per_sample)
                 call_input = (observation_times, observation_values, sequence_lengths, time_normalization_factors, adjacency_matrices)
@@ -353,19 +394,26 @@ class Model:
                 embeddings, means, log_std, initial_distribution = model_output
                 confidence = torch.exp(log_std)
                 initial_distributions.append(initial_distribution)
-                intensity_matrix_batch = [off_diagonal_elements_to_matrix(self.num_states, means[i], set_diagonal_to_minus_row_sum=True) for i in range(num_batches_per_sample)]
+                intensity_matrix_batch = [
+                    off_diagonal_elements_to_matrix(self.num_states, means[i], set_diagonal_to_minus_row_sum=True)
+                    for i in range(num_batches_per_sample)
+                ]
                 intensity_matrices.append(intensity_matrix_batch)
-                confidence_matrix_batch = [off_diagonal_elements_to_matrix(self.num_states, confidence[i], set_diagonal_to_minus_row_sum=False) for i in range(num_batches_per_sample)]
+                confidence_matrix_batch = [
+                    off_diagonal_elements_to_matrix(self.num_states, confidence[i], set_diagonal_to_minus_row_sum=False)
+                    for i in range(num_batches_per_sample)
+                ]
                 confidences.append(confidence_matrix_batch)
             intensity_matrices = torch.Tensor(intensity_matrices)
             confidences = torch.Tensor(confidences)
             initial_distributions = torch.Tensor(initial_distributions)
             # Assert that the shapes are correct
-            assert intensity_matrices.shape==(num_samples, num_batches_per_sample, self.num_states, self.num_states)
-            assert confidences.shape==(num_samples, num_batches_per_sample, self.num_states, self.num_states)
-            assert initial_distributions==(num_samples, num_batches_per_sample, self.num_states)
+            assert intensity_matrices.shape == (num_samples, num_batches_per_sample, self.num_states, self.num_states)
+            assert confidences.shape == (num_samples, num_batches_per_sample, self.num_states, self.num_states)
+            assert initial_distributions == (num_samples, num_batches_per_sample, self.num_states)
         return intensity_matrices, confidences, initial_distributions
-    
+
+
 def predict_physical_quantities(intensity_matrices, confidences, initial_distributions, ground_truth_num_states):
     # Compute the batch-wise means
     mean_intensity_matrices = torch.mean(intensity_matrices, axis=1)
@@ -378,7 +426,9 @@ def predict_physical_quantities(intensity_matrices, confidences, initial_distrib
     # set the diagonal to minus row sum
     for i in range(mean_intensity_matrices.shape[0]):
         for j in range(ground_truth_num_states):
-            mean_intensity_matrices = mean_intensity_matrices.at[i, j, j].set(-(torch.sum(mean_intensity_matrices[i,j])-mean_intensity_matrices[i,j,j]))
+            mean_intensity_matrices = mean_intensity_matrices.at[i, j, j].set(
+                -(torch.sum(mean_intensity_matrices[i, j]) - mean_intensity_matrices[i, j, j])
+            )
 
     stationary_distributions, relaxation_times, mean_first_passage_times, ordered_time_scales = [], [], [], []
     for intensity_matrix in mean_intensity_matrices:
@@ -406,6 +456,7 @@ def predict_physical_quantities(intensity_matrices, confidences, initial_distrib
 
     return data
 
+
 def compute_rmse(off_diagonal_ground_truth, off_diagonal_prediction, num_states, ground_truth_num_states=None):
     """
     Compute the rmse of the off-diagonal elements of the intensity matrix. We only consider the off-diagonal elements that correspond to the intensity rates of a ground_truth_num_states-state system.
@@ -416,7 +467,7 @@ def compute_rmse(off_diagonal_ground_truth, off_diagonal_prediction, num_states,
     """
     if ground_truth_num_states is not None:
         # Only select the elements that correspond to intensity rates of a ground_truth_num_states-state system
-        valid_entries = np.zeros((num_states,num_states), dtype=np.bool_)
+        valid_entries = np.zeros((num_states, num_states), dtype=np.bool_)
         valid_entries[:ground_truth_num_states, :ground_truth_num_states] = True
         valid_entries = np.array(valid_entries)
         valid_entries = off_diagonal_elements_to_flattened_vector_np(valid_entries)
@@ -447,6 +498,7 @@ def compute_rmse(off_diagonal_ground_truth, off_diagonal_prediction, num_states,
 
     return rmse_mean, rmse_std
 
+
 def get_mean_confidence(confidences, num_states, ground_truth_num_states=None):
     """
     Input:
@@ -463,7 +515,7 @@ def get_mean_confidence(confidences, num_states, ground_truth_num_states=None):
 
     # Select the valid entries
     if ground_truth_num_states is not None:
-        valid_entries = np.zeros((num_states,num_states), dtype=np.bool_)
+        valid_entries = np.zeros((num_states, num_states), dtype=np.bool_)
         valid_entries[:ground_truth_num_states, :ground_truth_num_states] = True
         valid_entries = np.array(valid_entries)
         valid_entries = off_diagonal_elements_to_flattened_vector_np(valid_entries)
@@ -482,7 +534,10 @@ def get_mean_confidence(confidences, num_states, ground_truth_num_states=None):
 
     return mean_confidence
 
-def compute_performance_metrics(dataset, ground_truth_intensity_matrices, intensity_matrices, confidences, initial_distributions, consider_initial_distributions=False):
+
+def compute_performance_metrics(
+    dataset, ground_truth_intensity_matrices, intensity_matrices, confidences, initial_distributions, consider_initial_distributions=False
+):
     # Compute off-diagonal intensities which has shape [num_samples, num_batches, num_states*num_states - num_states]
     off_diagonal_intensities = []
     for sample_idx in range(intensity_matrices.shape[0]):
@@ -491,12 +546,19 @@ def compute_performance_metrics(dataset, ground_truth_intensity_matrices, intens
             tmp.append(off_diagonal_elements_to_flattened_vector(intensity_matrix))
         off_diagonal_intensities.append(tmp)
     off_diagonal_intensities = np.array(off_diagonal_intensities)
-    off_diagonal_ground_truths = [off_diagonal_elements_to_flattened_vector(intensity_matrix) for intensity_matrix in ground_truth_intensity_matrices]
+    off_diagonal_ground_truths = [
+        off_diagonal_elements_to_flattened_vector(intensity_matrix) for intensity_matrix in ground_truth_intensity_matrices
+    ]
     off_diagonal_ground_truths = np.array(off_diagonal_ground_truths)
     rmse_means = []
     rmse_stds = []
     for sample_idx in range(intensity_matrices.shape[0]):
-        rmse_mean, rmse_std = compute_rmse(off_diagonal_ground_truths[sample_idx], off_diagonal_intensities[sample_idx], dataset.num_states, dataset.ground_truth_num_states)
+        rmse_mean, rmse_std = compute_rmse(
+            off_diagonal_ground_truths[sample_idx],
+            off_diagonal_intensities[sample_idx],
+            dataset.num_states,
+            dataset.ground_truth_num_states,
+        )
         rmse_means.append(rmse_mean)
         rmse_stds.append(rmse_std)
     intensity_mean_rmse = np.mean(rmse_means)
@@ -514,11 +576,14 @@ def compute_performance_metrics(dataset, ground_truth_intensity_matrices, intens
 
             initial_distribution_rmses = []
             for i in range(len(initial_distributions)):
-                initial_distribution_rmses.append(torch.sqrt(torch.mean(torch.square(initial_distributions[i] - dataset.ground_truth_initial_distributions[i]))))
+                initial_distribution_rmses.append(
+                    torch.sqrt(torch.mean(torch.square(initial_distributions[i] - dataset.ground_truth_initial_distributions[i])))
+                )
             initial_distribution_rmses = torch.Tensor(initial_distribution_rmses)
             initial_distribution_mean_rmse = torch.mean(initial_distribution_rmses)
         return intensity_mean_rmse, intensity_std_rmse, mean_confidence, initial_distribution_mean_rmse
     return intensity_mean_rmse, intensity_std_rmse, mean_confidence
+
 
 class Benchmark:
     def __init__(self, **kwargs):
@@ -535,27 +600,48 @@ class Benchmark:
             if dataset.ground_truth_intensity_matrices is not None and dataset.predict_physical_quantities:
                 # Store the ground truth physical quantities if it is available
                 ground_truth_intensity_matrices = np.array(dataset.ground_truth_intensity_matrices)
-                intensity_matrices = ground_truth_intensity_matrices.reshape(ground_truth_intensity_matrices.shape[0], 1, ground_truth_intensity_matrices.shape[1], ground_truth_intensity_matrices.shape[2])
+                intensity_matrices = ground_truth_intensity_matrices.reshape(
+                    ground_truth_intensity_matrices.shape[0],
+                    1,
+                    ground_truth_intensity_matrices.shape[1],
+                    ground_truth_intensity_matrices.shape[2],
+                )
                 confidences = np.zeros_like(intensity_matrices)
                 if dataset.ground_truth_initial_distributions is not None:
                     ground_truth_initial_distributions = np.array(dataset.ground_truth_initial_distributions)
-                    initial_distributions = ground_truth_initial_distributions.reshape(ground_truth_initial_distributions.shape[0], 1, ground_truth_initial_distributions.shape[1])
+                    initial_distributions = ground_truth_initial_distributions.reshape(
+                        ground_truth_initial_distributions.shape[0], 1, ground_truth_initial_distributions.shape[1]
+                    )
                 else:
                     initial_distributions = None
-                data[dataset.name]["ground_truth"] = predict_physical_quantities(intensity_matrices, confidences, initial_distributions, dataset.ground_truth_num_states)
+                data[dataset.name]["ground_truth"] = predict_physical_quantities(
+                    intensity_matrices, confidences, initial_distributions, dataset.ground_truth_num_states
+                )
         for model_config in self.model_configs:
             model = Model(**model_config)
             for dataset in self.datasets:
                 intensity_matrices, confidences, initial_distributions = model(dataset)
                 if dataset.ground_truth_intensity_matrices is not None:
-                    intensity_mean_rmse, intensity_std_rmse, mean_confidence, initial_distribution_mean_rmse = compute_performance_metrics(dataset, dataset.ground_truth_intensity_matrices, intensity_matrices, confidences, initial_distributions, consider_initial_distributions=True)
-                    data[dataset.name][model.name] = {"intensity_rate_metrics": {"rmse": {"mean": intensity_mean_rmse, "std": intensity_std_rmse}}, "mean_confidence": mean_confidence}
+                    intensity_mean_rmse, intensity_std_rmse, mean_confidence, initial_distribution_mean_rmse = compute_performance_metrics(
+                        dataset,
+                        dataset.ground_truth_intensity_matrices,
+                        intensity_matrices,
+                        confidences,
+                        initial_distributions,
+                        consider_initial_distributions=True,
+                    )
+                    data[dataset.name][model.name] = {
+                        "intensity_rate_metrics": {"rmse": {"mean": intensity_mean_rmse, "std": intensity_std_rmse}},
+                        "mean_confidence": mean_confidence,
+                    }
                     if initial_distribution_mean_rmse is not None:
                         data[dataset.name][model.name]["initial_distribution_metrics"] = {"rmse": {"mean": initial_distribution_mean_rmse}}
                 else:
                     data[dataset.name][model.name] = {}
                 if dataset.predict_physical_quantities:
-                    data[dataset.name][model.name].update(predict_physical_quantities(intensity_matrices, confidences, initial_distributions, dataset.ground_truth_num_states))
+                    data[dataset.name][model.name].update(
+                        predict_physical_quantities(intensity_matrices, confidences, initial_distributions, dataset.ground_truth_num_states)
+                    )
                 if "discrete_flashing_ratchet" in dataset.name or "DFR" in dataset.name:
                     if model.name != "ground_truth":
                         V_values, r_values, b_values = [], [], []
@@ -568,16 +654,26 @@ class Benchmark:
                             r_values.append(r)
                             b_values.append(b)
                             S.append(compute_entropy_production(initial_distribution, intensity_matrix))
-                        data[dataset.name][model.name]["dfr_parameters"] = {"mean_V": np.mean(V_values), "mean_r": np.mean(r_values), "mean_b": np.mean(b_values), "std_V": np.std(V_values), "std_r": np.std(r_values), "std_b": np.std(b_values), "mean_entropy_production": np.mean(S), "std_entropy_production": np.std(S)}
+                        data[dataset.name][model.name]["dfr_parameters"] = {
+                            "mean_V": np.mean(V_values),
+                            "mean_r": np.mean(r_values),
+                            "mean_b": np.mean(b_values),
+                            "std_V": np.std(V_values),
+                            "std_r": np.std(r_values),
+                            "std_b": np.std(b_values),
+                            "mean_entropy_production": np.mean(S),
+                            "std_entropy_production": np.std(S),
+                        }
             del model
         return data
-    
+
 
 def get_intensity_matrix_rmse(predicted_intensity_matrix, ground_truth_intensity_matrix):
     predicted_off_diagonal = off_diagonal_elements_to_flattened_vector(predicted_intensity_matrix)
     ground_truth_off_diagonal = off_diagonal_elements_to_flattened_vector(ground_truth_intensity_matrix)
-    rmse = torch.sqrt(np.mean((predicted_off_diagonal - ground_truth_off_diagonal)**2))
+    rmse = torch.sqrt(np.mean((predicted_off_diagonal - ground_truth_off_diagonal) ** 2))
     return rmse
+
 
 def print_quantity(data, dataset, quantity):
     print(f"Dataset: {dataset}")
@@ -585,6 +681,7 @@ def print_quantity(data, dataset, quantity):
         print(f"Model: {model}")
         print(f"{quantity}: {data[dataset][model][quantity]}")
     print("")
+
 
 def print_rates_rmse(data, file=None):
     if file is None:
@@ -598,10 +695,25 @@ def print_rates_rmse(data, file=None):
                 df = pd.DataFrame(columns=["Model", "RMSE"])
                 for model in data[dataset]:
                     if "intensity_rate_metrics" in data[dataset][model]:
-                        df = pd.concat([df, pd.DataFrame({"Model": model, "RMSE": str(data[dataset][model]['intensity_rate_metrics']['rmse']["mean"]) + " +- " + str(data[dataset][model]['intensity_rate_metrics']['rmse']["std"]), "Confidence": data[dataset][model]['mean_confidence']}, index=[0])], ignore_index=True)
+                        df = pd.concat(
+                            [
+                                df,
+                                pd.DataFrame(
+                                    {
+                                        "Model": model,
+                                        "RMSE": str(data[dataset][model]["intensity_rate_metrics"]["rmse"]["mean"])
+                                        + " +- "
+                                        + str(data[dataset][model]["intensity_rate_metrics"]["rmse"]["std"]),
+                                        "Confidence": data[dataset][model]["mean_confidence"],
+                                    },
+                                    index=[0],
+                                ),
+                            ],
+                            ignore_index=True,
+                        )
                 print("")
                 print("Dataset:", dataset)
-                print(tabulate(df, headers='keys', tablefmt='psql', showindex=False))
+                print(tabulate(df, headers="keys", tablefmt="psql", showindex=False))
                 print("")
     else:
         with open(file, "w") as f:
@@ -616,8 +728,23 @@ def print_rates_rmse(data, file=None):
                     df = pd.DataFrame(columns=["Model", "RMSE"])
                     for model in data[dataset]:
                         if "intensity_rate_metrics" in data[dataset][model]:
-                            df = pd.concat([df, pd.DataFrame({"Model": model, "RMSE": str(data[dataset][model]['intensity_rate_metrics']['rmse']["mean"]) + " +- " + str(data[dataset][model]['intensity_rate_metrics']['rmse']["std"]), "Confidence": data[dataset][model]['mean_confidence']}, index=[0])], ignore_index=True)
-                    f.write(tabulate(df, headers='keys', tablefmt='psql', showindex=False))
+                            df = pd.concat(
+                                [
+                                    df,
+                                    pd.DataFrame(
+                                        {
+                                            "Model": model,
+                                            "RMSE": str(data[dataset][model]["intensity_rate_metrics"]["rmse"]["mean"])
+                                            + " +- "
+                                            + str(data[dataset][model]["intensity_rate_metrics"]["rmse"]["std"]),
+                                            "Confidence": data[dataset][model]["mean_confidence"],
+                                        },
+                                        index=[0],
+                                    ),
+                                ],
+                                ignore_index=True,
+                            )
+                    f.write(tabulate(df, headers="keys", tablefmt="psql", showindex=False))
                     f.write("\n\n")
 
             # Now do the same to save the latex tables
@@ -632,9 +759,25 @@ def print_rates_rmse(data, file=None):
                     df = pd.DataFrame(columns=["Model", "RMSE"])
                     for model in data[dataset]:
                         if "intensity_rate_metrics" in data[dataset][model]:
-                            df = pd.concat([df, pd.DataFrame({"Model": model, "RMSE": str(data[dataset][model]['intensity_rate_metrics']['rmse']["mean"]) + " +- " + str(data[dataset][model]['intensity_rate_metrics']['rmse']["std"]), "Confidence": data[dataset][model]['mean_confidence']}, index=[0])], ignore_index=True)
-                    f.write(tabulate(df, headers='keys', tablefmt='latex_raw', showindex=False))
+                            df = pd.concat(
+                                [
+                                    df,
+                                    pd.DataFrame(
+                                        {
+                                            "Model": model,
+                                            "RMSE": str(data[dataset][model]["intensity_rate_metrics"]["rmse"]["mean"])
+                                            + " +- "
+                                            + str(data[dataset][model]["intensity_rate_metrics"]["rmse"]["std"]),
+                                            "Confidence": data[dataset][model]["mean_confidence"],
+                                        },
+                                        index=[0],
+                                    ),
+                                ],
+                                ignore_index=True,
+                            )
+                    f.write(tabulate(df, headers="keys", tablefmt="latex_raw", showindex=False))
                     f.write("\n\n")
+
 
 def compute_final_multi_state_score(data):
     """
@@ -652,19 +795,28 @@ def compute_final_multi_state_score(data):
         for model_name in model_names:
             rmse_mean_res = 0
             rmse_std_res = 0
-            for i in range(2,6):
-                rmse_mean_res += data[f"{i}_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["mean"] * 5
-                rmse_std_res += data[f"{i}_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["std"] * 5
-            rmse_mean_res += data["6_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["mean"] * 25
-            rmse_std_res += data["6_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["std"] * 25
-            rmse_mean_res /= 45 
+            for i in range(2, 6):
+                rmse_mean_res += (
+                    data[f"{i}_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["mean"] * 5
+                )
+                rmse_std_res += (
+                    data[f"{i}_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["std"] * 5
+                )
+            rmse_mean_res += (
+                data["6_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["mean"] * 25
+            )
+            rmse_std_res += (
+                data["6_st_10s_1%_noise_rand_300-samples-per-intensity"][model_name]["intensity_rate_metrics"]["rmse"]["std"] * 25
+            )
+            rmse_mean_res /= 45
             rmse_std_res /= 45
             rmse_mean_results.append(rmse_mean_res)
             rmse_std_results.append(rmse_std_res)
         return model_names, rmse_mean_results, rmse_std_results
-    except:
+    except Exception:
         print("Error in computing the final score.")
         return None
+
 
 def compare_to_other_papers(num_states, data, file):
     """
@@ -687,9 +839,9 @@ def compare_to_other_papers(num_states, data, file):
             f.write("   Mardt_et_al: [0.73, 0.27]\n")
             f.write("   NeuralMJP: [0.74, 0.26]\n")
             for model in data["Toy_Protein_Folding"]:
-                    np.set_printoptions(precision=2)
-                    stationary_distribution = np.array(data["Toy_Protein_Folding"][model]["stationary_distributions"][0])
-                    f.write(f"  {model}: {stationary_distribution}\n")
+                np.set_printoptions(precision=2)
+                stationary_distribution = np.array(data["Toy_Protein_Folding"][model]["stationary_distributions"][0])
+                f.write(f"  {model}: {stationary_distribution}\n")
             f.write("\n")
 
     if "Toy_Protein_Folding_neural_mjp_labels" in data:
@@ -708,9 +860,9 @@ def compare_to_other_papers(num_states, data, file):
             f.write("   Mardt_et_al: [0.73, 0.27]\n")
             f.write("   NeuralMJP: [0.74, 0.26]\n")
             for model in data["Toy_Protein_Folding_neural_mjp_labels"]:
-                    np.set_printoptions(precision=2)
-                    stationary_distribution = np.array(data["Toy_Protein_Folding_neural_mjp_labels"][model]["stationary_distributions"][0])
-                    f.write(f"  {model}: {stationary_distribution}\n")
+                np.set_printoptions(precision=2)
+                stationary_distribution = np.array(data["Toy_Protein_Folding_neural_mjp_labels"][model]["stationary_distributions"][0])
+                f.write(f"  {model}: {stationary_distribution}\n")
             f.write("\n")
 
     if "Two_Mode_Switching_System" in data:
@@ -719,7 +871,7 @@ def compare_to_other_papers(num_states, data, file):
             f.write("\n")
             np.set_printoptions(precision=2)
             ground_truth_intensity_matrix = data["Two_Mode_Switching_System"]["ground_truth"]["intensity_matrices"][0]
-            f.write(f"  Intensity Matrix\n")
+            f.write("  Intensity Matrix\n")
             koehs_et_al_intensity_matrix = np.array([[-0.64, 0.64], [0.63, -0.63]])
             f.write(f"  Koehs_et_al: {koehs_et_al_intensity_matrix}\n")
             neural_mjp_intensity_matrix = np.array([[-0.19, 0.19], [0.36, -0.36]])
@@ -739,7 +891,7 @@ def compare_to_other_papers(num_states, data, file):
                     rmse = data["Two_Mode_Switching_System"][model]["intensity_rate_metrics"]["rmse"]
                     f.write(f"  {model}: {rmse}\n")
             f.write("\n")
-    
+
     if "ion_channel_1s" in data:
         with open(file, "a") as f:
             f.write("Ion Channel 1s\n")
@@ -794,7 +946,7 @@ def compare_to_other_papers(num_states, data, file):
             f.write("\n")
             np.set_printoptions(precision=2)
             ground_truth_intensity_matrix = data["discrete_flashing_ratchet_shared_neural_mjp"]["ground_truth"]["intensity_matrices"][0]
-            f.write(f"  Intensity Matrix\n")
+            f.write("  Intensity Matrix\n")
             neural_mjp_intensity_matrix = compute_ground_truth_dfr_intensity_matrix(6, 1, 0.95, 1.18, 1.14)
             f.write(f"  NeuralMJP: {neural_mjp_intensity_matrix}\n")
             for model in data["discrete_flashing_ratchet_shared_neural_mjp"]:
@@ -817,7 +969,7 @@ def compare_to_other_papers(num_states, data, file):
             f.write("\n")
             np.set_printoptions(precision=2)
             ground_truth_intensity_matrix = data["discrete_flashing_ratchet_regular_neural_mjp"]["ground_truth"]["intensity_matrices"][0]
-            f.write(f"  Intensity Matrix\n")
+            f.write("  Intensity Matrix\n")
             neural_mjp_intensity_matrix = compute_ground_truth_dfr_intensity_matrix(6, 1, 1, 1.37, 1.36)
             f.write(f"  NeuralMJP: {neural_mjp_intensity_matrix}\n")
             for model in data["discrete_flashing_ratchet_regular_neural_mjp"]:
@@ -840,7 +992,7 @@ def compare_to_other_papers(num_states, data, file):
             f.write("\n")
             np.set_printoptions(precision=2)
             ground_truth_intensity_matrix = data["discrete_flashing_ratchet_irregular_neural_mjp"]["ground_truth"]["intensity_matrices"][0]
-            f.write(f"  Intensity Matrix\n")
+            f.write("  Intensity Matrix\n")
             neural_mjp_intensity_matrix = compute_ground_truth_dfr_intensity_matrix(6, 1, 0.98, 1.11, 1.13)
             f.write(f"  NeuralMJP: {neural_mjp_intensity_matrix}\n")
             for model in data["discrete_flashing_ratchet_irregular_neural_mjp"]:
@@ -862,15 +1014,24 @@ def compare_to_other_papers(num_states, data, file):
             f.write("ADP\n")
             f.write("\n")
             np.set_printoptions(precision=2)
-            f.write(f"  Intensity Matrix\n")
-            neural_mjp_intensity_matrix = np.array([[0, 53, 0.19, 7.9, 0.06, 0.02], [47, 0, 0.05, 12, 0.04, 0.01], [0.28, 0.13, 0, 17, 0.02, 0.04], [36, 26.9, 41, 0, 0.3, 0.01], [0.17, 0.2, 0.4, 0.2, 0, 3], [1.2, 1.8, 0.5, 0.7, 19, 0]])
+            f.write("  Intensity Matrix\n")
+            neural_mjp_intensity_matrix = np.array(
+                [
+                    [0, 53, 0.19, 7.9, 0.06, 0.02],
+                    [47, 0, 0.05, 12, 0.04, 0.01],
+                    [0.28, 0.13, 0, 17, 0.02, 0.04],
+                    [36, 26.9, 41, 0, 0.3, 0.01],
+                    [0.17, 0.2, 0.4, 0.2, 0, 3],
+                    [1.2, 1.8, 0.5, 0.7, 19, 0],
+                ]
+            )
             for i in range(6):
                 neural_mjp_intensity_matrix[i, i] = -torch.sum(neural_mjp_intensity_matrix[i])
             f.write(f"  NeuralMJP: {neural_mjp_intensity_matrix}\n")
             for model in data["ADP"]:
                 if "intensity_matrices" in data["ADP"][model]:
                     intensity_matrix = np.array(data["ADP"][model]["intensity_matrices"][0])
-                    intensity_matrix *= 1000 # Convert to the same time scale as NeuralMJP
+                    intensity_matrix *= 1000  # Convert to the same time scale as NeuralMJP
                     f.write(f"  {model}: {intensity_matrix}\n")
             f.write("\n")
 
@@ -879,17 +1040,27 @@ def compare_to_other_papers(num_states, data, file):
             f.write("ADP NeuralMJP Labels\n")
             f.write("\n")
             np.set_printoptions(precision=2)
-            f.write(f"  Intensity Matrix\n")
-            neural_mjp_intensity_matrix = np.array([[0, 53, 0.19, 7.9, 0.06, 0.02], [47, 0, 0.05, 12, 0.04, 0.01], [0.28, 0.13, 0, 17, 0.02, 0.04], [36, 26.9, 41, 0, 0.3, 0.01], [0.17, 0.2, 0.4, 0.2, 0, 3], [1.2, 1.8, 0.5, 0.7, 19, 0]])
+            f.write("  Intensity Matrix\n")
+            neural_mjp_intensity_matrix = np.array(
+                [
+                    [0, 53, 0.19, 7.9, 0.06, 0.02],
+                    [47, 0, 0.05, 12, 0.04, 0.01],
+                    [0.28, 0.13, 0, 17, 0.02, 0.04],
+                    [36, 26.9, 41, 0, 0.3, 0.01],
+                    [0.17, 0.2, 0.4, 0.2, 0, 3],
+                    [1.2, 1.8, 0.5, 0.7, 19, 0],
+                ]
+            )
             for i in range(6):
                 neural_mjp_intensity_matrix[i, i] = -torch.sum(neural_mjp_intensity_matrix[i])
             f.write(f"  NeuralMJP: {neural_mjp_intensity_matrix}\n")
             for model in data["ADP_neural_mjp_labels"]:
                 if "intensity_matrices" in data["ADP_neural_mjp_labels"][model]:
                     intensity_matrix = np.array(data["ADP_neural_mjp_labels"][model]["intensity_matrices"][0])
-                    intensity_matrix *= 1000 # Convert to the same time scale as NeuralMJP
+                    intensity_matrix *= 1000  # Convert to the same time scale as NeuralMJP
                     f.write(f"  {model}: {intensity_matrix}\n")
             f.write("\n")
+
 
 class json_serialize(json.JSONEncoder):
     def default(self, obj):
@@ -903,10 +1074,11 @@ class json_serialize(json.JSONEncoder):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
 
+
 @click.command()
 @click.option("-c", "--config", "cfg_path", required=True, type=click.Path(exists=True), help="path to config file")
 def main(cfg_path: Path) -> None:
-    cfg: dict = load_yaml(cfg_path,return_object=False)
+    cfg: dict = load_yaml(cfg_path, return_object=False)
     num_states = cfg["num_states"]
 
     benchmark = Benchmark(**cfg)
@@ -950,6 +1122,3 @@ def main(cfg_path: Path) -> None:
 
 if __name__ == "__main__":
     main()
-
-
-

@@ -64,12 +64,8 @@ def build_dfs(data: dict, horizon_len: int = 128, sigma: float = 0.0, mask_p: in
             y_context = data[f"fine_grid_noisy_sample_paths_sigma_{sigma}"][sample_id, :-horizon_len, dim]
             y_horizon = data[f"fine_grid_noisy_sample_paths_sigma_{sigma}"][sample_id, -horizon_len:, dim]
             # convert time stamps to datetime
-            ds_context = np.array(
-                [float2datetime(ts) for ts in data["fine_grid_grid"][sample_id][:-horizon_len].squeeze()]
-            )
-            ds_horizon = np.array(
-                [float2datetime(ts) for ts in data["fine_grid_grid"][sample_id][-horizon_len:].squeeze()]
-            )
+            ds_context = np.array([float2datetime(ts) for ts in data["fine_grid_grid"][sample_id][:-horizon_len].squeeze()])
+            ds_horizon = np.array([float2datetime(ts) for ts in data["fine_grid_grid"][sample_id][-horizon_len:].squeeze()])
 
             # mask out values and grid
             y_context = y_context[mask_context == 1]
@@ -282,9 +278,7 @@ if __name__ == "__main__":
 
                     metrics_single_config = pd.DataFrame(metrics)
 
-                    metrics_single_config.to_csv(
-                        os.path.join(result_dir, f"metrics_{mask_p}_{dim}_{sigma}.csv"), index=False
-                    )
+                    metrics_single_config.to_csv(os.path.join(result_dir, f"metrics_{mask_p}_{dim}_{sigma}.csv"), index=False)
 
                     # visualization
                     # visualize_random_samples(result_dir, mask_p, dim, sigma, df_input, df_output, prediction_df)

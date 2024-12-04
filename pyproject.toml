@@ -15,7 +15,7 @@ authors = [
 
 ]
 license = { file = "LICENSE.txt" }
-requires-python = ">=3.12"
+requires-python = ">=3.10,<3.13"
 dependencies = [
    "torch==2.5.0",
    "transformers==4.46.0",
@@ -47,6 +47,7 @@ dependencies = [
    "recommonmark",
    "colorlog",
    "torchinfo",
+   "ruff",
 ]
 
 
@@ -61,21 +62,29 @@ minversion = "6.0"
 addopts = "-ra"
 testpaths = ["tests"]
 
+
+[tool.ruff]
+
+target-version = "py312"
+
+
+line-length = 140
+
 [tool.ruff.lint]
 # Never enforce `E501` (line length violations).
 ignore = ["C901", "E501", "E741", "F402", "F823", "I001"]
 select = ["C", "E", "F", "I", "W"]
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
-[tool.ruff]
-line-length = 140
 
-# Ignore import violations in all `__init__.py` files.
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401", "F403", "F811"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
 known-first-party = ["fim"]
+
 
 [tool.ruff.format]
 # Like Black, use double quotes for strings.
@@ -89,3 +98,17 @@ skip-magic-trailing-comma = false
 
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
+
+[tool.pylint]
+disable = [
+   "C0103", # Invalid variable name
+   "C0114", # Missing module docstring
+
+   #    "C0115",  # Missing class docstring
+   #    "C0116",  # Missing function or method docstring
+   #    "R0903",  # Too few public methods
+   #    "R0913",  # Too many arguments
+   #    "R0914",  # Too many local variables
+   #    "R0915",  # Too many statements
+]
+max-line-length = 140

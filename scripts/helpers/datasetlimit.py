@@ -1,4 +1,3 @@
-import pickle
 from pathlib import Path
 import torch
 
@@ -23,4 +22,4 @@ for file in Path(PATH).rglob("*.pt"):
         #     print(k, v.shape)
         torch.save(limited_data, str(OUT_PATH) + "/" + file.stem + ".pt")
         # with open(str(OUT_PATH) + "/" + file.name, "wb") as f_out:
-            # pickle.dump(limited_data, f_out)
+        # pickle.dump(limited_data, f_out)

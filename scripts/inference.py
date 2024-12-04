@@ -9,11 +9,8 @@ from fim.utils.helper import load_yaml
 from fim.utils.evaluation import EvaluationFactory
 
 
-
 @click.command()
-@click.option(
-    "--config", "-c", default="config.yaml", type=click.Path(exists=True, dir_okay=False), help="Path to config file."
-)
+@click.option("--config", "-c", default="config.yaml", type=click.Path(exists=True, dir_okay=False), help="Path to config file.")
 @click.option("--quiet", "log_level", flag_value=logging.WARNING, default=True)
 @click.option("-v", "--verbose", "log_level", flag_value=logging.INFO)
 @click.option("-vv", "--very-verbose", "log_level", flag_value=logging.DEBUG)

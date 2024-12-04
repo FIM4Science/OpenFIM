@@ -1,7 +1,7 @@
 import os
 
 import torch
-from dlpack import asdlpack
+from dlpack import asdlpack  # noqa: F401
 
 
 def convert_pickle_to_pt(root_dir):

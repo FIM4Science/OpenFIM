@@ -5,6 +5,7 @@ from itertools import pairwise
 import random
 from tqdm import tqdm
 
+
 class PatcherDecoderOnlyStyle:
     """
     Split each time series into (overlapping) context windows, then into patches. Store corresponding target (horizon) values.
@@ -25,13 +26,7 @@ class PatcherDecoderOnlyStyle:
         - start: start time of the considered patch sequence (note: currently dummy time, needs to be fixed it ever necessary)
     """
 
-    def __init__(
-        self, 
-        max_context_len: int, 
-        patch_len_in: int, 
-        patch_len_out: int, 
-        overlap_context_windows: Optional[int] = None
-    ):
+    def __init__(self, max_context_len: int, patch_len_in: int, patch_len_out: int, overlap_context_windows: Optional[int] = None):
         self.max_context_len = max_context_len
         self.patch_len_in = patch_len_in
         self.patch_len_out = patch_len_out
@@ -60,7 +55,7 @@ class PatcherDecoderOnlyStyle:
         context_start_indices = list(
             range(
                 0,
-                len(time_series) - self.max_context_len - self.patch_len_out+1,
+                len(time_series) - self.max_context_len - self.patch_len_out + 1,
                 self.max_context_len - self.overlap_context_windows,
             )
         )
@@ -84,15 +79,11 @@ class PatcherDecoderOnlyStyle:
         Returns:
             tuple[list[list[float]], list[list[float]]]: The input patches and the corresponding predictions.
         """
-        patch_start_indices = [
-            patch_id * self.patch_len_in for patch_id in range(0, self.max_nr_patches_per_context_window)
-        ]
+        patch_start_indices = [patch_id * self.patch_len_in for patch_id in range(0, self.max_nr_patches_per_context_window)]
         patch_start_indices.append(self.max_context_len)
 
         patches_in = [context_window[start:end] for start, end in pairwise(patch_start_indices)]
-        patches_out = [
-            context_window[patch_end : patch_end + self.patch_len_out] for patch_end in patch_start_indices[1:]
-        ]
+        patches_out = [context_window[patch_end : patch_end + self.patch_len_out] for patch_end in patch_start_indices[1:]]
 
         return patches_in, patches_out
 
@@ -137,9 +128,7 @@ class PatcherDecoderOnlyStyle:
         """
         # create first patch mask
         r = random.randint(0, len(patches_in[0]) - 1)
-        mask_point_level = [
-            [True] * r + [False] * (len(patches_in[0]) - r) + [True] * (self.patch_len_in - len(patches_in[0]))
-        ]
+        mask_point_level = [[True] * r + [False] * (len(patches_in[0]) - r) + [True] * (self.patch_len_in - len(patches_in[0]))]
 
         # create patch masks for all patches except the last one
         if nr_patches > 2:
@@ -147,9 +136,7 @@ class PatcherDecoderOnlyStyle:
 
         # append padding mask for last patch if necessary
         if nr_patches > 1:
-            mask_point_level.extend(
-                [[False] * len(patches_in[-1]) + [True] * (self.patch_len_in - len(patches_in[-1]))]
-            )
+            mask_point_level.extend([[False] * len(patches_in[-1]) + [True] * (self.patch_len_in - len(patches_in[-1]))])
 
         return mask_point_level
 

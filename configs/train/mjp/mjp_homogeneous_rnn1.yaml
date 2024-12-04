@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_miss_link_w_single_gpu_test
+  name: FIM_MJP_Homogeneous
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [0]
   device_map: auto # auto, cuda, cpu
@@ -116,14 +116,14 @@ trainer:
   experiment_dir: ./results/
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      beta: 1.0
+      beta: 100.0
       label: gauss_nll
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: init_cross_entropy
       beta: 1.0
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       label: missing_link
-      beta: 50.0
+      beta: 1.0
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer

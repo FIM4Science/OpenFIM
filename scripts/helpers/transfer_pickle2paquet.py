@@ -52,8 +52,7 @@ def read_data(path, split):
         data["fine_grid_concept_values"] = data["fine_grid_concept_values"][0]
 
     print(
-        "avg. number of masked values: "
-        + str(torch.mean(torch.sum(data["coarse_grid_observation_mask"], dim=1).float()).item()),
+        "avg. number of masked values: " + str(torch.mean(torch.sum(data["coarse_grid_observation_mask"], dim=1).float()).item()),
         flush=True,
     )
 
@@ -88,9 +87,7 @@ def save_data(data: dict, split: str, target_path: str):
     print(f"Data {split} saved as parquet file.", flush=True)
 
 
-data_source_path = (
-    "/cephfs_projects/foundation_models/data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/"
-)
+data_source_path = "/cephfs_projects/foundation_models/data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/"
 data_destination_path = "data/2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/"
 split = "train"
 data_train = read_data(data_source_path, split)

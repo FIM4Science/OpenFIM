@@ -1,6 +1,16 @@
 # FIM
 
+<div align="center">
+  <a href="https://github.com/cvejoski/FIM/actions/workflows/ci.yml">
+    <img src="https://github.com/cvejoski/FIM/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/cvejoski/FIM/blob/main/LICENSE.txt">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
+  </a>
+</div>
+
 This project contains all the models developed in the "Foundation Models for Inference" series of papers.
+
 
 ## Table of Contents
 - FIM
@@ -38,14 +48,6 @@ Optional and needed only once after `git clone`:
    ```
 
    and check out the configuration under `.pre-commit-config.yaml`. The `-n, --no-verify` flag of `git commit` can be used to deactivate pre-commit hooks temporarily.
-
-4. Install [nbstripout] git hooks to remove the output cells of committed notebooks with:
-
-   ```bash
-   nbstripout --install --attributes notebooks/.gitattributes
-   ```
-
-   This is useful to avoid large diffs due to plots in your notebooks. A simple `nbstripout --uninstall` will revert these changes.
 
 Then take a look into the `scripts` and `notebooks` folders.
 

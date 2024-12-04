@@ -1,11 +1,14 @@
 import numpy as np
+from tick.hawkes import HawkesKernelTimeFunc, SimuHawkes
+
 
 from tick.hawkes import SimuHawkes, HawkesKernelTimeFunc
     
 def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths, n_events_per_path, seed=0):
+
     """
     Run a Hawkes simulation with the given kernels.
-    
+
     Args:
     baselines: np.array of length num_marks
         The time independent intensities.
@@ -17,7 +20,7 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
         The number of paths to simulate.
     n_events_per_path: int
         The number of events per path.
-        
+
     Returns:
     event_times: np.array [num_paths, n_events_per_path]
         The event times.
@@ -28,7 +31,7 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
     for i in range(len(kernel_grids)):
         kernel = HawkesKernelTimeFunc(t_values=kernel_grids[i], y_values=kernel_evaluations[i])
         hawkes.set_kernel(i, i, kernel)
-        
+
     event_times = np.zeros((num_paths, n_events_per_path))
     event_types = np.zeros((num_paths, n_events_per_path))
     try:
@@ -36,11 +39,13 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
             hawkes.reset()
             hawkes.simulate()
             event_times[i], event_types[i] = tick_timestamps_to_single_timeseries(hawkes.timestamps)
-    except: # If the simulation fails, return zeros
+    except Exception as e:
+        print(f"Simulation failed with error: {e}")
         return np.zeros((num_paths, n_events_per_path)), np.zeros((num_paths, n_events_per_path))
-    
+
     return event_times, event_types
-        
+
+
 def tick_timestamps_to_single_timeseries(tick_timestamps):
     """
     The tick library returns the timestamps for every event type.

@@ -1,16 +1,18 @@
 ---
-language: en
 tags:
 - sequence-classification
 - time-series
 - stochastic-processes
 - markov-jump-processes
-license: apache-2.0
+license: cc-by-4.0
 datasets:
 - custom
 metrics:
 - rmse
 - Hellinger distance
+library_name:
+- fim
+- transformers
 ---
 
 # Foundation Inference Model (FIM) for Markov Jump Processes  Model Card

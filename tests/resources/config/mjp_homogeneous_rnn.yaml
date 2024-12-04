@@ -43,6 +43,7 @@ model:
   name: FIMMJP
   n_states: 6
   use_adjacency_matrix: false
+  use_num_of_paths: true
 
   ts_encoder:
     name: fim.models.blocks.base.RNNEncoder

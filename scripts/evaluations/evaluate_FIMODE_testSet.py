@@ -82,8 +82,6 @@ if __name__ == "__main__":
         ],
     )
 
-    model_chkpts = [
-        "results/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth"
-    ]
+    model_chkpts = ["results/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth"]
     for model_chkpt in model_chkpts:
         evaluate_one_configuration(model_chkpt, dl, output_base_dir)

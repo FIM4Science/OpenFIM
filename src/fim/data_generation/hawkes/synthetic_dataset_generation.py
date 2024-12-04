@@ -1,15 +1,18 @@
+
 import os
 import random
 import time
+from multiprocessing import Pool
+
 import numpy as np
 import torch
 from tqdm import tqdm
-from multiprocessing import Pool
 
-from fim.leftovers_from_old_library import create_class_instance
 from fim.data_generation.hawkes.hawkes_simulation import run_hawkes_simulation
+from fim.leftovers_from_old_library import create_class_instance
 
-class HawkesDatasetGenerator():
+
+class HawkesDatasetGenerator:
     def __init__(self, **kwargs) -> None:
         self.num_samples_train = kwargs["num_samples_train"]
         self.num_samples_val = kwargs["num_samples_val"]
@@ -53,6 +56,7 @@ class HawkesDatasetGenerator():
         with Pool(self.num_procs) as pool:
             for result in tqdm(pool.imap(self._generate_chunk, chunks), total=len(chunks)):
                 baselines, kernel_grids, kernel_evaluations, event_time, event_type = result
+
                 baseline_data.extend(baselines)
                 kernel_grid_data.extend(kernel_grids)
                 kernel_evaluation_data.extend(kernel_evaluations)
@@ -66,7 +70,7 @@ class HawkesDatasetGenerator():
         event_type_data = np.array(event_type_data, dtype=dtype)
 
         # Detect invalid samples, that is, samples with no events
-        valid_samples = np.sum(event_time_data, axis=(1,2)) != 0
+        valid_samples = np.sum(event_time_data, axis=(1, 2)) != 0
         print("Ratio of invalid samples: ", (num_samples - np.sum(valid_samples)) / num_samples)
 
         # Remove invalid samples
@@ -113,12 +117,14 @@ class HawkesKernelSampler():
         self.num_marks = kwargs["num_marks"]
         self.kernel_grid_size = kwargs["kernel_grid_size"]
         self.baseline_sampler = create_class_instance(kwargs["baseline_sampler"])
-        self.kernel_function_samplers = [create_class_instance(kernel_function_sampler) for kernel_function_sampler in kwargs["kernel_function_samplers"].values()]
-        
-    def  __call__(self):
+        self.kernel_function_samplers = [
+            create_class_instance(kernel_function_sampler) for kernel_function_sampler in kwargs["kernel_function_samplers"].values()
+        ]
+
+    def __call__(self):
         """
         Sample the parameters for the Hawkes kernel.
-        
+
         Returns:
         kernel_grids: np.array
             The time grids on which the kernels get evaluated.
@@ -136,5 +142,3 @@ class HawkesKernelSampler():
             kernel_evaluations.append(values)
             baselines.append(self.baseline_sampler())
         return baselines, np.array(kernel_grids), np.array(kernel_evaluations)
-
-        
