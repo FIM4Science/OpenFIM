@@ -146,7 +146,7 @@ class FIMHawkes(AModel):
         Args:
             x (dict[str, Tensor]): A dictionary containing the input tensors:
                 - "event_times": Tensor representing the event times.
-                - "event_marks": Tensor representing the event marks.
+                - "event_types": Tensor representing the event types.
                 - "kernel_grids": Tensor representing the times at which to evaluate the kernel.
                 - Optional keys for loss calculation:
                     - "base_intensities": Tensor representing the ground truth base intensity.
@@ -160,6 +160,8 @@ class FIMHawkes(AModel):
                 - "baseline_intensity": Tensor representing the predicted baseline intensity.
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
+        x["event_times"] = x["event_times"][:,:,:100]
+        x["event_types"] = x["event_types"][:,:,:100]
         x["observation_values_one_hot"] = torch.nn.functional.one_hot(x["event_types"].long().squeeze(-1), num_classes=self.num_marks)
 
         obs_grid = x["event_times"]
@@ -174,7 +176,7 @@ class FIMHawkes(AModel):
         # FIXME: REMOVE THIS!
         x["kernel_grids"] = x["kernel_grids"][:, :, ::10]
         x["kernel_evaluations"] = x["kernel_evaluations"][:, :, ::10]
-        self.logger.warning("Kernel grids and evaluations are truncated to 10!")
+        # self.logger.warning("Kernel grids and evaluations are truncated to 10!")
 
         sequence_encodings = self.__encode_observations(x)  # [B, P, L, D]
 

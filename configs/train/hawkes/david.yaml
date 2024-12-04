@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_mini
+  name: FIM_Hawkes_10k_exp_500_paths_100_events
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -16,17 +16,17 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/train
-      # - data/synthetic_data/hawkes/10k_hawkes_exp/train
+      # - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/train
+      - data/synthetic_data/hawkes/10k_hawkes_exp/train
 
     validation: !!python/tuple
-      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/val
-      # - data/synthetic_data/hawkes/10k_hawkes_exp/val
+      # - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/val
+      - data/synthetic_data/hawkes/10k_hawkes_exp/val
 
   loader_kwargs:
-    batch_size: 1
-    num_workers: 0
-    test_batch_size: 1
+    batch_size: 3
+    num_workers: 8
+    test_batch_size: 3
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"
@@ -34,7 +34,7 @@ dataset:
       event_types: "event_types.pt"
       kernel_evaluations: "kernel_evaluations.pt"
       kernel_grids: "kernel_grids.pt"
-     data_limit: 10
+    # data_limit: 10
 
 rnn_embed_dim: &rnn_embed_dim 64 # Has to be half of path_embed_dim for bidirectional LSTM
 path_embed_dim: &path_embed_dim 128
