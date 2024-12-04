@@ -42,8 +42,8 @@ class FIMMJPConfig(PretrainedConfig):
         self,
         n_states: int = 2,
         use_adjacency_matrix: bool = False,
-        ts_encoder: dict = None,
-        pos_encodings: dict = None,
+        ts_encoder: dict = None, #FIXME: Remove None for mandatory parameters
+        pos_encodings: dict = None, #FIXME: Change to time_encodings
         path_attention: dict = None,
         intensity_matrix_decoder: dict = None,
         initial_distribution_decoder: dict = None,
@@ -268,7 +268,7 @@ class FIMMJP(AModel):
         elif isinstance(self.ts_encoder, RNNEncoder):
             h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
             last_observation = x["seq_lengths"].view(B * P) - 1
-            h = h[torch.arange(B * P), last_observation].view(B, P, -1)
+            h = h[torch.arange(B * P), last_observation].view(B, P, -1) #TODO: We are planning to use the output of all states in the future
             h = self.path_attention(h, h, h)
         if self.config.use_num_of_paths:
             h = torch.cat([h, torch.ones(B, 1).to(h.device) / 100.0 * P], dim=-1)

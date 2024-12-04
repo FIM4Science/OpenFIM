@@ -1,0 +1,149 @@
+experiment:
+  name: FIM_Hawkes_10k_exp_500_paths_100_events
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  seed: [10]
+  device_map: auto # auto, cuda, cpu
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+dataset:
+  name: FIMDataLoader
+  path_collections:
+    train: !!python/tuple
+      # - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/train
+      - data/synthetic_data/hawkes/10k_hawkes_exp/train
+
+    validation: !!python/tuple
+      # - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/val
+      - data/synthetic_data/hawkes/10k_hawkes_exp/val
+
+  loader_kwargs:
+    batch_size: 3
+    num_workers: 8
+    test_batch_size: 3
+  dataset_kwargs:
+    files_to_load:
+      base_intensities: "base_intensities.pt"
+      event_times: "event_times.pt"
+      event_types: "event_types.pt"
+      kernel_evaluations: "kernel_evaluations.pt"
+      kernel_grids: "kernel_grids.pt"
+    # data_limit: 10
+
+rnn_embed_dim: &rnn_embed_dim 64 # Has to be half of path_embed_dim for bidirectional LSTM
+path_embed_dim: &path_embed_dim 128
+process_embed_dim: &process_embed_dim 128
+
+model:
+  model_type: fimhawkes
+  num_marks: &num_marks 1
+
+  time_encodings:
+    name: fim.models.blocks.positional_encodings.DeltaTimeEncoding
+
+  event_type_embedding:
+    name: fim.models.blocks.IdentityBlock
+    out_features: *num_marks
+
+  ts_encoder:
+    name: fim.models.blocks.base.RNNEncoder
+
+    rnn:
+      name: torch.nn.LSTM
+      hidden_size: *rnn_embed_dim
+      batch_first: true
+      bidirectional: true
+
+  trunk_net:
+    name: fim.models.blocks.base.MLP
+    out_features: *path_embed_dim
+    hidden_layers: !!python/tuple [128, 128]
+    hidden_act:
+      name: torch.nn.SELU
+    dropout: 0
+    initialization_scheme: lecun_normal
+
+  Omega_1_encoder:
+    name: torch.nn.MultiheadAttention
+    embed_dim: *process_embed_dim
+    num_heads: 1
+    batch_first: true
+
+  Omega_2_encoder:
+    name: fim.models.blocks.MultiHeadLearnableQueryAttention
+    n_queries: 16
+    n_heads: 1
+    embed_dim: *process_embed_dim
+    kv_dim: 128
+
+  Omega_3_encoder:
+    name: fim.models.blocks.MultiHeadLearnableQueryAttention
+    n_queries: 16
+    n_heads: 1
+    embed_dim: *process_embed_dim
+    kv_dim: 128
+
+  Omega_4_encoder:
+    name: fim.models.blocks.MultiHeadLearnableQueryAttention
+    n_queries: 16
+    n_heads: 1
+    embed_dim: 2048 # TODO: stop hardcoding the output dimension of Omega_2_encoder
+    kv_dim: 128
+
+  kernel_value_decoder:
+    name: fim.models.blocks.base.MLP
+    in_features: 2048 # TODO: stop hardcoding the output dimension of Omega_2_encoder
+    hidden_layers: !!python/tuple [128, 128]
+    hidden_act:
+      name: torch.nn.SELU
+    dropout: 0
+    initialization_scheme: lecun_normal
+
+  kernel_parameter_decoder:
+    name: fim.models.blocks.base.MLP
+    in_features: 2048 # TODO: stop hardcoding the output dimension of Omega_4_encoder
+    hidden_layers: !!python/tuple [128, 128]
+    hidden_act:
+      name: torch.nn.SELU
+    dropout: 0
+    initialization_scheme: lecun_normal
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 5000
+  detect_anomaly: false
+  save_every: 10
+  gradient_accumulation_steps: 4
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      beta: 1.0
+      label: gauss_nll
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: init_cross_entropy
+      beta: 1.0
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: missing_link
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: 0.0001
+      weight_decay: 0.0001
+      # gradient_norm_clipping: 10
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      #     T_max: *epochs
+      #     eta_min: 0.0000001
+      #     last_epoch: -1
