@@ -188,7 +188,7 @@ class FIMHawkes(AModel):
 
         static_path_summary = self.__Omega_4_encoder(static_path_embeddings)  # [B, D_4]
 
-        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel]
+        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel, M]
 
         predicted_kernel_decay_and_base_intensity = torch.exp(self.__kernel_parameter_decoder(static_path_summary))  # [B, M, 2]
         predicted_base_intensity = predicted_kernel_decay_and_base_intensity[:, :, 0]
@@ -317,8 +317,7 @@ class FIMHawkes(AModel):
         B, M, L_kernel, D_3 = time_dependent_path_summary.shape
         time_dependent_path_summary = time_dependent_path_summary.view(B * M * L_kernel, D_3)
         h = self.kernel_value_decoder(time_dependent_path_summary)
-
-        return h.view(B, M, L_kernel)
+        return h.view(B, M, L_kernel, M) # Because the output of kernel_value_decoder is M dimensional
 
     def __kernel_parameter_decoder(self, static_path_summary: Tensor) -> Tensor:
         h = self.kernel_parameter_decoder(static_path_summary)
@@ -339,6 +338,10 @@ class FIMHawkes(AModel):
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
+        B, M, L_kernel, M = predicted_kernel_values.shape
+        # Select the state to which the corresponding kernel evaluation belongs since kernel_value_decoder predicts for all states
+        idx = torch.arange(M, device=predicted_kernel_values.device).view(1, M, 1, 1)
+        predicted_kernel_values = predicted_kernel_values.gather(3, idx.repeat(B, 1, L_kernel, 1)).squeeze(-1)
         assert target_kernel_values.shape == predicted_kernel_values.shape
         assert target_base_intensity.shape == predicted_base_intensity.shape
         
