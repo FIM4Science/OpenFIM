@@ -1,4 +1,3 @@
-from loguru import logger
 from torch.optim.lr_scheduler import LRScheduler, _warn_get_lr_called_within_step
 from torch.optim.optimizer import Optimizer
 

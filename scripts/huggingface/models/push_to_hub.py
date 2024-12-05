@@ -30,11 +30,11 @@ mjp_config = FIMMJPConfig(
 )
 # mjp = FIMMJP(mjp_config)
 mjp = FIMMJP.load_model(
-    "/home/cvejoski/Projects/FoundationModels/FIM/results/FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_same-experiment-seed-0_11-06-1535/checkpoints/best-model"
+    "/home/cvejoski/Projects/FoundationModels/FIM/results/FIM_MJP_Homogeneous_no_annealing_rnn_256_path_attention_one_head_model_dim_var_path_same-experiment-seed-0_11-07-2123/checkpoints/best-model"
 )
 
 
-mjp.push_to_hub("cvejoski/FIMMJP")
+mjp.push_to_hub("FIM4Science/fim-mjp")
 
 # from transformers import AutoModel
 

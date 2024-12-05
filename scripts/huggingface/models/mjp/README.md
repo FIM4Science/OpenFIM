@@ -150,12 +150,12 @@ from transformers import AutoModel
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Loading the model
-model = AutoModel.from_pretrained("cvejoski/FIMMJP", trust_remote_code=True)
+model = AutoModel.from_pretrained("FIM4Science/fim-mjp", trust_remote_code=True)
 model = model.to(device)
 model.eval()
 
 # Loading the Discrete Flashing Ratchet (DFR) dataset from Huggingface
-data = load_dataset("cvejoski/mjp", download_mode="force_redownload", trust_remote_code=True, name="DFR_V=1")
+data = load_dataset("FIM4Science/mjp", download_mode="force_redownload", trust_remote_code=True, name="DFR_V=1")
 data.set_format("torch")
 
 # Create batch
