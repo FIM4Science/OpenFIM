@@ -78,25 +78,20 @@ model:
     n_queries: 16
     n_heads: 1
     embed_dim: *process_embed_dim
-    kv_dim: 128
 
   Omega_3_encoder:
     name: fim.models.blocks.MultiHeadLearnableQueryAttention
     n_queries: 16
     n_heads: 1
     embed_dim: *process_embed_dim
-    kv_dim: 128
 
   Omega_4_encoder:
     name: fim.models.blocks.MultiHeadLearnableQueryAttention
     n_queries: 16
     n_heads: 1
-    embed_dim: 2048 # TODO: stop hardcoding the output dimension of Omega_2_encoder
-    kv_dim: 128
 
   kernel_value_decoder:
     name: fim.models.blocks.base.MLP
-    in_features: 2048 # TODO: stop hardcoding the output dimension of Omega_2_encoder
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
@@ -105,7 +100,6 @@ model:
 
   kernel_parameter_decoder:
     name: fim.models.blocks.base.MLP
-    in_features: 2048 # TODO: stop hardcoding the output dimension of Omega_4_encoder
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU

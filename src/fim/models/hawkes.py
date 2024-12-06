@@ -131,11 +131,14 @@ class FIMHawkes(AModel):
 
         self.Omega_3_encoder = create_class_instance(Omega_3_encoder.pop("name"), Omega_3_encoder)
 
+        Omega_4_encoder["embed_dim"] = self.Omega_2_encoder.out_features
         self.Omega_4_encoder = create_class_instance(Omega_4_encoder.pop("name"), Omega_4_encoder)
 
+        kernel_value_decoder["in_features"] = self.Omega_3_encoder.out_features
         kernel_value_decoder["out_features"] = self.num_marks
         self.kernel_value_decoder = create_class_instance(kernel_value_decoder.pop("name"), kernel_value_decoder)
 
+        kernel_parameter_decoder["in_features"] = self.Omega_4_encoder.out_features
         kernel_parameter_decoder["out_features"] = 2 * self.num_marks
         self.kernel_parameter_decoder = create_class_instance(kernel_parameter_decoder.pop("name"), kernel_parameter_decoder)
 
