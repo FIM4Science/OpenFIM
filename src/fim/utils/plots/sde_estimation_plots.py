@@ -1,16 +1,19 @@
 import os
-import numpy as np
-from torch import Tensor
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.gridspec import GridSpec
-from fim.utils.helper import select_dimension_for_plot
-from fim.pipelines.sde_pipelines import FIMSDEPipelineOutput
+from torch import Tensor
+
 from fim.data.datasets import FIMSDEDatabatchTuple
+from fim.pipelines.sde_pipelines import FIMSDEPipelineOutput
+from fim.utils.helper import select_dimension_for_plot
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
-def plot_one_dimension(
+def plot_1d_vf_real_and_estimation(
     locations: Tensor,
     drift_at_locations_real: Tensor,
     drift_at_locations_estimation: Tensor,
@@ -19,7 +22,8 @@ def plot_one_dimension(
     show=True,
 ):
     """
-    just one dimension plot
+    Plots estimated drift and diffusion along real parts and returns the figure.
+    Selected 1D data already.
     """
     fig, ax1 = plt.subplots()
     color = "tab:red"
@@ -47,17 +51,17 @@ def plot_one_dimension(
         return fig
 
 
-def plot_drift_diffussion(
+def plot_2d_vf_real_and_estimation(
     locations: Tensor,
     drift_at_locations_real: Tensor,
-    diffusion_at_locations_real: Tensor,
     drift_at_locations_estimation: Tensor,
+    diffusion_at_locations_real: Tensor,
     diffusion_at_locations_estimation: Tensor,
     show: bool = True,
 ):
     """
     Plots estimated drift and diffusion along real parts and returns the figure.
-    selected 2D already
+    Selected 2D data already.
     """
     # Extract grid points (x, y)
     x, y = locations[:, 0], locations[:, 1]
@@ -98,17 +102,18 @@ def plot_drift_diffussion(
         return fig  # Return the figure to log
 
 
-def plot_3d_drift_and_diffusion(
+def plot_3d_vf_real_and_estimation(
     locations: Tensor,
     drift_at_locations_real: Tensor,
-    diffusion_at_locations_real: Tensor,
     drift_at_locations_estimation: Tensor,
+    diffusion_at_locations_real: Tensor,
     diffusion_at_locations_estimation: Tensor,
     your_fixed_x_value: float = -1.0,
     show: bool = True,
 ):
     """
-    Dimensions already selected
+    Plots estimated drift and diffusion along real parts and returns the figure.
+    Selected 3D data already.
     """
     # Assuming `locations` is a NumPy array of shape (P, 3), and `estimated_drift`, `estimated_diffusion`, `ground_truth_drift`, and `ground_truth_diffusion` are also NumPy arrays of shape (P, 3).
     tolerance = 0.1  # tolerance for finding points close to the desired x_0 value
@@ -201,7 +206,7 @@ def images_log_3D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSD
     locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
         selected_data
     )
-    fig = plot_3d_drift_and_diffusion(
+    fig = plot_3d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
         drift_at_locations_estimation,
@@ -227,11 +232,11 @@ def images_log_2D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSD
     locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
         selected_data
     )
-    fig = plot_drift_diffussion(
+    fig = plot_2d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
-        diffusion_at_locations_real,
         drift_at_locations_estimation,
+        diffusion_at_locations_real,
         diffusion_at_locations_estimation,
         show=False,
     )
@@ -253,7 +258,7 @@ def images_log_1D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSD
     locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
         selected_data
     )
-    fig = plot_one_dimension(
+    fig = plot_1d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
         drift_at_locations_estimation,

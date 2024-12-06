@@ -1,10 +1,13 @@
 from fim.data.config_dataclasses import FIMDatasetConfig
-
-from fim.models.sde import FIMSDE
 from fim.models.config_dataclasses import FIMSDEConfig
+from fim.models.sde import FIMSDE
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
 from fim.utils.helper import select_dimension_for_plot
-from fim.utils.plots.sde_estimation_plots import plot_one_dimension, plot_drift_diffussion, plot_3d_drift_and_diffusion
+from fim.utils.plots.sde_estimation_plots import (
+    plot_1d_vf_real_and_estimation,
+    plot_2d_vf_real_and_estimation,
+    plot_3d_vf_real_and_estimation,
+)
 
 
 def test_plot_1d():
@@ -29,7 +32,7 @@ def test_plot_1d():
     locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
         selected_data
     )
-    plot_one_dimension(
+    plot_1d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
         drift_at_locations_estimation,
@@ -61,11 +64,11 @@ def test_plot_2d():
     locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
         selected_data
     )
-    plot_drift_diffussion(
+    plot_2d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
-        diffusion_at_locations_real,
         drift_at_locations_estimation,
+        diffusion_at_locations_real,
         diffusion_at_locations_estimation,
         show=True,
     )
@@ -93,7 +96,7 @@ def test_plot_3d():
     locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
         selected_data
     )
-    plot_3d_drift_and_diffusion(
+    plot_3d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
         drift_at_locations_estimation,
@@ -105,4 +108,6 @@ def test_plot_3d():
 
 
 if __name__ == "__main__":
+    test_plot_1d()
+    test_plot_2d()
     test_plot_3d()
