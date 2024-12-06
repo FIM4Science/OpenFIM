@@ -112,9 +112,9 @@ class MultiHeadLearnableQueryAttention(Block):
     def forward(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor: #FIXME: I think it would be less confusing if we not take some placeholder q as input
         B, L, _ = k.size()
 
-        q = self.q.expand(B, -1, -1, -1).view(B * self.n_heads, self.n_queries, self.head_dim)
-        k = self.W_k(k).reshape(B, L, self.n_heads, self.head_dim).permute(0, 2, 1, 3).view(B * self.n_heads, L, self.head_dim)
-        v = self.W_v(v).reshape(B, L, self.n_heads, self.head_dim).permute(0, 2, 1, 3).view(B * self.n_heads, L, self.head_dim)
+        q = self.q.expand(B, -1, -1, -1).reshape(B * self.n_heads, self.n_queries, self.head_dim)
+        k = self.W_k(k).reshape(B, L, self.n_heads, self.head_dim).permute(0, 2, 1, 3).reshape(B * self.n_heads, L, self.head_dim)
+        v = self.W_v(v).reshape(B, L, self.n_heads, self.head_dim).permute(0, 2, 1, 3).reshape(B * self.n_heads, L, self.head_dim)
 
         h = scaled_dot_product_attention(q, k, v, mask)
         h = h.view(B, self.n_heads, self.n_queries, self.head_dim).permute(0, 2, 1, 3).contiguous()
@@ -124,6 +124,10 @@ class MultiHeadLearnableQueryAttention(Block):
             h = h.view(B, -1)
 
         return h
+    
+    @property
+    def out_features(self):
+        return self.n_heads * self.head_dim * self.n_queries if not self.output_projection else self.n_heads * self.head_dim
 
 
 class TransformerBlock(Block):
