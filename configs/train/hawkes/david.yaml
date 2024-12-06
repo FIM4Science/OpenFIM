@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_10k_exp_500_paths_100_events_bigger_model
+  name: FIM_Hawkes_1k_5_st_exp_500_paths_100_events_bigger_model
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -16,10 +16,10 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/10k_hawkes_exp_500_paths_100_events/train
+      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/10k_hawkes_exp_500_paths_100_events/val
+      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/val
 
   loader_kwargs:
     batch_size: 3
@@ -40,7 +40,7 @@ process_embed_dim: &process_embed_dim 256
 
 model:
   model_type: fimhawkes
-  num_marks: &num_marks 1
+  num_marks: &num_marks 5
 
   time_encodings:
     name: fim.models.blocks.positional_encodings.DeltaTimeEncoding

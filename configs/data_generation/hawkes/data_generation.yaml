@@ -1,11 +1,11 @@
 process_type: &process_type "hawkes" # hawkes, mjp, etc.
-dataset_name: &dataset_name "10_5_st_hawkes_exp_500_paths_100_events"
+dataset_name: &dataset_name "1K_2_st_hawkes_exp_500_paths_100_events"
 
 data_generator:
   class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesDatasetGenerator
-  num_samples_train: &num_samples_train 10
-  num_samples_val: &num_samples_val 1
-  num_samples_test: &num_samples_test 1
+  num_samples_train: &num_samples_train 1_000
+  num_samples_val: &num_samples_val 100
+  num_samples_test: &num_samples_test 100
   num_paths: 500
   n_events_per_path: 100
   num_procs: 16
