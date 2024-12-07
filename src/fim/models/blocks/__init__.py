@@ -11,10 +11,9 @@ from transformers import AutoConfig, PretrainedConfig, PreTrainedModel
 
 from ...trainers.utils import is_distributed
 from ...utils.logging import RankLoggerAdapter
-from .base import MLP, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer, TransformerBlock, TransformerEncoder, IdentityBlock
+from .base import MLP, IdentityBlock, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer, TransformerBlock, TransformerEncoder
 from .normalization import MinMaxNormalization
 from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
-
 
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 __all__ = [
@@ -95,4 +94,4 @@ class ModelFactory:
         if model_class:
             return model_class(config)
         else:
-            raise ValueError("Invalid model type")
+            raise ValueError(f"Invalid model type: {config.model_type}")

@@ -2,10 +2,7 @@ import numpy as np
 from tick.hawkes import HawkesKernelTimeFunc, SimuHawkes
 
 
-from tick.hawkes import SimuHawkes, HawkesKernelTimeFunc
-    
 def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths, n_events_per_path, seed=0):
-
     """
     Run a Hawkes simulation with the given kernels.
 

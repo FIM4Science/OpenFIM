@@ -24,10 +24,10 @@ repos:
       - id: mixed-line-ending
         args: ["--fix=lf"] # replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
 
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.11.5
-    hooks:
-      - id: isort
+  # - repo: https://github.com/PyCQA/isort
+  #   rev: 5.11.5
+  #   hooks:
+  #     - id: isort
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.

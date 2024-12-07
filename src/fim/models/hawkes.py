@@ -191,7 +191,7 @@ class FIMHawkes(AModel):
 
         static_path_summary = self.__Omega_4_encoder(static_path_embeddings)  # [B, D_4]
 
-        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary) # [B, M, L_kernel, M]
+        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_path_summary)  # [B, M, L_kernel, M]
 
         predicted_kernel_decay_and_base_intensity = torch.exp(self.__kernel_parameter_decoder(static_path_summary))  # [B, M, 2]
         predicted_base_intensity = predicted_kernel_decay_and_base_intensity[:, :, 0]
@@ -256,7 +256,9 @@ class FIMHawkes(AModel):
         # TODO: If there are any bugs, its likely due to this function because its a bit complex
         # TODO: I am also not sure if this function is optimized for memory usage
         assert trunk_net_encoding.shape[0] == observation_encoding.shape[0]
-        assert trunk_net_encoding.shape[-1] == observation_encoding.shape[-1]
+        assert (
+            trunk_net_encoding.shape[-1] == observation_encoding.shape[-1]
+        ), f"{trunk_net_encoding.shape[-1]} != {observation_encoding.shape[-1]}"
         B, M, L_kernel, D = trunk_net_encoding.shape
         B, P, L, D = observation_encoding.shape
 
@@ -320,7 +322,7 @@ class FIMHawkes(AModel):
         B, M, L_kernel, D_3 = time_dependent_path_summary.shape
         time_dependent_path_summary = time_dependent_path_summary.view(B * M * L_kernel, D_3)
         h = self.kernel_value_decoder(time_dependent_path_summary)
-        return h.view(B, M, L_kernel, M) # Because the output of kernel_value_decoder is M dimensional
+        return h.view(B, M, L_kernel, M)  # Because the output of kernel_value_decoder is M dimensional
 
     def __kernel_parameter_decoder(self, static_path_summary: Tensor) -> Tensor:
         h = self.kernel_parameter_decoder(static_path_summary)
@@ -347,7 +349,7 @@ class FIMHawkes(AModel):
         predicted_kernel_values = predicted_kernel_values.gather(3, idx.repeat(B, 1, L_kernel, 1)).squeeze(-1)
         assert target_kernel_values.shape == predicted_kernel_values.shape
         assert target_base_intensity.shape == predicted_base_intensity.shape
-        
+
         predicted_kernel_function = predicted_kernel_values * torch.exp(-predicted_kernel_decay.unsqueeze(-1))
 
         kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2))

@@ -78,7 +78,7 @@ class TestTrainMJP:
         return tmp_path_factory.mktemp("results")
 
     def test_trainer_mjp(self, results_dir):
-        TRAIN_CONF = test_data_path / "config" / "mjp_homogeneous_mini.yaml"
+        TRAIN_CONF = test_data_path / "config" / "mjp" / "mjp_homogeneous_mini.yaml"
 
         config = load_yaml(TRAIN_CONF, True)
         config.trainer.experiment_dir = results_dir

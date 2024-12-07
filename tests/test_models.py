@@ -2,13 +2,13 @@
 # pylint: disable=missing-function-docstring
 # pylint: disable=line-too-long
 
+
 import pytest
 import torch
-from pathlib import Path
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import FIMMJP, FIMMJPConfig, FIMODEConfig, FIMHawkes, FIMHawkesConfig
+from fim.models import FIMMJP, FIMHawkes, FIMHawkesConfig, FIMMJPConfig, FIMODEConfig
 from fim.models.blocks import AModel, ModelFactory
 from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
 
@@ -78,13 +78,13 @@ class TestMJP:
 
     @pytest.fixture
     def config(self):
-        conf_path = test_data_path / "config" / "mjp_homogeneous_mini.yaml"
+        conf_path = test_data_path / "config" / "mjp" / "mjp_homogeneous_mini.yaml"
         train_config = load_yaml(conf_path, True)
         return train_config
 
     @pytest.fixture
     def config_rnn(self):
-        conf_path = test_data_path / "config" / "mjp_homogeneous_rnn.yaml"
+        conf_path = test_data_path / "config" / "mjp" / "mjp_homogeneous_rnn.yaml"
         train_config = load_yaml(conf_path, True)
         return train_config
 
@@ -234,7 +234,7 @@ class TestFIMHawkes:
 
     @pytest.fixture
     def config(self):
-        conf_path = Path("configs/train/hawkes/mini.yaml")
+        conf_path = test_data_path / "config" / "hawkes" / "mini.yaml"
         train_config = load_yaml(conf_path, True)
         return train_config
 
@@ -269,65 +269,55 @@ class TestFIMHawkes:
             event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
             ts_encoder={
                 "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {
-                    "name": "torch.nn.LSTM",
-                    "hidden_size": 64,
-                    "batch_first": True,
-                    "bidirectional": True
-                }
+                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
             },
             trunk_net={
                 "name": "fim.models.blocks.base.MLP",
-                "out_features": 128,
-                "hidden_layers": [128, 128],
+                "out_features": 8,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            Omega_1_encoder={
-                "name": "torch.nn.MultiheadAttention",
-                "embed_dim": 128,
-                "num_heads": 1,
-                "batch_first": True
-            },
+            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
             Omega_2_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_3_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_4_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
                 "embed_dim": 2048,
-                "kv_dim": 128
+                "kv_dim": 8,
             },
             kernel_value_decoder={
                 "name": "fim.models.blocks.base.MLP",
                 "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
             kernel_parameter_decoder={
                 "name": "fim.models.blocks.base.MLP",
                 "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            loss="TBD"
+            loss="TBD",
         )
         model = FIMHawkes(config)
         assert model.num_marks == num_marks
@@ -368,65 +358,55 @@ class TestFIMHawkes:
             event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
             ts_encoder={
                 "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {
-                    "name": "torch.nn.LSTM",
-                    "hidden_size": 64,
-                    "batch_first": True,
-                    "bidirectional": True
-                }
+                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
             },
             trunk_net={
                 "name": "fim.models.blocks.base.MLP",
-                "out_features": 128,
-                "hidden_layers": [128, 128],
+                "out_features": 8,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            Omega_1_encoder={
-                "name": "torch.nn.MultiheadAttention",
-                "embed_dim": 128,
-                "num_heads": 1,
-                "batch_first": True
-            },
+            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
             Omega_2_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_3_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_4_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
                 "embed_dim": 2048,
-                "kv_dim": 128
+                "kv_dim": 8,
             },
             kernel_value_decoder={
                 "name": "fim.models.blocks.base.MLP",
                 "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
             kernel_parameter_decoder={
                 "name": "fim.models.blocks.base.MLP",
                 "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            loss="TBD"
+            loss="TBD",
         )
         model = FIMHawkes(config_rnn)
         assert model.ts_encoder is not None
@@ -457,9 +437,9 @@ class TestFIMHawkes:
     #     assert out["predicted_base_intensity"].shape == (batch_size, num_marks)
 
     def test_summary(self, model, dataloader):
-        from torchinfo import summary
         batch = next(iter(dataloader.train_it))
         x = {key: val.unsqueeze(0).to(model.device) for key, val in batch.items()}
+        print(x)
 
     def test_save_load_model(self, model, tmp_path):
         model.save_pretrained(tmp_path)
@@ -467,8 +447,8 @@ class TestFIMHawkes:
         loaded_model = FIMHawkes.from_pretrained(tmp_path)
         assert model.config.num_marks == loaded_model.config.num_marks
         assert model.state_dict().keys() == loaded_model.state_dict().keys()
-        
-        
+
+
 class TestFIMHawkes5ST:
     @pytest.fixture
     def device(self):
@@ -481,7 +461,7 @@ class TestFIMHawkes5ST:
 
     @pytest.fixture
     def config(self):
-        conf_path = Path("configs/train/hawkes/mini_5_st.yaml")
+        conf_path = conf_path = test_data_path / "config" / "hawkes" / "mini_5_st.yaml"
         train_config = load_yaml(conf_path, True)
         return train_config
 
@@ -504,65 +484,55 @@ class TestFIMHawkes5ST:
             event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
             ts_encoder={
                 "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {
-                    "name": "torch.nn.LSTM",
-                    "hidden_size": 64,
-                    "batch_first": True,
-                    "bidirectional": True
-                }
+                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
             },
             trunk_net={
                 "name": "fim.models.blocks.base.MLP",
-                "out_features": 128,
-                "hidden_layers": [128, 128],
+                "out_features": 8,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            Omega_1_encoder={
-                "name": "torch.nn.MultiheadAttention",
-                "embed_dim": 128,
-                "num_heads": 1,
-                "batch_first": True
-            },
+            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
             Omega_2_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
+                "n_queries": 2,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_3_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
+                "n_queries": 2,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_4_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
+                "n_queries": 2,
                 "n_heads": 1,
-                "embed_dim": 2048,
-                "kv_dim": 128
+                "embed_dim": 32,
+                "kv_dim": 8,
             },
             kernel_value_decoder={
                 "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "in_features": 32,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
             kernel_parameter_decoder={
                 "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "in_features": 32,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            loss="TBD"
+            loss="TBD",
         )
         model = FIMHawkes(config)
         assert model.num_marks == num_marks
@@ -603,65 +573,55 @@ class TestFIMHawkes5ST:
             event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
             ts_encoder={
                 "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {
-                    "name": "torch.nn.LSTM",
-                    "hidden_size": 64,
-                    "batch_first": True,
-                    "bidirectional": True
-                }
+                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
             },
             trunk_net={
                 "name": "fim.models.blocks.base.MLP",
-                "out_features": 128,
-                "hidden_layers": [128, 128],
+                "out_features": 8,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            Omega_1_encoder={
-                "name": "torch.nn.MultiheadAttention",
-                "embed_dim": 128,
-                "num_heads": 1,
-                "batch_first": True
-            },
+            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
             Omega_2_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_3_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
-                "embed_dim": 128,
-                "kv_dim": 128
+                "embed_dim": 8,
+                "kv_dim": 8,
             },
             Omega_4_encoder={
                 "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
                 "n_queries": 16,
                 "n_heads": 1,
-                "embed_dim": 2048,
-                "kv_dim": 128
+                "embed_dim": 32,
+                "kv_dim": 8,
             },
             kernel_value_decoder={
                 "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "in_features": 32,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
             kernel_parameter_decoder={
                 "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [128, 128],
+                "in_features": 32,
+                "hidden_layers": [8, 8],
                 "hidden_act": {"name": "torch.nn.SELU"},
                 "dropout": 0,
-                "initialization_scheme": "lecun_normal"
+                "initialization_scheme": "lecun_normal",
             },
-            loss="TBD"
+            loss="TBD",
         )
         model = FIMHawkes(config_rnn)
         assert model.ts_encoder is not None
@@ -670,9 +630,9 @@ class TestFIMHawkes5ST:
         assert model.ts_encoder.rnn.bidirectional is True
 
     def test_summary(self, model, dataloader):
-        from torchinfo import summary
         batch = next(iter(dataloader.train_it))
         x = {key: val.unsqueeze(0).to(model.device) for key, val in batch.items()}
+        print(x)
 
     def test_save_load_model(self, model, tmp_path):
         model.save_pretrained(tmp_path)

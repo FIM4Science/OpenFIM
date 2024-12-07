@@ -109,7 +109,9 @@ class MultiHeadLearnableQueryAttention(Block):
         if self.output_projection:
             self.W_o = nn.Linear(self.kv_dim if kv_dim else self.embed_dim, self.embed_dim, bias=False)
 
-    def forward(self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None) -> Tensor: #FIXME: I think it would be less confusing if we not take some placeholder q as input
+    def forward(
+        self, q: Tensor, k: Tensor, v: Tensor, mask: Optional[Tensor] = None
+    ) -> Tensor:  # FIXME: I think it would be less confusing if we not take some placeholder q as input
         B, L, _ = k.size()
 
         q = self.q.expand(B, -1, -1, -1).reshape(B * self.n_heads, self.n_queries, self.head_dim)
@@ -124,7 +126,7 @@ class MultiHeadLearnableQueryAttention(Block):
             h = h.view(B, -1)
 
         return h
-    
+
     @property
     def out_features(self):
         return self.n_heads * self.head_dim * self.n_queries if not self.output_projection else self.n_heads * self.head_dim
@@ -365,10 +367,11 @@ class IdentityBlock(Block):
     """
     A dummy block that represents the identity function.
     """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if "out_features" in kwargs:
             self.out_features = kwargs["out_features"]
-            
+
     def forward(self, x: dict | torch.Tensor) -> dict | torch.Tensor:
         return x

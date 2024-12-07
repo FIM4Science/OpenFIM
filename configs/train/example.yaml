@@ -30,7 +30,7 @@ dataset:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
       observation_values: "fine_grid_noisy_sample_paths.pt"
-      mask_seq_lengths: "fine_grid_mask_seq_lengths.pt"
+      seq_lengths: "fine_grid_mask_seq_lengths.pt"
       time_normalization_factors: "fine_grid_time_normalization_factors.pt"
       intensity_matrices: "fine_grid_intensity_matrices.pt"
       adjacency_matrices: "fine_grid_adjacency_matrices.pt"
@@ -40,9 +40,10 @@ dataset:
 model_dim: &model_dim 64
 
 model:
-  name: FIMMJP
+  model_type: fimmjp
   n_states: 6
-  use_adjacency_matrix: False
+  use_adjacency_matrix: false
+  use_num_of_paths: true
 
   ts_encoder:
     name: fim.models.blocks.base.TransformerEncoder
@@ -90,7 +91,7 @@ model:
 
 trainer:
   name: Trainer
-  debug_iterations: null
+  debug_iterations: 5
   precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: &epochs 2
   detect_anomaly: false
