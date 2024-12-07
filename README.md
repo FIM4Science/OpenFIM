@@ -9,16 +9,23 @@
   </a>
 </div>
 
-This project contains all the models developed in the "Foundation Models for Inference" series of papers.
+The [FIM library](https://github.com/FIM4Science/FIM) is used to easily train and evaluate deep neural networks using [Pytorch](https://pytorch.org/).
+Instead of coding models and training routines it suffices to write a simple .yaml file, allowing for quick
+and simple experimentation to solve complex problems.
+
+In particular this library stems from the "Foundation Models for Inference" series of papers. The trained models of those are published on
+[Hugging Face](https://huggingface.co/FIM4Science) and will also be introduced in the following sections of this tutorial.
 
 
 ## Table of Contents
 - FIM
-  - [Table of Contents](#table-of-contents)
   - [Installation](#installation)
   - [Usage](#usage)
   - [Configuration File Explanation](#configuration-file-explanation)
+  - [Models](#models)
+    - [Markov Jump Process](#markov-jump-process)
   - [Contributing](#contributing)
+  - [Lamarr’s DL4SD lab](#lamarrs-dl4sd-lab)
   - [License](#license)
 
 ## Installation
@@ -254,6 +261,25 @@ optimizers: !!python/tuple
 
 - `optimizers`: Configuration for the optimizers.
 
+## Models
+
+Currently, the following models are implemented:
+
+  - [Markov Jump Process](#markov-jump-process)
+
+### Markov Jump Process
+
+This model is based on the paper:
+
+- David Berghaus, Kostadin Cvejoski, Patrick Seifner, Cesar Ojeda, Ramses J. Sanchez, "Foundation Inference Models for Markov Jump Processes," 2024. [arXiv:2406.06419](https://arxiv.org/abs/2406.06419).
+
+Markov jump processes are continuous-time stochastic processes which describe dynamical systems evolving in discrete state spaces. These processes find wide application in the natural sciences and machine learning, but their inference is known to be far from trivial. In this work we introduce a methodology for zero-shot inference of Markov jump processes (MJPs), on bounded state spaces, from noisy and sparse observations, which consists of two components. First, a broad probability distribution over families of MJPs, as well as over possible observation times and noise mechanisms, with which we simulate a synthetic dataset of hidden MJPs and their noisy observation process. Second, a neural network model that processes subsets of the simulated observations, and that is trained to output the initial condition and rate matrix of the target MJP in a supervised way. We empirically demonstrate that one and the same (pretrained) model can infer, in a zero-shot fashion, hidden MJPs evolving in state spaces of different dimensionalities. Specifically, we infer MJPs which describe (i) discrete flashing ratchet systems, which are a type of Brownian motors, and the conformational dynamics in (ii) molecular simulations, (iii) experimental ion channel data and (iv) simple protein folding models. What is more, we show that our model performs on par with state-of-the-art models which are finetuned to the target datasets.
+
+> For a detailed tutorial on how to use the FIM-MJP model, please refer to the [Jupyter Notebook](notebooks/tutorials/fim-mjp.ipynb). The model is also available on [Hugging Face](https://huggingface.co/FIM4Science/fim-mjp).
+
+
+
+
 ## Contributing
 
 Contributions are welcome! Here's how you can contribute to this project:
@@ -277,6 +303,19 @@ Contributions are welcome! Here's how you can contribute to this project:
    ```
 
 4. Open a pull request.
+
+## Lamarr’s DL4SD lab
+
+Lamarr’s Deep Learning for Scientific Discovery (DL4SD) lab is an interdisciplinary team of researchers working at the intersection of machine learning, statistical physics, and complexity science, to develop neural systems that automatically construct scientific hypotheses — articulated as mathematical models — to explain complex natural and social phenomena.
+
+To achieve this overarching goal, we design pre-trained neural recognition models that encode classical mathematical models commonly used in the natural and social sciences. And focus on mathematical models that are simple enough to remain approximately valid across a wide range of observation scales, from microscopic to coarse-grained.
+
+Neural networks encode information through data processing. We therefore leverage simulations of the mathematical models we seek to encode (that is, their approximate solutions), to connect the data representing these solutions with the corresponding equations. Once encoded into our neural networks, (the representations of) these mathematical models can be compared and combined by both humans and neural reasoners trained to construct novel scientific hypotheses directly from data.
+
+Fundamentally, these pre-trained neural recognition models enable the zero-shot inference of (the parameters defining) the mathematical equations they encode directly from data. We refer to these models as Foundation Inference Models (FIMs).
+
+We are excited to announce the release of our library with the first pre-trained FIMs, providing a foundation for researchers to explore and use our ideas.
+
 
 ## License
 
