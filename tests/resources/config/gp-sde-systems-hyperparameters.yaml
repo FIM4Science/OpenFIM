@@ -9,6 +9,9 @@ integration:
   num_locations: 1024
   stochastic: true
 
+locations:
+  type: random_cube
+
 train:
   - SDEGPsConfig:
       file_name: "dirft_rbf_diffusion_rbf"

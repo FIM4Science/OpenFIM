@@ -1,20 +1,20 @@
 import os
-import torch
-from torch import Tensor
-import numpy as np
-from gpytorch.kernels import Kernel, RBFKernel, ScaleKernel
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List, Tuple
+
 import gpytorch.distributions as gpdst
-from fim.models.gaussian_processes.utils import define_mesh_points
+import numpy as np
+import torch
+import yaml
+from gpytorch.kernels import Kernel, RBFKernel, ScaleKernel
+from torch import Tensor
+
 from fim.data.data_generation.dynamical_systems import DynamicalSystem
 from fim.data.data_generation.dynamical_systems_sample import set_up_a_dynamical_system
-
-from pathlib import Path
-from typing import Tuple, List
-from abc import ABC, abstractmethod
-
 from fim.data.datasets import FIMSDEDatabatch
-import yaml
+from fim.models.gaussian_processes.utils import define_mesh_points
 
 
 class MultivariateNormalWithJitter(gpdst.MultivariateNormal):
@@ -99,13 +99,13 @@ class SDEGPsConfig:
 class InducingPointGPFunction(ABC):
     """
 
-    This abstract class defines all objects requiered to sample functions from a GP prior
+    This abstract class defines all objects required to sample functions from a GP prior
     with the use of inducing points. The functions to be sampled will be such that
     we generate number_of_kernel_samples and number_of_functions_per_kernel. This will
     be used to define the drift and the diffusion function.
 
     the children class should define how to sample kernel parameters and kernels
-    this abstact class handles sampling and evaluation once kernels are defined
+    this abstract class handles sampling and evaluation once kernels are defined
 
     """
 
@@ -162,7 +162,7 @@ class InducingPointGPFunction(ABC):
 
     def get_inducing_function(self) -> Tuple[Tensor, Tensor]:
         """
-        This function defines ONCE the elements requiered to sample
+        This function defines ONCE the elements required to sample
         functions from GP inducing points.
 
         1. we sample the hyperparatemers to obtain different kernels
@@ -170,7 +170,7 @@ class InducingPointGPFunction(ABC):
         3. we invert the covariance at inducing points
         4. we sample the functions in the prior
 
-        All the values are kept during the existance of this object
+        All the values are kept during the existence of this object
         such as guarantee consistency and avoid computation
 
         return
@@ -347,7 +347,7 @@ class SDEGPDynamicalSystem:
             hidden_times = hidden_times[None, None, None, :].repeat(
                 self.num_kernel_samples, self.num_functions_per_kernel, self.num_paths, 1
             )  # [total_num_paths,max_diffusion_params]
-            # go trough iterator
+            # go through iterator
             for step in range(self.num_steps):
                 drift = self.drift(states)
                 diffusion = self.diffusion(states)
@@ -417,7 +417,7 @@ def set_up_a_gp_dynamical_system(
     Takes a dict of parameters from yaml and creates
     the dynamical system model and generate the data accordingly
     every time the data is generated it will be saved and will only be
-    regenerated is so desided
+    regenerated is so decided
 
     Args:
         -dataset_type (str): which type of dataset will be used
@@ -496,6 +496,8 @@ def define_dynamicals_models_from_yaml(
     dataset_type = data["dataset_type"]
     # integrator params
     integrator_params = data["integration"]
+    # locations params
+    locations_params = data["locations"]
 
     # generate the data
     train_studies: List[DynamicalSystem | SDEGPDynamicalSystem, FIMSDEDatabatch] = []
@@ -507,7 +509,10 @@ def define_dynamicals_models_from_yaml(
             params_yaml_ = params_yaml["SDEGPsConfig"]
             data_or_model = set_up_a_gp_dynamical_system(dataset_type, params_yaml_, integrator_params, experiment_dir, return_data)
         else:
-            data_or_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+            data_or_model = set_up_a_dynamical_system(
+                dataset_type, params_yaml, integrator_params, locations_params, experiment_dir, return_data
+            )
+
         train_studies.append(data_or_model)
 
     for params_yaml in data["test"]:
@@ -515,7 +520,9 @@ def define_dynamicals_models_from_yaml(
             params_yaml_ = params_yaml["SDEGPsConfig"]
             data_or_model = set_up_a_gp_dynamical_system(dataset_type, params_yaml_, integrator_params, experiment_dir, return_data)
         else:
-            data_or_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+            data_or_model = set_up_a_dynamical_system(
+                dataset_type, params_yaml, integrator_params, locations_params, experiment_dir, return_data
+            )
         test_studies.append(data_or_model)
 
     for params_yaml in data["validation"]:
@@ -523,7 +530,9 @@ def define_dynamicals_models_from_yaml(
             params_yaml_ = params_yaml["SDEGPsConfig"]
             data_or_model = set_up_a_gp_dynamical_system(dataset_type, params_yaml_, integrator_params, experiment_dir, return_data)
         else:
-            data_or_model = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, experiment_dir, return_data)
+            data_or_model = set_up_a_dynamical_system(
+                dataset_type, params_yaml, integrator_params, locations_params, experiment_dir, return_data
+            )
         validation_studies.append(data_or_model)
 
     return (dataset_type, experiment_name, train_studies, test_studies, validation_studies)

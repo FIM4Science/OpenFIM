@@ -7,6 +7,7 @@ import torch.nn as nn
 from torch import Tensor
 from transformers import PretrainedConfig
 
+from fim import results_path
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.data_generation.dynamical_systems_target import generate_all
 from fim.data.datasets import FIMSDEDatabatchTuple
@@ -702,7 +703,7 @@ class FIMSDE(pl.LightningModule):
         trunk_encoding = trunk_encoding[:, None, :, :].repeat(1, P, 1, 1)  # [B,P,G,trunk_size]
         trunk_encoding = trunk_encoding.view(B * P, G, -1)
 
-        # Embbedded input; include difference and squared difference to next observation -> drop last observation
+        # Embedded input; include difference and squared difference to next observation -> drop last observation
         X = obs_values[:, :, :-1, :]
         dX = obs_values[:, :, 1:, :] - obs_values[:, :, :-1, :]
         dX2 = dX**2
@@ -939,7 +940,7 @@ class FIMSDE(pl.LightningModule):
         # mask locations with non-Nan loss values
         loss_is_finite_mask = torch.isfinite(loss_at_locations)  # [B, G]
 
-        # mask locations below theshold
+        # mask locations below threshold
         if threshold is not None:
             loss_below_threshold_mask = torch.abs(loss_at_locations) <= threshold
 
@@ -1097,7 +1098,7 @@ class FIMSDE(pl.LightningModule):
     # ----------------------------- Lightning Functionality ---------------------------------------------
     def prepare_batch(self, batch) -> FIMSDEDatabatchTuple:
         """lightning will convert name tuple into a full tensor for training
-        here we create the nametuple as requiered for the model
+        here we create the nametuple as required for the model
         """
         databatch = self.DatabatchNameTuple(*batch)
         return databatch

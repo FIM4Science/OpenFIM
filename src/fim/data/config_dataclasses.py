@@ -1,9 +1,15 @@
 import os
 from dataclasses import dataclass, field
-from typing import List, Type, TypeVar, Any, Dict
-from fim import data_path  # Assumes `data_path` provides the base path for your data files
-from fim import project_path  # Assumes `data_path` provides the base path for your data files
+from pathlib import Path
+from typing import Any, Dict, List, Type, TypeVar
+
 import yaml
+
+from fim import (
+    data_path,  # Assumes `data_path` provides the base path for your data files
+    project_path,  # Assumes `data_path` provides the base path for your data files
+)
+
 
 T = TypeVar("T")
 
@@ -45,7 +51,7 @@ class FIMDatasetConfig:
     dataset_description: str = "dynamical_systems"
     # data_path:str = str(data_path)
 
-    dynamical_systems_hyperparameters_file: str = r"\configs\train\fim-sde\sde-systems-hyperparameters.yaml"
+    dynamical_systems_hyperparameters_file: str = str(Path("\\configs\train\fim-sde\\sde-systems-hyperparameters.yaml"))
 
     total_minibatch_size: int = 2
     total_minibatch_size_test: int = 2

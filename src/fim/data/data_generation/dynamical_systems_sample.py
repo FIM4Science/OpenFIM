@@ -129,7 +129,7 @@ class PathGenerator:
         hidden_times = torch.linspace(0.0, self.num_steps * self.dt, self.num_steps + 1)
         hidden_times = hidden_times[None, :].repeat(self.total_num_paths, 1)  # [total_num_paths,max_diffusion_params]
 
-        # go trough iterator
+        # go through iterator
         for step in range(self.num_steps):
             states = self.integrator.step(states, self.system, drift_params_repeated, diffusion_params_repeated)
             hidden_paths[:, step + 1] = states.clone()
@@ -174,7 +174,7 @@ class PathGenerator:
         Args:
             obs_values: Observations of paths from multiple equations. Shape: [num_realizations, num_paths, num_obs, D]
 
-        Retunrs:
+        Returns:
             locations: Points in locations per equation. Shape: [num_realizations, num_locations, D]
         """
 
@@ -200,7 +200,7 @@ class PathGenerator:
         Args:
             obs_times (Tensor): Shape [num_realizations, num_paths, num_obs, 1]
             obs_values (Tensor): Shape [num_realizations, num_paths, num_obs, D]
-            drift/diffusion_parameters (Tensor): Parametes observations were geneated with. Shape [num_realizations, ...]
+            drift/diffusion_parameters (Tensor): Parameters observations were generated with. Shape [num_realizations, ...]
 
         returns:
             data (FIMSDEDatabatch): Generated data stored in a FIMSDEDatabatch.
@@ -289,7 +289,7 @@ def set_up_a_dynamical_system(
     Takes a dict of parameters from yaml and creates
     the dynamical system model and generate the data accordingly
     every time the data is generated it will be saved and will only be
-    regenerated is so desided
+    regenerated is so decided
 
     Args:
         -dataset_type (str): which type of dataset will be used
@@ -305,8 +305,9 @@ def set_up_a_dynamical_system(
     dynamical_name_str = params_yaml.get("name", "")
     study_name_str = params_yaml.get("data_bulk_name", "default")
     redo_study = params_yaml.get("redo", False)
+    study_path = os.path.join(experiment_dir, study_name_str + ".tr")
 
-    study_path = Path(os.path.join(experiment_dir, study_name_str + ".tr"))
+    study_path = Path(study_path)
 
     if dynamical_name_str in DYNAMICAL_SYSTEM_TO_MODELS.keys():
         # Create an instance of OneCompartmentModelParams with the loaded values
