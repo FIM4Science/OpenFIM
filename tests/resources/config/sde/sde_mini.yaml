@@ -4,6 +4,14 @@ experiment:
   seed: 10
   device_map: cpu # auto, cuda, cpu
 
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
 model:
   name: FIMSDE
   ###################################################################################
@@ -98,16 +106,50 @@ dataset:
 
   dataset_path_collections: &dataset_path_collections
     train:
-      - processed\state_sde\linear\dim-1\1
-      - processed\state_sde\linear\dim-2\1
-      - processed\state_sde\linear\dim-3\1
+      - processed\state_sde\data-snr_01_05_1_5\linear\dim-1\1
+      - processed\state_sde\data-snr_01_05_1_5\linear\dim-2\1
+      - processed\state_sde\data-snr_01_05_1_5\linear\dim-3\1
     test:
-      - processed\state_sde\linear\dim-2\1
+      - processed\state_sde\data-snr_01_05_1_5\linear\dim-2\1
     validation:
-      - processed\state_sde\linear\dim-2\1
+      - processed\state_sde\data-snr_01_05_1_5\linear\dim-2\1
 
   tensorboard_figure_data: &tensorboard_figure_data "test" # "test" or "train"
   plot_paths_count: &plot_paths_count 100
 
   loader_kwargs:
     num_workers: 2
+
+trainer:
+  name: Trainer
+  debug_iterations: 3
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 3
+  detect_anomaly: false
+  save_every: 1
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      beta: 1.0
+      label: gauss_nll
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: init_cross_entropy
+      beta: 1.0
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: missing_link
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: 0.0001
+      weight_decay: 0.0001
+      # gradient_norm_clipping: 10
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      #     T_max: *epochs
+      #     eta_min: 0.0000001
+      #     last_epoch: -1

@@ -8,7 +8,7 @@ import pytest
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import FIMMJP, FIMMJPConfig, FIMODEConfig
+from fim.models import FIMMJP, FIMSDE, FIMMJPConfig, FIMODEConfig, FIMSDEConfig
 from fim.models.blocks import ModelFactory
 from fim.trainers.trainer import Trainer, TrainLossTracker
 from fim.utils.helper import load_yaml
@@ -93,3 +93,27 @@ class TestTrainMJP:
         model = FIMMJP.load_model(results_dir / "FIM_MJP_Homogeneous_Mini/checkpoints/best-model")
         assert model is not None
         assert isinstance(model, FIMMJP)
+
+
+class TestTrainSDE:
+    @pytest.fixture(scope="module")
+    def results_dir(self, tmp_path_factory):
+        return tmp_path_factory.mktemp("results")
+
+    def test_trainer_sde(self, results_dir):
+        TRAIN_CONF = test_data_path / "config" / "sde" / "sde_mini.yaml"
+
+        config = load_yaml(TRAIN_CONF, True)
+        config.trainer.experiment_dir = results_dir
+        dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
+
+        model_config = dataloader.update_kwargs(config.model.to_dict())
+
+        model = ModelFactory.create(FIMSDEConfig(**model_config))
+        trainer = Trainer(model, dataloader, config)
+
+        trainer.train()
+        assert trainer is not None
+        model = FIMSDE.load_model(results_dir / "sde/checkpoints/best-model")
+        assert model is not None
+        assert isinstance(model, FIMSDE)

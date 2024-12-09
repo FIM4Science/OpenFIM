@@ -194,10 +194,15 @@ class Trainer:
         self.logger.info("Saving training configuration to %s", params_path)
         yaml.dump(self.config.to_dict(), open(params_path, "w", encoding="utf-8"), default_flow_style=False)
         model_architecture_path = self.experiment_dir / "model_architecture.txt"
+        if isinstance(self.dataloader.train_it.dataset[0], tuple):
+            logging.warning("Saving model architecture is not supported for tuple datasets!")
+            return
         self.logger.info("Saving model architecture to %s", model_architecture_path)
         with open(model_architecture_path, "w") as f:
             x = self.dataloader.train_it.dataset[0]
+
             x = {key: val.unsqueeze(0).to(self.model.device) for key, val in x.items()}
+
             f.write(str(self.model.summary(x)))
 
     def train(self):
@@ -317,9 +322,12 @@ class Trainer:
             self._update_learning_rates("minibatch")
         return lrs
 
-    def _move_batch_to_local_rank(self, batch):
-        for key in batch.keys():
-            batch[key] = batch[key].to(self.local_rank)
+    def _move_batch_to_local_rank(self, batch: dict | tuple):
+        if isinstance(batch, tuple) and hasattr(batch, "_fields"):  # Check if batch is a namedtuple
+            batch = batch._replace(**{key: val.to(self.local_rank) for key, val in batch._asdict().items()})
+        else:
+            for key in batch.keys():
+                batch[key] = batch[key].to(self.local_rank)
 
     def _validation_epoch(self, epoch: int) -> dict:
         self.model.eval()

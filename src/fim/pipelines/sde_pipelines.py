@@ -7,7 +7,6 @@ from torch import Tensor
 from tqdm import tqdm  # Import tqdm for the progress bar
 
 from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple
-from fim.models.config_dataclasses import FIMSDEConfig
 from fim.utils.helper import check_model_devices, nametuple_to_device
 
 
@@ -27,13 +26,7 @@ class FIMSDEPipeline:
     Inference Pipeline For SDE
     """
 
-    config: FIMSDEConfig
-    model: torch.nn
-
-    def __init__(
-        self,
-        model: str,
-    ):
+    def __init__(self, model: str):
         """
         Args:
             model (FIMSDEp,string)
@@ -41,10 +34,9 @@ class FIMSDEPipeline:
                 it takes its parameters from the model
         """
         self.model = model
-        self.config = model.model_config
 
-        self.num_steps = self.config.number_of_time_steps_pipeline
-        self.dt = self.config.dt_pipeline
+        self.num_steps = self.model.config.number_of_time_steps_pipeline
+        self.dt = self.model.config.dt_pipeline
         self.device = check_model_devices(model)
 
     def preprocess(self, databatch):

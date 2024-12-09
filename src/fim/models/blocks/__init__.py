@@ -88,11 +88,11 @@ class ModelFactory:
             cls.model_types[model_type] = model_class
 
     @classmethod
-    def create(cls, config: dict | PretrainedConfig) -> AModel:
+    def create(cls, config: dict | PretrainedConfig, dataset_config: dict = None) -> AModel:
         if isinstance(config, dict):
             config = PretrainedConfig.from_dict(config)
         model_class = cls.model_types.get(config.model_type)
         if model_class:
-            return model_class(config)
+            return model_class(config) if dataset_config is None else model_class(config, dataset_config)
         else:
             raise ValueError(f"Invalid model type: {config.model_type}")

@@ -11,7 +11,6 @@ from fim.data.data_generation.dynamical_systems import (
 )
 from fim.data.data_generation.dynamical_systems_sample import PathGenerator
 from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple, FIMSDEDataset
-from fim.models.config_dataclasses import FIMSDEConfig
 
 
 def concat_name_tuple(tuples_list, MyTuple):
@@ -33,7 +32,7 @@ def concat_name_tuple(tuples_list, MyTuple):
     return new_tuple
 
 
-def generate_lorenz(params: FIMSDEConfig):
+def generate_lorenz(max_time_steps: int, max_num_paths: int):
     process_hyperparameters = {
         "name": "Lorenz63System",
         "data_bulk_name": "lorenz_theory",
@@ -60,8 +59,8 @@ def generate_lorenz(params: FIMSDEConfig):
     integration_config = {
         "method": "EulerMaruyama",
         "time_step": 0.01,
-        "num_steps": params.max_time_steps,
-        "num_paths": params.max_num_paths,
+        "num_steps": max_time_steps,
+        "num_paths": max_num_paths,
         "num_locations": 1024,
         "stochastic": True,
     }
@@ -76,7 +75,7 @@ def generate_lorenz(params: FIMSDEConfig):
     return data
 
 
-def generate_duffing(params: FIMSDEConfig):
+def generate_duffing(max_time_steps: int, max_num_paths: int):
     process_hyperparameters = {
         "name": "DuffingOscillator",
         "data_bulk_name": "duffing_theory",
@@ -103,8 +102,8 @@ def generate_duffing(params: FIMSDEConfig):
     integration_config = {
         "method": "EulerMaruyama",
         "time_step": 0.01,
-        "num_steps": params.max_time_steps,
-        "num_paths": params.max_num_paths,
+        "num_steps": max_time_steps,
+        "num_paths": max_num_paths,
         "num_locations": 1024,
         "stochastic": True,
     }
@@ -119,7 +118,7 @@ def generate_duffing(params: FIMSDEConfig):
     return data
 
 
-def generate_hopf(params: FIMSDEConfig):
+def generate_hopf(max_time_steps: int, max_num_paths: int):
     process_hyperparameters = {
         "name": "HopfBifurcation",
         "data_bulk_name": "hopf_theory",
@@ -146,8 +145,8 @@ def generate_hopf(params: FIMSDEConfig):
     integration_config = {
         "method": "EulerMaruyama",
         "time_step": 0.01,
-        "num_steps": params.max_time_steps,
-        "num_paths": params.max_num_paths,
+        "num_steps": max_time_steps,
+        "num_paths": max_num_paths,
         "num_locations": 1024,
         "stochastic": True,
     }
@@ -162,7 +161,7 @@ def generate_hopf(params: FIMSDEConfig):
     return data
 
 
-def generate_selkov(params: FIMSDEConfig):
+def generate_selkov(max_time_steps: int, max_num_paths: int):
     process_hyperparameters = {
         "name": "SelkovGlycosis",
         "data_bulk_name": "selkov_theory",
@@ -189,8 +188,8 @@ def generate_selkov(params: FIMSDEConfig):
     integration_config = {
         "method": "EulerMaruyama",
         "time_step": 0.01,
-        "num_steps": params.max_time_steps,
-        "num_paths": params.max_num_paths,
+        "num_steps": max_time_steps,
+        "num_paths": max_num_paths,
         "num_locations": 1024,
         "stochastic": True,
     }
@@ -205,7 +204,7 @@ def generate_selkov(params: FIMSDEConfig):
     return data
 
 
-def generate_damped_cubic(params: FIMSDEConfig):
+def generate_damped_cubic(max_time_steps: int, max_num_paths: int):
     process_hyperparameters = {
         "name": "DampedCubicOscillatorSystem",
         "data_bulk_name": "damped_cubic_theory",
@@ -232,8 +231,8 @@ def generate_damped_cubic(params: FIMSDEConfig):
     integration_config = {
         "method": "EulerMaruyama",
         "time_step": 0.01,
-        "num_steps": params.max_time_steps,
-        "num_paths": params.max_num_paths,
+        "num_steps": max_time_steps,
+        "num_paths": max_num_paths,
         "num_locations": 1024,
         "stochastic": True,
     }
@@ -248,7 +247,7 @@ def generate_damped_cubic(params: FIMSDEConfig):
     return data
 
 
-def generate_damped_linear(params: FIMSDEConfig):
+def generate_damped_linear(max_time_steps: int, max_num_paths: int):
     process_hyperparameters = {
         "name": "DampedLinearOscillatorSystem",
         "data_bulk_name": "damped_linear_theory",
@@ -275,8 +274,8 @@ def generate_damped_linear(params: FIMSDEConfig):
     integration_config = {
         "method": "EulerMaruyama",
         "time_step": 0.01,
-        "num_steps": params.max_time_steps,
-        "num_paths": params.max_num_paths,
+        "num_steps": max_time_steps,
+        "num_paths": max_num_paths,
         "num_locations": 1024,
         "stochastic": True,
     }
@@ -291,7 +290,7 @@ def generate_damped_linear(params: FIMSDEConfig):
     return data
 
 
-def generate_double_well(params):
+def generate_double_well(max_time_steps: int, max_num_paths: int):
     process_hyperparameters = {
         "name": "DampedLinearOscillatorSystem",
         "data_bulk_name": "damped_linear_theory",
@@ -319,8 +318,8 @@ def generate_double_well(params):
     integration_config = {
         "method": "EulerMaruyama",
         "time_step": 0.01,
-        "num_steps": params.max_time_steps,
-        "num_paths": params.max_num_paths,
+        "num_steps": max_time_steps,
+        "num_paths": max_num_paths,
         "num_locations": 1024,
         "stochastic": True,
     }
@@ -371,7 +370,7 @@ def pad_from_dataset(data: FIMSDEDatabatch, sample_idx: int, dataset: FIMSDEData
     )
 
 
-def generate_all(params: FIMSDEConfig) -> FIMSDEDatabatchTuple:
+def generate_all(max_time_steps: int, max_num_paths: int) -> FIMSDEDatabatchTuple:
     """
     creates a databatch with all the target data
 
@@ -386,13 +385,13 @@ def generate_all(params: FIMSDEConfig) -> FIMSDEDatabatchTuple:
     }
     """
     # generate all data
-    lorenz_data = generate_lorenz(params)
-    duffing_data = generate_duffing(params)
-    hopf_data = generate_hopf(params)
-    selkov_data = generate_selkov(params)
-    damped_cubic_data = generate_damped_cubic(params)
-    damped_linear_data = generate_damped_linear(params)
-    double_well_data = generate_double_well(params)
+    lorenz_data = generate_lorenz(max_time_steps, max_num_paths)
+    duffing_data = generate_duffing(max_time_steps, max_num_paths)
+    hopf_data = generate_hopf(max_time_steps, max_num_paths)
+    selkov_data = generate_selkov(max_time_steps, max_num_paths)
+    damped_cubic_data = generate_damped_cubic(max_time_steps, max_num_paths)
+    damped_linear_data = generate_damped_linear(max_time_steps, max_num_paths)
+    double_well_data = generate_double_well(max_time_steps, max_num_paths)
 
     all_data = [lorenz_data, hopf_data, damped_cubic_data, selkov_data, duffing_data, damped_linear_data, double_well_data]
 

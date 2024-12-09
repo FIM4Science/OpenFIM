@@ -1,20 +1,18 @@
 from dataclasses import dataclass
-from typing import Optional, Self, Tuple
+from typing import Any, Dict, Optional, Self, Tuple
 
 import lightning.pytorch as pl
 import torch
 import torch.nn as nn
 from torch import Tensor
-from transformers import PretrainedConfig
+from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from fim import results_path
-from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.data_generation.dynamical_systems_target import generate_all
 from fim.data.datasets import FIMSDEDatabatchTuple
-from fim.models.blocks import ModelFactory
+from fim.models.blocks import AModel, ModelFactory
 from fim.models.blocks.base import MLP, TransformerModel
 from fim.models.blocks.positional_encodings import SineTimeEncoding
-from fim.models.config_dataclasses import FIMSDEConfig
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
 from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
 
@@ -436,7 +434,7 @@ class SDEConcepts:
             self.normalized = False
 
 
-class FIMSDEConfigHugging(PretrainedConfig):
+class FIMSDEConfig(PretrainedConfig):
     """
     FIMSDEConfig is a configuration class for the FIMSDE model.
 
@@ -528,6 +526,7 @@ class FIMSDEConfigHugging(PretrainedConfig):
         dt_pipeline: float = 0.01,
         number_of_time_steps_pipeline: int = 128,
         evaluate_with_unnormalized_heads: bool = True,
+        **kwargs,
     ):
         self.name = name
         self.experiment_name = experiment_name
@@ -573,45 +572,40 @@ class FIMSDEConfigHugging(PretrainedConfig):
         self.dt_pipeline = dt_pipeline
         self.number_of_time_steps_pipeline = number_of_time_steps_pipeline
         self.evaluate_with_unnormalized_heads = evaluate_with_unnormalized_heads
+        super().__init__(**kwargs)
 
 
 # 3. Model Following FIM conventions
 # class FIMSDE(AModel)
-class FIMSDE(pl.LightningModule):
+class FIMSDE(AModel, pl.LightningModule):
     """
     Stochastic Differential Equation Trainining
     """
 
-    model_config: FIMSDEConfig
-    data_config: FIMDatasetConfig
+    config_class = FIMSDEConfig
 
     def __init__(
         self,
-        model_config: dict,
-        data_config: dict,
+        config: dict | FIMSDEConfig | FIMSDEConfig,
         device_map: torch.device = None,
         **kwargs,
     ):
-        super(FIMSDE, self).__init__()
+        AModel.__init__(self, config, **kwargs)
+        pl.LightningModule.__init__(self)
 
         # Save hyperparameters
         self.save_hyperparameters()
 
         # Set hyperparameters
-        if isinstance(model_config, dict):
-            self.model_config = FIMSDEConfig(**model_config)
+        if isinstance(config, dict):
+            self.config = FIMSDEConfig(**config)
         else:
-            self.model_config = model_config
-
-        if isinstance(data_config, dict):
-            self.data_config = FIMDatasetConfig(**data_config)
-        else:
-            self.data_config = data_config
+            self.config = config
 
         self._create_modules()
 
         # Set a dataset for fixed evaluation
-        self.target_data = generate_all(self.model_config)
+        self.target_data = generate_all(self.config.max_time_steps, self.config.max_num_paths)
 
         if device_map is not None:
             self.to(device_map)
@@ -624,23 +618,21 @@ class FIMSDE(pl.LightningModule):
         self,
     ):
         # Define different versions
-        x_dimension = self.data_config.max_dimension
+        x_dimension = self.config.max_dimension
         x_dimension_full = x_dimension * 3  # we encode the difference and its square
-        spatial_plus_time_encoding = self.model_config.temporal_embedding_size + self.model_config.spatial_embedding_size
-        self.psi_1_tokes_dim = self.model_config.sequence_encoding_tokenizer * self.model_config.sequence_encoding_transformer_heads
+        spatial_plus_time_encoding = self.config.temporal_embedding_size + self.config.spatial_embedding_size
+        self.psi_1_tokes_dim = self.config.sequence_encoding_tokenizer * self.config.sequence_encoding_transformer_heads
 
         # basic embedding
-        self.phi_0t = SineTimeEncoding(self.model_config.temporal_embedding_size)
+        self.phi_0t = SineTimeEncoding(self.config.temporal_embedding_size)
         self.phi_0x = MLP(
             in_features=x_dimension_full,
-            out_features=self.model_config.spatial_embedding_size,
-            hidden_layers=self.model_config.spatial_embedding_hidden_layers,
+            out_features=self.config.spatial_embedding_size,
+            hidden_layers=self.config.spatial_embedding_hidden_layers,
         )
 
         # trunk network
-        self.trunk = MLP(
-            in_features=x_dimension, out_features=self.psi_1_tokes_dim, hidden_layers=self.model_config.trunk_net_hidden_layers
-        )
+        self.trunk = MLP(in_features=x_dimension, out_features=self.psi_1_tokes_dim, hidden_layers=self.config.trunk_net_hidden_layers)
 
         # ensures that the embbeding that is sent to the transformer is a multiple of the number of heads
         self.phi_xt = nn.Linear(spatial_plus_time_encoding, self.psi_1_tokes_dim)
@@ -648,15 +640,15 @@ class FIMSDE(pl.LightningModule):
         # path transformer (causal encoding of paths)
         self.psi_1 = TransformerModel(
             input_dim=self.psi_1_tokes_dim,
-            nhead=self.model_config.sequence_encoding_transformer_heads,
-            hidden_dim=self.model_config.sequence_encoding_transformer_hidden_size,
-            nlayers=self.model_config.sequence_encoding_transformer_layers,
+            nhead=self.config.sequence_encoding_transformer_heads,
+            hidden_dim=self.config.sequence_encoding_transformer_hidden_size,
+            nlayers=self.config.sequence_encoding_transformer_layers,
         )
 
         # time attention
         self.omega_1 = nn.MultiheadAttention(
             self.psi_1_tokes_dim,
-            self.model_config.combining_transformer_heads,
+            self.config.combining_transformer_heads,
             batch_first=True,
         )
 
@@ -665,17 +657,17 @@ class FIMSDE(pl.LightningModule):
 
         self.omega_2 = nn.MultiheadAttention(
             self.psi_1_tokes_dim,
-            self.model_config.combining_transformer_heads,
+            self.config.combining_transformer_heads,
             batch_first=True,
         )
 
         # drift head
-        self.drift_head = nn.Linear(self.psi_1_tokes_dim, self.data_config.max_dimension)
-        self.log_var_drift_head = nn.Linear(self.psi_1_tokes_dim, self.data_config.max_dimension)
+        self.drift_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
+        self.log_var_drift_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
 
         # diffusion head
-        self.diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.data_config.max_dimension)
-        self.log_var_diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.data_config.max_dimension)
+        self.diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
+        self.log_var_diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
 
     def path_encoding(self, obs_times: Tensor, obs_values: Tensor, locations: Tensor) -> Tuple[torch.tensor, torch.tensor]:
         """
@@ -735,7 +727,13 @@ class FIMSDE(pl.LightningModule):
         return bx, hx
 
     def forward(
-        self, databatch: FIMSDEDatabatchTuple, locations: Optional[Tensor] = None, training: bool = True, return_losses: bool = False
+        self,
+        databatch: FIMSDEDatabatchTuple,
+        locations: Optional[Tensor] = None,
+        training: bool = True,
+        return_losses: bool = False,
+        schedulers: dict = None,
+        step: int = 0,
     ) -> dict | tuple[SDEConcepts, dict]:
         """
         Args:
@@ -766,13 +764,13 @@ class FIMSDE(pl.LightningModule):
 
         # Instance normalization
         values_norm_stats = NormalizationStats(
-            databatch.obs_values, normalized_min=self.model_config.values_norm_min, normalized_max=self.model_config.values_norm_max
+            databatch.obs_values, normalized_min=self.config.values_norm_min, normalized_max=self.config.values_norm_max
         )
         obs_values = values_norm_stats.normalization_map(databatch.obs_values)
         locations = values_norm_stats.normalization_map(locations)
 
         times_norm_stats = NormalizationStats(
-            databatch.obs_times, normalized_min=self.model_config.times_norm_min, normalized_max=self.model_config.times_norm_max
+            databatch.obs_times, normalized_min=self.config.times_norm_min, normalized_max=self.config.times_norm_max
         )
         obs_times = times_norm_stats.normalization_map(databatch.obs_times)
 
@@ -806,14 +804,14 @@ class FIMSDE(pl.LightningModule):
         # Returns
         if training is True:
             losses: dict = self.loss(estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask)
-            return losses
+            return {"losses": losses}
 
         else:
             estimated_concepts.renormalize(values_norm_stats, times_norm_stats)
 
             if return_losses is True:
                 losses: dict = self.loss(estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask)
-                return estimated_concepts, losses
+                return estimated_concepts, {"losses": losses}
 
             else:
                 return estimated_concepts
@@ -984,7 +982,7 @@ class FIMSDE(pl.LightningModule):
             assert estimated.shape == log_var_estimated.shape
 
         # filter Nans and infinite values
-        if self.model_config.loss_filter_nans:
+        if self.config.loss_filter_nans:
             estimated, log_var_estimated, target, are_finite_mask, estimated_is_infinite_perc, target_is_infinite_perc = (
                 self.filter_nans_from_vector_fields(estimated, log_var_estimated, target, mask)
             )
@@ -1000,20 +998,18 @@ class FIMSDE(pl.LightningModule):
             log_var_estimated = log_var_estimated * mask
 
         # compute loss per location
-        if self.model_config.loss_type == "rmse":
+        if self.config.loss_type == "rmse":
             loss_at_locations = self.rmse_at_locations(estimated, target, mask)  # [B, G]
 
-        elif self.model_config.loss_type == "var":
+        elif self.config.loss_type == "var":
             assert log_var_estimated is not None, "Must pass ´log_var_estimated` to compute nll loss."
             loss_at_locations = self.gaussian_nll_at_locations(estimated, log_var_estimated, target, mask)  # [B, G]
 
         else:
-            raise ValueError("`loss_type` must be `rmse` or `var`, got " + self.model_config.loss_type)
+            raise ValueError("`loss_type` must be `rmse` or `var`, got " + self.config.loss_type)
 
         # filter out Nans or above threshold locations from loss
-        loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(
-            loss_at_locations, self.model_config.loss_threshold
-        )
+        loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(loss_at_locations, self.config.loss_threshold)
 
         # mean loss at non-masked locations
         non_masked_values_count = torch.sum(loss_at_locations_mask)
@@ -1059,7 +1055,7 @@ class FIMSDE(pl.LightningModule):
         )
 
         # Ensure that estimation and target are on same normalization
-        if self.model_config.train_with_normalized_head:
+        if self.config.train_with_normalized_head:
             estimated_concepts.normalize(values_norm_stats, times_norm_stats)
             target_concepts.normalize(values_norm_stats, times_norm_stats)
         else:
@@ -1080,7 +1076,7 @@ class FIMSDE(pl.LightningModule):
         )
 
         # assemble losses
-        total_loss = drift_loss + self.model_config.diffusion_loss_scale * diffusion_loss
+        total_loss = drift_loss + self.config.diffusion_loss_scale * diffusion_loss
         losses = {
             "loss": total_loss,
             "drift_loss": drift_loss,
@@ -1112,10 +1108,10 @@ class FIMSDE(pl.LightningModule):
 
         optimizer.zero_grad()
         self.manual_backward(total_loss)
-        if self.model_config.clip_grad:
-            torch.nn.utils.clip_grad_norm_(self.parameters(), self.model_config.clip_max_norm)
+        if self.config.clip_grad:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.config.clip_max_norm)
 
-        if self.model_config.skip_nan_grads is True:  # skip updates if gradients contain Nans
+        if self.config.skip_nan_grads is True:  # skip updates if gradients contain Nans
             grad_is_finite = [torch.isfinite(p.grad).all() if p.grad is not None else True for p in self.parameters()]
             if all(grad_is_finite):
                 optimizer.step()
@@ -1147,11 +1143,11 @@ class FIMSDE(pl.LightningModule):
         return total_loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.model_config.learning_rate)
+        return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
 
     def on_train_epoch_start(self):
         # Action to be executed at the start of each training epoch
-        if (self.current_epoch + 1) % self.model_config.log_images_every_n_epochs == 0:
+        if (self.current_epoch + 1) % self.config.log_images_every_n_epochs == 0:
             pipeline = FIMSDEPipeline(self)
             pipeline_sample = pipeline(self.target_data)
             self.images_log(self.target_data, pipeline_sample)
@@ -1172,5 +1168,10 @@ class FIMSDE(pl.LightningModule):
             mlflow_client_ = self.logger.experiment
             mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_3D.png")
 
+    def metric(self, y: Any, y_target: Any) -> Dict:
+        return super().metric(y, y_target)
 
-ModelFactory.register("FIMSDE", FIMSDE, with_data_params=True)
+
+ModelFactory.register(FIMSDEConfig.model_type, FIMSDE)
+AutoConfig.register(FIMSDEConfig.model_type, FIMSDEConfig)
+AutoModel.register(FIMSDEConfig, FIMSDE)
