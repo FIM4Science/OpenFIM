@@ -1,0 +1,21 @@
+title: FIM
+author: Lamarr's DL4SD group
+logo: logo.jpeg
+
+execute:
+  execute_notebooks: force
+  timeout: 600 # Keep this high, since most of our notebooks take longer
+
+
+bibtex_bibfiles:
+  - references.bib
+
+repository:
+  url: https://github.com/FIM4Science/OpenFIM
+  branch: main
+
+html:
+  use_issues_button: true
+  use_repository_button: true
+
+only_build_toc_files: true

@@ -1,0 +1,16 @@
+# Table of contents
+# Learn more at https://jupyterbook.org/customize/toc.html
+
+format: jb-book
+root: intro
+parts:
+  - caption: Using the library
+    chapters:
+    - file: FIM
+    - file: FIM_installation_and_settings
+    - file: FIM_yaml_config
+  - caption: MJP
+    chapters:
+    - file: mjp_crashcourse
+    - file: huggingface.ipynb
+    - file: dlr_casestudy.ipynb
