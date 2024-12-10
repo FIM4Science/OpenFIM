@@ -46,7 +46,7 @@ def is_bfloat_supported() -> bool:
         and torch.cuda.is_bf16_supported()
         and Version(torch.version.cuda) >= Version("11.0")
         and dist.is_nccl_available()
-        and nccl.version() >= (2, 10)
+        and Version(".".join(map(str, nccl.version()))).release >= Version("2.10").release
     )
 
 

@@ -12,6 +12,7 @@ authors = [
    { name = "Kostadin Cvejoski", email = "cvejoski@gmail.com" },
    { name = "Ramses Sanchez", email = "sanchez@cs.uni-bonn.de" },
    { name = "Patrick Seifner", email = "seifner@cs.uni-bonn.de" },
+   { name = "Cesar Ali Ojeda", email = "ojedamarin@uni-potsdam.de" },
 
 ]
 license = { file = "LICENSE.txt" }

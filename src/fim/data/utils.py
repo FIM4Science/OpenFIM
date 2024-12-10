@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 import h5py
 import numpy as np
 import torch
+from pathlib import Path
 
 
 def load_ODEBench_as_torch(directory: str) -> dict:
@@ -294,3 +295,17 @@ def load_file(file_path):
             return h5py.File(file_path, "r")
         case _:
             raise ValueError(f"Unsupported file type {file_type}.")
+
+
+def load_h5(path: Path):
+    "Array in .h5 is under 'data' key"
+    arr = None
+    with h5py.File(path, "r") as f:
+        data = f["data"][:]
+        try:
+            # Attempt to convert the data to floats
+            arr = np.array(data, dtype="float32").T  # Transpose for C-order
+        except ValueError:
+            # If the conversion fails, keep the data as a string
+            arr = np.array(data, dtype=str)
+    return arr

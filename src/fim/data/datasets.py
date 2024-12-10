@@ -1,14 +1,21 @@
 import logging
 import math
+import os
 import pathlib
-from collections import defaultdict
-from typing import Optional, Union
+from collections import defaultdict, namedtuple
+from dataclasses import dataclass
+from typing import List, Optional, Union
 
+import numpy as np
 import torch
 import torch.utils
 import torch.utils.data
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
 from torch.utils.data import default_collate
+
+from fim import data_path
+from fim.data.config_dataclasses import FIMDatasetConfig
+from fim.data.utils import load_h5
 
 from ..typing import Path, Paths
 from ..utils.helper import verify_str_arg
@@ -334,7 +341,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
 
     def __post_init__(self):
         self.logger.debug(
-            f"Time Series Dataset (Torch) for Imputation with {self.window_count} windows and {int(100*self.overlap)}% overlap loaded successfully."
+            f"Time Series Dataset (Torch) for Imputation with {self.window_count} windows and {int(100 * self.overlap)}% overlap loaded successfully."
         )
 
     def __getitem__(self, idx):
@@ -454,3 +461,264 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
 
     def __str__(self):
         return f"TimeSeriesImputationDatasetTorch(path={self.path}, name={self.name}, split={self.split},  window_count={self.window_count}, overlap={self.overlap}, dataset_keys={self.output_fields})"
+
+
+# FIMSDE ---------------------------------------------------------
+
+
+@dataclass
+class FIMSDEDatabatch:
+    obs_values: torch.Tensor | np.ndarray
+    obs_times: torch.Tensor | np.ndarray
+
+    drift_at_locations: torch.Tensor | np.ndarray
+    diffusion_at_locations: torch.Tensor | np.ndarray
+    locations: torch.Tensor | np.ndarray
+
+    diffusion_parameters: torch.Tensor | np.ndarray = None
+    drift_parameters: torch.Tensor | np.ndarray = None
+    process_label: torch.Tensor | np.ndarray = None
+    process_dimension: torch.Tensor | np.ndarray = None
+
+    def convert_to_tensors(self):
+        for field in self.__dataclass_fields__:
+            value = getattr(self, field)
+            if isinstance(value, np.ndarray):
+                try:
+                    setattr(self, field, torch.tensor(value))
+                except Exception:
+                    print(f"Problem for field {field}")
+                    setattr(self, field, None)
+
+
+# Define the named tuple
+FIMSDEDatabatchTuple = namedtuple(
+    "FIMSDEDatabatchTuple",
+    [
+        "obs_values",
+        "obs_times",
+        "diffusion_at_locations",
+        "drift_at_locations",
+        "locations",
+        "dimension_mask",
+    ],
+)
+
+
+class FIMSDEDataset(torch.utils.data.Dataset):
+    """
+    First simple dataset to train a Neural Operator
+    """
+
+    def __init__(self, data_config: FIMDatasetConfig = None, data_paths: Optional[List[str]] = None):
+        """
+        Args:
+            data_paths (List[str]): list of locations of .h5 files requiered to load the data
+        """
+        # To keep track of the number of samples in each file
+        self.data = []
+        self.lengths = []
+        self.data_config = data_config
+
+        # Load data and compute cumulative lengths
+        self.read_files(data_config, data_paths)
+
+    def _prepare_file_path(self, file_path: Path | str | FIMSDEDatabatch) -> Path | str | FIMSDEDatabatch:
+        """
+        Translate data paths format to os. Prepend fim data_dir path if passed paths are not absolute.
+        """
+        if isinstance(file_path, str):
+            # translate path format
+            if os.name == "posix":
+                file_path = file_path.replace("\\", "/")
+
+            elif os.name == "nt":
+                file_path = file_path.replace("/", "\\")
+
+            # prepend fim data dir
+            if not os.path.isabs(file_path):
+                file_path = os.path.join(data_path, file_path)
+
+        return file_path
+
+    def _read_one_bulk(self, data: str | FIMSDEDatabatch | Path) -> FIMSDEDatabatch:
+        from pathlib import Path
+
+        data_dict = {}
+        if isinstance(data, FIMSDEDatabatch):
+            return data
+        elif isinstance(data, (str, Path)):
+            data = Path(data)
+            for key, value in self.data_config.data_in_files.__dict__.items():
+                key_file_path = data / value
+                data_dict[key] = load_h5(key_file_path)
+            data_bulk = FIMSDEDatabatch(**data_dict)
+            data_bulk.convert_to_tensors()
+            return data_bulk
+
+    def read_files(self, params, file_paths: List[str]):
+        """
+        Reads the files and organize data such that during item selection
+        the dataset points to the file and then to the location within that file
+        of the particular datapoint
+        """
+        if params is not None:
+            self.max_num_paths = params.max_num_paths
+            self.max_time_steps = params.max_time_steps
+            self.max_dimension = params.max_dimension
+            self.max_location_size = params.max_location_size
+        else:
+            self.max_num_paths = 0
+            self.max_time_steps = 0
+            self.max_dimension = 0
+            self.max_location_size = 0
+            self.max_drift_param_size = 0
+            self.max_diffusion_param_size = 0
+
+        for file_path in file_paths:
+            file_path = self._prepare_file_path(file_path)
+            if isinstance(file_path, (Path, str)):
+                one_data_bulk: FIMSDEDatabatch = self._read_one_bulk(file_path)  # Adjust loading method as necessary
+            elif isinstance(file_path, FIMSDEDatabatch):
+                one_data_bulk = file_path
+
+            self.data.append(one_data_bulk)
+            self.lengths.append(one_data_bulk.obs_values.size(0))  # Number of samples in this file
+
+            # Update max dimensions
+            self.max_num_paths = max(self.max_dimension, one_data_bulk.obs_values.size(1))
+            self.max_time_steps = max(self.max_time_steps, one_data_bulk.obs_values.size(2))
+            self.max_dimension = max(self.max_dimension, one_data_bulk.obs_values.size(3))
+
+            self.max_location_size = max(self.max_location_size, one_data_bulk.locations.size(1))
+
+            if one_data_bulk.drift_parameters is not None:
+                self.max_drift_param_size = max(self.max_drift_param_size, one_data_bulk.drift_parameters.size(1))
+            if one_data_bulk.diffusion_parameters is not None:
+                self.max_diffusion_param_size = max(self.max_diffusion_param_size, one_data_bulk.diffusion_parameters.size(1))
+
+        if self.data_config is not None:
+            self.data_config.max_dimension = self.max_dimension
+            self.data_config.max_time_steps = self.max_time_steps
+            self.data_config.max_location_size = self.max_location_size
+            self.data_config.max_num_paths = self.max_num_paths
+
+        self.cumulative_lengths = np.cumsum(self.lengths)
+
+    def __len__(self):
+        return sum(self.lengths)  # Total number of samples
+
+    def __getitem__(self, idx) -> FIMSDEDatabatchTuple:
+        # Obtains index of the associated file and item whithin the file
+        file_idx, sample_idx = self._get_file_and_sample_index(idx)
+        data_bulk: FIMSDEDatabatch = self.data[file_idx]
+        # Get the tensor from the appropriate file
+        obs_values = data_bulk.obs_values[sample_idx]
+        obs_times = data_bulk.obs_times[sample_idx]
+        diffusion_at_locations = data_bulk.diffusion_at_locations[sample_idx]
+        drift_at_locations = data_bulk.drift_at_locations[sample_idx]
+        locations = data_bulk.locations[sample_idx]
+        # Pad and Obtain Mask of The tensors if necessary
+        obs_values, obs_times = self._pad_obs_tensors(obs_values, obs_times)
+        drift_at_locations, diffusion_at_locations, locations, mask = self._pad_locations_tensors(
+            drift_at_locations, diffusion_at_locations, locations
+        )
+        if len(obs_values.shape) == 4:
+            obs_values = obs_values[:, :, :, 0]
+
+        # select a smaller set of paths
+        # obs_values,obs_times,diffusion_at_locations,drift_at_locations,locations,mask = self._select_paths_and_grid(obs_values,obs_times,diffusion_at_locations,drift_at_locations,locations,mask)
+
+        # Create and return the named tuple
+        return FIMSDEDatabatchTuple(
+            obs_values=obs_values,
+            obs_times=obs_times,
+            drift_at_locations=drift_at_locations,
+            diffusion_at_locations=diffusion_at_locations,
+            locations=locations,
+            dimension_mask=mask,
+        )
+
+    def _select_paths_and_grid(
+        self,
+        obs_values: torch.Tensor,
+        obs_times: torch.Tensor,
+        drift_at_locations: torch.Tensor,
+        diffusion_at_locations: torch.Tensor,
+        locations: torch.Tensor,
+        dimension_mask: torch.Tensor,
+    ):
+        P = obs_values.size(0)
+        G = locations.size(0)
+
+        number_of_paths = torch.randint(self.min_number_of_paths_per_batch, min(self.max_number_of_paths_per_batch, P), size=(1,))[0]
+        number_of_grids = torch.randint(self.min_number_of_grid_per_batch, min(G, self.max_number_of_grid_per_batch), size=(1,))[0]
+
+        obs_values = obs_values[:number_of_paths]
+        obs_times = obs_times[:number_of_paths]
+
+        drift_at_locations = drift_at_locations[:number_of_grids]
+        diffusion_at_locations = diffusion_at_locations[:number_of_grids]
+        locations = locations[:number_of_grids]
+        dimension_mask = dimension_mask[:number_of_grids]
+
+        return (obs_values, obs_times, drift_at_locations, diffusion_at_locations, locations, dimension_mask)
+
+    def _get_file_and_sample_index(self, idx):
+        """Helper function to determine the file index and sample index."""
+        file_idx = np.searchsorted(self.cumulative_lengths, idx, "right")
+        sample_idx = idx if file_idx == 0 else idx - self.cumulative_lengths[file_idx - 1]
+        return file_idx, sample_idx
+
+    def _pad_obs_tensors(self, obs_values, obs_times):
+        """ """
+        current_dimension = obs_values.size(2)
+        current_time_steps = obs_values.size(1)
+
+        dim_padding_size = self.max_dimension - current_dimension
+        time_dim_padding_size = self.max_time_steps - current_time_steps
+
+        if dim_padding_size > 0 or time_dim_padding_size > 0:
+            if len(obs_values.shape) == 4:  # comming from h5 files
+                obs_values = torch.nn.functional.pad(obs_values, (0, 0, 0, dim_padding_size, 0, time_dim_padding_size))
+            elif len(obs_values.shape) == 3:  # comming from target data simulation
+                obs_values = torch.nn.functional.pad(obs_values, (0, dim_padding_size, 0, time_dim_padding_size))
+
+            obs_times = torch.nn.functional.pad(obs_times, (0, 0, 0, time_dim_padding_size))
+
+        return obs_values, obs_times
+
+    def _pad_locations_tensors(self, drift_at_locations, diffusion_at_locations, locations):
+        """ """
+        current_dimension = drift_at_locations.size(1)
+        current_location = drift_at_locations.size(0)
+        location_padding_size = self.max_location_size - current_location
+        dim_padding_size = self.max_dimension - current_dimension
+
+        if dim_padding_size > 0 or location_padding_size > 0:
+            diffusion_at_locations = torch.nn.functional.pad(diffusion_at_locations, (0, dim_padding_size, 0, location_padding_size))
+            drift_at_locations = torch.nn.functional.pad(drift_at_locations, (0, dim_padding_size, 0, location_padding_size))
+            locations = torch.nn.functional.pad(locations, (0, dim_padding_size, 0, location_padding_size))
+
+            mask = self._create_mask(drift_at_locations, current_location, current_dimension)
+        else:
+            mask = torch.ones_like(drift_at_locations)
+
+        return drift_at_locations, diffusion_at_locations, locations, mask
+
+    def _create_mask(self, drift_at_locations, current_location, current_dimension):
+        """Create a mask for the observations.
+        Args:
+            drift_at_hypercube (Tensor) [B,H,D], current_hyper  (int), current_dimension (int)
+        Returns:
+            mask [B,H,D] will do 0 for hypercube positions and dimensions not on batch
+        """
+        mask = torch.ones_like(drift_at_locations)
+        mask[:, current_dimension:] = 0.0
+        mask[current_location:, :] = 0.0
+        return mask
+
+    def update_parameters(self, param):
+        param.max_dimension = self.max_dimension
+        param.max_hypercube_size = self.max_location_size
+        param.max_num_steps = self.max_num_steps

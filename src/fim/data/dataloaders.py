@@ -13,9 +13,13 @@ from torch import Tensor
 from torch.utils.data import default_collate
 from torch.utils.data.dataloader import DataLoader
 
-from ..data.datasets import FIMDataset, TimeSeriesImputationDatasetTorch
+from fim.data.config_dataclasses import FIMDatasetConfig
+from fim.data.data_generation.gp_dynamical_systems import define_dynamicals_models_from_yaml
+from fim.models import FIMSDEConfig
+from fim.utils.helper import create_class_instance, verify_str_arg
+
+from ..data.datasets import FIMDataset, FIMSDEDatabatchTuple, FIMSDEDataset, TimeSeriesImputationDatasetTorch
 from ..trainers.utils import is_distributed
-from ..utils.helper import create_class_instance, verify_str_arg
 from ..utils.logging import RankLoggerAdapter
 from .utils import get_path_counts
 
@@ -327,6 +331,145 @@ class TimeSeriesDataLoaderTorch:
         return len(self.test)
 
 
+class FIMSDEDataloader(BaseDataLoader):
+    """
+    Dataloader for FIM SDE model
+
+    """
+
+    def __init__(self, **kwargs):
+        self.data_config = FIMDatasetConfig(**kwargs)
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+
+        self.loader_kwargs = self.data_config.loader_kwargs
+        self.batch_size = self.data_config.total_minibatch_size
+        self.test_batch_size = self.data_config.total_minibatch_size_test
+        self.type = self.data_config.type
+
+        self.random_num_paths_n_grid = self.data_config.random_num_paths_n_grid
+        self.max_number_of_grid_per_batch = self.data_config.max_number_of_grid_per_batch
+        self.min_number_of_grid_per_batch = self.data_config.min_number_of_grid_per_batch
+
+        self.max_number_of_paths_per_batch = self.data_config.max_number_of_paths_per_batch
+        self.min_number_of_paths_per_batch = self.data_config.min_number_of_paths_per_batch
+
+        self.iter = {}
+        self.samplers = {}
+
+        self.dataset = self._set_datasets()
+        self._init_dataloaders(self.dataset)
+
+    def _set_datasets(self):
+        if self.type == "synthetic":
+            self.train_dataset = FIMSDEDataset(self.data_config, self.data_config.dataset_path_collections.train)
+            self.test_dataset = FIMSDEDataset(self.data_config, self.data_config.dataset_path_collections.test)
+            self.validation_dataset = FIMSDEDataset(self.data_config, self.data_config.dataset_path_collections.validation)
+        elif self.type == "theory":
+            yaml_file = self.data_config.dynamical_systems_hyperparameters_file
+            dataset_type, experiment_name, train_studies, test_studies, validation_studies = define_dynamicals_models_from_yaml(
+                yaml_file, return_data=True
+            )
+            self.train_dataset = FIMSDEDataset(self.data_config, train_studies)
+            self.test_dataset = FIMSDEDataset(self.data_config, test_studies)
+            self.validation_dataset = FIMSDEDataset(self.data_config, validation_studies)
+
+        dataset = {"train": self.train_dataset, "test": self.test_dataset, "validation": self.validation_dataset}
+        return dataset
+
+    def update_kwargs(self, kwargs: dict | FIMDatasetConfig | FIMSDEConfig):
+        assert self.train_dataset.max_dimension == self.test_dataset.max_dimension == self.validation_dataset.max_dimension
+        assert (
+            self.train_dataset.max_time_steps == self.test_dataset.max_time_steps == self.validation_dataset.max_time_steps
+        ), "max_time_steps are not equal"
+        assert (
+            self.train_dataset.max_location_size == self.test_dataset.max_location_size == self.validation_dataset.max_location_size
+        ), "max_location_size are not equal"
+        assert (
+            self.train_dataset.max_num_paths == self.test_dataset.max_num_paths == self.validation_dataset.max_num_paths
+        ), "max_num_paths are not equal"
+
+        if isinstance(kwargs, dict):
+            if "dataset" in kwargs.keys():
+                kwargs["dataset"]["max_dimension"] = self.train_dataset.max_dimension
+                kwargs["dataset"]["max_time_steps"] = self.train_dataset.max_time_steps
+                kwargs["dataset"]["max_location_size"] = self.train_dataset.max_location_size
+                kwargs["dataset"]["max_num_paths"] = self.train_dataset.max_num_paths
+
+                kwargs["model"]["max_dimension"] = self.train_dataset.max_dimension
+                kwargs["model"]["max_time_steps"] = self.train_dataset.max_time_steps
+                kwargs["model"]["max_location_size"] = self.train_dataset.max_location_size
+                kwargs["model"]["max_num_paths"] = self.train_dataset.max_num_paths
+            else:
+                kwargs["max_dimension"] = self.train_dataset.max_dimension
+                kwargs["max_time_steps"] = self.train_dataset.max_time_steps
+                kwargs["max_location_size"] = self.train_dataset.max_location_size
+                kwargs["max_num_paths"] = self.train_dataset.max_num_paths
+                return kwargs
+
+        elif isinstance(kwargs, (FIMSDEConfig, FIMDatasetConfig)):
+            kwargs.max_dimension = self.train_dataset.max_dimension
+            kwargs.max_time_steps = self.train_dataset.max_time_steps
+            kwargs.max_location_size = self.train_dataset.max_location_size
+            kwargs.max_num_paths = self.train_dataset.max_num_paths
+
+        return kwargs
+
+    def fimsde_collate_fn(self, batch: List):
+        """
+        Custom collate function to adjust number of paths and grids dynamically.
+
+        Args:
+            batch: List of FIMSDEDatabatchTuple returned by Dataset's __getitem__.
+
+        Returns:
+            A new FIMSDEDatabatchTuple with randomly selected number of paths and grids.
+        """
+        # Extract all fields from the batch (list of FIMSDEDatabatchTuple)
+        obs_values = torch.stack([item.obs_values for item in batch])
+        obs_times = torch.stack([item.obs_times for item in batch])
+        drift_at_locations = torch.stack([item.drift_at_locations for item in batch])
+        diffusion_at_locations = torch.stack([item.diffusion_at_locations for item in batch])
+        locations = torch.stack([item.locations for item in batch])
+        dimension_mask = torch.stack([item.dimension_mask for item in batch])
+
+        # Determine the maximum paths and grids across the batch
+        max_paths = obs_values.size(1)
+        max_grids = locations.size(1)
+
+        # Randomly select number of paths and grids for the entire batch
+        number_of_paths = torch.randint(
+            self.min_number_of_paths_per_batch, min(self.max_number_of_paths_per_batch, max_paths) + 1, size=(1,)
+        ).item()
+
+        number_of_grids = torch.randint(
+            self.min_number_of_grid_per_batch, min(self.max_number_of_grid_per_batch, max_grids) + 1, size=(1,)
+        ).item()
+
+        # Trim each field based on the selected number of paths and grids
+        obs_values = obs_values[:, :number_of_paths]
+        obs_times = obs_times[:, :number_of_paths]
+        drift_at_locations = drift_at_locations[:, :number_of_grids]
+        diffusion_at_locations = diffusion_at_locations[:, :number_of_grids]
+        locations = locations[:, :number_of_grids]
+        dimension_mask = dimension_mask[:, :number_of_grids]
+
+        # Return a new FIMSDEDatabatchTuple
+        return FIMSDEDatabatchTuple(
+            obs_values=obs_values,
+            obs_times=obs_times,
+            drift_at_locations=drift_at_locations,
+            diffusion_at_locations=diffusion_at_locations,
+            locations=locations,
+            dimension_mask=dimension_mask,
+        )
+
+    def _get_collate_fn(self, n, dataset):
+        if self.random_num_paths_n_grid:
+            return self.fimsde_collate_fn
+        else:
+            return None
+
+
 class DataLoaderFactory:
     """Dataloader factory class."""
 
@@ -364,3 +507,4 @@ class DataLoaderFactory:
 
 DataLoaderFactory.register("ts_torch_dataloader", TimeSeriesDataLoaderTorch)
 DataLoaderFactory.register("FIMDataLoader", FIMDataLoader)
+DataLoaderFactory.register("FIMSDEDataloader", FIMSDEDataloader)

@@ -15,6 +15,7 @@ from .base import MLP, IdentityBlock, MultiHeadLearnableQueryAttention, RNNEncod
 from .normalization import MinMaxNormalization
 from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
 
+
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 __all__ = [
     MLP,
@@ -77,21 +78,21 @@ class AModel(PreTrainedModel, ABC):
 
 class ModelFactory:
     model_types = {}
+    model_types_with_data_params = {}
 
     @classmethod
-    def register(
-        cls,
-        model_type: str,
-        model_class: AModel,
-    ):
-        cls.model_types[model_type] = model_class
+    def register(cls, model_type: str, model_class: AModel, with_data_params: bool = False):
+        if with_data_params:
+            cls.model_types_with_data_params[model_type] = model_class
+        else:
+            cls.model_types[model_type] = model_class
 
     @classmethod
-    def create(cls, config: dict | PretrainedConfig) -> AModel:
+    def create(cls, config: dict | PretrainedConfig, dataset_config: dict = None) -> AModel:
         if isinstance(config, dict):
             config = PretrainedConfig.from_dict(config)
         model_class = cls.model_types.get(config.model_type)
         if model_class:
-            return model_class(config)
+            return model_class(config) if dataset_config is None else model_class(config, dataset_config)
         else:
             raise ValueError(f"Invalid model type: {config.model_type}")

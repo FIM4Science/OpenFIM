@@ -1,12 +1,15 @@
 click
 colorlog
 datasets
+gpytorch
 h5py
 ipympl
 ipython
 ipywidgets
 jupyterlab
+lightning
 matplotlib
+mlflow
 nbdime
 nbstripout
 numpy
