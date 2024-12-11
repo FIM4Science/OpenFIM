@@ -15,7 +15,7 @@ locations:
 train:
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: &num_realizations_train 40
+    num_realizations: &num_realizations_train 10
     observed_dimension: null
     state_dim: 2
     redo: true
@@ -82,7 +82,7 @@ train:
 test:
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: 10
+    num_realizations: &num_realizations_test 10
     observed_dimension: null
     state_dim: 2
     redo: true
@@ -92,7 +92,7 @@ test:
 
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: 10
+    num_realizations: *num_realizations_test
     observed_dimension: null
     state_dim: 3
     redo: true
@@ -102,7 +102,7 @@ test:
 
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: 10
+    num_realizations: *num_realizations_test
     observed_dimension: null
     state_dim: 1
     redo: true
@@ -113,7 +113,7 @@ test:
 validation:
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: 100
+    num_realizations: &num_realizations_validation 10
     observed_dimension: null
     state_dim: 2
     redo: true
@@ -123,7 +123,7 @@ validation:
 
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: 100
+    num_realizations: *num_realizations_validation
     observed_dimension: null
     state_dim: 3
     redo: true
@@ -133,7 +133,7 @@ validation:
 
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: 100
+    num_realizations: *num_realizations_validation
     observed_dimension: null
     state_dim: 1
     redo: true

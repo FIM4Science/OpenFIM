@@ -78,24 +78,10 @@ model:
 dataset:
   # data loading
   name: FIMSDEDataloader
-  dataset_description: &dataset_description SDE_linear_SNR_01_05_1_5_DELTA_3D
+  dataset_description: SDE_linear_SNR_01_05_1_5_DELTA_3D
 
-  total_minibatch_size: &total_minibatch_size 2
-  total_minibatch_size_test: &total_minibatch_size_test 2
-
-  random_num_paths_n_grid: true
-  min_number_of_paths_per_batch: 10
-  max_number_of_paths_per_batch: 300
-
-  min_number_of_grid_per_batch: 50
-  max_number_of_grid_per_batch: 1024
-
-  max_dimension: *max_dimension
-  max_time_steps: *max_time_steps
-  max_location_size: *max_location_size
-  max_num_paths: *max_num_of_paths
-
-  data_loading_processes_count: &data_loading_processes_count 0
+  # dataset config
+  data_type: synthetic # synthetic, theory
 
   data_in_files: &data_in_files
     obs_times: "obs_times.h5"
@@ -104,7 +90,7 @@ dataset:
     drift_at_locations: "drift_functions_at_hypercube.h5"
     diffusion_at_locations: "scaled_diffusion_functions_at_hypercube.h5"
 
-  dataset_path_collections: &dataset_path_collections
+  data_paths:
     train:
       - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-1/1
       - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-2/1
@@ -115,11 +101,26 @@ dataset:
       - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-2/1
 
 
-  tensorboard_figure_data: &tensorboard_figure_data "test" # "test" or "train"
-  plot_paths_count: &plot_paths_count 100
+  # dataloader config
+  batch_size:
+    train: 16
+    test: 4
+    validation: 4
 
-  loader_kwargs:
-    num_workers: 2
+  random_grids:
+    train: true
+    test: false
+    validation: false
+
+  min_num_grid_points: 2
+  max_num_grid_points: 10
+
+  random_paths: true
+  min_num_paths: 1
+  max_num_paths: 5
+
+
+
 
 trainer:
   name: Trainer
