@@ -742,26 +742,30 @@ def select_dimension_for_plot(
     diffusion_at_locations_estimation = diffusion_at_locations_estimation.detach().cpu().numpy()
     paths_estimation = paths_estimation.detach().cpu().numpy()
 
-    if index_to_select is None:
-        index_to_select = torch.randint(size=(1,), low=0, high=locations.shape[0]).item()
+    if locations.shape[0] == 0:
+        return None
 
-    # select dimension
-    obs_times = obs_times[index_to_select]
-    obs_values = obs_values[index_to_select, :, :, :dimension]
-    locations = locations[index_to_select, :, :dimension]
-    drift_at_locations_real = drift_at_locations_real[index_to_select, :, :dimension]
-    diffusion_at_locations_real = diffusion_at_locations_real[index_to_select, :, :dimension]
-    drift_at_locations_estimation = drift_at_locations_estimation[index_to_select, :, :dimension]
-    diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select, :, :dimension]
-    paths_estimation = paths_estimation[index_to_select, None, :, :dimension]  # somehow only single path is sampled
+    else:
+        if index_to_select is None:
+            index_to_select = torch.randint(size=(1,), low=0, high=locations.shape[0]).item()
 
-    return (
-        obs_times,
-        obs_values,
-        locations,
-        drift_at_locations_real,
-        diffusion_at_locations_real,
-        drift_at_locations_estimation,
-        diffusion_at_locations_estimation,
-        paths_estimation,
-    )
+        # select dimension
+        obs_times = obs_times[index_to_select]
+        obs_values = obs_values[index_to_select, :, :, :dimension]
+        locations = locations[index_to_select, :, :dimension]
+        drift_at_locations_real = drift_at_locations_real[index_to_select, :, :dimension]
+        diffusion_at_locations_real = diffusion_at_locations_real[index_to_select, :, :dimension]
+        drift_at_locations_estimation = drift_at_locations_estimation[index_to_select, :, :dimension]
+        diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select, :, :dimension]
+        paths_estimation = paths_estimation[index_to_select, None, :, :dimension]  # somehow only single path is sampled
+
+        return (
+            obs_times,
+            obs_values,
+            locations,
+            drift_at_locations_real,
+            diffusion_at_locations_real,
+            drift_at_locations_estimation,
+            diffusion_at_locations_estimation,
+            paths_estimation,
+        )

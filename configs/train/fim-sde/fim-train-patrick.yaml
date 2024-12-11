@@ -1,0 +1,198 @@
+experiment:
+  name: sde
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  seed: 10
+  device_map: cuda # auto, cuda, cpu
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  model_type: fimsde
+  ###################################################################################
+  # Input data (corrected by dataloader) (basically not used in FIM libaray, I think)
+  max_dimension: &max_dimension 3
+  max_time_steps: &max_time_steps 128
+  max_location_size: &max_location_size 1024
+  max_num_paths: &max_num_of_paths 300
+
+  # Model
+  activation:
+    name: torch.nn.SELU
+
+  # phi_0^t
+  # temporal_embedding_size: 128
+  temporal_embedding_size: 16
+
+  # phi_0^s
+  # spatial_embedding_size: 128
+  spatial_embedding_size: 16
+  spatial_embedding_hidden_layers: &hidden_layers !!python/tuple [128, 128]
+
+  # psi_1
+  # sequence_encoding_tokenizer: 64
+  # sequence_encoding_transformer_hidden_size: 256
+  sequence_encoding_tokenizer: 16
+  sequence_encoding_transformer_hidden_size: 16
+  sequence_encoding_transformer_heads: 4
+  sequence_encoding_transformer_layers: 4
+
+  # phi_1
+  trunk_net_hidden_layers: *hidden_layers
+
+  # heads
+  heads_hidden_layers: *hidden_layers
+
+  # instance normalization
+  values_norm_min: -1
+  values_norm_max: 1
+  times_norm_min: 0
+  times_norm_max: 1
+
+  # training
+  # optimizer + regularising
+  num_epochs: 1000
+  lightning_training: true
+  add_delta_x_to_value_encoder: true
+  log_images_every_n_epochs: 1
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-3
+  dropout_rate: 0.1
+
+  # loss
+  loss_type: "nll" #nll, rmse
+  clip_grad: true
+  clip_max_norm: 10.
+
+  # loss regularization
+  diffusion_loss_scale: 1.00
+  train_with_normalized_head: true
+  loss_threshold: 100.0
+  loss_filter_nans: true
+
+  # INFERENCE/PIPELINE ------------------------------------------------------------
+  dt_pipeline: 0.1
+  number_of_time_steps_pipeline: 128
+  evaluate_with_unnormalized_heads: true
+
+# dataset:
+#   # data loading
+#   name: FIMSDEDataloader
+#   dataset_description: &dataset_description SDE_linear_SNR_01_05_1_5
+#
+#   total_minibatch_size: &total_minibatch_size 32
+#   total_minibatch_size_test: &total_minibatch_size_test 32
+#
+#   random_num_paths_n_grid: true
+#   min_number_of_paths_per_batch: 100
+#   max_number_of_paths_per_batch: 100
+#   min_number_of_grid_per_batch: 100
+#   max_number_of_grid_per_batch: 100
+#
+#   data_loading_processes_count: &data_loading_processes_count 0
+#
+#   data_in_files: &data_in_files
+#     obs_times: "obs_times.h5"
+#     obs_values: "obs_values.h5"
+#     locations: "hypercube_locations.h5"
+#     drift_at_locations: "drift_functions_at_hypercube.h5"
+#     diffusion_at_locations: "scaled_diffusion_functions_at_hypercube.h5"
+#
+#   dataset_path_collections: &dataset_path_collections
+#     train:
+#       - processed\state_sde\linear\dim-1\1
+#       - processed\state_sde\linear\dim-2\1
+#       - processed\state_sde\linear\dim-3\1
+#     test:
+#       - processed\state_sde\linear\dim-2\1
+#     validation:
+#       - processed\state_sde\linear\dim-2\1
+#
+#   loader_kwargs:
+#     num_workers: 2
+
+dataset:
+  name: FIMSDEDataloader
+  dataset_description: linear
+
+  num_workers: 16
+
+  ###### For data from dynamical systems class
+  data_type: theory # synthetic, theory
+  data_paths: configs/train/fim-sde/sde-polynomial-systems-hyperparameter.yaml
+
+  ###### For data from files
+  # data_type: synthetic # synthetic, theory
+  # data_in_files:
+  #   obs_times: "obs_times.h5"
+  #   obs_values: "obs_values.h5"
+  #   locations: "hypercube_locations.h5"
+  #   drift_at_locations: "drift_functions_at_hypercube.h5"
+  #   diffusion_at_locations: "scaled_diffusion_functions_at_hypercube.h5"
+  #
+  # data_paths:
+  #   train: !!python/tuple [
+  #     processed\state_sde\linear\dim-1\1,
+  #     processed\state_sde\linear\dim-2\1,
+  #     processed\state_sde\linear\dim-3\1]
+  #   test: !!python/tuple [processed\state_sde\linear\dim-2\1]
+  #   validation: !!python/tuple [processed\state_sde\linear\dim-2\1]
+
+  batch_size:
+    train: 16
+    test: 4
+    validation: 4
+
+  random_grids:
+    train: true
+    test: false
+    validation: false
+
+  min_num_grid_points: 50
+  max_num_grid_points: 50
+
+  random_paths: true
+  min_num_paths: 5
+  max_num_paths: 5
+
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 50
+  detect_anomaly: false
+  save_every: 1
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.SDEEvaluationPlots
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      beta: 1.0
+      label: gauss_nll
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: init_cross_entropy
+      beta: 1.0
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: missing_link
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: 0.0001
+      weight_decay: 0.0001
+      # gradient_norm_clipping: 10
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      #     T_max: *epochs
+      #     eta_min: 0.0000001
+      #     last_epoch: -1

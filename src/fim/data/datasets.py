@@ -512,7 +512,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
     def __init__(self, data_config: FIMDatasetConfig = None, data_paths: Optional[List[str]] = None):
         """
         Args:
-            data_paths (List[str]): list of locations of .h5 files requiered to load the data
+            data_paths (List[str]): list of locations of .h5 files required to load the data
         """
         # To keep track of the number of samples in each file
         self.data = []
@@ -521,6 +521,15 @@ class FIMSDEDataset(torch.utils.data.Dataset):
 
         # Load data and compute cumulative lengths
         self.read_files(data_config, data_paths)
+
+    @classmethod
+    def from_data_paths(cls, data_paths: list[str], data_in_files: Optional[dict] = {}):
+        data_config = FIMDatasetConfig(data_in_files=data_in_files)
+        return cls(data_config, data_paths)
+
+    @classmethod
+    def from_data_batches(cls, data_batch: list[FIMSDEDatabatch]):
+        return cls(None, data_batch)
 
     def _prepare_file_path(self, file_path: Path | str | FIMSDEDatabatch) -> Path | str | FIMSDEDatabatch:
         """
@@ -608,7 +617,7 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         return sum(self.lengths)  # Total number of samples
 
     def __getitem__(self, idx) -> FIMSDEDatabatchTuple:
-        # Obtains index of the associated file and item whithin the file
+        # Obtains index of the associated file and item within the file
         file_idx, sample_idx = self._get_file_and_sample_index(idx)
         data_bulk: FIMSDEDatabatch = self.data[file_idx]
         # Get the tensor from the appropriate file
@@ -678,9 +687,9 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         time_dim_padding_size = self.max_time_steps - current_time_steps
 
         if dim_padding_size > 0 or time_dim_padding_size > 0:
-            if len(obs_values.shape) == 4:  # comming from h5 files
+            if len(obs_values.shape) == 4:  # coming from h5 files
                 obs_values = torch.nn.functional.pad(obs_values, (0, 0, 0, dim_padding_size, 0, time_dim_padding_size))
-            elif len(obs_values.shape) == 3:  # comming from target data simulation
+            elif len(obs_values.shape) == 3:  # coming from target data simulation
                 obs_values = torch.nn.functional.pad(obs_values, (0, dim_padding_size, 0, time_dim_padding_size))
 
             obs_times = torch.nn.functional.pad(obs_times, (0, 0, 0, time_dim_padding_size))

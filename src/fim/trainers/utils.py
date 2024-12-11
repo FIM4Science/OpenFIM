@@ -681,7 +681,9 @@ class TrainLogging:
         assert isinstance(figures, dict), "Figures must be passed in dictionaries with their name as keys."
 
         for label_fig, fig in figures.items():
-            self.tensorboard_logger.add_figure(tag=label + label_fig, figure=fig, global_step=self.__tensorboard_global_step)
+            if fig is not None:
+                self.tensorboard_logger.add_figure(tag=label + label_fig, figure=fig, global_step=self.__tensorboard_global_step)
+                plt.close(fig)
 
     def _generate_imputation_plots(self, line_plot_data):
         """Generate a plot showing the imputation performance: plot observed values and for the imputation window the target and the learnt values."""

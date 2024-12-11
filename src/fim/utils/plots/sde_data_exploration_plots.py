@@ -90,6 +90,8 @@ def plot_paths_in_axis(
     paths_values: Tensor,
     cmap: Optional[str] = None,
     init_states_marker_size: Optional[int] = 2,
+    paths_label: Optional[str] = None,
+    initial_states_label: Optional[str] = None,
     **plt_config,
 ) -> None:
     """
@@ -100,7 +102,9 @@ def plot_paths_in_axis(
         ax (plt.Axes): Axis to plot paths into using passed plotting config
         paths_times (Tensor): Times of paths from one system. Shape: [num_paths, num_obs, 1]
         paths_values (Tensor): Values of paths from one system. Shape: [num_paths, num_obs, state_dim]
-        init_states_marker_size: size of marker for initial state of each path
+        init_states_marker_size (float): size of marker for initial state of each path
+        paths_label (str): Label for plotted paths.
+        initial_states_label_label (str): Label for plotted initial states.
         plt_config (dict): kwargs passed to plt.plot().
     """
     # update default plotting config if not passed
@@ -124,20 +128,28 @@ def plot_paths_in_axis(
         colors = num_paths * ["black"]
 
     # paths, path times are trunkated because sometimes model paths are passed here and they might be fewer than paths_times
-    for path_times, path_values, color in zip(paths_times[: paths_values.shape[0], : paths_values.shape[1]], paths_values, colors):
+    for path_num, (path_times, path_values, color) in enumerate(
+        zip(paths_times[: paths_values.shape[0], : paths_values.shape[1]], paths_values, colors)
+    ):
         plt_config.update({"color": color})
 
         if state_dim == 1:
-            ax.plot(path_times, path_values, **plt_config)
-            ax.plot(path_times[0], path_values[0], **init_states_plt_config)
+            ax.plot(path_times, path_values, label=paths_label if path_num == 0 else None, **plt_config)
+            ax.plot(path_times[0], path_values[0], label=initial_states_label if path_num == 0 else None, **init_states_plt_config)
 
         elif state_dim == 2:
-            ax.plot(path_values[:, 0], path_values[:, 1], **plt_config)
-            ax.plot(path_values[0, 0], path_values[0, 1], **init_states_plt_config)
+            ax.plot(path_values[:, 0], path_values[:, 1], label=paths_label if path_num == 0 else None, **plt_config)
+            ax.plot(path_values[0, 0], path_values[0, 1], label=initial_states_label if path_num == 0 else None, **init_states_plt_config)
 
         elif state_dim == 3:
-            ax.plot(path_values[:, 0], path_values[:, 1], path_values[:, 2], **plt_config)
-            ax.plot(path_values[0, 0], path_values[0, 1], path_values[0, 2], **init_states_plt_config)
+            ax.plot(path_values[:, 0], path_values[:, 1], path_values[:, 2], label=paths_label if path_num == 0 else None, **plt_config)
+            ax.plot(
+                path_values[0, 0],
+                path_values[0, 1],
+                path_values[0, 2],
+                label=initial_states_label if path_num == 0 else None,
+                **init_states_plt_config,
+            )
 
         else:
             raise ValueError("Only plot paths of dimension <= 3. Got " + str(state_dim) + ".")

@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -14,11 +15,11 @@ from torch.utils.data import default_collate
 from torch.utils.data.dataloader import DataLoader
 
 from fim.data.config_dataclasses import FIMDatasetConfig
-from fim.data.data_generation.gp_dynamical_systems import define_dynamicals_models_from_yaml
+from fim.data.data_generation.gp_dynamical_systems import get_dynamicals_system_data_from_yaml
 from fim.models import FIMSDEConfig
 from fim.utils.helper import create_class_instance, verify_str_arg
 
-from ..data.datasets import FIMDataset, FIMSDEDatabatchTuple, FIMSDEDataset, TimeSeriesImputationDatasetTorch
+from ..data.datasets import FIMDataset, FIMSDEDatabatch, FIMSDEDatabatchTuple, FIMSDEDataset, TimeSeriesImputationDatasetTorch
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 from .utils import get_path_counts
@@ -331,95 +332,192 @@ class TimeSeriesDataLoaderTorch:
         return len(self.test)
 
 
+@dataclass
+class SDEDataloaderConfig:
+    """
+    Configurations of single SDE dataloader (e.g. for train).
+    Includes dataset specifications and arguments for collate function.
+    """
+
+    data_label: str
+    data_type: str
+    data_paths: str | list[str]
+    batch_size: int
+    random_grids: bool
+    min_num_grid_points: int
+    max_num_grid_points: int
+    random_paths: bool
+    min_num_paths: int
+    max_num_paths: int
+
+    @classmethod
+    def from_dict(cls, label: str, config: dict):
+        """
+        Construct SDEDataloaderConfig for some set label (e.g. train, test, validation) from some dict, likely passed from config yaml.
+        For each attribute, check if passed config is dict that contains label, e.g.
+            {"train":..., "test":..., "validation":...}
+        extract the value under the label and set it as attribute.
+        Otherwise, extract the value from the dict directly for this attribute, e.g. attribute = config.get(attribute_label)
+
+        Args:
+            label (str): set label, e.g. train, test, validation
+            config (dict): contains attributes to construct SDEDataloaderConfig with, e.g.:
+                {
+                "attribute_1": value_1,
+                "attribute_2": {"train": value_2_train, "test": value_2_test, "validation": value_2_validation}
+                }
+
+        Returns:
+            SDEDataloaderConfig with attributes extracted from config under label.
+        """
+        data_type: str = cls._get_config_as_dict(label, "data_type", config, expected_type=str)
+        data_paths = cls._get_config_as_dict(label, "data_paths", config, expected_type=str)
+        batch_size = cls._get_config_as_dict(label, "batch_size", config, expected_type=int)
+
+        random_grids = cls._get_config_as_dict(label, "random_grids", config, expected_type=bool)
+        min_num_grid_points = cls._get_config_as_dict(label, "min_num_grid_points", config, expected_type=int)
+        max_num_grid_points = cls._get_config_as_dict(label, "max_num_grid_points", config, expected_type=int)
+
+        random_paths = cls._get_config_as_dict(label, "random_paths", config, expected_type=bool)
+        min_num_paths = cls._get_config_as_dict(label, "min_num_paths", config, expected_type=int)
+        max_num_paths = cls._get_config_as_dict(label, "max_num_paths", config, expected_type=int)
+
+        return cls(
+            label,
+            data_type,
+            data_paths,
+            batch_size,
+            random_grids,
+            min_num_grid_points,
+            max_num_grid_points,
+            random_paths,
+            min_num_paths,
+            max_num_paths,
+        )
+
+    @staticmethod
+    def _get_config_as_dict(data_label: str, attribute_label: str, config: dict, expected_type: object) -> dict:
+        """
+        Extract value from config dict under key `attribute_label`.
+        If value is dict e.g. {"train":..., "test":..., "validation":...}, extract value under the `data_label`.
+        """
+        attribute_value = config.get(attribute_label)
+
+        if attribute_value is None:
+            return None
+
+        else:
+            assert isinstance(attribute_value, expected_type) or isinstance(attribute_value, dict), (
+                f"Got wrong type {type(attribute_value)} for data_label {data_label} and attribute {attribute_label}."
+            )
+
+            # check if extracted value is dict and if key `data_label` can be extracted.
+            if isinstance(attribute_value, dict) and data_label in list(attribute_value.keys()):
+                _attribute_value = attribute_value.get(data_label)
+            else:
+                _attribute_value = attribute_value
+
+            return _attribute_value
+
+
 class FIMSDEDataloader(BaseDataLoader):
     """
-    Dataloader for FIM SDE model
-
+    Dataloader for FIM SDE model.
     """
 
     def __init__(self, **kwargs):
-        self.data_config = FIMDatasetConfig(**kwargs)
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
 
-        self.loader_kwargs = self.data_config.loader_kwargs
-        self.batch_size = self.data_config.total_minibatch_size
-        self.test_batch_size = self.data_config.total_minibatch_size_test
-        self.type = self.data_config.type
+        self.data_in_files: dict = kwargs.get("data_in_files")
+        self.dataloader_config = {
+            "train": SDEDataloaderConfig.from_dict("train", kwargs),
+            "validation": SDEDataloaderConfig.from_dict("validation", kwargs),
+            "test": SDEDataloaderConfig.from_dict("test", kwargs),
+        }
 
-        self.random_num_paths_n_grid = self.data_config.random_num_paths_n_grid
-        self.max_number_of_grid_per_batch = self.data_config.max_number_of_grid_per_batch
-        self.min_number_of_grid_per_batch = self.data_config.min_number_of_grid_per_batch
+        self.dataset = {
+            "train": self._get_dataset(self.dataloader_config["train"]),
+            "validation": self._get_dataset(self.dataloader_config["validation"]),
+            "test": self._get_dataset(self.dataloader_config["test"]),
+        }
 
-        self.max_number_of_paths_per_batch = self.data_config.max_number_of_paths_per_batch
-        self.min_number_of_paths_per_batch = self.data_config.min_number_of_paths_per_batch
-
-        self.iter = {}
         self.samplers = {}
 
-        self.dataset = self._set_datasets()
-        self._init_dataloaders(self.dataset)
+        self.iter = {
+            "train": self._init_dataloader(self.dataset["train"], self.dataloader_config["train"]),
+            "validation": self._init_dataloader(self.dataset["validation"], self.dataloader_config["validation"]),
+            "test": self._init_dataloader(self.dataset["test"], self.dataloader_config["test"]),
+        }
 
-    def _set_datasets(self):
-        if self.type == "synthetic":
-            self.train_dataset = FIMSDEDataset(self.data_config, self.data_config.dataset_path_collections.train)
-            self.test_dataset = FIMSDEDataset(self.data_config, self.data_config.dataset_path_collections.test)
-            self.validation_dataset = FIMSDEDataset(self.data_config, self.data_config.dataset_path_collections.validation)
-        elif self.type == "theory":
-            yaml_file = self.data_config.dynamical_systems_hyperparameters_file
-            dataset_type, experiment_name, train_studies, test_studies, validation_studies = define_dynamicals_models_from_yaml(
-                yaml_file, return_data=True
-            )
-            self.train_dataset = FIMSDEDataset(self.data_config, train_studies)
-            self.test_dataset = FIMSDEDataset(self.data_config, test_studies)
-            self.validation_dataset = FIMSDEDataset(self.data_config, validation_studies)
+        self.num_workers: int = kwargs.get("num_workers", 2)
 
-        dataset = {"train": self.train_dataset, "test": self.test_dataset, "validation": self.validation_dataset}
+    def _get_dataset(self, config: SDEDataloaderConfig):
+        """
+        Build dataset for a dataloader based on SDEDataloaderConfig. Major difference is `synthetic` or `theory` data.
+
+        Args:
+            config (SDEDataloaderConfig): Config for one dataloader (e.g. train).
+
+        Return:
+            dataset (FIMSDEDataset): Dataset with data from files or generated from dynamical systems.
+        """
+        if config.data_type == "synthetic":
+            dataset = FIMSDEDataset.from_data_paths(config.data_paths, self.data_in_files)
+        elif config.data_type == "theory":
+            yaml_path = config.data_paths
+            systems_data: list[FIMSDEDatabatch] = get_dynamicals_system_data_from_yaml(yaml_path, config.data_label)
+            dataset = FIMSDEDataset.from_data_batches(systems_data)
+
         return dataset
 
     def update_kwargs(self, kwargs: dict | FIMDatasetConfig | FIMSDEConfig):
-        assert self.train_dataset.max_dimension == self.test_dataset.max_dimension == self.validation_dataset.max_dimension
-        assert self.train_dataset.max_time_steps == self.test_dataset.max_time_steps == self.validation_dataset.max_time_steps, (
+        assert self.dataset["train"].max_dimension == self.dataset["test"].max_dimension == self.dataset["validation"].max_dimension
+        assert self.dataset["train"].max_time_steps == self.dataset["test"].max_time_steps == self.dataset["validation"].max_time_steps, (
             "max_time_steps are not equal"
         )
-        assert self.train_dataset.max_location_size == self.test_dataset.max_location_size == self.validation_dataset.max_location_size, (
-            "max_location_size are not equal"
-        )
-        assert self.train_dataset.max_num_paths == self.test_dataset.max_num_paths == self.validation_dataset.max_num_paths, (
+        assert (
+            self.dataset["train"].max_location_size
+            == self.dataset["test"].max_location_size
+            == self.dataset["validation"].max_location_size
+        ), "max_location_size are not equal"
+        assert self.dataset["train"].max_num_paths == self.dataset["test"].max_num_paths == self.dataset["validation"].max_num_paths, (
             "max_num_paths are not equal"
         )
 
         if isinstance(kwargs, dict):
             if "dataset" in kwargs.keys():
-                kwargs["dataset"]["max_dimension"] = self.train_dataset.max_dimension
-                kwargs["dataset"]["max_time_steps"] = self.train_dataset.max_time_steps
-                kwargs["dataset"]["max_location_size"] = self.train_dataset.max_location_size
-                kwargs["dataset"]["max_num_paths"] = self.train_dataset.max_num_paths
+                kwargs["dataset"]["max_dimension"] = self.dataset["train"].max_dimension
+                kwargs["dataset"]["max_time_steps"] = self.dataset["train"].max_time_steps
+                kwargs["dataset"]["max_location_size"] = self.dataset["train"].max_location_size
+                kwargs["dataset"]["max_num_paths"] = self.dataset["train"].max_num_paths
 
-                kwargs["model"]["max_dimension"] = self.train_dataset.max_dimension
-                kwargs["model"]["max_time_steps"] = self.train_dataset.max_time_steps
-                kwargs["model"]["max_location_size"] = self.train_dataset.max_location_size
-                kwargs["model"]["max_num_paths"] = self.train_dataset.max_num_paths
+                kwargs["model"]["max_dimension"] = self.dataset["train"].max_dimension
+                kwargs["model"]["max_time_steps"] = self.dataset["train"].max_time_steps
+                kwargs["model"]["max_location_size"] = self.dataset["train"].max_location_size
+                kwargs["model"]["max_num_paths"] = self.dataset["train"].max_num_paths
             else:
-                kwargs["max_dimension"] = self.train_dataset.max_dimension
-                kwargs["max_time_steps"] = self.train_dataset.max_time_steps
-                kwargs["max_location_size"] = self.train_dataset.max_location_size
-                kwargs["max_num_paths"] = self.train_dataset.max_num_paths
+                kwargs["max_dimension"] = self.dataset["train"].max_dimension
+                kwargs["max_time_steps"] = self.dataset["train"].max_time_steps
+                kwargs["max_location_size"] = self.dataset["train"].max_location_size
+                kwargs["max_num_paths"] = self.dataset["train"].max_num_paths
                 return kwargs
 
         elif isinstance(kwargs, (FIMSDEConfig, FIMDatasetConfig)):
-            kwargs.max_dimension = self.train_dataset.max_dimension
-            kwargs.max_time_steps = self.train_dataset.max_time_steps
-            kwargs.max_location_size = self.train_dataset.max_location_size
-            kwargs.max_num_paths = self.train_dataset.max_num_paths
+            kwargs.max_dimension = self.dataset["train"].max_dimension
+            kwargs.max_time_steps = self.dataset["train"].max_time_steps
+            kwargs.max_location_size = self.dataset["train"].max_location_size
+            kwargs.max_num_paths = self.dataset["train"].max_num_paths
 
         return kwargs
 
-    def fimsde_collate_fn(self, batch: List):
+    @staticmethod
+    def fimsde_collate_fn(batch: List, config: SDEDataloaderConfig):
         """
         Custom collate function to adjust number of paths and grids dynamically.
 
         Args:
-            batch: List of FIMSDEDatabatchTuple returned by Dataset's __getitem__.
+            batch (list[FIMSDEDatabatchTuple]): Returned by Dataset's __getitem__.
+            config (SDEDataloaderConfig): Configuration of randomness
 
         Returns:
             A new FIMSDEDatabatchTuple with randomly selected number of paths and grids.
@@ -432,36 +530,48 @@ class FIMSDEDataloader(BaseDataLoader):
         locations = torch.stack([item.locations for item in batch])
         dimension_mask = torch.stack([item.dimension_mask for item in batch])
 
-        # Determine the maximum paths and grids across the batch
-        max_paths = obs_values.size(1)
-        max_grids = locations.size(1)
+        # determine and truncate number of paths
+        if config.random_paths is True:
+            # Permute paths (for now, all elements in batch are permuted the same)
+            paths_perm = torch.randperm(obs_values.shape[1])
 
-        # Randomly select number of paths and grids for the entire batch
-        number_of_paths = torch.randint(
-            self.min_number_of_paths_per_batch, min(self.max_number_of_paths_per_batch, max_paths) + 1, size=(1,)
-        ).item()
+            obs_values = obs_values[:, paths_perm]
+            obs_times = obs_times[:, paths_perm]
 
-        number_of_grids = torch.randint(
-            self.min_number_of_grid_per_batch, min(self.max_number_of_grid_per_batch, max_grids) + 1, size=(1,)
-        ).item()
+            # Randomly select number of paths for the entire batch
+            max_paths = obs_values.size(1)
+            number_of_paths = torch.randint(config.min_num_paths, min(config.max_num_paths, max_paths) + 1, size=(1,)).item()
 
-        # permute paths and locations (for now, all elements in batch are permuted the same)
-        paths_perm = torch.randperm(obs_values.shape[1])
-        grids_perm = torch.randperm(locations.shape[1])
-        obs_values = obs_values[:, paths_perm]
-        obs_times = obs_times[:, paths_perm]
-        drift_at_locations = drift_at_locations[:, grids_perm]
-        diffusion_at_locations = diffusion_at_locations[:, grids_perm]
-        locations = locations[:, grids_perm]
-        dimension_mask = dimension_mask[:, grids_perm]
+        elif config.max_num_paths is not None:  # default to max_num_paths
+            number_of_paths = config.max_num_paths
 
-        # Trim each field based on the selected number of paths and grids
-        obs_values = obs_values[:, :number_of_paths]
-        obs_times = obs_times[:, :number_of_paths]
-        drift_at_locations = drift_at_locations[:, :number_of_grids]
-        diffusion_at_locations = diffusion_at_locations[:, :number_of_grids]
-        locations = locations[:, :number_of_grids]
-        dimension_mask = dimension_mask[:, :number_of_grids]
+        else:
+            number_of_paths = None
+
+        if number_of_paths is not None:
+            obs_values = obs_values[:, :number_of_paths]
+            obs_times = obs_times[:, :number_of_paths]
+
+        # determine and truncate number of grids
+        if config.random_grids is True:
+            # Permute grids (for now, all elements in batch are permuted the same)
+            grids_perm = torch.randperm(locations.shape[1])
+
+            drift_at_locations = drift_at_locations[:, grids_perm]
+            diffusion_at_locations = diffusion_at_locations[:, grids_perm]
+            locations = locations[:, grids_perm]
+            dimension_mask = dimension_mask[:, grids_perm]
+
+            if config.min_num_grid_points is not None and config.min_num_grid_points != -1:
+                # Randomly select number of paths for the entire batch
+                max_grids = locations.size(1)
+                number_of_grids = torch.randint(config.min_num_grid_points, min(config.max_num_grid_points, max_grids) + 1, size=(1,))
+                number_of_grids = number_of_grids.item()
+
+                drift_at_locations = drift_at_locations[:, :number_of_grids]
+                diffusion_at_locations = diffusion_at_locations[:, :number_of_grids]
+                locations = locations[:, :number_of_grids]
+                dimension_mask = dimension_mask[:, :number_of_grids]
 
         # Return a new FIMSDEDatabatchTuple
         return FIMSDEDatabatchTuple(
@@ -473,11 +583,24 @@ class FIMSDEDataloader(BaseDataLoader):
             dimension_mask=dimension_mask,
         )
 
-    def _get_collate_fn(self, n, dataset):
-        if self.random_num_paths_n_grid:
-            return self.fimsde_collate_fn
-        else:
-            return None
+    def _init_dataloader(self, dataset: FIMSDEDataset, config: SDEDataloaderConfig) -> DataLoader:
+        """
+        Build dataloader (e.g. for train) from (previously constructed) dataset based on some configuration.
+        """
+        sampler = None
+        if is_distributed():
+            sampler = DistributedSampler(dataset, num_replicas=dist.get_world_size(), rank=dist.get_rank())
+        self.samplers[config.data_label] = sampler
+
+        return DataLoader(
+            dataset,
+            drop_last=False,
+            sampler=sampler,
+            shuffle=sampler is None,
+            batch_size=config.batch_size,
+            collate_fn=partial(self.fimsde_collate_fn, config=config),
+            num_workers=self.num_workers,
+        )
 
 
 class DataLoaderFactory:

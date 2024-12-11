@@ -3,7 +3,6 @@ import os
 import pytest
 import torch
 
-from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.data_generation.gp_dynamical_systems import (
     IntegrationConfig,
     ScaleRBF,
@@ -113,13 +112,8 @@ class TestSDEGPDynamicalSystem:
             assert isinstance(study, FIMSDEDatabatch), f"Expected element in train_studies to be of type str, but got {type(study)}"
 
     def test_dataloader_from_yaml(self):
-        from dataclasses import asdict
-
         yaml_path = str(os.path.join("tests", "resources", "config", "gp-sde-systems-hyperparameters.yaml"))
-        data_config = FIMDatasetConfig(
-            dynamical_systems_hyperparameters_file=yaml_path, type="theory", random_num_paths_n_grid=False, total_minibatch_size=32
-        )
-        dataloaders = FIMSDEDataloader(**asdict(data_config))
+        dataloaders = FIMSDEDataloader(data_paths=yaml_path, data_type="theory", random_grid=False, random_paths=False, batch_size=32)
         databatch: FIMSDEDatabatchTuple = next(dataloaders.train_it.__iter__())
         print(databatch.drift_at_locations.shape)
         assert dataloaders is not None
