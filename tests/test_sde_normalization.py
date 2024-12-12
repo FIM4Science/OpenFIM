@@ -56,10 +56,33 @@ class TestNormalizationStats:
         assert torch.allclose(min_, data_min.squeeze(-2))
         assert torch.allclose(max_, data_max.squeeze(-2))
 
+    def test_masked_unnormalized_stats(self) -> None:
+        data = torch.tensor(
+            [
+                [[1, 2], [3, 4], [5, 6]],
+                [[7, 8], [9, 10], [11, 12]],
+            ],
+            dtype=torch.float,
+        )
+
+        observed_mask = torch.tensor(
+            [
+                [[True], [True], [False]],
+                [[True], [True], [False]],
+            ],
+            dtype=torch.bool,
+        )
+
+        norm_stats = NormalizationStats(data, mask=observed_mask)
+        min_, max_ = norm_stats.get_unnormalized_stats(data, observed_mask)
+
+        assert torch.allclose(min_, torch.Tensor([[1, 2], [7, 8]]).float())
+        assert torch.allclose(max_, torch.Tensor([[3, 4], [9, 10]]).float())
+
     def test_get_intervals_boundaries(self, data: Tensor, data_stats: tuple[Tensor], targets: tuple[float]) -> None:
         data_min, data_max = data_stats
         target_min, target_max = targets
-        norm_stats = NormalizationStats(data, target_min, target_max)
+        norm_stats = NormalizationStats(data, normalized_min=target_min, normalized_max=target_max)
 
         unnormalized_min, unnormalized_max, normalized_min, normalized_max = norm_stats.get_intervals_boundaries(data.shape)
 
@@ -70,7 +93,7 @@ class TestNormalizationStats:
 
     def test_normalization_map(self, data: Tensor, targets: tuple[Tensor]) -> None:
         target_min, target_max = targets
-        norm_stats = NormalizationStats(data, target_min, target_max)
+        norm_stats = NormalizationStats(data, normalized_min=target_min, normalized_max=target_max)
 
         # reaches its target
         unnormalized_min, unnormalized_max, normalized_min, normalized_max = norm_stats.get_intervals_boundaries(data.shape)

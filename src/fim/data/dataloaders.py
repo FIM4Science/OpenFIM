@@ -137,9 +137,9 @@ class FIMDataLoader(BaseDataLoader):
         self.current_minibatch_index = 0
         super().__init__(dataset_kwargs, loader_kwargs)
         if self.variable_num_of_paths:
-            assert self.max_number_of_minibatch_sizes is not None, (
-                "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
-            )
+            assert (
+                self.max_number_of_minibatch_sizes is not None
+            ), "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
             assert self.max_path_count is not None, "max_path_conunt must be provided if variable_num_of_paths is True"
 
         self.path_collections = path_collections
@@ -407,9 +407,9 @@ class SDEDataloaderConfig:
             return None
 
         else:
-            assert isinstance(attribute_value, expected_type) or isinstance(attribute_value, dict), (
-                f"Got wrong type {type(attribute_value)} for data_label {data_label} and attribute {attribute_label}."
-            )
+            assert isinstance(attribute_value, expected_type) or isinstance(
+                attribute_value, dict
+            ), f"Got wrong type {type(attribute_value)} for data_label {data_label} and attribute {attribute_label}."
 
             # check if extracted value is dict and if key `data_label` can be extracted.
             if isinstance(attribute_value, dict) and data_label in list(attribute_value.keys()):
@@ -427,6 +427,8 @@ class FIMSDEDataloader(BaseDataLoader):
 
     def __init__(self, **kwargs):
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+
+        self.num_workers: int = kwargs.get("num_workers", 2)
 
         self.data_in_files: dict = kwargs.get("data_in_files")
         self.dataloader_config = {
@@ -449,8 +451,6 @@ class FIMSDEDataloader(BaseDataLoader):
             "test": self._init_dataloader(self.dataset["test"], self.dataloader_config["test"]),
         }
 
-        self.num_workers: int = kwargs.get("num_workers", 2)
-
     def _get_dataset(self, config: SDEDataloaderConfig):
         """
         Build dataset for a dataloader based on SDEDataloaderConfig. Major difference is `synthetic` or `theory` data.
@@ -472,17 +472,17 @@ class FIMSDEDataloader(BaseDataLoader):
 
     def update_kwargs(self, kwargs: dict | FIMDatasetConfig | FIMSDEConfig):
         assert self.dataset["train"].max_dimension == self.dataset["test"].max_dimension == self.dataset["validation"].max_dimension
-        assert self.dataset["train"].max_time_steps == self.dataset["test"].max_time_steps == self.dataset["validation"].max_time_steps, (
-            "max_time_steps are not equal"
-        )
+        assert (
+            self.dataset["train"].max_time_steps == self.dataset["test"].max_time_steps == self.dataset["validation"].max_time_steps
+        ), "max_time_steps are not equal"
         assert (
             self.dataset["train"].max_location_size
             == self.dataset["test"].max_location_size
             == self.dataset["validation"].max_location_size
         ), "max_location_size are not equal"
-        assert self.dataset["train"].max_num_paths == self.dataset["test"].max_num_paths == self.dataset["validation"].max_num_paths, (
-            "max_num_paths are not equal"
-        )
+        assert (
+            self.dataset["train"].max_num_paths == self.dataset["test"].max_num_paths == self.dataset["validation"].max_num_paths
+        ), "max_num_paths are not equal"
 
         if isinstance(kwargs, dict):
             if "dataset" in kwargs.keys():

@@ -362,10 +362,6 @@ def pad_from_dataset(data: FIMSDEDatabatch, sample_idx: int, dataset: FIMSDEData
         diffusion_at_locations=diffusion_at_locations,
         drift_at_locations=drift_at_locations,
         locations=locations,
-        # diffusion_parameters=diffusion_parameters,
-        # drift_parameters=drift_parameters,
-        # process_label=process_label,
-        # process_dimension=process_dimension,
         dimension_mask=mask,
     )
 
