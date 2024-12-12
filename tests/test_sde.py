@@ -2,7 +2,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from fim.models.sde import FIMSDE
+from fim.models.sde import FIMSDE, backward_fill_masked_values, forward_fill_masked_values
 
 
 class TestFIMSDELoss:
@@ -137,3 +137,59 @@ class TestFIMSDELoss:
         filter_mask, filter_perc = FIMSDE.filter_loss_at_locations(loss_with_nan, self.threshold)
         assert torch.all(torch.abs(filter_mask * torch.logical_not(loss_nan_mask) * randn) <= self.threshold)
         assert filter_perc.item() == torch.logical_or((torch.abs(randn) > self.threshold), (loss_nan_mask)).mean(dtype=torch.float32).item()
+
+
+class TestMaskedFill:
+    @pytest.fixture
+    def data(self) -> tuple[Tensor]:
+        observation_values = torch.tensor(
+            [
+                [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12], [13, 14]],
+                [[15, 16], [17, 18], [19, 20], [21, 22], [23, 24], [25, 26], [27, 28]],
+            ],
+            dtype=torch.float,
+        )
+
+        observed_mask = torch.tensor(
+            [
+                [[False], [False], [True], [False], [False], [True], [True]],
+                [[True], [False], [False], [True], [True], [False], [False]],
+            ],
+            dtype=torch.bool,
+        )
+
+        return observation_values, observed_mask
+
+    @pytest.fixture
+    def expected_forward_fill(self) -> Tensor:
+        return torch.tensor(
+            [
+                [[5, 6], [5, 6], [5, 6], [5, 6], [5, 6], [11, 12], [13, 14]],
+                [[15, 16], [15, 16], [15, 16], [21, 22], [23, 24], [23, 24], [23, 24]],
+            ],
+            dtype=torch.float,
+        )
+
+    @pytest.fixture
+    def expected_backward_fill(self) -> Tensor:
+        return torch.tensor(
+            [
+                [[5, 6], [5, 6], [5, 6], [11, 12], [11, 12], [11, 12], [13, 14]],
+                [[15, 16], [21, 22], [21, 22], [21, 22], [23, 24], [23, 24], [23, 24]],
+            ],
+            dtype=torch.float,
+        )
+
+    def test_forward_fill(self, data: tuple[Tensor], expected_forward_fill: Tensor) -> None:
+        observation_values, observed_mask = data
+
+        forward_fill = forward_fill_masked_values(observation_values, observed_mask)
+
+        assert torch.allclose(forward_fill, expected_forward_fill)
+
+    def test_backward_fill(self, data: tuple[Tensor], expected_backward_fill: Tensor) -> None:
+        observation_values, observed_mask = data
+
+        backward_fill = backward_fill_masked_values(observation_values, observed_mask)
+
+        assert torch.allclose(backward_fill, expected_backward_fill)

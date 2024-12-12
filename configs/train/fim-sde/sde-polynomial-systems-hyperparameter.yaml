@@ -5,7 +5,7 @@ integration:
   method: "EulerMaruyama"
   time_step: 0.1
   num_steps: 128
-  num_paths: 100
+  num_paths: 50
   num_locations: 1024
   stochastic: true
 
@@ -15,7 +15,7 @@ locations:
 train:
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: &num_realizations_train 10
+    num_realizations: &num_realizations_train 5000
     observed_dimension: null
     state_dim: 2
     redo: true
@@ -82,7 +82,7 @@ train:
 test:
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: &num_realizations_test 10
+    num_realizations: &num_realizations_test 500
     observed_dimension: null
     state_dim: 2
     redo: true
@@ -113,7 +113,7 @@ test:
 validation:
   - name: Degree2Polynomial
     data_bulk_name: polynomial_diffusion
-    num_realizations: &num_realizations_validation 10
+    num_realizations: &num_realizations_validation 500
     observed_dimension: null
     state_dim: 2
     redo: true

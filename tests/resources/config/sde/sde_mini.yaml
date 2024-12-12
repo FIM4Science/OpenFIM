@@ -21,28 +21,57 @@ model:
   max_location_size: &max_location_size 0
   max_num_paths: &max_num_of_paths 0
 
-  # Model
-  # phi_0^t
-  temporal_embedding_size: &temporal_embedding_size 21
+  # General model config
+  non_negative_diffusion_by: "clip"
+  model_embedding_size: &model_embedding_size 16
 
-  # phi_0^s
-  spatial_embedding_size: &spatial_embedding_size 19
-  spatial_embedding_hidden_layers: &spatial_embedding_hidden_layers [50] #  if null, this will just be dense layer
+  # General transformer config
+  residual_ff_size: &residual_ff_size 16
+  transformer_layer_activation: &transformer_layer_activation "relu"
 
-  # psi_1
-  sequence_encoding_tokenizer: &sequence_encoding_tokenizer 10
-  sequence_encoding_transformer_hidden_size: &sequence_encoding_transformer_hidden_size 28
-  sequence_encoding_transformer_heads: &sequence_encoding_transformer_heads 1
-  sequence_encoding_transformer_layers: &sequence_encoding_transformer_layers 1
+  # General MLP config
+  hidden_layers: &hidden_layers !!python/tuple [16, 16]
+  dropout_rate: &dropout_rate 0.1
+  hidden_act: &hidden_act
+    name: &activation torch.nn.ReLU
 
-  # Omega_1
-  combining_transformer_hidden_size: &combining_transformer_hidden_size 28
-  combining_transformer_heads: &combining_transformer_heads 2
-  combining_transformer_layers: &combining_transformer_layers 1
+  # Networks
+  phi_0x:
+    hidden_layers: *hidden_layers
+    hidden_act: *hidden_act
+    dropout: *dropout_rate
 
-  # phi_1
-  trunk_net_size: &trunk_net_size 28
-  trunk_net_hidden_layers: &trunk_net_hidden_layers [25]
+  phi_0_combination: "add" # concatenate, all
+
+  psi_1_transformer_layer:
+    nhead: 2
+    dim_feedforward: *residual_ff_size
+    dropout: *dropout_rate
+    activation: *transformer_layer_activation
+
+  psi_1_transformer_encoder:
+    num_layers: 2
+
+  phi_1x:
+    hidden_layers: *hidden_layers
+    hidden_act: *hidden_act
+    dropout: *dropout_rate
+
+  operator_specificity: "per_head" # all, per_concept, per_head
+
+  operator:
+    attention:
+      locations_as_final_query: false
+      nhead: 2
+      dim_feedforward: *residual_ff_size
+      dropout: *dropout_rate
+      activation: *activation
+
+    projection:
+      hidden_layers: *hidden_layers
+      hidden_act: *hidden_act
+      dropout: *dropout_rate
+
 
   # instance normalization
   values_norm_min: -1
@@ -50,30 +79,22 @@ model:
   times_norm_min: 0
   times_norm_max: 1
 
-  # training
-  # optimizer + regularising
-  num_epochs: 2
-  add_delta_x_to_value_encoder: &add_delta_x_to_value_encoder true
-  log_images_every_n_epochs: 2
-  learning_rate: &learning_rate 1.0e-5
-  weight_decay: &weight_decay 1.0e-4
-  dropout_rate: &dropout_rate 0.1
+  # loss regularization
+  add_delta_x_to_value_encoder: true
+  diffusion_loss_scale: 0.01
+  train_with_normalized_head: true
+  loss_threshold: 100.0
+  loss_filter_nans: true
 
   # loss
-  loss_type: "rmse" #var, rmse
+  loss_type: "nll" #nll, rmse
   clip_grad: true
   clip_max_norm: 10.
 
-  # loss regularization
-  diffusion_loss_scale: 1.0
-  train_with_normalized_head: true
-  loss_threshold: &loss_threshold 100.0
-  loss_filter_nans: True
-
   # INFERENCE/PIPELINE ------------------------------------------------------------
-  dt_pipeline: 0.01
+  dt_pipeline: 0.1
   number_of_time_steps_pipeline: 128
-  evaluate_with_unnormalized_heads: True
+  evaluate_with_unnormalized_heads: true
 
 dataset:
   # data loading

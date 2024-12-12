@@ -1,8 +1,8 @@
 experiment:
-  name: sde
+  name: equal_loss_scale_operator_all_heads_linear_data
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
-  device_map: cuda # auto, cuda, cpu
+  device_map: cpu # auto, cuda, cpu
 
 distributed:
   enabled: false
@@ -21,32 +21,57 @@ model:
   max_location_size: &max_location_size 1024
   max_num_paths: &max_num_of_paths 300
 
-  # Model
-  activation:
-    name: torch.nn.SELU
+  # General model config
+  non_negative_diffusion_by: "clip"
+  model_embedding_size: &model_embedding_size 64
 
-  # phi_0^t
-  # temporal_embedding_size: 128
-  temporal_embedding_size: 16
+  # General transformer config
+  residual_ff_size: &residual_ff_size 256
+  transformer_layer_activation: &transformer_layer_activation "relu"
 
-  # phi_0^s
-  # spatial_embedding_size: 128
-  spatial_embedding_size: 16
-  spatial_embedding_hidden_layers: &hidden_layers !!python/tuple [128, 128]
+  # General MLP config
+  hidden_layers: &hidden_layers !!python/tuple [128, 128]
+  dropout_rate: &dropout_rate 0.1
+  hidden_act: &hidden_act
+    name: &activation torch.nn.ReLU
 
-  # psi_1
-  # sequence_encoding_tokenizer: 64
-  # sequence_encoding_transformer_hidden_size: 256
-  sequence_encoding_tokenizer: 16
-  sequence_encoding_transformer_hidden_size: 16
-  sequence_encoding_transformer_heads: 4
-  sequence_encoding_transformer_layers: 4
+  # Networks
+  phi_0x:
+    hidden_layers: *hidden_layers
+    hidden_act: *hidden_act
+    dropout: *dropout_rate
 
-  # phi_1
-  trunk_net_hidden_layers: *hidden_layers
+  phi_0_combination: "concatenate" # concatenate, all
 
-  # heads
-  heads_hidden_layers: *hidden_layers
+  psi_1_transformer_layer:
+    nhead: 4
+    dim_feedforward: *residual_ff_size
+    dropout: *dropout_rate
+    activation: *transformer_layer_activation
+
+  psi_1_transformer_encoder:
+    num_layers: 4
+
+  phi_1x:
+    hidden_layers: *hidden_layers
+    hidden_act: *hidden_act
+    dropout: *dropout_rate
+
+  operator_specificity: "all" # all, per_concept, per_head
+
+  operator:
+    attention:
+      locations_as_final_query: false
+      nhead: 4
+      dim_feedforward: *residual_ff_size
+      dropout: *dropout_rate
+      activation: *activation
+
+    projection:
+      hidden_layers: *hidden_layers
+      hidden_act: *hidden_act
+      dropout: *dropout_rate
+
 
   # instance normalization
   values_norm_min: -1
@@ -54,73 +79,28 @@ model:
   times_norm_min: 0
   times_norm_max: 1
 
-  # training
-  # optimizer + regularising
-  num_epochs: 1000
-  lightning_training: true
+  # loss regularization
   add_delta_x_to_value_encoder: true
-  log_images_every_n_epochs: 1
-  learning_rate: 1.0e-4
-  weight_decay: 1.0e-3
-  dropout_rate: 0.1
+  diffusion_loss_scale: 1.0
+  train_with_normalized_head: true
+  loss_threshold: 100.0
+  loss_filter_nans: true
 
   # loss
   loss_type: "nll" #nll, rmse
   clip_grad: true
   clip_max_norm: 10.
 
-  # loss regularization
-  diffusion_loss_scale: 1.00
-  train_with_normalized_head: true
-  loss_threshold: 100.0
-  loss_filter_nans: true
-
   # INFERENCE/PIPELINE ------------------------------------------------------------
   dt_pipeline: 0.1
   number_of_time_steps_pipeline: 128
   evaluate_with_unnormalized_heads: true
 
-# dataset:
-#   # data loading
-#   name: FIMSDEDataloader
-#   dataset_description: &dataset_description SDE_linear_SNR_01_05_1_5
-#
-#   total_minibatch_size: &total_minibatch_size 32
-#   total_minibatch_size_test: &total_minibatch_size_test 32
-#
-#   random_num_paths_n_grid: true
-#   min_number_of_paths_per_batch: 100
-#   max_number_of_paths_per_batch: 100
-#   min_number_of_grid_per_batch: 100
-#   max_number_of_grid_per_batch: 100
-#
-#   data_loading_processes_count: &data_loading_processes_count 0
-#
-#   data_in_files: &data_in_files
-#     obs_times: "obs_times.h5"
-#     obs_values: "obs_values.h5"
-#     locations: "hypercube_locations.h5"
-#     drift_at_locations: "drift_functions_at_hypercube.h5"
-#     diffusion_at_locations: "scaled_diffusion_functions_at_hypercube.h5"
-#
-#   dataset_path_collections: &dataset_path_collections
-#     train:
-#       - processed\state_sde\linear\dim-1\1
-#       - processed\state_sde\linear\dim-2\1
-#       - processed\state_sde\linear\dim-3\1
-#     test:
-#       - processed\state_sde\linear\dim-2\1
-#     validation:
-#       - processed\state_sde\linear\dim-2\1
-#
-#   loader_kwargs:
-#     num_workers: 2
-
 dataset:
   name: FIMSDEDataloader
   dataset_description: linear
 
-  num_workers: 16
+  num_workers: 32
 
   ###### For data from dynamical systems class
   data_type: theory # synthetic, theory
@@ -143,37 +123,40 @@ dataset:
   #   test: !!python/tuple [processed\state_sde\linear\dim-2\1]
   #   validation: !!python/tuple [processed\state_sde\linear\dim-2\1]
 
-  batch_size:
-    train: 16
-    test: 4
-    validation: 4
+  batch_size: 32
 
   random_grids:
     train: true
     test: false
     validation: false
 
-  min_num_grid_points: 50
-  max_num_grid_points: 50
+  min_num_grid_points: 1
+  max_num_grid_points: 1
 
-  random_paths: true
-  min_num_paths: 5
-  max_num_paths: 5
+  random_paths:
+    train: true
+    test: false
+    validation: false
+
+  min_num_paths: 10
+  max_num_paths: 100
 
 
 trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 50
+  epochs: &epochs 1000
   detect_anomaly: false
-  save_every: 1
+  save_every: 5
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.SDEEvaluationPlots
+    plot_frequency: 3
+
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       beta: 1.0
@@ -188,8 +171,8 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.0001
-      weight_decay: 0.0001
+      lr: 1.0e-4
+      weight_decay: 1.0e-4
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple
       #   - name: torch.optim.lr_scheduler.CosineAnnealingLR

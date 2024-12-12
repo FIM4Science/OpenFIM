@@ -1,6 +1,6 @@
-from copy import copy
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import lightning.pytorch as pl
 import matplotlib.pyplot as plt
@@ -12,10 +12,10 @@ from transformers import AutoConfig, AutoModel, PretrainedConfig
 from fim import results_path
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.models.blocks import AModel, ModelFactory
-from fim.models.blocks.base import MLP, TransformerModel
+from fim.models.blocks.base import MLP
+from fim.models.blocks.neural_operators import AttentionOperator
 from fim.models.blocks.positional_encodings import SineTimeEncoding
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
-from fim.utils.helper import create_class_instance
 from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
 
 
@@ -39,15 +39,85 @@ class StaticQuery(nn.Module):
         return self.queries
 
 
+def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    """
+    Fill forward values at masked entries in dimension -2.
+
+    Approach:
+        An unmasked observation means the cumsum along dim -2 increases by 1.
+        Cummax returns the index, when change happens.
+        Take care of edgecase: if first values are masked, fill backward from first observed values.
+
+    Args:
+        x (Tensor): Tensor to fill values in. Shape: [..., T, D].
+        mask (Tensor): Boolean tensor, True indicates observed, False indicates to fill.  Shape: [..., T, 1].
+
+    Return:
+        filled_x (Tensor): x with forward filled values at masked out indices. Shape: [..., T, D].
+
+    """
+    if mask is None:
+        return x
+
+    else:
+        mask = mask.bool()
+        mask = torch.broadcast_to(mask, x.shape)  # [..., T, D]
+
+        # change in cumsum indicates new observation
+        mask_cumsum = torch.cumsum(mask, dim=-2)
+
+        # extract index of change (* mask is important, s.t. index stays the same if masked out values are hit)
+        indices_to_take = torch.cummax(mask_cumsum * mask, dim=-2)[1]  # [1] returns indices, [..., T, D]
+
+        # edge case: if first values are masked, we backward fill with first really observed value
+        first_non_masked_index = torch.argmin(torch.where(mask_cumsum == 0, torch.inf, mask_cumsum), dim=-2, keepdim=True)
+        indices_to_take = torch.where(mask_cumsum == 0, first_non_masked_index, indices_to_take)
+
+        # gather values at indices
+        filled_x = torch.gather(x, dim=-2, index=indices_to_take)
+
+        return filled_x
+
+
+def backward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
+    """
+    Fill backwards values at masked entries in dimension -2.
+
+    Args:
+        x (Tensor): Tensor to fill values in. Shape: [..., T, D].
+        mask (Tensor): Boolean tensor, True indicates observed, False indicates to fill.  Shape: [..., T, 1].
+
+    Return:
+        filled_x (Tensor): x with backward filled values at masked out indices. Shape: [..., T, D].
+
+    """
+    if mask is None:
+        return x
+
+    else:
+        mask = mask.bool()
+        mask = torch.broadcast_to(mask, x.shape)
+
+        # backward fill is just forward fill of flipped tensor
+        mask = torch.flip(mask, dims=(-2,))
+        x = torch.flip(x, dims=(-2,))
+
+        x = forward_fill_masked_values(x, mask)
+
+        return torch.flip(x, dims=(-2,))
+
+
 class NormalizationStats:
     """
     Stores statistics needed to map values into a particular interval.
     """
 
-    def __init__(self, values: Tensor, normalized_min: float = -1, normalized_max: float = 1):
+    def __init__(
+        self, values: Tensor, mask: Optional[Tensor] = None, normalized_min: Optional[float] = -1, normalized_max: Optional[float] = 1
+    ):
         # values and target interval boundaries
         self.normalized_min, self.normalized_max = normalized_min, normalized_max
-        self.unnormalized_min, self.unnormalized_max = self.get_unnormalized_stats(values)
+        self.unnormalized_min, self.unnormalized_max = self.get_unnormalized_stats(values, mask)
 
         # batch and observed dimension for reference
         self.batch_size = self.unnormalized_min.shape[0]
@@ -106,21 +176,33 @@ class NormalizationStats:
 
         return reshaped_values, original_shape
 
-    def get_unnormalized_stats(self, values: Tensor) -> tuple[Tensor]:
+    def get_unnormalized_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
-        Return min and max of passed values along all dimensions 1 to -2.
+        Return min and max of passed values along all dimensions 1 to -2, where mask == 1.
 
         Args:
             values (Tensor): Shape: [B, ..., D]
+            mask (Tensor): Shape: [B, ...., 1]
 
         Returns:
             min, max (Tensor): Statistics of inputs along all dimensions 1 to -2. Shape: [B, D]
         """
-        # Squash intermediate dimensions from values
+
+        # Squash intermediate dimensions
         values, _ = self.squash_intermediate_dims(values)
 
-        values_min = torch.amin(values, dim=-2)
-        values_max = torch.amax(values, dim=-2)
+        if mask is None:
+            values_min = torch.amin(values, dim=-2)
+            values_max = torch.amax(values, dim=-2)
+
+        else:
+            mask = mask.bool()
+
+            mask, _ = self.squash_intermediate_dims(mask)
+            mask = torch.broadcast_to(mask, values.shape)
+
+            values_min = torch.amin(torch.where(mask, values, torch.inf), dim=-2)
+            values_max = torch.amax(torch.where(mask, values, -torch.inf), dim=-2)
 
         return values_min, values_max
 
@@ -448,16 +530,15 @@ class FIMSDEConfig(PretrainedConfig):
         max_time_steps (int): Maximum time steps. Default is 128.
         max_location_size (int): Maximum location size. Default is 1024.
         max_num_paths (int): Maximum number of paths. Default is 30.
-        temporal_embedding_size (int): Size of temporal embedding. Default is 19.
-        spatial_embedding_size (int): Size of spatial embedding. Default is 19.
-        spatial_embedding_hidden_layers (list[int]): Hidden layers for spatial embedding. Default is [25].
-        sequence_encoding_tokenizer (int): Tokenizer size for sequence encoding. Default is 5.
-        sequence_encoding_transformer_hidden_size (int): Hidden size for transformer in sequence encoding. Default is 50.
-        sequence_encoding_transformer_heads (int): Number of heads in transformer for sequence encoding. Default is 1.
-        sequence_encoding_transformer_layers (int): Number of layers in transformer for sequence encoding. Default is 1.
-        trunk_net_hidden_layers (list[int]): Hidden layers for trunk network. Default is [25].
-        heads_hidden_layers (list[int] | None): Hidden layers for heads projection. None defaults to linear. Default is None.
-        activation (dict): contains path to activation function. Default is {"name": "torch.nn.ReLU"}.
+        model_embedding_size (int): Embedding size used throughout model. Default is 64.
+        phi_0x (dict): Config for phi_0x. Default is {}.
+        phi_0_combination (str): "concatenate" or "add" specifying how time and value embeddings are combined. Default: "concatenate".
+        psi_1_transformer_layer (dict): Config for psi_1_transformer_layer. Default is {}.
+        psi_1_transformer_encoder (dict): Config for psi_1_transformer_encoder. Default is {}.
+        phi_1x (dict): Config for phi_1x. Default is {}.
+        operator_specificity (str): "all", "per_concept" or "per_head" specifying separate operators per heads. Default is "all".
+        operator (dict): Config for operator. Default is {}.
+        non_negative_diffusion_by (str): Specify if and how to make estimated diffusion non-negative. Defaults to None.
         values_norm_min (float): lower normalized values range boundary. Default is -1.
         values_norm_max (float): upper normalized values range boundary. Default is 1.
         times_norm_min (float): lower normalized times range boundary. Default is 0.
@@ -493,16 +574,15 @@ class FIMSDEConfig(PretrainedConfig):
         max_time_steps: int = 128,
         max_location_size: int = 1024,
         max_num_paths: int = 30,
-        temporal_embedding_size: int = 19,
-        spatial_embedding_size: int = 19,
-        spatial_embedding_hidden_layers: list[int] = None,
-        sequence_encoding_tokenizer: int = 5,
-        sequence_encoding_transformer_hidden_size: int = 50,
-        sequence_encoding_transformer_heads: int = 1,
-        sequence_encoding_transformer_layers: int = 1,
-        trunk_net_hidden_layers: list[int] = None,
-        heads_hidden_layers: list[int] | None = None,
-        activation: dict = {"name": "torch.nn.ReLU"},
+        model_embedding_size: int = 64,
+        phi_0x: dict = {},
+        phi_0_combination: str = "concatenate",
+        psi_1_transformer_layer: dict = {},
+        psi_1_transformer_encoder: dict = {},
+        phi_1x: dict = {},
+        operator_specificity: str = "all",
+        operator: dict = {},
+        non_negative_diffusion_by: Optional[str] = None,
         values_norm_min: float = -1.0,
         values_norm_max: float = 1.0,
         times_norm_min: float = 0.0,
@@ -535,16 +615,15 @@ class FIMSDEConfig(PretrainedConfig):
         self.max_time_steps = max_time_steps
         self.max_location_size = max_location_size
         self.max_num_paths = max_num_paths
-        self.temporal_embedding_size = temporal_embedding_size
-        self.spatial_embedding_size = spatial_embedding_size
-        self.spatial_embedding_hidden_layers = spatial_embedding_hidden_layers or [25]
-        self.sequence_encoding_tokenizer = sequence_encoding_tokenizer
-        self.sequence_encoding_transformer_hidden_size = sequence_encoding_transformer_hidden_size
-        self.sequence_encoding_transformer_heads = sequence_encoding_transformer_heads
-        self.sequence_encoding_transformer_layers = sequence_encoding_transformer_layers
-        self.trunk_net_hidden_layers = trunk_net_hidden_layers or [25]
-        self.heads_hidden_layers = heads_hidden_layers
-        self.activation = activation
+        self.model_embedding_size = model_embedding_size
+        self.phi_0x = phi_0x
+        self.phi_0_combination = phi_0_combination
+        self.psi_1_transformer_layer = psi_1_transformer_layer
+        self.psi_1_transformer_encoder = psi_1_transformer_encoder
+        self.phi_1x = phi_1x
+        self.operator_specificity = operator_specificity
+        self.operator = operator
+        self.non_negative_diffusion_by = non_negative_diffusion_by
         # normalization
         self.values_norm_min = values_norm_min
         self.values_norm_max = values_norm_max
@@ -613,168 +692,189 @@ class FIMSDE(AModel, pl.LightningModule):
         # Important: This property activates manual optimization (Lightning)
         self.automatic_optimization = False
 
-    def _create_modules(
-        self,
-    ):
-        activation_config = copy(self.config.activation)
-        activation = create_class_instance(activation_config.pop("name"), activation_config)
+    def _create_modules(self):
+        config = deepcopy(self.config)  # model loading won't work without it
 
-        # Define different versions
-        x_dimension = self.config.max_dimension
-        x_dimension_full = x_dimension * 3  # we encode the difference and its square
-        spatial_plus_time_encoding = self.config.temporal_embedding_size + self.config.spatial_embedding_size
-        self.psi_1_tokes_dim = self.config.sequence_encoding_tokenizer * self.config.sequence_encoding_transformer_heads
+        # observation times encoder
+        self.phi_0t = SineTimeEncoding(out_features=config.model_embedding_size)
 
-        # basic embedding
-        self.phi_0t = SineTimeEncoding(self.config.temporal_embedding_size)
-        self.phi_0x = MLP(
-            in_features=x_dimension_full,
-            out_features=self.config.spatial_embedding_size,
-            hidden_layers=self.config.spatial_embedding_hidden_layers,
-            dropout=self.config.dropout_rate,
-            activation=activation,
-        )
-        self.phi_0x_layer_norm = nn.LayerNorm(self.config.spatial_embedding_size, dtype=torch.float32)
+        # observation values encoder; encode X, del_X and (del_X)**2
+        phi_0x_mlp = MLP(in_features=config.max_dimension * 3, out_features=config.model_embedding_size, **config.phi_0x)
+        phi_0x_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
+        # self.phi_0x = lambda x: phi_0x_layer_norm(phi_0x_mlp(x))
+        self.phi_0x = nn.Sequential(phi_0x_mlp, phi_0x_layer_norm)
 
-        # trunk network
-        self.trunk = MLP(
-            in_features=x_dimension,
-            out_features=self.psi_1_tokes_dim,
-            hidden_layers=self.config.trunk_net_hidden_layers,
-            dropout=self.config.dropout_rate,
-            activation=activation,
-        )
-        self.trunk_layer_norm = nn.LayerNorm(self.psi_1_tokes_dim, dtype=torch.float32)
+        # combine times and values embedding to config.model_embedding_size
 
-        # ensures that the embbeding that is sent to the transformer is a multiple of the number of heads
-        self.phi_xt = nn.Linear(spatial_plus_time_encoding, self.psi_1_tokes_dim)
-
-        # path transformer (causal encoding of paths)
-        self.psi_1 = TransformerModel(
-            input_dim=self.psi_1_tokes_dim,
-            nhead=self.config.sequence_encoding_transformer_heads,
-            hidden_dim=self.config.sequence_encoding_transformer_hidden_size,
-            nlayers=self.config.sequence_encoding_transformer_layers,
-            batch_first=True,
-            dropout=self.config.dropout_rate,
-            activation=activation,
+        assert config.phi_0_combination in ["concatenate", "add"]
+        phi_0_projection_in_features = (
+            2 * config.model_embedding_size if config.phi_0_combination == "concatenate" else config.model_embedding_size
         )
 
-        # time attention
-        self.omega_1 = nn.MultiheadAttention(
-            self.psi_1_tokes_dim,
-            self.config.sequence_encoding_transformer_heads,
-            dropout=self.config.dropout_rate,
-            batch_first=True,
-        )
-        self.omega_1_ff_block_mlp = MLP(
-            in_features=self.psi_1_tokes_dim,
-            out_features=self.psi_1_tokes_dim,
-            hidden_layers=[4 * self.psi_1_tokes_dim],
-            dropout=self.config.dropout_rate,
-            activation=activation,
-        )
-        self.omega_1_ff_block_dropout = nn.Dropout(self.config.dropout_rate)
-        self.omega_1_ff_block_layer_norm = nn.LayerNorm(self.psi_1_tokes_dim, dtype=torch.float32)
+        phi_0_projection = nn.Linear(phi_0_projection_in_features, config.model_embedding_size)
+        phi_0_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
 
-        # path attention
-        self.path_queries = nn.Parameter(torch.randn(1, self.psi_1_tokes_dim))
+        self.phi_0 = nn.Sequential(phi_0_projection, phi_0_layer_norm)
 
-        self.omega_2 = nn.MultiheadAttention(
-            self.psi_1_tokes_dim,
-            self.config.sequence_encoding_transformer_heads,
-            dropout=self.config.dropout_rate,
-            batch_first=True,
+        # path transformer encoder
+        psi_1_transformer_layer = nn.TransformerEncoderLayer(
+            d_model=config.model_embedding_size, batch_first=True, **config.psi_1_transformer_layer
         )
-        self.omega_2_ff_block_mlp = MLP(
-            in_features=self.psi_1_tokes_dim,
-            out_features=self.psi_1_tokes_dim,
-            hidden_layers=[4 * self.psi_1_tokes_dim],
-            dropout=self.config.dropout_rate,
-            activation=activation,
-        )
-        self.omega_2_ff_block_dropout = nn.Dropout(self.config.dropout_rate)
-        self.omega_2_ff_block_layer_norm = nn.LayerNorm(self.psi_1_tokes_dim, dtype=torch.float32)
+        self.psi_1 = nn.TransformerEncoder(psi_1_transformer_layer, **config.psi_1_transformer_encoder)
 
-        # MLP for projection to heads; defaults to linear
-        if self.config.heads_hidden_layers is not None:
-            self.heads = MLP(
-                in_features=self.psi_1_tokes_dim,
-                out_features=4 * self.config.max_dimension,
-                hidden_layers=self.config.heads_hidden_layers,
-                dropout=self.config.dropout_rate,
-                activation=activation,
+        # locations encoder
+        phi_1x_mlp = MLP(in_features=config.max_dimension, out_features=config.model_embedding_size, **config.phi_1x)
+        phi_1x_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
+        self.phi_1x = nn.Sequential(phi_1x_mlp, phi_1x_layer_norm)
+
+        # operator(s) evaluated at locations
+        assert config.operator_specificity in ["all", "per_concept", "per_head"]
+        if config.operator_specificity == "all":
+            self.operator = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=4 * config.max_dimension, **deepcopy(config.operator)
             )
-        else:
-            self.heads = nn.Linear(self.psi_1_tokes_dim, 4 * self.config.max_dimension)
+            self.apply_operator = self.heads_projection_all_functions
 
-    def path_encoding(self, obs_times: Tensor, obs_values: Tensor, locations: Tensor) -> Tuple[torch.tensor, torch.tensor]:
+        elif config.operator_specificity == "per_concept":
+            self.operator_drift = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=2 * config.max_dimension, **deepcopy(config.operator)
+            )
+            self.operator_diffusion = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=2 * config.max_dimension, **deepcopy(config.operator)
+            )
+            self.apply_operator = self.heads_projection_per_concept
+
+        else:
+            self.operator_drift = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
+            )
+            self.operator_log_var_drift = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
+            )
+            self.operator_diffusion = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
+            )
+            self.operator_log_var_diffusion = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
+            )
+            self.apply_operator = self.heads_projection_per_head
+
+    def heads_projection_all_functions(self, locations_encoding: Tensor, observations_encoding: Tensor) -> Tensor:
         """
-        This function obtains the paths encodings with functional
-        attention, the intent is to provide a representation for
-        the series of paths
+        Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
+        Use single attention and projection network and split the output into the 4 heads.
+
+        Args:
+            locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
+            observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
+
+        Returns:
+            heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
+        """
+        operator_output = self.operator(locations_encoding, observations_encoding)
+        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = torch.chunk(operator_output, 4, dim=-1)
+
+        return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
+
+    def heads_projection_per_concept(self, locations_encoding: Tensor, observations_encoding: Tensor) -> Tensor:
+        """
+        Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
+        Use separate attention and projection network for drift and diffusion.
+
+        Args:
+            locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
+            observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
+
+        Returns:
+            heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
+        """
+        drift_output = self.operator_drift(locations_encoding, observations_encoding)
+        diffusion_output = self.operator_diffusion(locations_encoding, observations_encoding)
+
+        drift_estimator, log_var_drift_estimator = torch.chunk(drift_output, 2, dim=-1)
+        diffusion_estimator, log_var_diffusion_estimator = torch.chunk(diffusion_output, 2, dim=-1)
+
+        return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
+
+    def heads_projection_per_head(self, locations_encoding: Tensor, observations_encoding: Tensor) -> Tensor:
+        """
+        Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
+        Use separate attention and projection network for drift, log_var_drift, diffusion and log_var_diffusion.
+
+        Args:
+            locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
+            observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
+
+        Returns:
+            heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
+        """
+        drift_estimator = self.operator_drift(locations_encoding, observations_encoding)
+        log_var_drift_estimator = self.operator_log_var_drift(locations_encoding, observations_encoding)
+        diffusion_estimator = self.operator_diffusion(locations_encoding, observations_encoding)
+        log_var_diffusion_estimator = self.operator_log_var_diffusion(locations_encoding, observations_encoding)
+
+        return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
+
+    def paths_encoding(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Optional[Tensor] = None) -> Tensor:
+        """
+        Obtain embedding of all observed values in all paths.
 
         Args:
             obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
             obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
-            locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
-            where B: batch size P: number of paths T: number of time steps G: location grid size D: dimensions
+            obs_mask (Tensor): mask for padded observations. == 1.0 if observed. Shape: [B, P, T, 1]
+            where B: batch size P: number of paths T: number of time steps dimensions
 
         Returns:
-            b(x) (Tensor)  [B,G,psi_1_tokes_dim] representation for system at each grid point
-            h(x) (Tensor)  [B,P,G,psi_1_tokes_dim] representation per path at each grid point
+            H (Tensor): Embedding of observations processed by transformer. Shape: [B, P, T-1, psi_1_tokes_dim]
         """
 
         B, P, T, D = obs_values.shape
-        T = T - 1
-        G = locations.size(1)
 
-        # Trunk
-        trunk_encoding = self.trunk(locations)  # [B,G,trunk_dim]
-        trunk_encoding = self.trunk_layer_norm(trunk_encoding)
-        trunk_encoding = trunk_encoding[:, None, :, :].repeat(1, P, 1, 1)  # [B,P,G,trunk_size]
-        trunk_encoding = trunk_encoding.view(B * P, G, self.psi_1_tokes_dim)
-
-        # Embedded input; include difference and squared difference to next observation -> drop last observation
+        # Embedded values; include difference and squared difference to next observation -> drop last observation
         X = obs_values[:, :, :-1, :]
         dX = obs_values[:, :, 1:, :] - obs_values[:, :, :-1, :]
         dX2 = dX**2
 
-        x_full = torch.cat([X, dX, dX2], dim=-1)  # [B,P,T,3*D]
-        spatial_encoding = self.phi_0x(x_full)  # [B,P,T,spatial_embedding_size]
-        spatial_encoding = self.phi_0x_layer_norm(spatial_encoding)
+        x_full = torch.cat([X, dX, dX2], dim=-1)  # [B, P, T, 3*D]
+        spatial_encoding = self.phi_0x(x_full)  # [B, P, T, model_embedding_size]
 
-        obs_times = obs_times[:, :, :-1, :]  # [B,P,T,1]
-        time_encoding = self.phi_0t(obs_times)  # [B,P,T,temporal_embedding_size]
+        # separate time encoding; drop last time because dropped for values
+        obs_times = obs_times[:, :, :-1, :]  # [B, P, T-1, 1]
+        time_encoding = self.phi_0t(obs_times)  # [B, P, T-1, model_embedding_size]
 
-        U = torch.cat([spatial_encoding, time_encoding], dim=-1)  #  [B,P,T,spatial_plus_time_encoding]
-        U = self.phi_xt(U)  #  [B,P,T,psi_1_tokes_dim]
+        # combine time and value encodings per observation
+        if self.config.phi_0_combination == "concatenate":
+            U = self.phi_0(torch.concat([time_encoding, spatial_encoding], dim=-1))
 
-        # Transformer that creates a representation for the paths
-        U = U.view(B * P, T, self.psi_1_tokes_dim)
-        H = self.psi_1(U)  # [B*P,T,psi_1_tokes_dim]
+        else:  # "add"
+            U = self.phi_0(time_encoding + spatial_encoding)
 
-        # Attention on Time -> One representation per path and location
-        hx, _ = self.omega_1(trunk_encoding, H, H)  # [B*P,G,psi_1_tokes_dim]
+        assert U.shape == (
+            B,
+            P,
+            T - 1,
+            self.config.model_embedding_size,
+        ), f"Expect {(B, P, T - 1, self.config.model_embedding_size)}. Got {U.shape}."
 
-        hx_transf = self.omega_1_ff_block_mlp(hx)  # residual block
-        hx_transf = self.omega_1_ff_block_dropout(hx_transf)
-        hx = self.omega_1_ff_block_layer_norm(hx + hx_transf)
+        # Transformer processes sequence of observations
+        if obs_mask is None:
+            key_padding_mask = None
 
-        hx = hx.view(B, P, G, -1)  # [B,P,G,psi_1_tokes_dim]
+        else:
+            # revert mask as attention uses other convention
+            obs_mask = torch.logical_not(obs_mask.bool())  # [B, P, T, 1]
 
-        # Attention on Paths -> One representation per expression
-        hx_ = hx.transpose(1, 2).reshape(G * B, P, self.psi_1_tokes_dim)  # [B*G,P,psi_1_tokes_dim]
-        path_queries_ = self.path_queries[None, :, :].repeat(G * B, 1, 1)
-        bx, _ = self.omega_2(path_queries_, hx_, hx_)
+            # drop last element because it is dropped for values
+            obs_mask = obs_mask[:, :, :-1, :]  # [B, P, T-1, 1]
 
-        bx_transf = self.omega_2_ff_block_mlp(bx)  # residual block
-        bx_transf = self.omega_2_ff_block_dropout(bx_transf)
-        bx = self.omega_2_ff_block_layer_norm(bx + bx_transf)
+            # apply transformer to all paths separately
+            key_padding_mask = obs_mask.view(B * P, T - 1)  # [B * P, T-1]
 
-        bx = bx.view(B, G, self.psi_1_tokes_dim)  # [B,G,psi_1_tokes_dim]
+        U = U.view(B * P, T - 1, self.config.model_embedding_size)
+        H = self.psi_1(U, src_key_padding_mask=key_padding_mask)  # [B * P, T-1, model_embedding_size]
 
-        return bx, hx
+        return H.view(B, P, T - 1, self.config.model_embedding_size)
 
     def forward(
         self,
@@ -790,6 +890,7 @@ class FIMSDE(AModel, pl.LightningModule):
             databatch (FIMSDEDatabatchTuple):
                 obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
                 obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
+                obs_mask (Tensor): mask for padded observations. == 1.0 if observed. Shape: [B, P, T, 1]
                 locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
                 drift/diffusion_at_locations (Tensor): ground-truth concepts at locations. Shape: [B, G, D]
                 dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
@@ -804,6 +905,22 @@ class FIMSDE(AModel, pl.LightningModule):
                     losses (dict): training objective has key "loss", other keys are auxiliary for monitoring
 
         """
+        if hasattr(databatch, "obs_mask"):
+            obs_mask = databatch.obs_mask.bool()
+
+            # for sanity, removed masked out values
+            obs_times = obs_mask * databatch.obs_times
+            obs_values = obs_mask * databatch.obs_values
+
+            # backward fill masked values s.t. values differences and squares respect masks
+            obs_times = backward_fill_masked_values(obs_times, obs_mask)
+            obs_values = backward_fill_masked_values(obs_values, obs_mask)
+
+        else:
+            obs_mask = None
+            obs_times = databatch.obs_times
+            obs_values = databatch.obs_values
+
         assert not hasattr(
             databatch, "obs_mask"
         ), "Observation masking not implemented yet. Neither in model forward, nor in neural operator or loss."
@@ -812,24 +929,49 @@ class FIMSDE(AModel, pl.LightningModule):
         if locations is None:
             locations = databatch.locations
 
+        B, G, D = locations.shape
+        B, P, T, D = obs_values.shape
+
         # Instance normalization
         values_norm_stats = NormalizationStats(
-            databatch.obs_values, normalized_min=self.config.values_norm_min, normalized_max=self.config.values_norm_max
+            obs_values, obs_mask, normalized_min=self.config.values_norm_min, normalized_max=self.config.values_norm_max
         )
-        obs_values = values_norm_stats.normalization_map(databatch.obs_values)
+        obs_values = values_norm_stats.normalization_map(obs_values)
         locations = values_norm_stats.normalization_map(locations)
 
         times_norm_stats = NormalizationStats(
-            databatch.obs_times, normalized_min=self.config.times_norm_min, normalized_max=self.config.times_norm_max
+            obs_times, obs_mask, normalized_min=self.config.times_norm_min, normalized_max=self.config.times_norm_max
         )
-        obs_times = times_norm_stats.normalization_map(databatch.obs_times)
+        obs_times = times_norm_stats.normalization_map(obs_times)
 
         # Encoding paths and locations into encoding per location
-        bx, _ = self.path_encoding(obs_times, obs_values, locations)  # [B, G, psi_1_tokes_dim]
+        observations_encoding = self.paths_encoding(obs_times, obs_values, obs_mask)  # [B, P, T - 1, embed_dim]
+        assert observations_encoding.shape == (
+            B,
+            P,
+            T - 1,
+            self.config.model_embedding_size,
+        ), f"Expect {(B, P, T - 1, self.config.model_embedding_size)}. Got {observations_encoding.shape}"
 
-        # Heads: [B, G, D]
-        heads = self.heads(bx)
-        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = torch.chunk(heads, 4, dim=-1)
+        # locations encoding
+        locations_encoding = self.phi_1x(locations)  # [B, G, embed_dim]
+        assert locations_encoding.shape == (
+            B,
+            G,
+            self.config.model_embedding_size,
+        ), f"Expect {(B, G, self.config.model_embedding_size)}. Got {locations_encoding.shape}"
+
+        # projection to heads
+        heads = self.apply_operator(locations_encoding, observations_encoding)
+        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = heads  # [B, G, D]
+
+        # Optionally make diffusion non-negative, already during training
+        if self.config.non_negative_diffusion_by == "clip":
+            diffusion_estimator = torch.clip(diffusion_estimator, min=0.0)
+        elif self.config.non_negative_diffusion_by == "abs":
+            diffusion_estimator = torch.abs(diffusion_estimator)
+        elif self.config.non_negative_diffusion_by == "exp":
+            diffusion_estimator = torch.exp(diffusion_estimator)
 
         estimated_concepts = SDEConcepts(
             locations=locations,
