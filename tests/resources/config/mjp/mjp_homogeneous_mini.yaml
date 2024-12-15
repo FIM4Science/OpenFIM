@@ -51,7 +51,7 @@ model:
     encoder_layer:
       name: torch.nn.TransformerEncoderLayer
       d_model: *model_dim
-      : 128
+      dim_feedforward: 128
       batch_first: True
       dropout: 0.1
       nhead: 4
