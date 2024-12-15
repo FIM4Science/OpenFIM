@@ -1,12 +1,19 @@
-from fim.data.data_generation.gp_dynamical_systems import SDEGPsConfig, IntegrationConfig, SDEGPDynamicalSystem, ScaleRBF
-from fim.data.data_generation.gp_dynamical_systems import define_dynamicals_models_from_yaml
-from fim.models.gaussian_processes.utils import define_mesh_points
-from fim.data.dataloaders import FIMSDEDataloader
-from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple
+import os
+
 import pytest
 import torch
-import os
+
 from fim.data.config_dataclasses import FIMDatasetConfig
+from fim.data.data_generation.gp_dynamical_systems import (
+    IntegrationConfig,
+    ScaleRBF,
+    SDEGPDynamicalSystem,
+    SDEGPsConfig,
+    define_dynamicals_models_from_yaml,
+)
+from fim.data.dataloaders import FIMSDEDataloader
+from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple
+from fim.models.gaussian_processes.utils import define_mesh_points
 
 
 # Assuming SDEGPsConfig and SDEGPDynamicalSystem are imported or defined in the same file.
@@ -48,7 +55,7 @@ class TestSDEGPDynamicalSystem:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup fixtures for the test class."""
-        self.config = SDEGPsConfig()
+        self.config = SDEGPsConfig(total_number_of_realizations=10, number_of_functions_per_kernel=2, number_of_kernels_per_file=2)
         self.integration_config = IntegrationConfig()
         self.system = SDEGPDynamicalSystem(self.config, self.integration_config)
 

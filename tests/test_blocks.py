@@ -1,7 +1,8 @@
 import pytest
 import torch
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
-from fim.models.blocks.base import MLP, TransformerBlock, TransformerEncoder
+from fim.models.blocks.base import MLP
 
 
 class TestMlp:
@@ -19,9 +20,9 @@ class TestMlp:
     def test_mlp_architecture(self, mlp: MLP):
         assert mlp.layers[0].in_features == self.input_size
         assert mlp.layers[-2].out_features == self.output_size
-        for i in range(len(self.hidden_sizes) - 1):
-            assert mlp.layers[i + 2].in_features == self.hidden_sizes[i]
-            assert mlp.layers[i + 2].out_features == self.hidden_sizes[i + 1]
+        for i in range(len(self.hidden_sizes)):
+            assert mlp.layers.get_submodule(f"linear_{i}").out_features == self.hidden_sizes[i]
+            assert mlp.layers.get_submodule(f"linear_{i}").in_features == self.input_size if i == 0 else self.hidden_sizes[i - 1]
 
     def test_forward(self, mlp):
         x = torch.randn(10, 100)  # input tensor of shape (batch_size, input_size)
@@ -32,86 +33,38 @@ class TestMlp:
 
 class TestTransformer:
     @pytest.fixture
-    def transformer_block(self):
-        dim = 64
-        num_heads = 8
+    def transformer_layer(self):
+        return TransformerEncoderLayer(d_model=64, nhead=8, dim_feedforward=256, dropout=0.1)
 
-        attention_head = torch.nn.MultiheadAttention(dim, num_heads, batch_first=True)
-        return TransformerBlock(
-            in_features=64,
-            ff_dim=256,
-            dropout=0.1,
-            attention_head=attention_head,
-            activation=torch.nn.ReLU(),
-            normalization=torch.nn.LayerNorm,
-        )
-
-    def test_transformer_block_initialization(self, transformer_block):
-        assert transformer_block is not None
-        assert isinstance(transformer_block.attention_head, torch.nn.MultiheadAttention)
-        assert isinstance(transformer_block.norm1, torch.nn.LayerNorm)
-        assert isinstance(transformer_block.norm2, torch.nn.LayerNorm)
-        assert isinstance(transformer_block.ff, MLP)
-
-    def test_transformer_block_initialization_with_dict(self):
-        dim = 64
-        num_heads = 8
-
-        attention_head = {"name": "torch.nn.MultiheadAttention", "embed_dim": dim, "num_heads": num_heads, "batch_first": True}
-        transformer_block = TransformerBlock(
-            in_features=64,
-            ff_dim=256,
-            dropout=0.1,
-            attention_head=attention_head,
-            activation={"name": "torch.nn.ReLU"},
-            normalization={"name": "torch.nn.LayerNorm", "normalized_shape": dim},
-        )
-
-        assert transformer_block is not None
-        assert isinstance(transformer_block.attention_head, torch.nn.MultiheadAttention)
-        assert isinstance(transformer_block.norm1, torch.nn.LayerNorm)
-        assert isinstance(transformer_block.norm2, torch.nn.LayerNorm)
-        assert isinstance(transformer_block.ff, MLP)
-
-    def test_transformer_block_forward(self, transformer_block):
+    def test_transformer_block_forward(self, transformer_layer):
         batch_size = 2
         seq_len = 10
         dim_model = 64
 
         x = torch.randn(batch_size, seq_len, dim_model)
 
-        output = transformer_block(x)
+        output = transformer_layer(x)
         assert output.shape == (batch_size, seq_len, dim_model)
 
-    def test_transformer_block_forward_with_mask(self, transformer_block):
+    def test_transformer_block_forward_with_mask(self, transformer_layer):
         batch_size = 2
         seq_len = 10
         dim_model = 64
 
         x = torch.randn(batch_size, seq_len, dim_model)
-        mask = torch.tril(torch.ones(seq_len, seq_len), 1).bool()
 
-        output = transformer_block(x, mask=mask)
+        output = transformer_layer(x)
         assert output.shape == (batch_size, seq_len, dim_model)
 
     @pytest.fixture
-    def transformer_encoder(self):
-        transformer_block = {
-            "name": "fim.models.blocks.TransformerBlock",
-            "in_features": 64,
-            "ff_dim": 256,
-            "dropout": 0.1,
-            "attention_head": {"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True},
-            "activation": {"name": "torch.nn.ReLU"},
-            "normalization": {"name": "torch.nn.LayerNorm", "normalized_shape": 64},
-        }
-        return TransformerEncoder(num_layers=2, in_features=64, transformer_block=transformer_block)
+    def transformer_encoder(self, transformer_layer):
+        return TransformerEncoder(encoder_layer=transformer_layer, num_layers=2)
 
     def test_transformer_encoder_initialization(self, transformer_encoder):
         assert transformer_encoder is not None
         assert len(transformer_encoder.layers) == 2
         for layer in transformer_encoder.layers:
-            assert isinstance(layer, TransformerBlock)
+            assert isinstance(layer, TransformerEncoderLayer)
 
     def test_transformer_encoder_forward(self, transformer_encoder):
         batch_size = 2

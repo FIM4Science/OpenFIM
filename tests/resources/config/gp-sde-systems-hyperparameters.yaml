@@ -4,9 +4,9 @@ dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDat
 integration:
   method: "EulerMaruyama"
   time_step: 0.01
-  num_steps: 128
-  num_paths: 30
-  num_locations: 1024
+  num_steps: 32
+  num_paths: 5
+  num_locations: 128
   stochastic: true
 
 locations:
@@ -18,9 +18,9 @@ train:
       redo: true
       dimensions: 2
       number_of_kernel_samples: 5
-      number_of_functions_per_kernel: 10
-      number_of_kernels_per_file: 100
-      total_number_of_realizations: 10000
+      number_of_functions_per_kernel: 2
+      number_of_kernels_per_file: 2
+      total_number_of_realizations: 100
       type_of_inducing_points: "random_uniform"
       number_of_inducing_points: 10
       inducing_point_ranges:
@@ -78,12 +78,12 @@ test:
       file_name: "test"
       redo: true
       dimensions: 2
-      number_of_kernel_samples: 5
-      number_of_functions_per_kernel: 10
-      number_of_kernels_per_file: 100
-      total_number_of_realizations: 10000
+      number_of_kernel_samples: 2
+      number_of_functions_per_kernel: 2
+      number_of_kernels_per_file: 10
+      total_number_of_realizations: 10
       type_of_inducing_points: "random_uniform"
-      number_of_inducing_points: 10
+      number_of_inducing_points: 5
       inducing_point_ranges:
         - [-1.0, 1.0]
         - [-1.0, 1.0]
@@ -107,12 +107,12 @@ validation:
       file_name: "validation"
       redo: true
       dimensions: 2
-      number_of_kernel_samples: 5
-      number_of_functions_per_kernel: 10
-      number_of_kernels_per_file: 100
-      total_number_of_realizations: 10000
+      number_of_kernel_samples: 2
+      number_of_functions_per_kernel: 2
+      number_of_kernels_per_file: 10
+      total_number_of_realizations: 10
       type_of_inducing_points: "random_uniform"
-      number_of_inducing_points: 10
+      number_of_inducing_points: 5
       inducing_point_ranges:
         - [-1.0, 1.0]
         - [-1.0, 1.0]

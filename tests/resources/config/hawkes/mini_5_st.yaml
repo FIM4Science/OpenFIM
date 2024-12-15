@@ -50,9 +50,9 @@ model:
     out_features: *num_marks
 
   ts_encoder:
-    name: fim.models.blocks.base.RNNEncoder
+    name: fim.models.blocks.RNNEncoder
 
-    rnn:
+    encoder_layer:
       name: torch.nn.LSTM
       hidden_size: *rnn_embed_dim
       batch_first: true

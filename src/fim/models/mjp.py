@@ -3,10 +3,11 @@ from typing import Any, Dict
 
 import torch
 from torch import Tensor, nn
+from torch.nn import TransformerEncoder
 from torch.nn.functional import one_hot
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
-from fim.models.blocks import AModel, ModelFactory, RNNEncoder, TransformerEncoder
+from fim.models.blocks import AModel, ModelFactory, RNNEncoder
 from fim.models.utils import create_matrix_from_off_diagonal, create_padding_mask, get_off_diagonal_elements
 from fim.utils.helper import create_class_instance
 
@@ -134,18 +135,22 @@ class FIMMJP(AModel):
         intensity_matrix_decoder = copy.deepcopy(self.config.intensity_matrix_decoder)
         initial_distribution_decoder = copy.deepcopy(self.config.initial_distribution_decoder)
 
-        if ts_encoder["name"] == "fim.models.blocks.base.TransformerEncoder":
+        if ts_encoder["name"] == "torch.nn.TransformerEncoder":
             pos_encodings["out_features"] -= self.config.n_states
         self.pos_encodings = create_class_instance(pos_encodings.pop("name"), pos_encodings)
 
-        ts_encoder["in_features"] = self.config.n_states + self.pos_encodings.out_features
+        model_dim = self.config.n_states + self.pos_encodings.out_features
+        if "d_model" in ts_encoder["encoder_layer"]:
+            ts_encoder["encoder_layer"]["d_model"] = model_dim
+        if ts_encoder["name"] == "fim.models.blocks.RNNEncoder":
+            ts_encoder["encoder_layer"]["input_size"] = model_dim
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
 
         self.path_attention = create_class_instance(path_attention.pop("name"), path_attention)
 
         in_features = intensity_matrix_decoder.get(
             "in_features",
-            self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
+            model_dim + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
         )
         intensity_matrix_decoder["in_features"] = in_features
         intensity_matrix_decoder["out_features"] = 2 * self.total_offdiagonal_transitions
@@ -153,7 +158,7 @@ class FIMMJP(AModel):
 
         in_features = initial_distribution_decoder.get(
             "in_features",
-            self.ts_encoder.out_features + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
+            model_dim + ((self.total_offdiagonal_transitions + 1) if self.config.use_adjacency_matrix else 1),
         )
         initial_distribution_decoder["in_features"] = in_features
         initial_distribution_decoder["out_features"] = self.config.n_states
@@ -260,7 +265,7 @@ class FIMMJP(AModel):
         if isinstance(self.ts_encoder, TransformerEncoder):
             padding_mask = create_padding_mask(x["seq_lengths"].view(B * P), L)
             padding_mask[:, 0] = True
-            h = self.ts_encoder(path.view(B * P, L, -1), padding_mask)[:, 1, :].view(B, P, -1)
+            h = self.ts_encoder(path.view(B * P, L, -1), src_key_padding_mask=padding_mask)[:, 1, :].view(B, P, -1)
             if isinstance(self.path_attention, nn.MultiheadAttention):
                 h = self.path_attention(h, h, h)[0][:, -1]
             else:

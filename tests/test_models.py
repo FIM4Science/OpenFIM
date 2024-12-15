@@ -8,7 +8,6 @@ import torch
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.models import FIMMJP, FIMHawkes, FIMHawkesConfig, FIMMJPConfig, FIMODEConfig
 from fim.models.blocks import AModel, ModelFactory
 from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
@@ -107,21 +106,18 @@ class TestMJP:
     def test_init(self):
         n_states = 6
         use_adjacency_matrix = False
-        transformer_block = {
-            "name": "fim.models.blocks.TransformerBlock",
-            "in_features": 64,
-            "ff_dim": 256,
+        transformer_encoder_layer = {
+            "name": "torch.nn.TransformerEncoderLayer",
+            "d_model": 64,
+            "nhead": 8,
+            "dim_feedforward": 256,
             "dropout": 0.1,
-            "attention_head": {"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True},
-            "activation": {"name": "torch.nn.ReLU"},
-            "normalization": {"name": "torch.nn.LayerNorm", "normalized_shape": 64},
         }
         pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "out_features": 64}
         timeseries_encoder = {
-            "name": "fim.models.blocks.base.TransformerEncoder",
+            "name": "torch.nn.TransformerEncoder",
             "num_layers": 4,
-            "embed_dim": 64,
-            "transformer_block": transformer_block,
+            "encoder_layer": transformer_encoder_layer,
         }
         path_attn = {"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True}
         intensity_matrix_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
@@ -143,7 +139,6 @@ class TestMJP:
 
     def test_forward(self, dataloader, model, device):
         batch = next(iter(dataloader.train_it))
-        print(model)
         batch = {key: val.to(device) for key, val in batch.items()}
         out = model(batch)
 
@@ -163,9 +158,9 @@ class TestMJP:
         n_states = 6
         use_adjacency_matrix = False
         pos_encodings = {"name": "fim.models.blocks.DeltaTimeEncoding"}
-        rnn = torch.nn.RNN(2 + n_states, 64, 1, batch_first=True, bidirectional=True)
+        # rnn = torch.nn.RNN(2 + n_states, 64, 1, batch_first=True, bidirectional=True)
         rnn = {"name": "torch.nn.RNN", "hidden_size": 64, "num_layers": 1, "bidirectional": True, "batch_first": True}
-        timeseries_encoder = {"name": "fim.models.blocks.RNNEncoder", "rnn": rnn}
+        timeseries_encoder = {"name": "fim.models.blocks.RNNEncoder", "encoder_layer": rnn}
         path_attn = {
             "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
             "n_queries": 16,
@@ -192,7 +187,6 @@ class TestMJP:
 
     def test_forward_rnn(self, dataloader, model_rnn, device):
         batch = next(iter(dataloader.train_it))
-        print(model_rnn)
         batch = {key: val.to(device) for key, val in batch.items()}
         out = model_rnn(batch)
 
@@ -485,8 +479,8 @@ class TestFIMHawkes5ST:
             time_encodings={"name": "fim.models.blocks.positional_encodings.DeltaTimeEncoding"},
             event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
             ts_encoder={
-                "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
+                "name": "fim.models.blocks.RNNEncoder",
+                "encoder_layer": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
             },
             trunk_net={
                 "name": "fim.models.blocks.base.MLP",
@@ -574,8 +568,8 @@ class TestFIMHawkes5ST:
             time_encodings={"name": "fim.models.blocks.positional_encodings.DeltaTimeEncoding"},
             event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
             ts_encoder={
-                "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
+                "name": "fim.models.blocks.RNNEncoder",
+                "encoder_layer": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
             },
             trunk_net={
                 "name": "fim.models.blocks.base.MLP",

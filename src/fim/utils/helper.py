@@ -1,11 +1,10 @@
 # coding: utf-8
-from torch import Tensor
 import copy
 import csv
 import itertools
 import json
 from collections import OrderedDict
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from functools import reduce
 from importlib import import_module
 from logging import Logger
@@ -16,7 +15,9 @@ import numpy as np
 import torch
 import yaml
 from scipy import linalg as la
+from torch import Tensor
 from torch.optim.lr_scheduler import LRScheduler
+
 
 T = TypeVar("T", str, bytes)
 
@@ -81,6 +82,10 @@ def create_class_instance(class_full_path: str, kwargs, *args):
     :returns: instance of 'class_name'
 
     """
+    kwargs = copy.copy(kwargs)
+    for key, value in kwargs.items():
+        if isinstance(value, dict):
+            kwargs[key] = create_class_instance(value.pop("name"), value)
     module_name, class_name = class_full_path.rsplit(".", 1)
     module = import_module(module_name)
     clazz = getattr(module, class_name)
@@ -569,7 +574,7 @@ def create_optimizers(model, config: Dict[str, GenericConfig]):
     return optimizers
 
 
-def create_lr_schedulers(schedulers_config: Dict[str, GenericConfig], optimizer, last_epoch=None) -> List[Tuple[str, LRScheduler]]:
+def create_lr_schedulers(schedulers_config: Dict[str, GenericConfig], optimizer) -> List[Tuple[str, LRScheduler]]:
     """
     Create learning rate schedulers based on the provided configuration.
 
@@ -592,8 +597,7 @@ def create_lr_schedulers(schedulers_config: Dict[str, GenericConfig], optimizer,
         schedulers_config_ = [schedulers_config_]
     for scheduler_config in schedulers_config_:
         scheduler_config = scheduler_config.to_dict()
-        if last_epoch is not None:
-            scheduler_config["last_epoch"] = last_epoch
+
         step_type = scheduler_config.pop("step_type", "epoch")
         if scheduler_config["name"] == "torch.optim.lr_scheduler.SequentialLR":
             scheduler_config = _build_sequence_of_schedulers(optimizer, scheduler_config)

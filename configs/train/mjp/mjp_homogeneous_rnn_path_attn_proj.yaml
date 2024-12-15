@@ -68,8 +68,8 @@ model:
   use_num_of_paths: false
 
   ts_encoder:
-    name: fim.models.blocks.base.RNNEncoder
-    rnn:
+    name: fim.models.blocks.RNNEncoder
+    encoder_layer:
       name: torch.nn.LSTM
       hidden_size: *rnn_dim
       batch_first: true

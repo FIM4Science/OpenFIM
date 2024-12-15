@@ -11,7 +11,7 @@ from transformers import AutoConfig, PretrainedConfig, PreTrainedModel
 
 from ...trainers.utils import is_distributed
 from ...utils.logging import RankLoggerAdapter
-from .base import MLP, IdentityBlock, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer, TransformerBlock, TransformerEncoder
+from .base import MLP, IdentityBlock, MultiHeadLearnableQueryAttention, RNNEncoder, Transformer
 from .normalization import MinMaxNormalization
 from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
 
@@ -22,8 +22,6 @@ __all__ = [
     SineTimeEncoding,
     Transformer,
     MinMaxNormalization,
-    TransformerBlock,
-    TransformerEncoder,
     DeltaTimeEncoding,
     RNNEncoder,
     MultiHeadLearnableQueryAttention,

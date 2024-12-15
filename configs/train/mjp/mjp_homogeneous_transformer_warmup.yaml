@@ -1,7 +1,7 @@
 experiment:
-  name: FIM_MJP_Homogeneous_no_annealing_transformer_model_dim_128_path_attention_one_head_small
+  name: FIM_MJP_transformer_256_path_attention_one_head_var_path_warmup
   name_add_date: true # if true, the current date & time will be added to the experiment name
-  seed: [10]
+  seed: [0]
   device_map: auto # auto, cuda, cpu
 
 distributed:
@@ -40,76 +40,79 @@ dataset:
       - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
 
   loader_kwargs:
-    batch_size: 72
-    num_workers: 8
-    test_batch_size: 72
+    batch_size: 32
+    num_workers: 4
+    test_batch_size: 64
+    pin_memory: true
+    max_path_count: 300
+    max_number_of_minibatch_sizes: 10
+    variable_num_of_paths: true
+
   dataset_kwargs:
     files_to_load:
       observation_grid: "fine_grid_grid.pt"
       observation_values: "fine_grid_noisy_sample_paths.pt"
-      mask_seq_lengths: "fine_grid_mask_seq_lengths.pt"
+      seq_lengths: "fine_grid_mask_seq_lengths.pt"
       time_normalization_factors: "fine_grid_time_normalization_factors.pt"
       intensity_matrices: "fine_grid_intensity_matrices.pt"
       adjacency_matrices: "fine_grid_adjacency_matrices.pt"
       initial_distributions: "fine_grid_initial_distributions.pt"
     data_limit: null
 
-model_dim: &model_dim 128
+model_dim: &model_dim 256
 
 model:
   model_type: fimmjp
   n_states: 6
   use_adjacency_matrix: false
+  use_num_of_paths: true
 
   ts_encoder:
-    name: fim.models.blocks.base.TransformerEncoder
+    name: torch.nn.TransformerEncoder
     num_layers: 4
 
-    transformer_block:
-      name: fim.models.blocks.base.TransformerBlock
-      in_features: *model_dim
-      ff_dim: 512
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      d_model: *model_dim
+      dim_feedforward: 1024
       dropout: 0.1
-      activation:
-        name: torch.nn.SiLU
-      normalization:
-        name: torch.nn.LayerNorm
-        normalized_shape: !!python/tuple [*model_dim]
-      attention_head:
-        name: torch.nn.MultiheadAttention
-        embed_dim: *model_dim
-        num_heads: 4
-        batch_first: true
+      nhead: 4
+      batch_first: true
 
   pos_encodings:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding
     out_features: *model_dim
 
   path_attention:
-    name: torch.nn.MultiheadAttention
+    name: fim.models.blocks.MultiHeadLearnableQueryAttention
+    n_queries: 16
+    n_heads: 4
     embed_dim: *model_dim
-    num_heads: 1
-    batch_first: true
+    output_projection: true
 
   intensity_matrix_decoder:
     name: fim.models.blocks.base.MLP
+    # in_features: 2049
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
     dropout: 0.1
+    initialization_scheme: lecun_normal
 
   initial_distribution_decoder:
     name: fim.models.blocks.base.MLP
+    # in_features: 2049
     hidden_layers: !!python/tuple [128, 128]
     hidden_act:
       name: torch.nn.SELU
     dropout: 0.1
+    initialization_scheme: lecun_normal
 
 trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 1000
+  epochs: &epochs 5000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
@@ -130,11 +133,18 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.0001
+      lr: &lr_rate 0.0005
       weight_decay: 0.0001
-      # # gradient_norm_clipping: 10
-      # schedulers: !!python/tuple
-      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
-      #     T_max: *epochs
-      #     eta_min: 0.0000001
-      #     last_epoch: -1
+      # gradient_norm_clipping: 10
+      schedulers: !!python/tuple
+        - name: torch.optim.lr_scheduler.SequentialLR
+          step_type: minibatch
+          schedulers: !!python/tuple
+            - name: fim.trainers.lr_warmup.LinearWarmupScheduler
+              warmup_steps: &warmup_steps 50_000
+              target_lr: *lr_rate
+            - name: torch.optim.lr_scheduler.CosineAnnealingLR
+              T_max: 2000000
+              eta_min: 0.0000001
+              last_epoch: -1
+          milestones: !!python/tuple [*warmup_steps]
