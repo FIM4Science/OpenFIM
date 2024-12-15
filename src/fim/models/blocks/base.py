@@ -174,7 +174,7 @@ class TransformerModel(Block):
         self.encoder_layer = TransformerEncoderLayer(
             d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout, activation=activation, batch_first=batch_first
         )
-        self.transformer_encoder = TransformerEncoderNN(self.encoder_layer, num_layers=nlayers)
+        self.transformer_encoder = TransformerEncoder(self.encoder_layer, num_layers=nlayers)
         self.input_dim = input_dim
 
     def forward(self, src):
