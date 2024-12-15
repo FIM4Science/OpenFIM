@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -196,15 +197,27 @@ def plot_3d_vf_real_and_estimation(
         return fig
 
 
-def plot_paths(dimension: int, obs_times, obs_values, model_paths):
+def plot_paths(dimension: int, obs_times: Tensor, obs_values: Tensor, model_paths: Tensor, model_paths_grid: Optional[Tensor] = None):
     """
     Plots observed paths and paths sampled from model and returns the figure.
+
+    Args:
+        dimension (int): Dimension of data.
+        obs_times, obs_values (Tensor): Observed paths. Shape: [P, T, 1 or D]
+        model_paths (Tensor): Samples from model. Shape: [I, T or G, D]
+        model_paths_grid (Tensor): Grid from model_paths. Shape: [I, T or G, 1]
     """
+    if model_paths_grid is None:
+        model_paths_grid = obs_times
+
+    if model_paths_grid.ndim < model_paths.ndim:  # broadcast grid to all samples
+        model_paths_grid = model_paths_grid[None, :].broadcast_to(model_paths.shape[:-1] + (1,))
+
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111, projection="3d" if dimension == 3 else None)
 
     plot_paths_in_axis(ax, obs_times, obs_values, color="red", paths_label="Observed paths", initial_states_label="Initial states")
-    plot_paths_in_axis(ax, obs_times, model_paths, color="black", paths_label="Model samples")
+    plot_paths_in_axis(ax, model_paths_grid, model_paths, color="black", paths_label="Model samples")
 
     fig.legend(loc="upper center", bbox_to_anchor=(0.5, 1), ncol=3)
     fig.tight_layout()

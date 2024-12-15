@@ -3,13 +3,20 @@ from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
 import optree
 import torch
+from torch import Tensor
 
 from fim.data.dataloaders import BaseDataLoader
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.models.blocks import AModel
-from fim.pipelines.sde_pipelines import FIMSDEPipeline
+from fim.models.sde import SDEConcepts
+from fim.pipelines.sde_sampling_from_model import fimsde_sample_paths
 from fim.trainers.utils import TrainLossTracker
-from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
+from fim.utils.plots.sde_estimation_plots import (
+    plot_1d_vf_real_and_estimation,
+    plot_2d_vf_real_and_estimation,
+    plot_3d_vf_real_and_estimation,
+    plot_paths,
+)
 
 
 class EvaluationEpoch(ABC):
@@ -116,6 +123,58 @@ class SDEEvaluationPlots(EvaluationEpoch):
         # how often to plot
         self.plot_frequency: int = kwargs.get("plot_frequency", 1)
 
+    @staticmethod
+    def plot_example_of_dim(
+        databatch: FIMSDEDatabatchTuple, estimated_concepts: SDEConcepts, sample_paths: Tensor, sample_grid: Tensor, dimension: int
+    ) -> tuple[plt.figure]:
+        """
+        Plot data and model estimates of random example from databatch.
+        """
+        # select batch elements of dimension
+        has_dim: Tensor[bool] = databatch.dimension_mask.sum(dim=-1)[:, 0].long() == dimension  # [B]
+        if not torch.any(has_dim).item():
+            return None, None
+
+        input_data: tuple = (databatch, estimated_concepts, sample_paths, sample_grid)
+        input_data = optree.tree_map(lambda x: x[has_dim], input_data, namespace="fimsde")
+
+        # extract example at random index
+        B = optree.tree_flatten(input_data)[0][0].shape[0]
+        index = torch.randint(size=(1,), low=0, high=B).item()
+        input_data = optree.tree_map(lambda x: x[index], input_data, namespace="fimsde")
+
+        # truncate last dimension to dimension
+        input_data = optree.tree_map(lambda x: x[..., :dimension] if x.shape[-1] >= dimension else x, input_data, namespace="fimsde")
+
+        # prepare for plotting
+        input_data = optree.tree_map(lambda x: x.detach().cpu(), input_data, namespace="fimsde")
+
+        if dimension == 1:
+            vf_plotting_func = plot_1d_vf_real_and_estimation
+        elif dimension == 2:
+            vf_plotting_func = plot_2d_vf_real_and_estimation
+        elif dimension == 3:
+            vf_plotting_func = plot_3d_vf_real_and_estimation
+        else:
+
+            def vf_plotting_func(*args, **kwargs):
+                return None
+
+        databatch, estimated_concepts, sample_paths, sample_grid = input_data
+
+        fig_vf = vf_plotting_func(
+            databatch.locations,
+            databatch.drift_at_locations,
+            estimated_concepts.drift,
+            databatch.diffusion_at_locations,
+            estimated_concepts.diffusion,
+            show=False,
+        )
+
+        fig_paths = plot_paths(dimension, databatch.obs_times, databatch.obs_values, sample_paths, sample_grid)
+
+        return fig_vf, fig_paths
+
     def __call__(self, epoch: int) -> dict:
         """
         Plot ground-truth and estimated vector fields and paths for all available dimensions.
@@ -134,6 +193,8 @@ class SDEEvaluationPlots(EvaluationEpoch):
 
             for dim in range(1, max_dim + 1):
                 for batch in self.dataloader:
+                    batch = optree.tree_map(lambda x: x.to(self.model.device), batch, namespace="sde")
+
                     dim_in_batch = (batch.dimension_mask.sum(dim=-1) == dim)[:, 0]  # [B]
 
                     # select first element in batch with dim
@@ -147,19 +208,19 @@ class SDEEvaluationPlots(EvaluationEpoch):
             # combine found elements to a single FIMSDEDatabatchTuple that can be evaluated by pipeline
             batch_with_all_dims: FIMSDEDatabatchTuple = optree.tree_map(lambda *x: torch.stack(x, dim=0), *batch_with_all_dims)
 
-            # For now use pipeline to generate samples
-            pipeline = FIMSDEPipeline(self.model)
-            pipeline_output = pipeline(batch_with_all_dims)
+            # get concepts and samples from batch_with_all_dims
+            with torch.no_grad():
+                estimated_concepts: SDEConcepts = self.model(batch_with_all_dims, training=False)
+
+            sample_paths_grid = batch_with_all_dims.obs_times[:, 0, :, :]  # take grid of one path of observations
+            sample_paths, sample_paths_grid = fimsde_sample_paths(self.model, batch_with_all_dims, grid=sample_paths_grid)
 
             # Create figures from model outputs and samples
             figures = {}
             for dim in all_dims:
-                if dim == 1:
-                    fig_vf, fig_paths = images_log_1D(batch_with_all_dims, pipeline_output)
-                elif dim == 2:
-                    fig_vf, fig_paths = images_log_2D(batch_with_all_dims, pipeline_output)
-                elif dim == 3:
-                    fig_vf, fig_paths = images_log_3D(batch_with_all_dims, pipeline_output)
+                fig_vf, fig_paths = self.plot_example_of_dim(
+                    batch_with_all_dims, estimated_concepts, sample_paths, sample_paths_grid, dimension=dim
+                )
 
                 dim_figures = {f"Vector_Field_{str(dim)}D": fig_vf, f"Paths_{str(dim)}D": fig_paths}
                 figures.update(dim_figures)

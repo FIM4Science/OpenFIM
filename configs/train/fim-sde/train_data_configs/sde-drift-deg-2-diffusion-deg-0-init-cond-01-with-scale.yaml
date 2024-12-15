@@ -1,0 +1,154 @@
+experiment_name: polynomials
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  method: "EulerMaruyama"
+  time_step: 0.1
+  num_steps: 128
+  num_paths: 50
+  num_locations: 1024
+  stochastic: true
+
+locations:
+  type: regular_cube
+
+train:
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: &num_realizations_train 5000
+    observed_dimension: null
+    state_dim: 2
+    redo: true
+    drift_params: &drift_params
+      constant:
+        distribution: "normal"
+        mean: 0.0
+        std: 0.02
+        bernoulli_survival_rate: 0.5
+      degree_1:
+        distribution: "normal"
+        mean: 0.0
+        std: 0.02
+        bernoulli_survival_rate: 0.5
+      degree_2_squared:
+        distribution: "normal"
+        mean: 0.0
+        std: 0.02
+        bernoulli_survival_rate: 0.5
+      degree_2_mixed:
+        distribution: "normal"
+        mean: 0.0
+        std: 0.02
+        bernoulli_survival_rate: 0.5
+      scale: &scale
+        sample_per_dimension: false
+        distribution: uniform
+        min: 0
+        max: 1
+    diffusion_params: &diffusion_params
+      constant:
+        distribution: "normal"
+        mean: 0.0
+        std: 0.02
+        bernoulli_survival_rate: 1
+      degree_1:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_2_squared:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_2_mixed:
+        distribution: "fix"
+        fix_value: 0.0
+      scale: *scale
+    initial_state: &initial_state
+      # distribution: "uniform"
+      # min: -1
+      # max: 1
+      # activation: null
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 0.1
+      activation: null
+
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: *num_realizations_train
+    observed_dimension: null
+    state_dim: 3
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: *num_realizations_train
+    observed_dimension: null
+    state_dim: 1
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+test:
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: &num_realizations_test 500
+    observed_dimension: null
+    state_dim: 2
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: *num_realizations_test
+    observed_dimension: null
+    state_dim: 3
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: *num_realizations_test
+    observed_dimension: null
+    state_dim: 1
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+validation:
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: &num_realizations_validation 500
+    observed_dimension: null
+    state_dim: 2
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: *num_realizations_validation
+    observed_dimension: null
+    state_dim: 3
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: polynomial_diffusion
+    num_realizations: *num_realizations_validation
+    observed_dimension: null
+    state_dim: 1
+    redo: true
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state

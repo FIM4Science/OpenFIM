@@ -1,8 +1,9 @@
 experiment:
-  name: equal_loss_scale_operator_all_heads_linear_data
+  # name: drift_deg2_diffusion_deg0_init_cond_std_0_02_with_scale_uniform_0_1_operator_per_head
+  name: testing_new_tensorboard_plots
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
-  device_map: cpu # auto, cuda, cpu
+  device_map: cuda # auto, cuda, cpu
 
 distributed:
   enabled: false
@@ -22,11 +23,11 @@ model:
   max_num_paths: &max_num_of_paths 300
 
   # General model config
-  non_negative_diffusion_by: "clip"
-  model_embedding_size: &model_embedding_size 64
+  non_negative_diffusion_by: null
+  model_embedding_size: &model_embedding_size 128
 
   # General transformer config
-  residual_ff_size: &residual_ff_size 256
+  residual_ff_size: &residual_ff_size 512
   transformer_layer_activation: &transformer_layer_activation "relu"
 
   # General MLP config
@@ -41,7 +42,7 @@ model:
     hidden_act: *hidden_act
     dropout: *dropout_rate
 
-  phi_0_combination: "concatenate" # concatenate, all
+  phi_0_combination: "concatenate" # concatenate, add
 
   psi_1_transformer_layer:
     nhead: 4
@@ -57,11 +58,11 @@ model:
     hidden_act: *hidden_act
     dropout: *dropout_rate
 
-  operator_specificity: "all" # all, per_concept, per_head
+  operator_specificity: "per_concept" # all, per_concept, per_head
 
   operator:
     attention:
-      locations_as_final_query: false
+      locations_as_final_query: true
       nhead: 4
       dim_feedforward: *residual_ff_size
       dropout: *dropout_rate
@@ -80,16 +81,13 @@ model:
   times_norm_max: 1
 
   # loss regularization
-  add_delta_x_to_value_encoder: true
   diffusion_loss_scale: 1.0
   train_with_normalized_head: true
-  loss_threshold: 100.0
+  loss_threshold: 10.0
   loss_filter_nans: true
 
   # loss
   loss_type: "nll" #nll, rmse
-  clip_grad: true
-  clip_max_norm: 10.
 
   # INFERENCE/PIPELINE ------------------------------------------------------------
   dt_pipeline: 0.1
@@ -104,7 +102,7 @@ dataset:
 
   ###### For data from dynamical systems class
   data_type: theory # synthetic, theory
-  data_paths: configs/train/fim-sde/sde-polynomial-systems-hyperparameter.yaml
+  data_paths: configs/train/fim-sde/train_data_configs/sde-drift-deg-2-diffusion-deg-0-init-cond-01-with-scale.yaml
 
   ###### For data from files
   # data_type: synthetic # synthetic, theory
@@ -146,7 +144,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 1000
+  epochs: &epochs 250
   detect_anomaly: false
   save_every: 5
   gradient_accumulation_steps: 1
@@ -155,7 +153,7 @@ trainer:
   experiment_dir: ./results/
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.SDEEvaluationPlots
-    plot_frequency: 3
+    plot_frequency: 1
 
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
@@ -171,11 +169,18 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 1.0e-4
-      weight_decay: 1.0e-4
+      lr: &lr_rate 1.0e-4
+      weight_decay: 0
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple
-      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
-      #     T_max: *epochs
-      #     eta_min: 0.0000001
-      #     last_epoch: -1
+      #   - name: torch.optim.lr_scheduler.SequentialLR
+      #     step_type: minibatch
+      #     schedulers: !!python/tuple
+      #       - name: fim.trainers.lr_warmup.LinearWarmupScheduler
+      #         warmup_steps: &warmup_steps 1000
+      #         target_lr: *lr_rate
+      #       - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      #         T_max: *epochs
+      #         eta_min: 1.0e-6
+      #         last_epoch: -1
+      #     milestones: !!python/tuple [*warmup_steps]
