@@ -114,6 +114,7 @@ dataset:
     validation:
       - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-2/1
 
+
   tensorboard_figure_data: &tensorboard_figure_data "test" # "test" or "train"
   plot_paths_count: &plot_paths_count 100
 
@@ -131,6 +132,8 @@ trainer:
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.TestEvaluationEpoch
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       beta: 1.0
