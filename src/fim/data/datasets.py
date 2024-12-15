@@ -13,7 +13,6 @@ import torch.utils.data
 from datasets import DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
 from torch.utils.data import default_collate
 
-from fim import data_path
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.utils import load_h5
 
@@ -535,9 +534,9 @@ class FIMSDEDataset(torch.utils.data.Dataset):
             elif os.name == "nt":
                 file_path = file_path.replace("/", "\\")
 
-            # prepend fim data dir
-            if not os.path.isabs(file_path):
-                file_path = os.path.join(data_path, file_path)
+            # # prepend fim data dir
+            # if not os.path.isabs(file_path):
+            #     file_path = os.path.join(data_path, file_path)
 
         return file_path
 

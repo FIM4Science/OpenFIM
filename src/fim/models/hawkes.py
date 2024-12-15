@@ -119,7 +119,12 @@ class FIMHawkes(AModel):
 
         self.event_type_embedding = create_class_instance(event_type_embedding.pop("name"), event_type_embedding)
 
-        ts_encoder["in_features"] = self.time_encodings.out_features + self.event_type_embedding.out_features
+        model_dim = self.event_type_embedding.out_features + self.time_encodings.out_features
+        if "d_model" in ts_encoder["encoder_layer"]:
+            ts_encoder["encoder_layer"]["d_model"] = model_dim
+        if ts_encoder["name"] == "fim.models.blocks.RNNEncoder":
+            ts_encoder["encoder_layer"]["input_size"] = model_dim
+
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
 
         trunk_net["in_features"] = self.time_encodings.out_features

@@ -106,13 +106,13 @@ dataset:
 
   dataset_path_collections: &dataset_path_collections
     train:
-      - ..\tests\resources\data\sde\state_sde\data-snr_01_05_1_5\linear\dim-1\1
-      - ..\tests\resources\data\sde\state_sde\data-snr_01_05_1_5\linear\dim-2\1
-      - ..\tests\resources\data\sde\state_sde\data-snr_01_05_1_5\linear\dim-3\1
+      - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-1/1
+      - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-2/1
+      - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-3/1
     test:
-      - processed\state_sde\data-snr_01_05_1_5\linear\dim-2\1
+      - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-2/1
     validation:
-      - processed\state_sde\data-snr_01_05_1_5\linear\dim-2\1
+      - tests/resources/data/sde/state_sde/data-snr_01_05_1_5/linear/dim-2/1
 
   tensorboard_figure_data: &tensorboard_figure_data "test" # "test" or "train"
   plot_paths_count: &plot_paths_count 100

@@ -45,24 +45,16 @@ model:
   use_adjacency_matrix: False
 
   ts_encoder:
-    name: fim.models.blocks.base.TransformerEncoder
+    name: torch.nn.TransformerEncoder
     num_layers: 2
 
-    transformer_block:
-      name: fim.models.blocks.base.TransformerBlock
-      in_features: *model_dim
-      ff_dim: 128
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      d_model: *model_dim
+      : 128
+      batch_first: True
       dropout: 0.1
-      activation:
-        name: torch.nn.SiLU
-      normalization:
-        name: torch.nn.RMSNorm
-        normalized_shape: !!python/tuple [*model_dim]
-      attention_head:
-        name: torch.nn.MultiheadAttention
-        embed_dim: *model_dim
-        num_heads: 2
-        batch_first: True
+      nhead: 4
 
   pos_encodings:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding

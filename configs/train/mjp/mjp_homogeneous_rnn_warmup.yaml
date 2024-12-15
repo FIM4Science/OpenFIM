@@ -57,7 +57,7 @@ dataset:
       intensity_matrices: "fine_grid_intensity_matrices.pt"
       adjacency_matrices: "fine_grid_adjacency_matrices.pt"
       initial_distributions: "fine_grid_initial_distributions.pt"
-    data_limit: 128
+    data_limit: null
 
 model_dim: &model_dim 256
 
@@ -68,8 +68,8 @@ model:
   use_num_of_paths: true
 
   ts_encoder:
-    name: fim.models.blocks.base.RNNEncoder
-    rnn:
+    name: fim.models.blocks.RNNEncoder
+    encoder_layer:
       name: torch.nn.LSTM
       hidden_size: *model_dim
       batch_first: true

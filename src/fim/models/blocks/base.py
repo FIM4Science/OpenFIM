@@ -1,16 +1,14 @@
 import copy
 import os
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import torch
 from torch import Tensor, nn
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.nn.functional import scaled_dot_product_attention
 
 from ...trainers.utils import is_distributed
 from ...utils.helper import create_class_instance
-from torch.nn import TransformerEncoder as TransformerEncoderNN
-from torch.nn import TransformerEncoderLayer
-from ..utils import SinActivation
 
 
 class Block(nn.Module):
@@ -63,18 +61,16 @@ class MLP(Block):
         **kwargs,
     ):
         super(MLP, self).__init__(**kwargs)
-
+        # TODO: add documentation
         if isinstance(hidden_act, dict):
             hidden_act = create_class_instance(hidden_act.pop("name"), hidden_act)
 
         self.layers = nn.Sequential()
         in_size = in_features
-        nr_hidden_layers = len(hidden_layers)
         for i, h_size in enumerate(hidden_layers):
             self.layers.add_module(f"linear_{i}", nn.Linear(in_size, h_size))
             self.layers.add_module(f"activation_{i}", hidden_act)
-            if dropout != 0 and i < nr_hidden_layers - 1:
-                self.layers.add_module(f"dropout_{i}", nn.Dropout(dropout))
+            self.layers.add_module(f"dropout_{i}", nn.Dropout(dropout))
             in_size = h_size
 
         # if no hidden layers are provided, the output layer is directly connected to the input layer
@@ -95,7 +91,7 @@ class MLP(Block):
 class MultiHeadLearnableQueryAttention(Block):
     def __init__(self, n_queries: int, n_heads: int, embed_dim: int, kv_dim: int = None, output_projection: bool = False, **kwargs):
         super().__init__(**kwargs)
-
+        # TODO: add documentation @cvejoski
         self.n_queries = n_queries
         self.n_heads = n_heads
         self.kv_dim = kv_dim if kv_dim is not None else embed_dim
@@ -135,53 +131,10 @@ class MultiHeadLearnableQueryAttention(Block):
         return self.n_heads * self.head_dim * self.n_queries if not self.output_projection else self.n_heads * self.head_dim
 
 
-class TransformerBlock(Block):
-    def __init__(
-        self,
-        in_features: int,
-        ff_dim: int,
-        dropout: float,
-        attention_head: Union[dict, nn.Module] = nn.MultiheadAttention,
-        activation: Union[dict, nn.Module] = nn.ReLU(),
-        normalization: Union[dict, nn.Module] = nn.LayerNorm,
-        initialization_scheme: str = "kaiming_normal",
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.model_dim = in_features
-        self.attention_head = attention_head
-        if isinstance(attention_head, dict):
-            self.attention_head = create_class_instance(attention_head.pop("name"), attention_head)
-
-        if isinstance(normalization, dict):
-            norm_type = normalization.pop("name")
-            self.norm1 = create_class_instance(norm_type, normalization)
-            self.norm2 = create_class_instance(norm_type, normalization)
-        else:
-            self.norm1 = normalization(in_features)
-            self.norm2 = normalization(in_features)
-
-        self.ff = MLP(in_features, in_features, [ff_dim, in_features], hidden_act=activation, initialization_scheme=initialization_scheme)
-        self.dropout = nn.Dropout(dropout)
-        self.dropout_attention = nn.Dropout(dropout)
-
-    def forward(self, x: Tensor, padding_mask: Optional[Tensor] = None, mask: Optional[Tensor] = None):
-        x = self.dropout_attention(self.attention_head(x, x, x, key_padding_mask=padding_mask, attn_mask=mask)[0]) + x
-        x = self.norm1(x)
-        x = self.dropout(self.ff(x)) + x
-        x = self.norm2(x)
-
-        return x
-
-
 class RNNEncoder(Block):
-    def __init__(self, in_features: int, rnn: dict | nn.Module, **kwargs):
+    def __init__(self, encoder_layer: dict | nn.Module, **kwargs):
         super().__init__(**kwargs)
-        self.rnn = rnn
-        if isinstance(rnn, dict):
-            rnn_name = rnn.pop("name")
-            rnn["input_size"] = in_features
-            self.rnn = create_class_instance(rnn_name, rnn)
+        self.rnn = encoder_layer
         self.init_params()
 
     def forward(self, x: Tensor, seq_len: Tensor) -> Tensor:
@@ -213,37 +166,12 @@ class RNNEncoder(Block):
                 nn.init.zeros_(param)
 
 
-class TransformerEncoder(Block):
-    def __init__(self, num_layers: int, in_features: int, transformer_block: dict | TransformerBlock, **kwargs):
-        super().__init__(**kwargs)
-        if isinstance(transformer_block, dict):
-            name = transformer_block.pop("name")
-            transformer_block["in_features"] = in_features
-            self.layers = MaskedSequential(*(create_class_instance(name, copy.deepcopy(transformer_block)) for _ in range(num_layers)))
-        else:
-            self.layers = MaskedSequential(*(transformer_block(**kwargs) for _ in range(num_layers)))
-
-    def forward(self, x: Tensor, padding_mask: Optional[Tensor] = None) -> Tensor:
-        return self.layers(x, padding_mask=padding_mask)
-
-    @property
-    def out_features(self):
-        return self.layers[0].model_dim
-
-
-class MaskedSequential(nn.Sequential):
-    def forward(self, x: Tensor, mask: Optional[Tensor] = None, padding_mask: Optional[Tensor] = None) -> Tensor:
-        for module in self._modules.values():
-            x = module(x, mask=mask, padding_mask=padding_mask)
-        return x
-
-
 class TransformerModel(Block):
     def __init__(self, input_dim, nhead, hidden_dim, nlayers):
         super(TransformerModel, self).__init__()
         self.model_type = "Transformer"
         self.encoder_layer = TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
-        self.transformer_encoder = TransformerEncoderNN(self.encoder_layer, num_layers=nlayers)
+        self.transformer_encoder = TransformerEncoder(self.encoder_layer, num_layers=nlayers)
         self.input_dim = input_dim
 
     def forward(self, src):
@@ -391,39 +319,3 @@ class IdentityBlock(Block):
 
     def forward(self, x: dict | torch.Tensor) -> dict | torch.Tensor:
         return x
-
-
-class TimeEncoding(Block):
-    """
-    Implements the time encoding as described in "Multi-time attention networks for irregularly sampled time series, Shukla & Marlin, 2020".
-
-    Each time point t is encoded as a vector of dimension d_time:
-        - first element: linear embedding of t: w_0*t + b_0
-        - remaining elements: sinusoidal embedding of t with different frequencies: sin(w_i*t + b_i) for i in {1, ..., d_time-1}
-    w_j and b_j are learnable parameters.
-    """
-
-    def __init__(self, dim_time: int):
-        """
-        Args:
-            d_time (int): Dimension of the time representation
-        """
-        super(TimeEncoding, self).__init__()
-
-        self.d_time = dim_time
-
-        self.linear_embedding = nn.Linear(1, 1, bias=True)
-        self.periodic_embedding = nn.Sequential(nn.Linear(1, dim_time - 1, bias=True), SinActivation())
-
-    def forward(self, grid: torch.Tensor):
-        """
-        Args:
-            grid (torch.Tensor): Grid of time points, shape (batch_size, seq_len, 1)
-
-        Returns:
-            torch.Tensor: Time encoding, shape (batch_size, seq_len, d_time)
-        """
-        linear = self.linear_embedding(grid)
-        periodic = self.periodic_embedding(grid)
-
-        return torch.cat([linear, periodic], dim=-1)
