@@ -27,9 +27,9 @@ def check_model_devices(x):
 
 
 def nametuple_to_device(named_tuple, device):
-    return named_tuple._replace(
-        **{key: (value.to(device) if isinstance(value, torch.Tensor) else value) for key, value in named_tuple._asdict().items()}
-    )
+    return named_tuple._replace(**{
+        key: (value.to(device) if isinstance(value, torch.Tensor) else value) for key, value in named_tuple._asdict().items()
+    })
 
 
 def save_hyperparameters_to_yaml(hyperparams, file_path: str):
@@ -702,12 +702,15 @@ def select_dimension_for_plot_(
 def select_dimension_for_plot(
     dimension: int,
     dimension_mask: Tensor,
+    obs_times: Tensor,
+    obs_values: Tensor,
     locations: Tensor,
     drift_at_locations_estimation: Tensor,
     diffusion_at_locations_estimation: Tensor,
     drift_at_locations_real: Tensor,
     diffusion_at_locations_real: Tensor,
-    index_to_select=0,
+    paths_estimation: Tensor,
+    index_to_select=None,
 ):
     """
     From the drift and diffusion estimators and real
@@ -717,30 +720,45 @@ def select_dimension_for_plot(
     where_one_dimension = torch.where(process_dimension == dimension)[0]
 
     # select for one dimension
+    obs_times = obs_times[where_one_dimension]
+    obs_values = obs_values[where_one_dimension]
     locations = locations[where_one_dimension]
     drift_at_locations_real = drift_at_locations_real[where_one_dimension]
     diffusion_at_locations_real = diffusion_at_locations_real[where_one_dimension]
     drift_at_locations_estimation = drift_at_locations_estimation[where_one_dimension]
     diffusion_at_locations_estimation = diffusion_at_locations_estimation[where_one_dimension]
+    paths_estimation = paths_estimation[where_one_dimension]
 
     # detach and
+    obs_times = obs_times.detach().cpu().numpy()
+    obs_values = obs_values.detach().cpu().numpy()
     locations = locations.detach().cpu().numpy()
     drift_at_locations_real = drift_at_locations_real.detach().cpu().numpy()
     diffusion_at_locations_real = diffusion_at_locations_real.detach().cpu().numpy()
     drift_at_locations_estimation = drift_at_locations_estimation.detach().cpu().numpy()
     diffusion_at_locations_estimation = diffusion_at_locations_estimation.detach().cpu().numpy()
+    paths_estimation = paths_estimation.detach().cpu().numpy()
+
+    if index_to_select is None:
+        index_to_select = torch.randint(size=(1,), low=0, high=locations.shape[0]).item()
 
     # select dimension
+    obs_times = obs_times[index_to_select]
+    obs_values = obs_values[index_to_select, :, :, :dimension]
     locations = locations[index_to_select, :, :dimension]
     drift_at_locations_real = drift_at_locations_real[index_to_select, :, :dimension]
     diffusion_at_locations_real = diffusion_at_locations_real[index_to_select, :, :dimension]
     drift_at_locations_estimation = drift_at_locations_estimation[index_to_select, :, :dimension]
     diffusion_at_locations_estimation = diffusion_at_locations_estimation[index_to_select, :, :dimension]
+    paths_estimation = paths_estimation[index_to_select, None, :, :dimension]  # somehow only single path is sampled
 
     return (
+        obs_times,
+        obs_values,
         locations,
         drift_at_locations_real,
         diffusion_at_locations_real,
         drift_at_locations_estimation,
         diffusion_at_locations_estimation,
+        paths_estimation,
     )

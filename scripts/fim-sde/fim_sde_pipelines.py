@@ -1,9 +1,8 @@
 from fim.data.config_dataclasses import FIMDatasetConfig
-
-from fim.models.sde import FIMSDE
-from fim.models.config_dataclasses import FIMSDEConfig
-from fim.pipelines.sde_pipelines import FIMSDEPipeline
 from fim.data.data_generation.dynamical_systems_target import generate_all
+from fim.models.config_dataclasses import FIMSDEConfig
+from fim.models.sde import FIMSDE
+from fim.pipelines.sde_pipelines import FIMSDEPipeline
 
 
 def test_pipeline():

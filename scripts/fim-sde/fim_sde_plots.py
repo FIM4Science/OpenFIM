@@ -21,17 +21,26 @@ def test_plot_1d():
     selected_data = select_dimension_for_plot(
         1,
         databatch_target.dimension_mask,
+        databatch_target.obs_times,
+        databatch_target.obs_values,
         databatch_target.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
         databatch_target.drift_at_locations,
         databatch_target.diffusion_at_locations,
-        index_to_select=0,
+        pipeline_output.path,
     )
 
-    locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
-        selected_data
-    )
+    (
+        obs_times,
+        obs_values,
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+        paths_estimation,
+    ) = selected_data
     plot_1d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
@@ -53,17 +62,26 @@ def test_plot_2d():
     selected_data = select_dimension_for_plot(
         2,
         databatch_target.dimension_mask,
+        databatch_target.obs_times,
+        databatch_target.obs_values,
         databatch_target.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
         databatch_target.drift_at_locations,
         databatch_target.diffusion_at_locations,
-        index_to_select=0,
+        pipeline_output.path,
     )
 
-    locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
-        selected_data
-    )
+    (
+        obs_times,
+        obs_values,
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+        paths_estimation,
+    ) = selected_data
     plot_2d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
@@ -85,17 +103,26 @@ def test_plot_3d():
     selected_data = select_dimension_for_plot(
         3,
         databatch_target.dimension_mask,
+        databatch_target.obs_times,
+        databatch_target.obs_values,
         databatch_target.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
         databatch_target.drift_at_locations,
         databatch_target.diffusion_at_locations,
-        index_to_select=0,
+        pipeline_output.path,
     )
 
-    locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
-        selected_data
-    )
+    (
+        obs_times,
+        obs_values,
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+        paths_estimation,
+    ) = selected_data
     plot_3d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,

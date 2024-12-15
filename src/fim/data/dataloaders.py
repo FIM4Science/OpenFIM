@@ -136,9 +136,9 @@ class FIMDataLoader(BaseDataLoader):
         self.current_minibatch_index = 0
         super().__init__(dataset_kwargs, loader_kwargs)
         if self.variable_num_of_paths:
-            assert (
-                self.max_number_of_minibatch_sizes is not None
-            ), "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            assert self.max_number_of_minibatch_sizes is not None, (
+                "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            )
             assert self.max_path_count is not None, "max_path_conunt must be provided if variable_num_of_paths is True"
 
         self.path_collections = path_collections
@@ -378,15 +378,15 @@ class FIMSDEDataloader(BaseDataLoader):
 
     def update_kwargs(self, kwargs: dict | FIMDatasetConfig | FIMSDEConfig):
         assert self.train_dataset.max_dimension == self.test_dataset.max_dimension == self.validation_dataset.max_dimension
-        assert (
-            self.train_dataset.max_time_steps == self.test_dataset.max_time_steps == self.validation_dataset.max_time_steps
-        ), "max_time_steps are not equal"
-        assert (
-            self.train_dataset.max_location_size == self.test_dataset.max_location_size == self.validation_dataset.max_location_size
-        ), "max_location_size are not equal"
-        assert (
-            self.train_dataset.max_num_paths == self.test_dataset.max_num_paths == self.validation_dataset.max_num_paths
-        ), "max_num_paths are not equal"
+        assert self.train_dataset.max_time_steps == self.test_dataset.max_time_steps == self.validation_dataset.max_time_steps, (
+            "max_time_steps are not equal"
+        )
+        assert self.train_dataset.max_location_size == self.test_dataset.max_location_size == self.validation_dataset.max_location_size, (
+            "max_location_size are not equal"
+        )
+        assert self.train_dataset.max_num_paths == self.test_dataset.max_num_paths == self.validation_dataset.max_num_paths, (
+            "max_num_paths are not equal"
+        )
 
         if isinstance(kwargs, dict):
             if "dataset" in kwargs.keys():
@@ -444,6 +444,16 @@ class FIMSDEDataloader(BaseDataLoader):
         number_of_grids = torch.randint(
             self.min_number_of_grid_per_batch, min(self.max_number_of_grid_per_batch, max_grids) + 1, size=(1,)
         ).item()
+
+        # permute paths and locations (for now, all elements in batch are permuted the same)
+        paths_perm = torch.randperm(obs_values.shape[1])
+        grids_perm = torch.randperm(locations.shape[1])
+        obs_values = obs_values[:, paths_perm]
+        obs_times = obs_times[:, paths_perm]
+        drift_at_locations = drift_at_locations[:, grids_perm]
+        diffusion_at_locations = diffusion_at_locations[:, grids_perm]
+        locations = locations[:, grids_perm]
+        dimension_mask = dimension_mask[:, grids_perm]
 
         # Trim each field based on the selected number of paths and grids
         obs_values = obs_values[:, :number_of_paths]

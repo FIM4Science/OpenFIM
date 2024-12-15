@@ -123,8 +123,8 @@ def plot_paths_in_axis(
     else:
         colors = num_paths * ["black"]
 
-    # paths
-    for path_times, path_values, color in zip(paths_times, paths_values, colors):
+    # paths, path times are trunkated because sometimes model paths are passed here and they might be fewer than paths_times
+    for path_times, path_values, color in zip(paths_times[: paths_values.shape[0], : paths_values.shape[1]], paths_values, colors):
         plt_config.update({"color": color})
 
         if state_dim == 1:
