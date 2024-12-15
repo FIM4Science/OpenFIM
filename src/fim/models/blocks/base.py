@@ -4,7 +4,6 @@ from typing import List, Optional
 
 import torch
 from torch import Tensor, nn
-
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.nn.functional import scaled_dot_product_attention
 
@@ -132,6 +131,45 @@ class MultiHeadLearnableQueryAttention(Block):
         return self.n_heads * self.head_dim * self.n_queries if not self.output_projection else self.n_heads * self.head_dim
 
 
+# class TransformerBlock(Block):
+#     def __init__(
+#         self,
+#         in_features: int,
+#         ff_dim: int,
+#         dropout: float,
+#         attention_head: Union[dict, nn.Module] = nn.MultiheadAttention,
+#         activation: Union[dict, nn.Module] = nn.ReLU(),
+#         normalization: Union[dict, nn.Module] = nn.LayerNorm,
+#         initialization_scheme: str = "kaiming_normal",
+#         **kwargs,
+#     ):
+#         super().__init__(**kwargs)
+#         self.model_dim = in_features
+#         self.attention_head = attention_head
+#         if isinstance(attention_head, dict):
+#             self.attention_head = create_class_instance(attention_head.pop("name"), attention_head)
+
+#         if isinstance(normalization, dict):
+#             norm_type = normalization.pop("name")
+#             self.norm1 = create_class_instance(norm_type, normalization)
+#             self.norm2 = create_class_instance(norm_type, normalization)
+#         else:
+#             self.norm1 = normalization(in_features)
+#             self.norm2 = normalization(in_features)
+
+#         self.ff = MLP(in_features, in_features, [ff_dim, in_features], hidden_act=activation, initialization_scheme=initialization_scheme)
+#         self.dropout = nn.Dropout(dropout)
+#         self.dropout_attention = nn.Dropout(dropout)
+
+#     def forward(self, x: Tensor, padding_mask: Optional[Tensor] = None, mask: Optional[Tensor] = None):
+#         x = self.dropout_attention(self.attention_head(x, x, x, key_padding_mask=padding_mask, attn_mask=mask)[0]) + x
+#         x = self.norm1(x)
+#         x = self.dropout(self.ff(x)) + x
+#         x = self.norm2(x)
+
+#         return x
+
+
 class RNNEncoder(Block):
     def __init__(self, encoder_layer: dict | nn.Module, **kwargs):
         super().__init__(**kwargs)
@@ -167,13 +205,36 @@ class RNNEncoder(Block):
                 nn.init.zeros_(param)
 
 
+# class TransformerEncoder(Block):
+#     def __init__(self, num_layers: int, in_features: int, transformer_block: dict | TransformerBlock, **kwargs):
+#         super().__init__(**kwargs)
+#         if isinstance(transformer_block, dict):
+#             name = transformer_block.pop("name")
+#             transformer_block["in_features"] = in_features
+#             self.layers = MaskedSequential(*(create_class_instance(name, copy.deepcopy(transformer_block)) for _ in range(num_layers)))
+#         else:
+#             self.layers = MaskedSequential(*(transformer_block(**kwargs) for _ in range(num_layers)))
+
+#     def forward(self, x: Tensor, padding_mask: Optional[Tensor] = None) -> Tensor:
+#         return self.layers(x, padding_mask=padding_mask)
+
+#     @property
+#     def out_features(self):
+#         return self.layers[0].model_dim
+
+
+# class MaskedSequential(nn.Sequential):
+#     def forward(self, x: Tensor, mask: Optional[Tensor] = None, padding_mask: Optional[Tensor] = None) -> Tensor:
+#         for module in self._modules.values():
+#             x = module(x, mask=mask, padding_mask=padding_mask)
+#         return x
+
+
 class TransformerModel(Block):
     def __init__(self, input_dim, nhead, hidden_dim, nlayers, batch_first=True, dropout=0.1, activation=nn.ReLU):
         super(TransformerModel, self).__init__()
         self.model_type = "Transformer"
-        self.encoder_layer = TransformerEncoderLayer(
-            d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout, activation=activation, batch_first=batch_first
-        )
+        self.encoder_layer = TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
         self.transformer_encoder = TransformerEncoder(self.encoder_layer, num_layers=nlayers)
         self.input_dim = input_dim
 
