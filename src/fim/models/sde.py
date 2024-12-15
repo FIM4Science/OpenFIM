@@ -1,19 +1,21 @@
+from copy import copy
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Self, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import lightning.pytorch as pl
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from fim import results_path
-from fim.data.data_generation.dynamical_systems_target import generate_all
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.models.blocks import AModel, ModelFactory
 from fim.models.blocks.base import MLP, TransformerModel
 from fim.models.blocks.positional_encodings import SineTimeEncoding
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
+from fim.utils.helper import create_class_instance
 from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
 
 
@@ -279,7 +281,7 @@ class SDEConcepts:
         return is_equal
 
     @classmethod
-    def from_dbt(cls, databatch: FIMSDEDatabatchTuple | None, normalized: Optional[bool] = False) -> Self | None:
+    def from_dbt(cls, databatch: FIMSDEDatabatchTuple | None, normalized: Optional[bool] = False):
         """
         Construct SDEConcepts from FIMSDEDatabatchTuple.
 
@@ -453,11 +455,9 @@ class FIMSDEConfig(PretrainedConfig):
         sequence_encoding_transformer_hidden_size (int): Hidden size for transformer in sequence encoding. Default is 50.
         sequence_encoding_transformer_heads (int): Number of heads in transformer for sequence encoding. Default is 1.
         sequence_encoding_transformer_layers (int): Number of layers in transformer for sequence encoding. Default is 1.
-        combining_transformer_hidden_size (int): Hidden size for combining transformer. Default is 50.
-        combining_transformer_heads (int): Number of heads in combining transformer. Default is 1.
-        combining_transformer_layers (int): Number of layers in combining transformer. Default is 1.
-        trunk_net_size (int): Size of trunk network. Default is 50.
         trunk_net_hidden_layers (list[int]): Hidden layers for trunk network. Default is [25].
+        heads_hidden_layers (list[int] | None): Hidden layers for heads projection. None defaults to linear. Default is None.
+        activation (dict): contains path to activation function. Default is {"name": "torch.nn.ReLU"}.
         values_norm_min (float): lower normalized values range boundary. Default is -1.
         values_norm_max (float): upper normalized values range boundary. Default is 1.
         times_norm_min (float): lower normalized times range boundary. Default is 0.
@@ -478,6 +478,7 @@ class FIMSDEConfig(PretrainedConfig):
         skip_nan_grads (bool): Skip optimizer update if (at least one) gradient is Nan. Default is True.
         dt_pipeline (float): Time step for pipeline. Default is 0.01.
         number_of_time_steps_pipeline (int): Number of time steps in the pipeline. Default is 128.
+        pipeline_data (FIMSDEDatabatchTuple): Data to evaluate pipelines on. Default is None, i.e. no evaluation.
         evaluate_with_unnormalized_heads (bool): Evaluate with unnormalized heads. Default is True.
     """
 
@@ -499,11 +500,9 @@ class FIMSDEConfig(PretrainedConfig):
         sequence_encoding_transformer_hidden_size: int = 50,
         sequence_encoding_transformer_heads: int = 1,
         sequence_encoding_transformer_layers: int = 1,
-        combining_transformer_hidden_size: int = 50,
-        combining_transformer_heads: int = 1,
-        combining_transformer_layers: int = 1,
-        trunk_net_size: int = 50,
         trunk_net_hidden_layers: list[int] = None,
+        heads_hidden_layers: list[int] | None = None,
+        activation: dict = {"name": "torch.nn.ReLU"},
         values_norm_min: float = -1.0,
         values_norm_max: float = 1.0,
         times_norm_min: float = 0.0,
@@ -525,6 +524,7 @@ class FIMSDEConfig(PretrainedConfig):
         skip_nan_grads: bool = True,
         dt_pipeline: float = 0.01,
         number_of_time_steps_pipeline: int = 128,
+        pipeline_data: FIMSDEDatabatchTuple = None,
         evaluate_with_unnormalized_heads: bool = True,
         **kwargs,
     ):
@@ -542,11 +542,9 @@ class FIMSDEConfig(PretrainedConfig):
         self.sequence_encoding_transformer_hidden_size = sequence_encoding_transformer_hidden_size
         self.sequence_encoding_transformer_heads = sequence_encoding_transformer_heads
         self.sequence_encoding_transformer_layers = sequence_encoding_transformer_layers
-        self.combining_transformer_hidden_size = combining_transformer_hidden_size
-        self.combining_transformer_heads = combining_transformer_heads
-        self.combining_transformer_layers = combining_transformer_layers
-        self.trunk_net_size = trunk_net_size
         self.trunk_net_hidden_layers = trunk_net_hidden_layers or [25]
+        self.heads_hidden_layers = heads_hidden_layers
+        self.activation = activation
         # normalization
         self.values_norm_min = values_norm_min
         self.values_norm_max = values_norm_max
@@ -570,6 +568,7 @@ class FIMSDEConfig(PretrainedConfig):
         self.clip_max_norm = clip_max_norm
         self.skip_nan_grads = skip_nan_grads
         self.dt_pipeline = dt_pipeline
+        self.pipeline_data = pipeline_data
         self.number_of_time_steps_pipeline = number_of_time_steps_pipeline
         self.evaluate_with_unnormalized_heads = evaluate_with_unnormalized_heads
         super().__init__(**kwargs)
@@ -605,7 +604,7 @@ class FIMSDE(AModel, pl.LightningModule):
         self._create_modules()
 
         # Set a dataset for fixed evaluation
-        self.target_data = generate_all(self.config.max_time_steps, self.config.max_num_paths)
+        # self.target_data = generate_all(self.config.max_time_steps, self.config.max_num_paths)
 
         if device_map is not None:
             self.to(device_map)
@@ -617,6 +616,9 @@ class FIMSDE(AModel, pl.LightningModule):
     def _create_modules(
         self,
     ):
+        activation_config = copy(self.config.activation)
+        activation = create_class_instance(activation_config.pop("name"), activation_config)
+
         # Define different versions
         x_dimension = self.config.max_dimension
         x_dimension_full = x_dimension * 3  # we encode the difference and its square
@@ -629,10 +631,20 @@ class FIMSDE(AModel, pl.LightningModule):
             in_features=x_dimension_full,
             out_features=self.config.spatial_embedding_size,
             hidden_layers=self.config.spatial_embedding_hidden_layers,
+            dropout=self.config.dropout_rate,
+            activation=activation,
         )
+        self.phi_0x_layer_norm = nn.LayerNorm(self.config.spatial_embedding_size, dtype=torch.float32)
 
         # trunk network
-        self.trunk = MLP(in_features=x_dimension, out_features=self.psi_1_tokes_dim, hidden_layers=self.config.trunk_net_hidden_layers)
+        self.trunk = MLP(
+            in_features=x_dimension,
+            out_features=self.psi_1_tokes_dim,
+            hidden_layers=self.config.trunk_net_hidden_layers,
+            dropout=self.config.dropout_rate,
+            activation=activation,
+        )
+        self.trunk_layer_norm = nn.LayerNorm(self.psi_1_tokes_dim, dtype=torch.float32)
 
         # ensures that the embbeding that is sent to the transformer is a multiple of the number of heads
         self.phi_xt = nn.Linear(spatial_plus_time_encoding, self.psi_1_tokes_dim)
@@ -643,31 +655,58 @@ class FIMSDE(AModel, pl.LightningModule):
             nhead=self.config.sequence_encoding_transformer_heads,
             hidden_dim=self.config.sequence_encoding_transformer_hidden_size,
             nlayers=self.config.sequence_encoding_transformer_layers,
+            batch_first=True,
+            dropout=self.config.dropout_rate,
+            activation=activation,
         )
 
         # time attention
         self.omega_1 = nn.MultiheadAttention(
             self.psi_1_tokes_dim,
-            self.config.combining_transformer_heads,
+            self.config.sequence_encoding_transformer_heads,
+            dropout=self.config.dropout_rate,
             batch_first=True,
         )
+        self.omega_1_ff_block_mlp = MLP(
+            in_features=self.psi_1_tokes_dim,
+            out_features=self.psi_1_tokes_dim,
+            hidden_layers=[4 * self.psi_1_tokes_dim],
+            dropout=self.config.dropout_rate,
+            activation=activation,
+        )
+        self.omega_1_ff_block_dropout = nn.Dropout(self.config.dropout_rate)
+        self.omega_1_ff_block_layer_norm = nn.LayerNorm(self.psi_1_tokes_dim, dtype=torch.float32)
 
         # path attention
         self.path_queries = nn.Parameter(torch.randn(1, self.psi_1_tokes_dim))
 
         self.omega_2 = nn.MultiheadAttention(
             self.psi_1_tokes_dim,
-            self.config.combining_transformer_heads,
+            self.config.sequence_encoding_transformer_heads,
+            dropout=self.config.dropout_rate,
             batch_first=True,
         )
+        self.omega_2_ff_block_mlp = MLP(
+            in_features=self.psi_1_tokes_dim,
+            out_features=self.psi_1_tokes_dim,
+            hidden_layers=[4 * self.psi_1_tokes_dim],
+            dropout=self.config.dropout_rate,
+            activation=activation,
+        )
+        self.omega_2_ff_block_dropout = nn.Dropout(self.config.dropout_rate)
+        self.omega_2_ff_block_layer_norm = nn.LayerNorm(self.psi_1_tokes_dim, dtype=torch.float32)
 
-        # drift head
-        self.drift_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
-        self.log_var_drift_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
-
-        # diffusion head
-        self.diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
-        self.log_var_diffusion_head = nn.Linear(self.psi_1_tokes_dim, self.config.max_dimension)
+        # MLP for projection to heads; defaults to linear
+        if self.config.heads_hidden_layers is not None:
+            self.heads = MLP(
+                in_features=self.psi_1_tokes_dim,
+                out_features=4 * self.config.max_dimension,
+                hidden_layers=self.config.heads_hidden_layers,
+                dropout=self.config.dropout_rate,
+                activation=activation,
+            )
+        else:
+            self.heads = nn.Linear(self.psi_1_tokes_dim, 4 * self.config.max_dimension)
 
     def path_encoding(self, obs_times: Tensor, obs_values: Tensor, locations: Tensor) -> Tuple[torch.tensor, torch.tensor]:
         """
@@ -692,8 +731,9 @@ class FIMSDE(AModel, pl.LightningModule):
 
         # Trunk
         trunk_encoding = self.trunk(locations)  # [B,G,trunk_dim]
+        trunk_encoding = self.trunk_layer_norm(trunk_encoding)
         trunk_encoding = trunk_encoding[:, None, :, :].repeat(1, P, 1, 1)  # [B,P,G,trunk_size]
-        trunk_encoding = trunk_encoding.view(B * P, G, -1)
+        trunk_encoding = trunk_encoding.view(B * P, G, self.psi_1_tokes_dim)
 
         # Embedded input; include difference and squared difference to next observation -> drop last observation
         X = obs_values[:, :, :-1, :]
@@ -702,6 +742,7 @@ class FIMSDE(AModel, pl.LightningModule):
 
         x_full = torch.cat([X, dX, dX2], dim=-1)  # [B,P,T,3*D]
         spatial_encoding = self.phi_0x(x_full)  # [B,P,T,spatial_embedding_size]
+        spatial_encoding = self.phi_0x_layer_norm(spatial_encoding)
 
         obs_times = obs_times[:, :, :-1, :]  # [B,P,T,1]
         time_encoding = self.phi_0t(obs_times)  # [B,P,T,temporal_embedding_size]
@@ -711,18 +752,27 @@ class FIMSDE(AModel, pl.LightningModule):
 
         # Transformer that creates a representation for the paths
         U = U.view(B * P, T, self.psi_1_tokes_dim)
-        H = self.psi_1(torch.transpose(U, 0, 1))  # [T,B*P,psi_1_tokes_dim]
-        H = torch.transpose(H, 0, 1)  # [B*P,T,psi_1_tokes_dim]
+        H = self.psi_1(U)  # [B*P,T,psi_1_tokes_dim]
 
         # Attention on Time -> One representation per path and location
         hx, _ = self.omega_1(trunk_encoding, H, H)  # [B*P,G,psi_1_tokes_dim]
+
+        hx_transf = self.omega_1_ff_block_mlp(hx)  # residual block
+        hx_transf = self.omega_1_ff_block_dropout(hx_transf)
+        hx = self.omega_1_ff_block_layer_norm(hx + hx_transf)
+
         hx = hx.view(B, P, G, -1)  # [B,P,G,psi_1_tokes_dim]
 
         # Attention on Paths -> One representation per expression
-        hx_ = hx.transpose(1, 2).reshape(G * B, P, -1)  # [B*G,P,psi_1_tokes_dim]
+        hx_ = hx.transpose(1, 2).reshape(G * B, P, self.psi_1_tokes_dim)  # [B*G,P,psi_1_tokes_dim]
         path_queries_ = self.path_queries[None, :, :].repeat(G * B, 1, 1)
         bx, _ = self.omega_2(path_queries_, hx_, hx_)
-        bx = bx.view(B, G, -1)  # [B,G,psi_1_tokes_dim]
+
+        bx_transf = self.omega_2_ff_block_mlp(bx)  # residual block
+        bx_transf = self.omega_2_ff_block_dropout(bx_transf)
+        bx = self.omega_2_ff_block_layer_norm(bx + bx_transf)
+
+        bx = bx.view(B, G, self.psi_1_tokes_dim)  # [B,G,psi_1_tokes_dim]
 
         return bx, hx
 
@@ -778,10 +828,8 @@ class FIMSDE(AModel, pl.LightningModule):
         bx, _ = self.path_encoding(obs_times, obs_values, locations)  # [B, G, psi_1_tokes_dim]
 
         # Heads: [B, G, D]
-        drift_estimator = self.drift_head(bx)
-        log_var_drift_estimator = self.log_var_drift_head(bx)
-        diffusion_estimator = self.diffusion_head(bx)
-        log_var_diffusion_estimator = self.log_var_diffusion_head(bx)
+        heads = self.heads(bx)
+        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = torch.chunk(heads, 4, dim=-1)
 
         estimated_concepts = SDEConcepts(
             locations=locations,
@@ -796,7 +844,7 @@ class FIMSDE(AModel, pl.LightningModule):
         target_concepts: SDEConcepts | None = SDEConcepts.from_dbt(databatch)
 
         if hasattr(databatch, "dimension_mask"):
-            dimension_mask = databatch.dimension_mask
+            dimension_mask = databatch.dimension_mask.bool()
 
         else:
             dimension_mask = torch.ones(estimated_concepts.drift.shape, dtype=bool)
@@ -1001,12 +1049,12 @@ class FIMSDE(AModel, pl.LightningModule):
         if self.config.loss_type == "rmse":
             loss_at_locations = self.rmse_at_locations(estimated, target, mask)  # [B, G]
 
-        elif self.config.loss_type == "var":
+        elif self.config.loss_type == "nll":
             assert log_var_estimated is not None, "Must pass ´log_var_estimated` to compute nll loss."
             loss_at_locations = self.gaussian_nll_at_locations(estimated, log_var_estimated, target, mask)  # [B, G]
 
         else:
-            raise ValueError("`loss_type` must be `rmse` or `var`, got " + self.config.loss_type)
+            raise ValueError("`loss_type` must be `rmse` or `nll`, got " + self.config.loss_type)
 
         # filter out Nans or above threshold locations from loss
         loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(loss_at_locations, self.config.loss_threshold)
@@ -1063,9 +1111,12 @@ class FIMSDE(AModel, pl.LightningModule):
             target_concepts.renormalize(values_norm_stats, times_norm_stats)
 
         # compute loss per vector field
-        drift_loss, drift_loss_above_threshold_or_nan_perc, drift_estimated_is_infinite_perc, drift_target_is_infinite_perc = (
-            self.vector_field_loss(estimated_concepts.drift, estimated_concepts.log_var_drift, target_concepts.drift, dimension_mask)
-        )
+        (
+            drift_loss,
+            drift_loss_above_threshold_or_nan_perc,
+            drift_estimated_is_infinite_perc,
+            drift_target_is_infinite_perc,
+        ) = self.vector_field_loss(estimated_concepts.drift, estimated_concepts.log_var_drift, target_concepts.drift, dimension_mask)
         (
             diffusion_loss,
             diffusion_loss_above_threshold_or_nan_perc,
@@ -1116,6 +1167,8 @@ class FIMSDE(AModel, pl.LightningModule):
             if all(grad_is_finite):
                 optimizer.step()
 
+            self.log("skipped_grad_due_to_nan", not all(grad_is_finite), prog_bar=False, logger=True)
+
         else:
             optimizer.step()
 
@@ -1123,7 +1176,8 @@ class FIMSDE(AModel, pl.LightningModule):
 
         for label, loss in losses.items():
             prog_bar = label in prog_bar_labels
-            self.log(label, loss, on_step=True, prog_bar=prog_bar, logger=True)
+            if loss is not None:
+                self.log(label, loss, on_step=True, prog_bar=prog_bar, logger=True)
 
         return total_loss
 
@@ -1133,40 +1187,58 @@ class FIMSDE(AModel, pl.LightningModule):
 
         total_loss = losses.get("loss")
 
-        losses["val_loss"] = losses.pop("loss")  # take loss as val_loss
-        prog_bar_labels = ["val_loss", "drift_loss", "diffusion_loss"]
+        # losses["val_loss"] = losses.pop("loss")  # take loss as val_loss
+        # prog_bar_labels = ["val_loss", "drift_loss", "diffusion_loss"]
+        prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
 
         for label, loss in losses.items():
             prog_bar = label in prog_bar_labels
-            self.log(label, loss, on_step=False, prog_bar=prog_bar, logger=True)
+            if loss is not None:
+                self.log("val_" + label, loss, on_step=True, prog_bar=prog_bar, logger=True)
 
         return total_loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate)
+        return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
 
     def on_train_epoch_start(self):
         # Action to be executed at the start of each training epoch
         if (self.current_epoch + 1) % self.config.log_images_every_n_epochs == 0:
-            pipeline = FIMSDEPipeline(self)
-            pipeline_sample = pipeline(self.target_data)
-            self.images_log(self.target_data, pipeline_sample)
+            if self.config.pipeline_data is not None:
+                pipeline = FIMSDEPipeline(self)
+                pipeline_sample = pipeline(self.config.pipeline_data)
+                self.images_log(self.config.pipeline_data, pipeline_sample)
 
     def images_log(self, databatch, pipeline_sample):
-        fig = images_log_1D(databatch, pipeline_sample)
-        if fig is not None:
+        fig_vf, fig_paths = images_log_1D(databatch, pipeline_sample)
+        if fig_vf is not None:
             mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_1D.png")
+            mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_1D_vector_field.png")
+        if fig_paths is not None:
+            mlflow_client_ = self.logger.experiment
+            mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_1D_paths.png")
+        plt.close(fig_vf)
+        plt.close(fig_paths)
 
-        fig = images_log_2D(databatch, pipeline_sample)
-        if fig is not None:
+        fig_vf, fig_paths = images_log_2D(databatch, pipeline_sample)
+        if fig_vf is not None:
             mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_2D.png")
+            mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_2D_vector_field.png")
+        if fig_paths is not None:
+            mlflow_client_ = self.logger.experiment
+            mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_2D_paths.png")
+        plt.close(fig_vf)
+        plt.close(fig_paths)
 
-        fig = images_log_3D(databatch, pipeline_sample)
-        if fig is not None:
+        fig_vf, fig_paths = images_log_3D(databatch, pipeline_sample)
+        if fig_vf is not None:
             mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig, f"{self.current_epoch}_3D.png")
+            mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_3D_vector_field.png")
+        if fig_paths is not None:
+            mlflow_client_ = self.logger.experiment
+            mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_3D_paths.png")
+        plt.close(fig_vf)
+        plt.close(fig_paths)
 
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)

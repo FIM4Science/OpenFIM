@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import torch
 from torch import Tensor, nn
+
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.nn.functional import scaled_dot_product_attention
 
@@ -167,11 +168,13 @@ class RNNEncoder(Block):
 
 
 class TransformerModel(Block):
-    def __init__(self, input_dim, nhead, hidden_dim, nlayers):
+    def __init__(self, input_dim, nhead, hidden_dim, nlayers, batch_first=True, dropout=0.1, activation=nn.ReLU):
         super(TransformerModel, self).__init__()
         self.model_type = "Transformer"
-        self.encoder_layer = TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
-        self.transformer_encoder = TransformerEncoder(self.encoder_layer, num_layers=nlayers)
+        self.encoder_layer = TransformerEncoderLayer(
+            d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim, dropout=dropout, activation=activation, batch_first=batch_first
+        )
+        self.transformer_encoder = TransformerEncoderNN(self.encoder_layer, num_layers=nlayers)
         self.input_dim = input_dim
 
     def forward(self, src):

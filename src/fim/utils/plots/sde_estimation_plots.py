@@ -8,6 +8,7 @@ from torch import Tensor
 from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.pipelines.sde_pipelines import FIMSDEPipelineOutput
 from fim.utils.helper import select_dimension_for_plot
+from fim.utils.plots.sde_data_exploration_plots import plot_paths_in_axis
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -130,6 +131,10 @@ def plot_3d_vf_real_and_estimation(
     # Now you can reshape into a square grid for visualization
     grid_size = int(np.sqrt(closest_square))
 
+    # Sometimes no square can be found
+    if grid_size == 0:
+        return None
+
     # Select corresponding values for both model estimates and ground truth
     drift_slice = drift_at_locations_estimation[slice_indices]
     diffusion_slice = diffusion_at_locations_estimation[slice_indices]
@@ -191,22 +196,45 @@ def plot_3d_vf_real_and_estimation(
         return fig
 
 
+def plot_paths(dimension: int, obs_times, obs_values, model_paths):
+    """
+    Plots observed paths and paths sampled from model and returns the figure.
+    """
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection="3d" if dimension == 3 else None)
+
+    plot_paths_in_axis(ax, obs_times, obs_values, color="red")
+    plot_paths_in_axis(ax, obs_times, model_paths, color="black")
+
+    return fig
+
+
 def images_log_3D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
     selected_data = select_dimension_for_plot(
         3,
         databatch_target.dimension_mask,
+        databatch_target.obs_times,
+        databatch_target.obs_values,
         databatch_target.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
         databatch_target.drift_at_locations,
         databatch_target.diffusion_at_locations,
-        index_to_select=0,
+        pipeline_output.path,
     )
 
-    locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
-        selected_data
-    )
-    fig = plot_3d_vf_real_and_estimation(
+    (
+        obs_times,
+        obs_values,
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+        paths_estimation,
+    ) = selected_data
+
+    fig_vf = plot_3d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
         drift_at_locations_estimation,
@@ -215,24 +243,38 @@ def images_log_3D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSD
         your_fixed_x_value=0.1,
         show=False,
     )
-    return fig
+
+    fig_paths = plot_paths(3, obs_times, obs_values, paths_estimation)
+
+    return fig_vf, fig_paths
 
 
 def images_log_2D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
     selected_data = select_dimension_for_plot(
         2,
         databatch_target.dimension_mask,
+        databatch_target.obs_times,
+        databatch_target.obs_values,
         databatch_target.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
         databatch_target.drift_at_locations,
         databatch_target.diffusion_at_locations,
-        index_to_select=0,
+        pipeline_output.path,
     )
-    locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
-        selected_data
-    )
-    fig = plot_2d_vf_real_and_estimation(
+
+    (
+        obs_times,
+        obs_values,
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+        paths_estimation,
+    ) = selected_data
+
+    fig_vf = plot_2d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
         drift_at_locations_estimation,
@@ -240,25 +282,38 @@ def images_log_2D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSD
         diffusion_at_locations_estimation,
         show=False,
     )
-    return fig
+
+    fig_paths = plot_paths(2, obs_times, obs_values, paths_estimation)
+
+    return fig_vf, fig_paths
 
 
 def images_log_1D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
     selected_data = select_dimension_for_plot(
         1,
         databatch_target.dimension_mask,
+        databatch_target.obs_times,
+        databatch_target.obs_values,
         databatch_target.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
         databatch_target.drift_at_locations,
         databatch_target.diffusion_at_locations,
-        index_to_select=0,
+        pipeline_output.path,
     )
 
-    locations, drift_at_locations_real, diffusion_at_locations_real, drift_at_locations_estimation, diffusion_at_locations_estimation = (
-        selected_data
-    )
-    fig = plot_1d_vf_real_and_estimation(
+    (
+        obs_times,
+        obs_values,
+        locations,
+        drift_at_locations_real,
+        diffusion_at_locations_real,
+        drift_at_locations_estimation,
+        diffusion_at_locations_estimation,
+        paths_estimation,
+    ) = selected_data
+
+    fig_vf = plot_1d_vf_real_and_estimation(
         locations,
         drift_at_locations_real,
         drift_at_locations_estimation,
@@ -266,4 +321,7 @@ def images_log_1D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSD
         diffusion_at_locations_estimation,
         show=False,
     )
-    return fig
+
+    fig_paths = plot_paths(2, obs_times, obs_values, paths_estimation)
+
+    return fig_vf, fig_paths
