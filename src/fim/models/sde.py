@@ -1,9 +1,9 @@
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import lightning.pytorch as pl
 import matplotlib.pyplot as plt
+import optree
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -311,7 +311,7 @@ class NormalizationStats:
         return out
 
 
-@dataclass(eq=False)
+@optree.dataclasses.dataclass(namespace="fimsde", eq=False)
 class SDEConcepts:
     """
     Stores SDE concepts, i.e. drift and diffusion, at some locations.
@@ -325,7 +325,7 @@ class SDEConcepts:
     diffusion: Tensor
     log_var_drift: Tensor | None = None
     log_var_diffusion: Tensor | None = None
-    normalized: bool = False
+    normalized: bool = optree.dataclasses.field(default=False, pytree_node=False)
 
     def __eq__(self, other: object) -> bool:
         """
@@ -545,7 +545,6 @@ class FIMSDEConfig(PretrainedConfig):
         times_norm_max (float): upper normalized times range boundary. Default is 1.
         loss_filter_nans (bool): Default is True.
         num_epochs (int): Number of epochs. Default is 2.
-        add_delta_x_to_value_encoder (bool): Whether to add delta x to value encoder. Default is True.
         learning_rate (float): Learning rate. Default is 1.0e-5.
         weight_decay (float): Weight decay. Default is 1.0e-4.
         dropout_rate (float): Dropout rate. Default is 0.1.
@@ -554,8 +553,6 @@ class FIMSDEConfig(PretrainedConfig):
         loss_type (str): Type of loss. Default is "rmse".
         log_images_every_n_epochs (int): Log images every n epochs. Default is 2.
         train_with_normalized_head (bool): Train with normalized head. Default is True.
-        clip_grad (bool): Whether to clip gradients. Default is True.
-        clip_max_norm (float): Maximum norm for gradient clipping. Default is 10.0.
         skip_nan_grads (bool): Skip optimizer update if (at least one) gradient is Nan. Default is True.
         dt_pipeline (float): Time step for pipeline. Default is 0.01.
         number_of_time_steps_pipeline (int): Number of time steps in the pipeline. Default is 128.
@@ -590,7 +587,6 @@ class FIMSDEConfig(PretrainedConfig):
         loss_filter_nans: bool = True,
         lightning_training: bool = True,
         num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)
-        add_delta_x_to_value_encoder: bool = True,
         learning_rate: float = 1.0e-5,
         weight_decay: float = 1.0e-4,
         dropout_rate: float = 0.1,
@@ -599,8 +595,6 @@ class FIMSDEConfig(PretrainedConfig):
         loss_type: str = "rmse",
         log_images_every_n_epochs: int = 2,
         train_with_normalized_head: bool = True,
-        clip_grad: bool = True,
-        clip_max_norm: float = 10.0,
         skip_nan_grads: bool = True,
         dt_pipeline: float = 0.01,
         number_of_time_steps_pipeline: int = 128,
@@ -634,7 +628,6 @@ class FIMSDEConfig(PretrainedConfig):
         # training variables
         self.num_epochs = num_epochs
         self.lightning_training = lightning_training
-        self.add_delta_x_to_value_encoder = add_delta_x_to_value_encoder
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.dropout_rate = dropout_rate
@@ -643,8 +636,6 @@ class FIMSDEConfig(PretrainedConfig):
         self.loss_type = loss_type
         self.log_images_every_n_epochs = log_images_every_n_epochs
         self.train_with_normalized_head = train_with_normalized_head
-        self.clip_grad = clip_grad
-        self.clip_max_norm = clip_max_norm
         self.skip_nan_grads = skip_nan_grads
         self.dt_pipeline = dt_pipeline
         self.pipeline_data = pipeline_data
@@ -815,7 +806,57 @@ class FIMSDE(AModel, pl.LightningModule):
 
         return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
 
-    def paths_encoding(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Optional[Tensor] = None) -> Tensor:
+    def preprocess_inputs(self, databatch: FIMSDEDatabatchTuple, locations: Optional[Tensor] = None) -> tuple[Tensor, NormalizationStats]:
+        """
+        Preprocessing of forward inputs. Includes:
+            1. Backward fill on masked / padded observations.
+            2. Extracting instance normalization statistics from data.
+            3. Instance normalization of observations and locations.
+
+        Args: See arguments of self.forward(...).
+
+        Returns:
+            Preprocessed inputs: obs_times, obs_values, obs_mask, locations
+            Instance normalization statistics: values_norm_stats, times_norm_stats
+        """
+
+        if hasattr(databatch, "obs_mask"):
+            obs_mask = databatch.obs_mask.bool()
+
+            # for sanity, removed masked out values
+            obs_times = obs_mask * databatch.obs_times
+            obs_values = obs_mask * databatch.obs_values
+
+            # backward fill masked values s.t. values differences and squares respect masks
+            obs_times = backward_fill_masked_values(obs_times, obs_mask)
+            obs_values = backward_fill_masked_values(obs_values, obs_mask)
+
+        else:
+            obs_mask = None
+            obs_times = databatch.obs_times
+            obs_values = databatch.obs_values
+
+        # Default to passed locations, otherwise use databatch.locations
+        if locations is None:
+            locations = databatch.locations
+
+        # Instance normalization
+        values_norm_stats = NormalizationStats(
+            obs_values, obs_mask, normalized_min=self.config.values_norm_min, normalized_max=self.config.values_norm_max
+        )
+        obs_values = values_norm_stats.normalization_map(obs_values)
+
+        if locations is not None:
+            locations = values_norm_stats.normalization_map(locations)
+
+        times_norm_stats = NormalizationStats(
+            obs_times, obs_mask, normalized_min=self.config.times_norm_min, normalized_max=self.config.times_norm_max
+        )
+        obs_times = times_norm_stats.normalization_map(obs_times)
+
+        return obs_times, obs_values, obs_mask, locations, values_norm_stats, times_norm_stats
+
+    def get_paths_encoding(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Optional[Tensor] = None) -> Tensor:
         """
         Obtain embedding of all observed values in all paths.
 
@@ -876,6 +917,76 @@ class FIMSDE(AModel, pl.LightningModule):
 
         return H.view(B, P, T - 1, self.config.model_embedding_size)
 
+    def get_estimated_sde_concepts(
+        self,
+        locations: Tensor,
+        obs_times: Optional[Tensor] = None,
+        obs_values: Optional[Tensor] = None,
+        obs_mask: Optional[Tensor] = None,
+        paths_encoding: Optional[Tensor] = None,
+    ):
+        """
+        Applies modules to preprocessed model inputs to estimate SDEConcepts at locations.
+        SDEConcepts are returned normalized.
+
+        Args:
+            locations (Tensor): Locations to extract SDEConcepts at. Shape: [B, G, D]
+            obs_times, obs_values, obs_mask (Tensor): See args of self.forward(...). Shape: [B, P, T, 1 or D]
+            paths_encoding (Optional[Tensor]): Encoding of observed paths. If not passed, it is recalculated. Shape: [B, P, T, model_embedding_size]
+
+        Returns:
+            estimated_concepts (SDEConcepts): Estimated concepts at locations. Shape: [B, G, D]
+            paths_encoding (Tensor): Encoding of observed paths. Shape: [B, P, T, model_embedding_size]
+        """
+
+        # get paths encoding only if it was not passed; otherwise ignore obs_...
+        if paths_encoding is None:
+            assert obs_times is not None
+            assert obs_values is not None
+
+            paths_encoding = self.get_paths_encoding(obs_times, obs_values, obs_mask)  # [B, P, T - 1, embed_dim]
+
+            B, P, T, _ = obs_values.shape
+            assert paths_encoding.shape == (
+                B,
+                P,
+                T - 1,
+                self.config.model_embedding_size,
+            ), f"Expect {(B, P, T - 1, self.config.model_embedding_size)}. Got {paths_encoding.shape}"
+
+        # locations encoding
+        locations_encoding = self.phi_1x(locations)  # [B, G, embed_dim]
+
+        B, G, _ = locations.shape
+        assert locations_encoding.shape == (
+            B,
+            G,
+            self.config.model_embedding_size,
+        ), f"Expect {(B, G, self.config.model_embedding_size)}. Got {locations_encoding.shape}"
+
+        # projection to heads
+        heads = self.apply_operator(locations_encoding, paths_encoding)
+        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = heads  # [B, G, D]
+
+        # Optionally make diffusion non-negative, already during training
+        if self.config.non_negative_diffusion_by == "clip":
+            diffusion_estimator = torch.clip(diffusion_estimator, min=0.0)
+        elif self.config.non_negative_diffusion_by == "abs":
+            diffusion_estimator = torch.abs(diffusion_estimator)
+        elif self.config.non_negative_diffusion_by == "exp":
+            diffusion_estimator = torch.exp(diffusion_estimator)
+
+        estimated_concepts = SDEConcepts(
+            locations=locations,
+            drift=drift_estimator,
+            diffusion=diffusion_estimator,
+            log_var_drift=log_var_drift_estimator,
+            log_var_diffusion=log_var_diffusion_estimator,
+            normalized=True,
+        )
+
+        return estimated_concepts, paths_encoding
+
     def forward(
         self,
         databatch: FIMSDEDatabatchTuple,
@@ -896,6 +1007,7 @@ class FIMSDE(AModel, pl.LightningModule):
                 dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
                 where B: batch size P: number of paths T: number of time steps G: location grid size D: dimensions
 
+            locations (Optional[Tensor]): If passed, is prioritized over databatch.locations. Shape: [B, G, D]
             training (bool): if True returns only dict with losses, including training objective
             return_losses (bool): is True computes and returns losses, even if training is False
 
@@ -903,84 +1015,13 @@ class FIMSDE(AModel, pl.LightningModule):
                 estimated_concepts (SDEConcepts): Estimated concepts at locations. Shape: [B, G, D]
                 if training == True or return_losses == True return (additionally):
                     losses (dict): training objective has key "loss", other keys are auxiliary for monitoring
-
         """
-        if hasattr(databatch, "obs_mask"):
-            obs_mask = databatch.obs_mask.bool()
 
-            # for sanity, removed masked out values
-            obs_times = obs_mask * databatch.obs_times
-            obs_values = obs_mask * databatch.obs_values
+        # Instance normalization and appyling mask to observations
+        obs_times, obs_values, obs_mask, locations, values_norm_stats, times_norm_stats = self.preprocess_inputs(databatch, locations)
 
-            # backward fill masked values s.t. values differences and squares respect masks
-            obs_times = backward_fill_masked_values(obs_times, obs_mask)
-            obs_values = backward_fill_masked_values(obs_values, obs_mask)
-
-        else:
-            obs_mask = None
-            obs_times = databatch.obs_times
-            obs_values = databatch.obs_values
-
-        assert not hasattr(
-            databatch, "obs_mask"
-        ), "Observation masking not implemented yet. Neither in model forward, nor in neural operator or loss."
-
-        # Default to passed locations, otherwise use databatch.locations
-        if locations is None:
-            locations = databatch.locations
-
-        B, G, D = locations.shape
-        B, P, T, D = obs_values.shape
-
-        # Instance normalization
-        values_norm_stats = NormalizationStats(
-            obs_values, obs_mask, normalized_min=self.config.values_norm_min, normalized_max=self.config.values_norm_max
-        )
-        obs_values = values_norm_stats.normalization_map(obs_values)
-        locations = values_norm_stats.normalization_map(locations)
-
-        times_norm_stats = NormalizationStats(
-            obs_times, obs_mask, normalized_min=self.config.times_norm_min, normalized_max=self.config.times_norm_max
-        )
-        obs_times = times_norm_stats.normalization_map(obs_times)
-
-        # Encoding paths and locations into encoding per location
-        observations_encoding = self.paths_encoding(obs_times, obs_values, obs_mask)  # [B, P, T - 1, embed_dim]
-        assert observations_encoding.shape == (
-            B,
-            P,
-            T - 1,
-            self.config.model_embedding_size,
-        ), f"Expect {(B, P, T - 1, self.config.model_embedding_size)}. Got {observations_encoding.shape}"
-
-        # locations encoding
-        locations_encoding = self.phi_1x(locations)  # [B, G, embed_dim]
-        assert locations_encoding.shape == (
-            B,
-            G,
-            self.config.model_embedding_size,
-        ), f"Expect {(B, G, self.config.model_embedding_size)}. Got {locations_encoding.shape}"
-
-        # projection to heads
-        heads = self.apply_operator(locations_encoding, observations_encoding)
-        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = heads  # [B, G, D]
-
-        # Optionally make diffusion non-negative, already during training
-        if self.config.non_negative_diffusion_by == "clip":
-            diffusion_estimator = torch.clip(diffusion_estimator, min=0.0)
-        elif self.config.non_negative_diffusion_by == "abs":
-            diffusion_estimator = torch.abs(diffusion_estimator)
-        elif self.config.non_negative_diffusion_by == "exp":
-            diffusion_estimator = torch.exp(diffusion_estimator)
-
-        estimated_concepts = SDEConcepts(
-            locations=locations,
-            drift=drift_estimator,
-            diffusion=diffusion_estimator,
-            log_var_drift=log_var_drift_estimator,
-            log_var_diffusion=log_var_diffusion_estimator,
-            normalized=True,
-        )
+        # Apply networks to get estimated concepts at locations
+        estimated_concepts, _ = self.get_estimated_sde_concepts(locations, obs_times, obs_values, obs_mask)
 
         # Losses
         target_concepts: SDEConcepts | None = SDEConcepts.from_dbt(databatch)

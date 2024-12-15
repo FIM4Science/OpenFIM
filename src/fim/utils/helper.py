@@ -732,7 +732,7 @@ def select_dimension_for_plot(
     diffusion_at_locations_estimation = diffusion_at_locations_estimation[where_one_dimension]
     paths_estimation = paths_estimation[where_one_dimension]
 
-    # detach and
+    # detach
     obs_times = obs_times.detach().cpu().numpy()
     obs_values = obs_values.detach().cpu().numpy()
     locations = locations.detach().cpu().numpy()
