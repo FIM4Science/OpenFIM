@@ -51,7 +51,7 @@ class TrainCheckpoint:
 
     Methods:
         save_checkpoint(epoch, model, optimizers, schedulers): Saves model, optimizers, and schedulers as checkpoint.
-        check_and_save_best_model(epoch, model, optimizers, schedulers, train_stats, validate_stats): Checks if current
+        check_and_save_best_model(epoch, model, optimizers, schedulers, train_stats, validation_stats): Checks if current
             model is better than previous best and saves if necessary.
     """
 
@@ -65,6 +65,7 @@ class TrainCheckpoint:
         training_logger: TrainLogging,
         train_loss_tracker: TrainLossTracker,
         validation_loss_tracker: TrainLossTracker,
+        evaluation_loss_tracker: TrainLossTracker,
         grad_scaler: GradScaler = None,
         rank: int = 0,
         is_peft: bool = False,
@@ -102,8 +103,9 @@ class TrainCheckpoint:
         self.training_logger = training_logger
         self.train_loss_tracker = train_loss_tracker
         self.validation_loss_tracker = validation_loss_tracker
+        self.evaluation_loss_tracker = evaluation_loss_tracker
 
-    def save_checkpoint(self, epoch: int, train_stats: dict, validate_stats: dict) -> None:
+    def save_checkpoint(self, epoch: int, train_stats: dict, validation_stats: dict) -> None:
         """
         Saves the current model, optimizers, and schedulers as a checkpoint.
 
@@ -112,12 +114,12 @@ class TrainCheckpoint:
         """
         is_best_model = False
         best_metric = self.train_config.trainer.best_metric
-        if validate_stats["losses"][best_metric] < self.best_model_flag["val_metric"]:
+        if validation_stats["losses"][best_metric] < self.best_model_flag["val_metric"]:
             is_best_model = True
             if self.rank == 0:
-                msg = f'Current model with {best_metric} of {validate_stats["losses"][best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag["val_metric"]:0.4f}'
+                msg = f"Current model with {best_metric} of {validation_stats['losses'][best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
                 self.__logger.info(msg)
-            self._update_best_model_flag(train_stats, validate_stats)
+            self._update_best_model_flag(train_stats, validation_stats)
 
         if (epoch + 1) % self.train_config.trainer.save_every != 0:
             if is_best_model:
@@ -138,23 +140,23 @@ class TrainCheckpoint:
             self.__logger.info("Saving Best Model ...")
             shutil.copytree(save_dir, self.best_model_dir, dirs_exist_ok=True)
 
-    def check_and_save_best_model(self, epoch: int, train_stats: dict, validate_stats: dict) -> None:
+    def check_and_save_best_model(self, epoch: int, train_stats: dict, validation_stats: dict) -> None:
         """
         Checks if the current model performance is better than the previous best and saves if necessary.
 
         Args:
             epoch (int): Current epoch of the training process.
             train_stats (dict): Training statistics.
-            validate_stats (dict): Validation statistics.
+            validation_stats (dict): Validation statistics.
         """
         best_metric = self.train_config.trainer.best_metric
-        if validate_stats[best_metric] < self.best_model_flag["val_metric"]:
+        if validation_stats[best_metric] < self.best_model_flag["val_metric"]:
             if self.rank == 0:
-                msg = f'Current model with {best_metric} of {validate_stats[best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag["val_metric"]:0.4f}'
+                msg = f"Current model with {best_metric} of {validation_stats[best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
                 self.__logger.info(msg)
 
             self._save_best_model(epoch)
-            self._update_best_model_flag(train_stats, validate_stats)
+            self._update_best_model_flag(train_stats, validation_stats)
 
     def _save_model_state(self, epoch: int, save_dir: Union[Path, str]):
         """
@@ -180,7 +182,11 @@ class TrainCheckpoint:
             "params": self.train_config.to_dict(),
             "checkpointer_state": self.state_dict(),
             "training_logger": self.training_logger.state_dict(),
-            "loss_trackers": {"training": self.train_loss_tracker.state_dict(), "validation": self.validation_loss_tracker.state_dict()},
+            "loss_trackers": {
+                "training": self.train_loss_tracker.state_dict(),
+                "validation": self.validation_loss_tracker.state_dict(),
+                "evaluation": self.evaluation_loss_tracker.state_dict(),
+            },
             "commit": latest_commit(),
         }
         torch.save(state, train_state)
@@ -308,6 +314,8 @@ class TrainCheckpoint:
         self.training_logger.load_state_dict(train_checkpoint_state["training_logger"])
         self.train_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["training"])
         self.validation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["validation"])
+        if "evaluation" in train_checkpoint_state["loss_trackers"].keys():  # old checkpoints might not have evaluation_loss_tracker
+            self.evaluation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["evaluation"])
         self.load_state_dict(train_checkpoint_state["checkpointer_state"])
         return int(train_checkpoint_state["last_epoch"]) + 1
 
@@ -356,7 +364,7 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
 
     Methods:
         save_checkpoint(epoch, model, optimizers, schedulers): Saves model, optimizers, and schedulers as checkpoint.
-        check_and_save_best_model(epoch, model, optimizers, schedulers, train_stats, validate_stats): Checks if current
+        check_and_save_best_model(epoch, model, optimizers, schedulers, train_stats, validation_stats): Checks if current
             model is better than previous best and saves if necessary.
     """
 
@@ -376,7 +384,7 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
         with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, fullstate_save_policy):
             self.__logger.info("Getting Model State dict to rank 0 ...")
             model_state = self.model.state_dict()
-            self.__logger.info("Model State dict transferd to rank 0")
+            self.__logger.info("Model State dict transferred to rank 0")
 
         if self.rank == 0:
             train_state_path = save_dir / "train-state-checkpoint.pth"
@@ -391,6 +399,7 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
                 "loss_trackers": {
                     "training": self.train_loss_tracker.state_dict(),
                     "validation": self.validation_loss_tracker.state_dict(),
+                    "evaluation": self.evaluation_loss_tracker.state_dict(),
                 },
                 "commit": latest_commit(),
             }
@@ -451,6 +460,8 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
             self.training_logger.load_state_dict(train_checkpoint_state["training_logger"])
             self.train_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["training"])
             self.validation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["validation"])
+            if "evaluation" in train_checkpoint_state["loss_trackers"].keys():  # old checkpoints might not have evaluation_loss_tracker
+                self.evaluation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["evaluation"])
             last_epoch = int(train_checkpoint_state["last_epoch"])
             checkpointer_state = train_checkpoint_state["checkpointer_state"]
         dist.barrier()
@@ -499,7 +510,7 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
             if schedulers_sd is not None:
                 for ix, scheduler_sd in enumerate(schedulers_sd):
                     scheduler_sd = broadcast_state_dict(scheduler_sd, "scheduler_state_dict")
-                    # self.__logger.debug("Recieved Scheduler state for optimizer '%s': %s!", name, schedulers_sd)
+                    # self.__logger.debug("Received Scheduler state for optimizer '%s': %s!", name, schedulers_sd)
                     optimizer["schedulers"][ix][1].load_state_dict(scheduler_sd)
                 self.__logger.info("Optimizer-Schedulers %s Loaded!", name)
 

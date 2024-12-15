@@ -173,7 +173,7 @@ class TrainLossTracker:
 
 
         Returns:
-            dict: A dict of epoch losses where the key is the loss name and the value is the spcific loss value.
+            dict: A dict of epoch losses where the key is the loss name and the value is the specific loss value.
         """
 
         return {
@@ -479,7 +479,7 @@ class TrainLogging:
     Methods:
         log_train_step(epoch, batch_id, batch_stats): Logs training step details.
         log_validation_step(epoch, batch_id, batch_stats): Logs validation step details.
-        log_epoch(epoch, train_stats, validation_stats): Logs summary statistics for an epoch.
+        log_epoch(epoch, train_stats, validation_stats, evaluation_stats): Logs summary statistics for an epoch.
     """
 
     def __init__(self, experiment_dir: Path, logging_fmt: str, rank: int = 0):
@@ -576,7 +576,7 @@ class TrainLogging:
         if self.rank == 0:
             self._log_tensorboard("BATCH/" + step_type.upper() + "/", batch_stats)
 
-    def log_epoch(self, epoch: int, train_stats: dict, validation_stats: dict):
+    def log_epoch(self, epoch: int, train_stats: dict, validation_stats: dict, evaluation_stats: dict):
         """
         Logs summary statistics for an epoch.
 
@@ -584,6 +584,7 @@ class TrainLogging:
             epoch (int): Current epoch of the training process.
             train_stats (dict): Training statistics for the epoch.
             validation_stats (dict): Validation statistics for the epoch.
+            evaluation_stats (dict): (Optional) evaluation statistics for the epoch.
         """
         if self.rank != 0:
             return
@@ -597,19 +598,29 @@ class TrainLogging:
         validation_log = generate_log(validation_stats["losses"])
         self.file_logger.info("Epoch %d - VALIDATION: %s", epoch, validation_log)
 
+        if "losses" in evaluation_stats.keys():
+            evaluation_log = generate_log(evaluation_stats["losses"])
+            self.file_logger.info("Epoch %d - EVALUATION: %s", epoch, evaluation_log)
+
         train_stats = self.convert_bfloat16_to_float(train_stats)
         validation_stats = self.convert_bfloat16_to_float(validation_stats)
+        evaluation_stats = self.convert_bfloat16_to_float(evaluation_stats)
 
         self._log_tensorboard("EPOCH/TRAIN/", train_stats)
         self._log_tensorboard("EPOCH/VALIDATION/", validation_stats)
+        self._log_tensorboard("EPOCH/EVALUATION/", evaluation_stats)
 
     def _log_tensorboard(self, label: str, statistics: dict):
-        self._log_tensorboard_scalars(label, statistics["losses"])
+        if "losses" in statistics.keys():
+            self._log_tensorboard_scalars(label, statistics["losses"])
         if "TRAIN" not in label:
             if "histograms" in statistics:
                 self._log_tensorboard_histograms(label, statistics["histograms"])
             if "line_plots" in statistics:
                 self._log_tensorboard_line_plots(label, statistics["line_plots"])
+            if "figures" in statistics:
+                self._log_tensorboard_figures(label, statistics["figures"])
+
         self.__tensorboard_global_step += 1
 
     def _log_tensorboard_scalars(self, label, statistics):
@@ -656,6 +667,20 @@ class TrainLogging:
             figs = self._generate_interpolation_plots(line_plot_data)
 
         for label_fig, fig in figs:
+            self.tensorboard_logger.add_figure(tag=label + label_fig, figure=fig, global_step=self.__tensorboard_global_step)
+
+    def _log_tensorboard_figures(self, label: str, figures: dict):
+        """
+
+        Expect data to be detached and on cpu.
+
+        Args:
+            label (str): Label for the tensorboard plot
+            figures (dict): Figures to log on tensorboard. Keys: figure name. Values: plt.figure.
+        """
+        assert isinstance(figures, dict), "Figures must be passed in dictionaries with their name as keys."
+
+        for label_fig, fig in figures.items():
             self.tensorboard_logger.add_figure(tag=label + label_fig, figure=fig, global_step=self.__tensorboard_global_step)
 
     def _generate_imputation_plots(self, line_plot_data):
@@ -807,7 +832,7 @@ class TrainLogging:
                 raise ValueError("Learnt solution should be of length 128, actual length: ", len(learnt_solution))
 
             axes[2].plot(fine_grid_times, learnt_solution, label="inference", color="blue")
-            # add certainty of inital condition
+            # add certainty of initial condition
             # axes[2].errorbar(
             #     fine_grid_times[0],
             #     learnt_init_cond,
@@ -864,7 +889,7 @@ def setup_environ_flags(rank):
     os.environ["NCCL_ASYNC_ERROR_HANDLING"] = str(1)
     # os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
     # This flag will help with CUDA memory fragmentations that can lead into OOM in some cases.
-    # Note this is only availble in PyTorch Nighlies (as of July 30 2023)
+    # Note this is only available in PyTorch Nighlies (as of July 30 2023)
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     os.environ["PYDEVD_WARN_EVALUATION_TIMEOUT"] = str(15)
     # if rank == 0:
@@ -985,6 +1010,26 @@ def get_accel_type() -> str:
         return "mps"
     else:
         return "cpu"
+
+
+def move_batch_to_local_rank(batch: dict | tuple, local_rank: str) -> dict | tuple:
+    """
+    Move batch to local device.
+
+    Args:
+        batch (dict | tuple): Batch to move.
+        local_rank (str): Device to move batch to.
+
+    Return:
+        batch (dict | tuple): Batch on device specified by `local_rank`.
+    """
+    if isinstance(batch, tuple) and hasattr(batch, "_fields"):  # Check if batch is a namedtuple
+        batch = batch._replace(**{key: val.to(local_rank) for key, val in batch._asdict().items()})
+    else:
+        for key in batch.keys():
+            batch[key] = batch[key].to(local_rank)
+
+    return batch
 
 
 # This context manager is used to track the peak memory usage of the process

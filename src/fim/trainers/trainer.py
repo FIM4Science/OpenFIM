@@ -13,9 +13,11 @@ from torch.distributed.fsdp import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 
+from fim.trainers.evaluation_epochs import EvaluationEpoch
+
 from ..data.dataloaders import BaseDataLoader
 from ..models.blocks import AModel
-from ..utils.helper import GenericConfig, create_optimizers, create_schedulers, verify_str_arg
+from ..utils.helper import GenericConfig, create_class_instance, create_optimizers, create_schedulers, verify_str_arg
 from ..utils.logging import RankLoggerAdapter
 from .checkpoint import TrainCheckpoint, TrainCheckpointFSDPFullStateDict, apply_fsdp_checkpointing
 from .mixed_precision import fp16_mixed, is_bfloat_supported, precisions_types
@@ -27,6 +29,7 @@ from .utils import (
     TrainLossTracker,
     get_accel_type,
     is_accelerator_available,
+    move_batch_to_local_rank,
 )
 
 
@@ -41,10 +44,12 @@ class Trainer:
         self.training_logger = TrainLogging(self.experiment_dir, self.config.trainer.logging_format, self.rank)
         self.training_loss_tracker = TrainLossTracker()
         self.validation_loss_tracker = TrainLossTracker()
+        self.evaluation_loss_tracker = TrainLossTracker()
         self.max_steps = self.dataloader.n_train_batches * self.config.trainer.epochs // self.gradient_accumulation_steps
         self.steps_in_epoch = self.dataloader.n_train_batches // self.gradient_accumulation_steps
         self.schedulers: dict = create_schedulers(config.trainer.schedulers, self.max_steps, self.steps_in_epoch)
         self._prepare_model(model, config, resume)
+        self._evaluation_epoch: EvaluationEpoch = self._prepare_evaluation_epoch()
 
         self._save_experiment_parameters()
         torch.autograd.set_detect_anomaly(self.config.trainer.detect_anomaly)
@@ -62,6 +67,7 @@ class Trainer:
             training_logger=self.training_logger,
             train_loss_tracker=self.training_loss_tracker,
             validation_loss_tracker=self.validation_loss_tracker,
+            evaluation_loss_tracker=self.evaluation_loss_tracker,
             grad_scaler=self.grad_scaler,
             rank=self.rank,
             is_peft=False,  # self.model.is_peft(),
@@ -205,6 +211,31 @@ class Trainer:
 
             f.write(str(self.model.summary(x)))
 
+    def _prepare_evaluation_epoch(self) -> EvaluationEpoch:
+        if hasattr(self.config.trainer, "evaluation_epoch"):
+            evaluation_epoch_kwargs: dict = self.config.trainer.evaluation_epoch.to_dict()
+            evaluation_epoch_path = evaluation_epoch_kwargs.pop("path")
+            _evaluation_epoch: EvaluationEpoch = create_class_instance(
+                evaluation_epoch_path,
+                evaluation_epoch_kwargs,
+                self.model,
+                self.dataloader,
+                self.evaluation_loss_tracker,
+                self.debug_mode,
+                self.local_rank,
+                self.accel_type,
+                self._use_mixeprecision,
+                self.is_accelerator,
+                self._auto_cast_type,
+            )
+
+        else:
+
+            def _evaluation_epoch(epoch):
+                return {}
+
+        return _evaluation_epoch
+
     def train(self):
         p_bar = StepProgressBarFactory.create_epoch_progress_bar(self.n_epochs, self.rank, self.start_epoch)
 
@@ -223,9 +254,14 @@ class Trainer:
             validation_epoch_stats = self._validation_epoch(epoch)
             time_trace.stop_timer("Validation")
 
+            # evaluation step
+            time_trace.start_timer("Evaluation")
+            evaluation_epoch_stats = self._evaluation_epoch(epoch)
+            time_trace.stop_timer("Evaluation")
+
             # handle & save current checkpoint
             self._update_learning_rates("epoch")
-            self.training_logger.log_epoch(epoch, train_epoch_stats, validation_epoch_stats)
+            self.training_logger.log_epoch(epoch, train_epoch_stats, validation_epoch_stats, evaluation_epoch_stats)
             time_trace.start_timer("Checkpoint")
             self.checkpointer.save_checkpoint(epoch, train_epoch_stats, validation_epoch_stats)
             time_trace.stop_timer("Checkpoint")
@@ -234,6 +270,7 @@ class Trainer:
                 mem_trace.print_summary()
             time_trace.print_elapsed_time("Epoch")
             time_trace.print_elapsed_time("Validation")
+            time_trace.print_elapsed_time("Evaluation")
             time_trace.print_elapsed_time("Checkpoint")
             time_trace.print_epochs_time_statistics()
 
@@ -270,7 +307,7 @@ class Trainer:
         return self.training_loss_tracker.get_last_epoch_stats()
 
     def _train_batch(self, step: int, batch: dict) -> dict:
-        self._move_batch_to_local_rank(batch)
+        batch = move_batch_to_local_rank(batch, self.local_rank)
         with torch.amp.autocast(
             self.accel_type,
             enabled=self._use_mixeprecision and self.is_accelerator,
@@ -322,13 +359,6 @@ class Trainer:
             self._update_learning_rates("minibatch")
         return lrs
 
-    def _move_batch_to_local_rank(self, batch: dict | tuple):
-        if isinstance(batch, tuple) and hasattr(batch, "_fields"):  # Check if batch is a namedtuple
-            batch = batch._replace(**{key: val.to(self.local_rank) for key, val in batch._asdict().items()})
-        else:
-            for key in batch.keys():
-                batch[key] = batch[key].to(self.local_rank)
-
     def _validation_epoch(self, epoch: int) -> dict:
         self.model.eval()
         with torch.no_grad():
@@ -349,7 +379,7 @@ class Trainer:
         return self.validation_loss_tracker.get_last_epoch_stats()
 
     def _validation_batch(self, step: int, batch: dict) -> dict:
-        self._move_batch_to_local_rank(batch)
+        batch = move_batch_to_local_rank(batch, self.local_rank)
         with torch.amp.autocast(
             self.accel_type,
             enabled=self._use_mixeprecision and self.is_accelerator,
