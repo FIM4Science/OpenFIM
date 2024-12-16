@@ -297,8 +297,8 @@ class Trainer:
         # ) as prof:
         for batch_idx, batch in enumerate(data_it):
             # prof.step()
-            step = (step + batch_idx) // self.gradient_accumulation_steps
-            batch_stats = self._train_batch(step, batch)
+            step_ = (step + batch_idx) // self.gradient_accumulation_steps
+            batch_stats = self._train_batch(step_, batch)
             self.training_loss_tracker.add_batch_stats(batch_stats)
             p_bar.update_and_set_postfix(1, batch_stats["losses"])
             self.training_logger.log_train_batch(epoch, batch_idx, batch_stats)

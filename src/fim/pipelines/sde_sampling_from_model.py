@@ -28,19 +28,18 @@ def fimsde_euler_maruyama(
         databatch (FIMSDEDatabatchTuple): Data of system to approximate samples from. Shape of observations: [B, P, T, D]
         grid_size (int): Number of steps for solver.
         solver_granularity (int): Number of steps between grid points.
-
         initial_states (Tensor): Several initial states for each batch element. Shape: [B, I, D]
-        initial_time (Optional[Tensor]): Solver initial time for each batch element. Shape: [B, 1]
-        end_time (Optional[Tensor]): Solver end time for each batch element. Shape: [B, 1]
+        initial_time (Optional[Tensor]): Solver initial time for each initial state. Shape: [B, I, 1]
+        end_time (Optional[Tensor]): Solver end time for each initial state. Shape: [B, I, 1]
 
     Returns:
         sample_paths (Tensor): Sampled paths for each batch element. Shape: [B, I, grid_size, D]
-        sample_paths_grid (Tensor): Time grid where sample paths are evaluate at. Shape: [B, grid_size, D]
+        sample_paths_grid (Tensor): Time grid where sample paths are evaluate at. Shape: [B, I, grid_size, D]
     """
     B, I, D = initial_states.shape
 
     assert initial_time.shape == end_time.shape
-    assert initial_time.shape == (B, 1)
+    assert initial_time.shape == (B, I, 1), f"Expected {(B, I, 1)}, Got {initial_time.shape}."
 
     # make sure computations are on device
     databatch = nametuple_to_device(databatch, model.device)
@@ -58,9 +57,8 @@ def fimsde_euler_maruyama(
     # prepare grid dt for each element in batch
     num_steps = (grid_size - 1) * solver_granularity
 
-    grid_dt: Tensor = end_time - initial_time  # [B, 1]
-    step_dt: Tensor = grid_dt / num_steps  # [B, 1]
-    step_dt: Tensor = step_dt.view(-1, 1, 1)  # [B, 1, 1] for convenience later
+    grid_dt: Tensor = end_time - initial_time  # [B, I, 1]
+    step_dt: Tensor = grid_dt / num_steps  # [B, I, 1]
 
     # solve
     current_states = initial_states  # [B, I, D]
@@ -81,9 +79,9 @@ def fimsde_euler_maruyama(
         current_states = current_states + drift_increment + diffusion_increment  # [B, I, D]
 
     sample_paths = torch.stack(sample_paths, dim=-2)  # [B, I, grid_size, D]
-    sample_paths_grid_dt = torch.concatenate(sample_paths_grid_dt, dim=1)  # [B, grid_size, 1]
+    sample_paths_grid_dt = torch.stack(sample_paths_grid_dt, dim=-2)  # [B, I, grid_size, 1]
 
-    sample_paths_grid = initial_time.view(B, 1, 1) + sample_paths_grid_dt  # [B, grid_size, 1]
+    sample_paths_grid = initial_time.view(B, I, 1, 1) + sample_paths_grid_dt  # [B, I, grid_size, 1]
 
     # renormalize
     sample_paths = values_norm_stats.inverse_normalization_map(sample_paths)
@@ -111,13 +109,14 @@ def fimsde_sample_paths_by_dt_and_grid_size(
         grid_size (int): Number of steps for solver (includes the initial state for consistency of shapes).
         solver_granularity (int): Number of steps between grid points.
         initial_states (Tensor): Several initial states for each batch element. Shape: [B, I, D]
-        initial_time (Optional[Tensor]): Solver initial time for each batch element. Shape: [B, 1]
+        initial_time (Optional[Tensor]): Solver initial time for each initial state. Shape: [B, I, 1]
+        end_time (Optional[Tensor]): Solver end time for each initial state. Shape: [B, I, 1]
         dt (float): Delta of time at each step.
 
 
     Returns:
         sample_paths (Tensor): Sampled paths for each batch element. Shape: [B, I, grid_size, D]
-        solver_grid (Tensor): Time grid where sample paths are evaluate at. Shape: [B, grid_size, D]
+        solver_grid (Tensor): Time grid where sample paths are evaluate at. Shape: [B, I, grid_size, D]
     """
 
     end_time = initial_time + grid_size * dt * torch.ones_like(initial_time)
@@ -161,7 +160,7 @@ def fimsde_sample_paths(
 
     Returns:
         sample_paths (Tensor): Sampled paths for each batch element. Shape: [B, I, grid_size, D]
-        solver_grid (Tensor): Time grid where sample paths are evaluate at. Shape: [B, grid_size, D]
+        solver_grid (Tensor): Time grid where sample paths are evaluate at. Shape: [B, I, grid_size, D]
     """
     assert (grid is not None) ^ (grid_size is not None), "Only one of `grid_size` and `grid` can be passed."
 
@@ -175,29 +174,41 @@ def fimsde_sample_paths(
     if initial_states is None:
         initial_states = databatch.obs_values[:, :, 0]  # [B, I, D]
 
+    # convert times to tensors
+    if not isinstance(initial_time, Tensor):
+        B, I, D = initial_states.shape
+        initial_time = initial_time * torch.ones(B, I, 1, device=model.device)
+
+    if not isinstance(end_time, Tensor):
+        B, I, D = initial_states.shape
+        end_time = end_time * torch.ones(B, I, 1, device=model.device)
+
     # optionally select number of paths
     if num_paths is not None:
         if initial_states.shape[1] < num_paths:
             raise ValueError(
                 f"Too few initial states available to sample {num_paths} paths. Got maximal {initial_states.shape[1]} initial states."
             )
-        elif initial_states.shape[1] > num_paths:
-            # randomly subsample initial states
-            perm = torch.randperm(initial_states.shape[1])
-            initial_states = initial_states[:, perm]
+        if initial_time.shape[1] < num_paths:
+            raise ValueError(
+                f"Too few initial times available to sample {num_paths} paths. Got maximal {initial_time.shape[1]} initial times."
+            )
+
+        if initial_states.shape[1] > num_paths:
             initial_states = initial_states[:, :num_paths]
+            initial_time = initial_time[:, :num_paths]
+
+        if initial_time.shape[1] > num_paths:
+            initial_time = initial_time[:, :num_paths]
+            end_time = end_time[:, :num_paths]
 
         else:
             pass
-
-    # convert times to tensors
-    if not isinstance(initial_time, Tensor):
-        B, I, D = initial_states.shape
-        initial_time = initial_time * torch.ones(B, 1, device=model.device)
-
-    if not isinstance(end_time, Tensor):
-        B, I, D = initial_states.shape
-        end_time = end_time * torch.ones(B, 1, device=model.device)
+    else:
+        num_paths = min(initial_states.shape[1], initial_time.shape[1])
+        initial_states = initial_states[:, :num_paths]
+        initial_time = initial_time[:, :num_paths]
+        end_time = end_time[:, :num_paths]
 
     # use dt if it is passed
     if dt is not None:

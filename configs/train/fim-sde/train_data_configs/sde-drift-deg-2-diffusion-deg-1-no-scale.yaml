@@ -1,12 +1,16 @@
-experiment_name: polynomials
+experiment_name: polynomials_drift_deg_2_diffusion_deg_1_no_scale
 dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
 
 integration:
   method: "EulerMaruyama"
-  time_step: 0.1
+  # time_step: 0.1
+  time_length: 10
+  steps_per_dt: 20
   num_steps: 128
   num_paths: 50
   num_locations: 1024
+  chunk_size: 40000 # generate at one time so many realizations (to filter Nans)
+  reject_threshold: 1000
   stochastic: true
 
 locations:
@@ -14,7 +18,7 @@ locations:
 
 train:
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: train
     num_realizations: &num_realizations_train 5000
     observed_dimension: null
     state_dim: 2
@@ -23,40 +27,53 @@ train:
       constant:
         distribution: "normal"
         mean: 0.0
-        std: 0.1
-        bernoulli_survival_rate: 1
+        std: 1
+        bernoulli_survival_rate: 0.5
       degree_1:
         distribution: "normal"
         mean: 0.0
-        std: 0.1
-        bernoulli_survival_rate: 1
+        std: 1
+        bernoulli_survival_rate: 0.5
       degree_2_squared:
-        distribution: "fix"
-        fix_value: 0.0
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
       degree_2_mixed:
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
+      scale: &scale
+        sample_per_dimension: false
         distribution: "fix"
-        fix_value: 0.0
+        fix_value: 1.0
     diffusion_params: &diffusion_params
       constant:
         distribution: "normal"
         mean: 0.0
-        std: 0.1
-        bernoulli_survival_rate: 1
+        std: 1
+        bernoulli_survival_rate: 0.5
       degree_1:
         distribution: "normal"
         mean: 0.0
-        std: 0.1
-        bernoulli_survival_rate: 1
+        std: 1
+        bernoulli_survival_rate: 0.5
       degree_2_squared:
         distribution: "fix"
         fix_value: 0.0
       degree_2_mixed:
         distribution: "fix"
         fix_value: 0.0
+      scale: *scale
     initial_state: &initial_state
-      distribution: "uniform"
-      min: -1
-      max: 1
+      # distribution: "uniform"
+      # min: -1
+      # max: 1
+      # activation: null
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1
       activation: null
 
   - name: Degree2Polynomial
@@ -81,7 +98,7 @@ train:
 
 test:
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: test
     num_realizations: &num_realizations_test 500
     observed_dimension: null
     state_dim: 2
@@ -112,7 +129,7 @@ test:
 
 validation:
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: validation
     num_realizations: &num_realizations_validation 500
     observed_dimension: null
     state_dim: 2

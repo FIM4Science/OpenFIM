@@ -549,7 +549,6 @@ class FIMSDEConfig(PretrainedConfig):
         weight_decay (float): Weight decay. Default is 1.0e-4.
         dropout_rate (float): Dropout rate. Default is 0.1.
         diffusion_loss_scale (float): Scale for diffusion loss. Default is 1.0.
-        loss_threshold (float): Threshold for loss. Default is 100.0.
         loss_type (str): Type of loss. Default is "rmse".
         log_images_every_n_epochs (int): Log images every n epochs. Default is 2.
         train_with_normalized_head (bool): Train with normalized head. Default is True.
@@ -591,7 +590,6 @@ class FIMSDEConfig(PretrainedConfig):
         weight_decay: float = 1.0e-4,
         dropout_rate: float = 0.1,
         diffusion_loss_scale: float = 1.0,
-        loss_threshold: float = 100.0,
         loss_type: str = "rmse",
         log_images_every_n_epochs: int = 2,
         train_with_normalized_head: bool = True,
@@ -632,7 +630,6 @@ class FIMSDEConfig(PretrainedConfig):
         self.weight_decay = weight_decay
         self.dropout_rate = dropout_rate
         self.diffusion_loss_scale = diffusion_loss_scale
-        self.loss_threshold = loss_threshold
         self.loss_type = loss_type
         self.log_images_every_n_epochs = log_images_every_n_epochs
         self.train_with_normalized_head = train_with_normalized_head
@@ -750,7 +747,9 @@ class FIMSDE(AModel, pl.LightningModule):
             )
             self.apply_operator = self.heads_projection_per_head
 
-    def heads_projection_all_functions(self, locations_encoding: Tensor, observations_encoding: Tensor) -> Tensor:
+    def heads_projection_all_functions(
+        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_mask: Optional[Tensor] = None
+    ) -> Tensor:
         """
         Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
         Use single attention and projection network and split the output into the 4 heads.
@@ -758,16 +757,19 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
             observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
+            observations_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
 
         Returns:
             heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
         """
-        operator_output = self.operator(locations_encoding, observations_encoding)
+        operator_output = self.operator(locations_encoding, observations_encoding, observations_mask=observations_mask)
         drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = torch.chunk(operator_output, 4, dim=-1)
 
         return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
 
-    def heads_projection_per_concept(self, locations_encoding: Tensor, observations_encoding: Tensor) -> Tensor:
+    def heads_projection_per_concept(
+        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_mask: Optional[Tensor] = None
+    ) -> Tensor:
         """
         Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
         Use separate attention and projection network for drift and diffusion.
@@ -775,19 +777,22 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
             observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
+            observations_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
 
         Returns:
             heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
         """
-        drift_output = self.operator_drift(locations_encoding, observations_encoding)
-        diffusion_output = self.operator_diffusion(locations_encoding, observations_encoding)
+        drift_output = self.operator_drift(locations_encoding, observations_encoding, observations_mask=observations_mask)
+        diffusion_output = self.operator_diffusion(locations_encoding, observations_encoding, observations_mask=observations_mask)
 
         drift_estimator, log_var_drift_estimator = torch.chunk(drift_output, 2, dim=-1)
         diffusion_estimator, log_var_diffusion_estimator = torch.chunk(diffusion_output, 2, dim=-1)
 
         return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
 
-    def heads_projection_per_head(self, locations_encoding: Tensor, observations_encoding: Tensor) -> Tensor:
+    def heads_projection_per_head(
+        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_mask: Optional[Tensor] = None
+    ) -> Tensor:
         """
         Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
         Use separate attention and projection network for drift, log_var_drift, diffusion and log_var_diffusion.
@@ -795,14 +800,20 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
             observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
+            observations_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
 
         Returns:
             heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
         """
-        drift_estimator = self.operator_drift(locations_encoding, observations_encoding)
-        log_var_drift_estimator = self.operator_log_var_drift(locations_encoding, observations_encoding)
-        diffusion_estimator = self.operator_diffusion(locations_encoding, observations_encoding)
-        log_var_diffusion_estimator = self.operator_log_var_diffusion(locations_encoding, observations_encoding)
+        drift_estimator = self.operator_drift(locations_encoding, observations_encoding, observations_mask=observations_mask)
+        log_var_drift_estimator = self.operator_log_var_drift(
+            locations_encoding, observations_encoding, observations_mask=observations_mask
+        )
+
+        diffusion_estimator = self.operator_diffusion(locations_encoding, observations_encoding, observations_mask=observations_mask)
+        log_var_diffusion_estimator = self.operator_log_var_diffusion(
+            locations_encoding, observations_encoding, observations_mask=observations_mask
+        )
 
         return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
 
@@ -965,7 +976,7 @@ class FIMSDE(AModel, pl.LightningModule):
         ), f"Expect {(B, G, self.config.model_embedding_size)}. Got {locations_encoding.shape}"
 
         # projection to heads
-        heads = self.apply_operator(locations_encoding, paths_encoding)
+        heads = self.apply_operator(locations_encoding, paths_encoding, observations_mask=obs_mask)
         drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = heads  # [B, G, D]
 
         # Optionally make diffusion non-negative, already during training
@@ -993,7 +1004,7 @@ class FIMSDE(AModel, pl.LightningModule):
         locations: Optional[Tensor] = None,
         training: bool = True,
         return_losses: bool = False,
-        schedulers: dict = None,
+        schedulers: dict | None = None,
         step: int = 0,
     ) -> dict | tuple[SDEConcepts, dict]:
         """
@@ -1032,16 +1043,30 @@ class FIMSDE(AModel, pl.LightningModule):
         else:
             dimension_mask = torch.ones(estimated_concepts.drift.shape, dtype=bool)
 
+        if schedulers is not None:
+            if "loss_threshold" in schedulers.keys() and training is True:
+                loss_threshold = torch.tensor(schedulers.get("loss_threshold")(step), device=self.device)
+
+            else:
+                loss_threshold = torch.tensor(torch.inf, device=self.device)
+
+        else:
+            loss_threshold = torch.tensor(torch.inf, device=self.device)
+
         # Returns
         if training is True:
-            losses: dict = self.loss(estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask)
+            losses: dict = self.loss(
+                estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask, loss_threshold
+            )
             return {"losses": losses}
 
         else:
             estimated_concepts.renormalize(values_norm_stats, times_norm_stats)
 
             if return_losses is True:
-                losses: dict = self.loss(estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask)
+                losses: dict = self.loss(
+                    estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask, loss_threshold
+                )
                 return estimated_concepts, {"losses": losses}
 
             else:
@@ -1187,7 +1212,14 @@ class FIMSDE(AModel, pl.LightningModule):
 
         return loss_at_locations_mask, filtered_loss_locations_perc
 
-    def vector_field_loss(self, estimated: Tensor, log_var_estimated: Tensor | None, target: Tensor, mask: Tensor) -> tuple[Tensor]:
+    def vector_field_loss(
+        self,
+        estimated: Tensor,
+        log_var_estimated: Tensor | None,
+        target: Tensor,
+        mask: Tensor,
+        loss_threshold: Optional[float] = None,
+    ) -> tuple[Tensor]:
         """
         Compute (regularized) loss of vector field values at locations. Return statistics about regularization for monitoring.
         Regularizations:
@@ -1198,6 +1230,7 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             vector field values (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
             mask (Tensor): 0 masks padded values to ignore in loss calculation. Shape: [B, G, D]
+            loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
 
         Returns
             loss (Tensor): Loss of vector field. Shape: []
@@ -1240,7 +1273,7 @@ class FIMSDE(AModel, pl.LightningModule):
             raise ValueError("`loss_type` must be `rmse` or `nll`, got " + self.config.loss_type)
 
         # filter out Nans or above threshold locations from loss
-        loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(loss_at_locations, self.config.loss_threshold)
+        loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(loss_at_locations, loss_threshold)
 
         # mean loss at non-masked locations
         non_masked_values_count = torch.sum(loss_at_locations_mask)
@@ -1255,6 +1288,7 @@ class FIMSDE(AModel, pl.LightningModule):
         values_norm_stats: NormalizationStats,
         times_norm_stats: NormalizationStats,
         dimension_mask: Optional[Tensor] = None,
+        loss_threshold: Optional[float] = None,
     ):
         """
         Compute supervised losses (RMSE or NLL) of sde concepts at non-padded dimensions.
@@ -1265,6 +1299,7 @@ class FIMSDE(AModel, pl.LightningModule):
             values_norm_stats (NormalizationStats): Values instance normalization statistics.
             times_norm_stats (NormalizationStats): Times instance normalization statistics.
             dimension_mask (Optional[Tensor]): Masks padded dimensions to ignore in loss computations. Shape: [B, G, D]
+            loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
 
         Returns:
             losses (dict):
@@ -1299,14 +1334,16 @@ class FIMSDE(AModel, pl.LightningModule):
             drift_loss_above_threshold_or_nan_perc,
             drift_estimated_is_infinite_perc,
             drift_target_is_infinite_perc,
-        ) = self.vector_field_loss(estimated_concepts.drift, estimated_concepts.log_var_drift, target_concepts.drift, dimension_mask)
+        ) = self.vector_field_loss(
+            estimated_concepts.drift, estimated_concepts.log_var_drift, target_concepts.drift, dimension_mask, loss_threshold
+        )
         (
             diffusion_loss,
             diffusion_loss_above_threshold_or_nan_perc,
             diffusion_estimated_is_infinite_perc,
             diffusion_target_is_infinite_perc,
         ) = self.vector_field_loss(
-            estimated_concepts.diffusion, estimated_concepts.log_var_diffusion, target_concepts.diffusion, dimension_mask
+            estimated_concepts.diffusion, estimated_concepts.log_var_diffusion, target_concepts.diffusion, dimension_mask, loss_threshold
         )
 
         # assemble losses
@@ -1321,6 +1358,7 @@ class FIMSDE(AModel, pl.LightningModule):
             "diffusion_estimated_is_infinite_perc": diffusion_estimated_is_infinite_perc,
             "drift_target_is_infinite_perc": drift_target_is_infinite_perc,
             "diffusion_target_is_infinite_perc": diffusion_target_is_infinite_perc,
+            "loss_threshold": loss_threshold,
         }
 
         return losses
