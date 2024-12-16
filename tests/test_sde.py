@@ -250,42 +250,42 @@ class TestModelPathsSampling:
     def grid_data(self) -> tuple:
         initial_time_ = 0
         end_time_ = 2
-        num_steps = 200
+        grid_size = 200
 
         initial_states = torch.randn((self.B, self.I, self.D))
-        initial_time = initial_time_ * torch.ones((self.B, 1))
-        end_time = end_time_ * torch.ones((self.B, 1))
+        initial_time = initial_time_ * torch.ones((self.B, self.I, 1))
+        end_time = end_time_ * torch.ones((self.B, self.I, 1))
 
         solver_granularity = 3
 
-        return initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity
+        return initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity
 
     def test_fimsde_euler_maruyama(self, model: FIMSDE, databatch: FIMSDEDatabatchTuple, grid_data: tuple):
-        initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity = grid_data
+        initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         sample_paths, sample_paths_grid = fimsde_euler_maruyama(
-            model, databatch, num_steps, solver_granularity, initial_states, initial_time, end_time
+            model, databatch, grid_size, solver_granularity, initial_states, initial_time, end_time
         )
 
-        assert sample_paths.shape == (self.B, self.I, num_steps + 1, self.D)
-        assert sample_paths_grid.shape == (self.B, num_steps + 1, 1)
+        assert sample_paths.shape == (self.B, self.I, grid_size, self.D)
+        assert sample_paths_grid.shape == (self.B, self.I, grid_size, 1)
         assert torch.allclose(initial_states, sample_paths[:, :, 0, :], rtol=0.01)
-        assert torch.allclose(sample_paths_grid[:, 0, :], initial_time)
-        assert torch.allclose(sample_paths_grid[:, -1, :], end_time)
+        assert torch.allclose(sample_paths_grid[:, :, 0, :], initial_time)
+        assert torch.allclose(sample_paths_grid[:, :, -1, :], end_time)
 
     def test_fimsde_sample_paths_by_dt_and_grid_size(self, model: FIMSDE, databatch: FIMSDEDatabatchTuple, grid_data: tuple):
-        initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity = grid_data
+        initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         # sample with initial and end time for comparison
         sample_paths, sample_paths_grid = fimsde_euler_maruyama(
-            model, databatch, num_steps, solver_granularity, initial_states, initial_time, end_time
+            model, databatch, grid_size, solver_granularity, initial_states, initial_time, end_time
         )
 
         # sample with dt
-        dt = (end_time_ - initial_time_) / num_steps
+        dt = (end_time_ - initial_time_) / grid_size
 
         dt_sample_paths, dt_sample_paths_grid = fimsde_sample_paths_by_dt_and_grid_size(
-            model, databatch, num_steps, solver_granularity, initial_states, initial_time, dt
+            model, databatch, grid_size, solver_granularity, initial_states, initial_time, dt
         )
 
         # compare
@@ -293,54 +293,54 @@ class TestModelPathsSampling:
         assert sample_paths.shape == dt_sample_paths.shape
 
     def test_fimsde_sample_paths_based_on_grid(self, model: FIMSDE, databatch: FIMSDEDatabatchTuple, grid_data: tuple):
-        initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity = grid_data
+        initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         # test sampling based on grid
-        grid = torch.linspace(initial_time_, end_time_, steps=num_steps)
-        grid = torch.broadcast_to(grid.view(1, -1, 1), (self.B, num_steps, 1))
+        grid = torch.linspace(initial_time_, end_time_, steps=grid_size)
+        grid = torch.broadcast_to(grid.view(1, 1, -1, 1), (self.B, self.I, grid_size, 1))
 
         sample_paths, sample_paths_grid = fimsde_sample_paths(model, databatch, initial_states=initial_states, grid=grid)
 
         assert torch.allclose(sample_paths_grid, grid, rtol=0.01)
-        assert sample_paths.shape == (self.B, self.I, num_steps, self.D)
+        assert sample_paths.shape == (self.B, self.I, grid_size, self.D)
 
     def test_fimsde_sample_paths_no_initial_states(self, model: FIMSDE, databatch: FIMSDEDatabatchTuple, grid_data: tuple):
-        initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity = grid_data
+        initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         # test no initial states passed
         sample_paths, sample_paths_grid = fimsde_sample_paths(
-            model, databatch, grid_size=num_steps, initial_time=initial_time, end_time=end_time
+            model, databatch, grid_size=grid_size, initial_time=initial_time, end_time=end_time
         )
         assert torch.allclose(sample_paths[:, :, 0, :], databatch.obs_values[:, :, 0, :], rtol=0.01)
 
     def test_fimsde_sample_paths_subsampling_num_paths(self, model: FIMSDE, databatch: FIMSDEDatabatchTuple, grid_data: tuple):
-        initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity = grid_data
+        initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         # test subsampling number of paths
         num_paths = self.I // 2
         sample_paths, sample_paths_grid = fimsde_sample_paths(
-            model, databatch, grid_size=num_steps, initial_time=initial_time, end_time=end_time, num_paths=num_paths
+            model, databatch, grid_size=grid_size, initial_time=initial_time, end_time=end_time, num_paths=num_paths
         )
         assert sample_paths.shape[1] == num_paths, f"Expected {num_paths} paths. Got {sample_paths.shape[1]}."
 
     def test_fimsde_sample_paths_interval_by_floats(self, model: FIMSDE, databatch: FIMSDEDatabatchTuple, grid_data: tuple):
-        initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity = grid_data
+        initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         # test specifying solver interval by floats
         sample_paths, sample_paths_grid = fimsde_sample_paths(
-            model, databatch, grid_size=num_steps, initial_time=initial_time_, end_time=end_time_
+            model, databatch, grid_size=grid_size, initial_time=initial_time_, end_time=end_time_
         )
 
-        assert torch.allclose(sample_paths_grid[:, 0, :], initial_time_ * torch.ones(self.B, 1))
-        assert torch.allclose(sample_paths_grid[:, -1, :], end_time_ * torch.ones(self.B, 1))
+        assert torch.allclose(sample_paths_grid[:, :, 0, :], initial_time_ * torch.ones_like(sample_paths_grid[:, :, 0, :]))
+        assert torch.allclose(sample_paths_grid[:, :, -1, :], end_time_ * torch.ones_like(sample_paths_grid[:, :, 0, :]))
 
     def test_fimsde_sample_paths_with_dt(self, model: FIMSDE, databatch: FIMSDEDatabatchTuple, grid_data: tuple):
-        initial_time_, end_time_, num_steps, initial_states, initial_time, end_time, solver_granularity = grid_data
+        initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         # test specifying dt
-        dt = (end_time_ - initial_time_) / num_steps
+        dt = (end_time_ - initial_time_) / grid_size
         sample_paths, sample_paths_grid = fimsde_sample_paths(
-            model, databatch, grid_size=num_steps, initial_states=initial_states, initial_time=initial_time_, dt=dt
+            model, databatch, grid_size=grid_size, initial_states=initial_states, initial_time=initial_time_, dt=dt
         )
 
-        assert sample_paths.shape == (self.B, self.I, num_steps, self.D)
+        assert sample_paths.shape == (self.B, self.I, grid_size, self.D)

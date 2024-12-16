@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import optree
@@ -123,9 +124,17 @@ class SDEEvaluationPlots(EvaluationEpoch):
         # how often to plot
         self.plot_frequency: int = kwargs.get("plot_frequency", 1)
 
+        # how many paths to show maximal
+        self.plot_paths_count: int = kwargs.get("plot_paths_count")
+
     @staticmethod
     def plot_example_of_dim(
-        databatch: FIMSDEDatabatchTuple, estimated_concepts: SDEConcepts, sample_paths: Tensor, sample_grid: Tensor, dimension: int
+        databatch: FIMSDEDatabatchTuple,
+        estimated_concepts: SDEConcepts,
+        sample_paths: Tensor,
+        sample_grid: Tensor,
+        dimension: int,
+        plot_paths_count: Optional[int],
     ) -> tuple[plt.figure]:
         """
         Plot data and model estimates of random example from databatch.
@@ -171,14 +180,27 @@ class SDEEvaluationPlots(EvaluationEpoch):
             show=False,
         )
 
-        fig_paths = plot_paths(dimension, databatch.obs_times, databatch.obs_values, sample_paths, sample_grid)
+        # select paths to plot
+        P = databatch.obs_times.shape[0]
+        perm = torch.randperm(P)
+        plot_paths_count = P if plot_paths_count is None else min(plot_paths_count, P)
+
+        fig_paths = plot_paths(
+            dimension,
+            databatch.obs_times[perm][:plot_paths_count],
+            databatch.obs_values[perm][:plot_paths_count],
+            sample_paths[perm][:plot_paths_count],
+            sample_grid[perm][:plot_paths_count],
+        )
 
         return fig_vf, fig_paths
 
+    @torch.no_grad()
     def __call__(self, epoch: int) -> dict:
         """
         Plot ground-truth and estimated vector fields and paths for all available dimensions.
         """
+        self.model.eval()
 
         if epoch % self.plot_frequency != 0:
             return {}
@@ -212,14 +234,19 @@ class SDEEvaluationPlots(EvaluationEpoch):
             with torch.no_grad():
                 estimated_concepts: SDEConcepts = self.model(batch_with_all_dims, training=False)
 
-            sample_paths_grid = batch_with_all_dims.obs_times[:, 0, :, :]  # take grid of one path of observations
-            sample_paths, sample_paths_grid = fimsde_sample_paths(self.model, batch_with_all_dims, grid=sample_paths_grid)
+            sample_paths_grid = batch_with_all_dims.obs_times
+            sample_paths, _ = fimsde_sample_paths(self.model, batch_with_all_dims, grid=sample_paths_grid)
 
             # Create figures from model outputs and samples
             figures = {}
             for dim in all_dims:
                 fig_vf, fig_paths = self.plot_example_of_dim(
-                    batch_with_all_dims, estimated_concepts, sample_paths, sample_paths_grid, dimension=dim
+                    batch_with_all_dims,
+                    estimated_concepts,
+                    sample_paths,
+                    sample_paths_grid,
+                    dimension=dim,
+                    plot_paths_count=self.plot_paths_count,
                 )
 
                 dim_figures = {f"Vector_Field_{str(dim)}D": fig_vf, f"Paths_{str(dim)}D": fig_paths}

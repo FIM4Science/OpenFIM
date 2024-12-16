@@ -1,6 +1,5 @@
 experiment:
-  # name: drift_deg2_diffusion_deg0_init_cond_std_0_02_with_scale_uniform_0_1_operator_per_head
-  name: testing_new_tensorboard_plots
+  name: drift_deg2_diffusion_deg1_init_cond_std_1_survival_rate_0_5_no_scale_50_paths_threshold_10
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -16,7 +15,7 @@ distributed:
 model:
   model_type: fimsde
   ###################################################################################
-  # Input data (corrected by dataloader) (basically not used in FIM libaray, I think)
+  # Input data (corrected by dataloader)
   max_dimension: &max_dimension 3
   max_time_steps: &max_time_steps 128
   max_location_size: &max_location_size 1024
@@ -83,7 +82,6 @@ model:
   # loss regularization
   diffusion_loss_scale: 1.0
   train_with_normalized_head: true
-  loss_threshold: 10.0
   loss_filter_nans: true
 
   # loss
@@ -96,13 +94,13 @@ model:
 
 dataset:
   name: FIMSDEDataloader
-  dataset_description: linear
+  dataset_description: deg_2_drift_deg_1_diffusion
 
   num_workers: 32
 
   ###### For data from dynamical systems class
   data_type: theory # synthetic, theory
-  data_paths: configs/train/fim-sde/train_data_configs/sde-drift-deg-2-diffusion-deg-0-init-cond-01-with-scale.yaml
+  data_paths: configs/train/fim-sde/train_data_configs/sde-drift-deg-2-diffusion-deg-1-no-scale.yaml
 
   ###### For data from files
   # data_type: synthetic # synthetic, theory
@@ -137,7 +135,7 @@ dataset:
     validation: false
 
   min_num_paths: 10
-  max_num_paths: 100
+  max_num_paths: 50
 
 
 trainer:
@@ -153,24 +151,26 @@ trainer:
   experiment_dir: ./results/
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.SDEEvaluationPlots
-    plot_frequency: 1
+    plot_frequency: 3
+    plot_paths_count: 50
 
   schedulers: !!python/tuple
+    # - name: fim.utils.param_scheduler.LinearScheduler
+    #   label: loss_threshold
+    #   start_step: 1.
+    #   end_step: 20000.
+    #   start_value: 1.
+    #   end_value: 100.
+
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      beta: 1.0
-      label: gauss_nll
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: init_cross_entropy
-      beta: 1.0
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: missing_link
-      beta: 1.0
+      label: loss_threshold
+      beta: 10.0
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
       lr: &lr_rate 1.0e-4
-      weight_decay: 0
+      weight_decay: 0.0
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple
       #   - name: torch.optim.lr_scheduler.SequentialLR

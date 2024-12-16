@@ -65,4 +65,4 @@ def test_dataloader_from_yaml_gp():
 
 
 if __name__ == "__main__":
-    test_dataloader_from_yaml_gp()
+    test_dataloaders()

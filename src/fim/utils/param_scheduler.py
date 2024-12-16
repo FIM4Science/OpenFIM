@@ -54,15 +54,26 @@ class ConstantScheduler:
 
 
 class LinearScheduler:
-    def __init__(self, max_steps: int, start_step: int = 0, **kwargs):
-        self.max_steps = max_steps
+    def __init__(self, start_step: int, end_step: int, start_value: float, end_value: float, **kwargs):
         self.start_step = start_step
+        self.end_step = end_step
+        assert self.start_step <= self.end_step, f"Got {self.start_step} and {self.end_step}."
+
+        self.start_value = float(start_value)
+        self.end_value = float(end_value)
 
     def __call__(self, step):
-        if self.start_step == 0:
-            return min(1.0, float(step) / self.max_steps)
+        if step <= self.start_step:
+            return self.start_value
+
+        elif step > self.end_step:
+            return self.end_value
+
+        elif self.start_step == self.end_step:
+            return self.end_value
+
         else:
-            return min(1.0, self.start_step + float(step) / self.max_steps * (1 - self.start_step))
+            return self.start_value + (self.end_value - self.start_value) * (step - self.start_step) / (self.end_step - self.start_step)
 
 
 class MultiplicativeScheduler:
