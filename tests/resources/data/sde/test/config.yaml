@@ -1,0 +1,72 @@
+- data_bulk_name: test_resources_test_deg_1
+  diffusion_params: &id002
+    constant:
+      bernoulli_survival_rate: 0.5
+      distribution: normal
+      mean: 0.0
+      std: 1
+    degree_1:
+      bernoulli_survival_rate: 0.5
+      distribution: normal
+      mean: 0.0
+      std: 1
+    degree_2_mixed:
+      distribution: fix
+      fix_value: 0.0
+    degree_2_squared:
+      distribution: fix
+      fix_value: 0.0
+    scale: &id001
+      distribution: fix
+      fix_value: 1.0
+      sample_per_dimension: false
+  drift_params: &id003
+    constant:
+      bernoulli_survival_rate: 0.5
+      distribution: normal
+      mean: 0.0
+      std: 1
+    degree_1:
+      bernoulli_survival_rate: 0.5
+      distribution: normal
+      mean: 0.0
+      std: 1
+    degree_2_mixed:
+      bernoulli_survival_rate: 0.5
+      distribution: normal
+      mean: 0.0
+      std: 1
+    degree_2_squared:
+      bernoulli_survival_rate: 0.5
+      distribution: normal
+      mean: 0.0
+      std: 1
+    scale: *id001
+  initial_state: &id004
+    activation: null
+    distribution: normal
+    mean: 0.0
+    std_dev: 1
+  name: Degree2Polynomial
+  num_realizations: 5
+  observed_dimension: null
+  redo: false
+  state_dim: 1
+- data_bulk_name: test_resources_test_deg_2
+  diffusion_params: *id002
+  drift_params: *id003
+  initial_state: *id004
+  name: Degree2Polynomial
+  num_realizations: 5
+  observed_dimension: null
+  redo: false
+  state_dim: 2
+- data_bulk_name: test_resources_test_deg_3
+  diffusion_params: *id002
+  drift_params: *id003
+  initial_state: *id004
+  name: Degree2Polynomial
+  num_realizations: 5
+  observed_dimension: null
+  redo: false
+  state_dim: 3

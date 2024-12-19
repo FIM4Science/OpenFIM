@@ -1,6 +1,10 @@
+import itertools
 from abc import ABC, abstractmethod
+from functools import reduce
 from itertools import combinations
+from typing import Optional
 
+import numpy as np
 import torch
 from torch import Tensor
 
@@ -460,7 +464,7 @@ class Degree2Polynomial(DynamicalSystem):
             "degree_2_mixed": self.state_dim * (self.state_dim - 1) // 2,
         }
 
-        # make diffusion value positive, before taking square rood
+        # make diffusion value positive, before taking square root
         self.enforce_positivity: str = config.get("enforce_positivity", "clip")
         assert self.enforce_positivity in ["clip", "exp", "abs"]
 
@@ -807,6 +811,368 @@ class Degree2Polynomial(DynamicalSystem):
         return self.sample_initial_states_generic(num_initial_states)
 
 
+class Polynomials(DynamicalSystem):
+    """
+    Drift and diffusion are polynomials of some maximal degree. Coefficients are sampled from specified distribution.
+    Drift value is simply the polynomial. Diffusion value is made positive (or zero) and its square root is returned.
+    """
+
+    name_str: str = "Polynomials"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        # number of coefficients in each coefficient group
+        self.state_dim: int = config.get("state_dim", 1)
+
+        self.max_degree_drift: int = config.get("max_degree_drift")
+        self.max_degree_diffusion: int = config.get("max_degree_diffusion")
+
+        # pre-calculate monomial count per degree
+        self.max_degree = max(self.max_degree_drift, self.max_degree_diffusion)
+        self.monomial_count = {
+            i: len(list(itertools.combinations_with_replacement(range(self.state_dim), i))) for i in range(self.max_degree + 1)
+        }
+
+        # make diffusion value positive, before taking square root
+        self.enforce_positivity: str = config.get("enforce_positivity", "clip")
+        assert self.enforce_positivity in ["clip", "exp", "abs"]
+
+    def sample_polynomial_coeffs(self, num_realizations: int, sample_params: dict, max_degree: int) -> Tensor:
+        """
+        Sample state_dim polynomials of (up to) max_degree with state_dim variables.
+
+        Sample all coefficients from a given distribution.
+
+        Define survival rate for each monomial degree of each dimension.
+        Sample bernoulli(degree_survival_rate) for each monomial degree and set coefficients to 0, if it does not survive.
+
+        Sample survival_rate_monomial per dimension.
+        Sample bernoulli(survival_rate_monomial) per monomial and set coefficient to 0, if it does not survive.
+
+        (Not yet implemented: highest surviving degree monomials must have negative coefficients)
+
+        Args:
+            num_realizations (int): Number of (polynomial) vector fields to sample.
+            sample_params (dict): Define distributions to sample coefficients from.
+            max_degree (int): Maximal degree of polynomials.
+
+        Returns:
+            params (Tensor): Contains sampled coefficients. Shape: [num_realizations, state_dim, total_coeffs_count]
+        """
+        coeffs_samples_per_degree = []
+        degree_survival_masks = []
+        monomial_survival_masks = []
+
+        for deg in range(max_degree + 1):
+            coeffs_count = self.monomial_count[deg]
+
+            # sample coefficients from some distribution
+            distribution_config = sample_params["distribution"]
+            if distribution_config["name"] == "uniform":
+                coeff_dist = torch.distributions.uniform.Uniform(distribution_config["min"], distribution_config["max"])
+                coeff_samples = coeff_dist.sample((num_realizations, self.state_dim, coeffs_count))
+
+            elif distribution_config["name"] == "normal":
+                coeff_dist = torch.distributions.normal.Normal(0, distribution_config["std"])
+                coeff_samples = coeff_dist.sample((num_realizations, self.state_dim, coeffs_count))
+
+            elif distribution_config["name"] == "fix":
+                coeff_samples = torch.full(
+                    size=(num_realizations, self.state_dim, coeffs_count), fill_value=distribution_config["fix_value"]
+                )
+
+            # [num_realizations, state_dim, coeffs_count]
+
+            # sample if monomials of degree are used (per dimension)
+            degree_survival_rate: float = sample_params.get("degree_survival_rate")
+
+            degree_survival_dist = torch.distributions.bernoulli.Bernoulli(probs=degree_survival_rate)
+            degree_survival_mask = degree_survival_dist.sample((num_realizations, self.state_dim, 1))
+            degree_survival_mask = torch.broadcast_to(degree_survival_mask, coeff_samples.shape)
+
+            if sample_params.get("max_degree_survives", False) is False:
+                degree_survival_masks.append(degree_survival_mask)
+
+            else:
+                degree_survival_masks.append(torch.ones_like(degree_survival_mask))
+
+            # sample additionally if monomials survive
+            monomials_survival_config = sample_params["monomials_survival_distribution"]
+
+            if monomials_survival_config["name"] == "uniform":
+                monomial_survival_rate_dist = torch.distributions.uniform.Uniform(
+                    monomials_survival_config["min"], monomials_survival_config["max"]
+                )
+                monomial_survival_rate = monomial_survival_rate_dist.sample((num_realizations, self.state_dim))
+
+            else:
+                assert False, "Not implemented"
+
+            survival_dist = torch.distributions.bernoulli.Bernoulli(probs=monomial_survival_rate)
+            survival_mask = survival_dist.sample((coeffs_count,))  # [coeffs_count, num_realizations, state_dim]
+            monomial_survival_mask = torch.permute(survival_mask, (1, 2, 0))  # [num_realizations, state_dim, coeffs_count]
+            monomial_survival_masks.append(monomial_survival_mask)
+
+            coeffs_samples_per_degree.append(coeff_samples)
+
+        # Combine sampled coefficients to single tensor
+        params = torch.concatenate(list(coeffs_samples_per_degree), dim=-1)  # [num_realizations, state_dim, total_coeffs_count]
+
+        # Combine masks into single tensor
+        degree_survival_mask = torch.concatenate(list(degree_survival_masks), dim=-1)
+        monomial_survival_mask = torch.concatenate(list(monomial_survival_masks), dim=-1)
+        params_survival_mask = degree_survival_mask * monomial_survival_mask
+
+        # make sure at least one survives
+        total_coeffs_count = params_survival_mask.shape[-1]
+        index = torch.randint(low=0, high=total_coeffs_count, size=(num_realizations, self.state_dim))
+        surviving = torch.nn.functional.one_hot(index, num_classes=total_coeffs_count)
+
+        params_survival_mask = torch.where(params_survival_mask.bool().any(dim=-1, keepdim=True), params_survival_mask, surviving)
+
+        # apply masks
+        params = params * params_survival_mask
+
+        # sample scale parameter
+        if "scale" in sample_params.keys():
+            sample_per_dimension: bool = sample_params["scale"].get("sample_per_dimension", False)
+            scale_size = (num_realizations, self.state_dim if sample_per_dimension is True else 1, 1)
+
+            if sample_params["scale"]["distribution"] == "uniform":
+                scale_dist = torch.distributions.uniform.Uniform(sample_params["scale"]["min"], sample_params["scale"]["max"])
+                scale = scale_dist.sample(scale_size)
+            elif sample_params["scale"]["distribution"] == "fix":
+                scale = torch.full(size=scale_size, fill_value=sample_params["scale"]["fix_value"])
+
+        else:
+            scale = torch.ones(num_realizations, 1, 1)
+
+        # same scale for all dimensions
+        scale = scale.expand(-1, self.state_dim, -1)  # [num_realizations, state_dim, 1]
+        params = params * scale
+
+        return params
+
+    def evaluate_polynomial(self, states: Tensor, coeffs: Tensor) -> Tensor:
+        """
+        Evaluate polynomials with sampled coefficients, per dimension.
+
+        Args:
+            states (Tensor): To evaluate polynomials at. Shape: [..., state_dim]
+            coeffs (Tensor): Sampled coefficients for polynomials. Shape: [..., state_dim, total_coeffs_count]
+
+        Returns:
+            poly_values (Tensor): Value of polynomials at state. Shape: [..., state_dim]
+        """
+        assert states.shape[-1] == self.state_dim
+
+        # get monomials
+        states_split: list[Tensor] = [states[..., dim] for dim in range(self.state_dim)]
+
+        # for each degree, get all combinations of states and multiply them
+        evaluated_monomials = []
+
+        for deg in range(self.max_degree + 1):
+            if deg == 0:
+                monomials_of_deg = [[torch.ones_like(states_split[0])]]
+            else:
+                monomials_of_deg = itertools.combinations_with_replacement(states_split, deg)
+
+            evaluated_monomials_of_deg = [
+                torch.stack(monomial, dim=-1).prod(dim=-1) for monomial in monomials_of_deg
+            ]  # each of [num_realizations]
+            evaluated_monomials_of_deg = torch.stack(evaluated_monomials_of_deg, dim=-1)  # [num_realizations, monomial_count_of_deg]
+            evaluated_monomials.append(evaluated_monomials_of_deg)
+
+        evaluated_monomials = torch.concatenate(evaluated_monomials, dim=-1)  # [num_realizations, total_monomials_count]
+
+        # maybe vector field has degree < max_degree
+        if coeffs.shape[-1] != evaluated_monomials.shape[-1]:
+            evaluated_monomials = evaluated_monomials[..., : coeffs.shape[-1]]
+
+        # expand to all dimensions: [num_realizations, state_dim, total_coeffs_count]
+        evaluated_monomials = torch.repeat_interleave(evaluated_monomials.unsqueeze(-2), dim=-2, repeats=self.state_dim)
+
+        # evaluate polynomial
+        poly_value = (evaluated_monomials * coeffs).sum(dim=-1)  # [num_realizations, state_dim]
+
+        return poly_value
+
+    @staticmethod
+    def print_polynomials(coeffs: Tensor, max_degree: int, precision: Optional[int] = 3) -> None:
+        """
+        Print (rounded) string representation of sampled polynomials.
+
+        Args:
+            coeffs (Tensor): Sampled coefficients for polynomials. Shape: [num_realizations, state_dim, total_coeffs_count]
+            max_degree (int): maximal degree of polynomial from coefficients.
+            precision (int): Rounding precision.
+        """
+        realization_count, state_dim = coeffs.shape[:2]
+
+        # get monomial string representations with ^2, ^3 etc
+        xs = ["x_" + str(i + 1) + "^1" for i in range(state_dim)]
+
+        def _combine_coordinate_strings(prev_coords: str, new_x: str):
+            if prev_coords == "":
+                return new_x
+
+            else:
+                rest, last_coord, last_power = prev_coords[:-5], prev_coords[-5:-2], prev_coords[-1]  # rest, x_i and j
+                new_coord = new_x[:3]  # x_k
+
+                if last_coord == new_coord:
+                    last_power_int = int(last_power)
+                    next_power_int = last_power_int + 1
+
+                    return rest + last_coord + "^" + str(next_power_int)
+
+                else:
+                    return prev_coords + new_x
+
+        monomials_str = [list(itertools.combinations_with_replacement(xs, deg)) for deg in range(max_degree + 1)]
+        monomials_str = [[reduce(_combine_coordinate_strings, mon, "") for mon in mons_of_deg] for mons_of_deg in monomials_str]
+        monomials_str = np.concatenate([np.array(mon) for mon in monomials_str])
+
+        coeffs = np.array(coeffs)
+
+        for realization in range(realization_count):
+            print("Realization: ", str(realization))
+            for dim in range(state_dim):
+                # print each realization and dimension in parameters separately
+                coeffs_ = coeffs[realization, dim]  # [total_coeffs_count]
+                monomials_str_ = monomials_str[: coeffs_.shape[0]]  # [total_coeffs_count]
+
+                # remove zero coefficients for less clutter
+                non_zero_coeffs_ = coeffs_ != 0.0
+                coeffs_ = coeffs_[non_zero_coeffs_]
+                monomials_str_ = monomials_str_[non_zero_coeffs_]
+
+                # rounded coefficients with + and - signs
+                coeffs_ = coeffs_.round(precision)
+                coeffs_ = coeffs_.astype(str)
+                coeffs_ = np.array(["+" + coeff.item() if coeff.item()[0] != "-" else coeff.item() for coeff in coeffs_])
+
+                # remove ^1 (i.e. power of one)
+                monomials_str_ = [mon.item().replace("^1", "") for mon in monomials_str_]
+                monomials_str_ = np.array(monomials_str_)
+
+                # print monomials one after another
+                monomials_with_coeffs_str = coeffs_ + monomials_str_
+                poly_str = " ".join(monomials_with_coeffs_str)
+
+                print(poly_str)
+
+            print("\n")
+
+    def sample_drift_params(self, num_realizations: int) -> Tensor:
+        """
+        Sample coefficients of (up to) degree 2 polynomials for each dimension.
+
+        Args:
+            num_realizations (int): Number of (polynomial) vector fields to sample.
+
+        Returns:
+            params (Tensor): Contains sampled coefficients. Shape: [num_realizations, state_dim, total_coeffs_count]
+        """
+        if self.drift_params is None or self.drift_params == {}:
+            return torch.zeros(num_realizations)
+
+        else:
+            drift_params = self.sample_polynomial_coeffs(num_realizations, self.drift_params, self.max_degree_drift)
+
+            return drift_params
+
+    def sample_diffusion_params(self, num_realizations: int) -> Tensor:
+        """
+        Sample coefficients of (up to) degree 2 polynomials for each dimension.
+
+        Args:
+            num_realizations (int): Number of (polynomial) vector fields to sample.
+
+        Returns:
+            params (Tensor): Contains sampled coefficients. Shape: [num_realizations, state_dim, total_coeffs_count]
+        """
+        if self.diffusion_params is None or self.diffusion_params == {}:
+            return torch.zeros(num_realizations)
+
+        else:
+            diffusion_params = self.sample_polynomial_coeffs(num_realizations, self.diffusion_params, self.max_degree_diffusion)
+
+            return diffusion_params
+
+    def drift(self, states: Tensor, time: Tensor, params: Tensor) -> Tensor:
+        """
+        Evaluate (up to) degree 2 polynomials as drift vector field.
+
+        Args:
+            states (Tensor): State (x_1, ..., x_D). Shape: [..., state_dim]
+            time (Tensor): Time. Shape: [..., 1] (Not used in this system)
+            params (Tensor): Contains sampled coefficients. Shape: [..., state_dim, total_coeffs_count]
+
+        Returns:
+            drift_poly_values (Tensor): Values of sampled polynomials at state. Shape: [..., state_dim]
+
+        """
+        if self.drift_params is None or self.drift_params == {}:
+            return torch.zeros_like(states)
+
+        else:
+            drift_poly_values = self.evaluate_polynomial(states, params)
+
+            return drift_poly_values
+
+    def diffusion(self, states: Tensor, time: Tensor, params: Tensor) -> Tensor:
+        """
+        Evaluate (up to) degree 2 polynomials, enforce they are positive and return the squared root as diffusion vector field.
+
+        Args:
+            states (Tensor): State (x_1, ..., x_D). Shape: [..., state_dim]
+            time (Tensor): Time. Shape: [..., 1] (Not used in this system)
+            params (Tensor): Contains sampled coefficients. Shape: [..., state_dim, total_coeffs_count]
+
+        Returns:
+            diffusion_values (Tensor): Values of vector field state. Shape: [..., state_dim]
+
+        """
+        if self.diffusion_params is None or self.diffusion_params == {}:
+            return torch.zeros_like(states)
+
+        else:
+            diffusion_poly_values = self.evaluate_polynomial(states, params)
+
+            if self.enforce_positivity == "clip":
+                diffusion_values = torch.clip(diffusion_poly_values, min=0)
+
+            elif self.enforce_positivity == "exp":
+                diffusion_values = torch.exp(diffusion_poly_values)
+
+            elif self.enforce_positivity == "abs":
+                diffusion_values = torch.abs(diffusion_poly_values)
+
+            elif self.enforce_positivity is None:
+                raise ValueError("Must pass `enforce_positivity` method to make poly_value values positive.")
+
+            else:
+                raise ValueError("`enforce_positivity` method not recognized.")
+
+            return torch.sqrt(diffusion_values)
+
+    def sample_initial_states(self, num_initial_states: int) -> Tensor:
+        """
+        Sample initial states for the system.
+
+        Args:
+            num_initial_states (int): Number of initial states to sample.
+
+        Returns:
+            initial_states (Tensor): Initial states. Shape: [num_initial_states, state_dim]
+
+        """
+        return self.sample_initial_states_generic(num_initial_states)
+
+
 class HybridDynamicalSystem(DynamicalSystem):
     # TODO: Remove? Could not be necessary anymore.
     """
@@ -861,6 +1227,7 @@ DYNAMICS_LABELS = {
     "DoubleWellOneDimension": 6,
     "Degree2Polynomial": 7,
     "HybridDynamicalSystem": 8,
+    "Polynomials": 9,
 }
 
 REVERSED_DYNAMICS_LABELS = {
@@ -873,6 +1240,7 @@ REVERSED_DYNAMICS_LABELS = {
     6: "DoubleWellOneDimension",
     7: "Degree2Polynomial",
     8: "HybridDynamicalSystem",
+    9: "Polynomials",
 }
 
 DYNAMICAL_SYSTEM_TO_MODELS = {
@@ -885,4 +1253,5 @@ DYNAMICAL_SYSTEM_TO_MODELS = {
     "DoubleWellOneDimension": DoubleWellOneDimension,
     "Degree2Polynomial": Degree2Polynomial,
     "HybridDynamicalSystem": HybridDynamicalSystem,
+    "Polynomials": Polynomials,
 }

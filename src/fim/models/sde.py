@@ -1,22 +1,156 @@
+from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
 import lightning.pytorch as pl
-import matplotlib.pyplot as plt
 import optree
 import torch
+
+# from fim.pipelines.sde_pipelines import FIMSDEPipeline
+# from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
+import torch._dynamo
 import torch.nn as nn
 from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from fim import results_path
-from fim.data.datasets import FIMSDEDatabatchTuple
 from fim.models.blocks import AModel, ModelFactory
-from fim.models.blocks.base import MLP
-from fim.models.blocks.neural_operators import AttentionOperator
-from fim.models.blocks.positional_encodings import SineTimeEncoding
-from fim.pipelines.sde_pipelines import FIMSDEPipeline
-from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
+from fim.models.blocks.base import Block
+from fim.models.blocks.neural_operators import AttentionOperator, InducedSetTransformerEncoder, ResidualEncoderLayer
+from fim.models.utils import SinActivation
+from fim.utils.helper import create_class_instance
+
+
+torch._dynamo.config.suppress_errors = True
+
+
+def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+    """
+    Return RMSE between target and estimated values per location. Mask indicates which values (in last dimension) to include.
+
+    Args:
+        estimated (Tensor): estimated of target values. Shape: [B, G, D]
+        target (Tensor): Target values. Shape: [B, G, D]
+        mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+
+    Return:
+        rmse (Tensor): RMSE at locations. Shape: [B, G]
+    """
+    assert estimated.ndim == 3, "Got " + str(estimated.ndim)
+    assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
+    assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
+
+    # squared error at non-masked values
+    se = mask * ((estimated - target) ** 2)
+    se = torch.sum(se, dim=-1)  # [B, G]
+
+    # mean over non-masked values
+    non_masked_values_count = torch.sum(mask, dim=-1)
+    mse = se / torch.clip(non_masked_values_count, min=1)  # [B, G]
+
+    # take root per location
+    rmse = torch.sqrt(torch.clip(mse, min=1e-12))  # [B, G]
+
+    assert rmse.ndim == 2, "Got " + str(rmse.ndim)
+
+    return rmse
+
+
+def nrmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+    """
+    Return NRMSE (normalized by the target norm) between target and estimated values per location. Mask indicates which values (in last dimension) to include.
+
+    Args:
+        estimated (Tensor): estimated of target values. Shape: [B, G, D]
+        target (Tensor): Target values. Shape: [B, G, D]
+        mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+
+    Return:
+        nrmse (Tensor): NRMSE at locations. Shape: [B, G]
+    """
+    assert estimated.ndim == 3, "Got " + str(estimated.ndim)
+    assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
+    assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
+
+    rmse = rmse_at_locations(estimated, target, mask)  # [B, G]
+
+    # this is not the norm currently (division by number of dimensions), but does respect masking
+    target_norm = rmse_at_locations(target, torch.zeros_like(target), mask)
+
+    return rmse / (target_norm + 1)
+
+
+def gaussian_nll_at_locations(estimated: Tensor, log_var_estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+    """
+    Return (diagonal) gaussian NLL of target under estimated distribution. Mask indicates which values (in last dimension) to include.
+
+    Args:
+        estimated (Tensor): Mean estimated of target. Shape: [B, G, D]
+        log_var_estimated (Tensor): Log of variance of estimated of target. Shape: [B, G, D]
+        target (Tensor): Target values to compute the NLL of. Shape: [B, G, D]
+        mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+
+    Return:
+        nll (Tensor): Gaussian NLL, (regularized) averaged over all batches and grid points. Shape: []
+    """
+    assert estimated.ndim == 3, "Got " + str(estimated.ndim)
+    assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
+    assert estimated.shape == log_var_estimated.shape, "Got " + str(estimated.shape) + " and " + str(log_var_estimated.shape)
+    assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
+
+    # (diagonal) gaussian NLL per dimension
+    var_estimated = torch.exp(log_var_estimated)
+    nll_per_dim = (
+        (estimated - target) ** 2 / (2 * var_estimated)
+        + 1 / 2 * log_var_estimated
+        + 1 / 2 * torch.log(2 * torch.pi * torch.ones_like(estimated))
+    )  # [B, G, D]
+
+    # sum over non-masked values
+    nll = torch.sum(mask * nll_per_dim, dim=-1)  # [B, G]
+
+    assert nll.ndim == 2, "Got " + str(nll.ndim)
+
+    return nll
+
+
+class SineTimeEncoding(Block):
+    """
+    Implements the time encoding as described in "Multi-time attention networks for irregularly sampled time series, Shukla & Marlin, 2020".
+
+    Each time point t is encoded as a vector of dimension d_time:
+        - first element: linear embedding of t: w_0*t + b_0
+        - remaining elements: sinusoidal embedding of t with different frequencies: sin(w_i*t + b_i) for i in {1, ..., d_time-1}
+    w_j and b_j are learnable parameters.
+    """
+
+    def __init__(self, out_features: int, **kwargs):
+        """
+        Args:
+            d_time (int): Dimension of the time representation
+        """
+        super(SineTimeEncoding, self).__init__()
+
+        self.in_features = kwargs.get("in_features", 1)
+        self.out_features = out_features
+
+        self.linear_embedding = nn.Linear(self.in_features, self.in_features, bias=True)
+        self.periodic_embedding = nn.Sequential(
+            nn.Linear(self.in_features, self.out_features - self.in_features, bias=True), SinActivation()
+        )
+
+    def forward(self, grid: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            grid (torch.Tensor): Grid of time points, shape (batch_size, seq_len, 1)
+
+        Returns:
+            torch.Tensor: Time encoding, shape (batch_size, seq_len, d_time)
+        """
+        linear = self.linear_embedding(grid)
+        periodic = self.periodic_embedding(grid)
+
+        return torch.cat([linear, periodic], dim=-1)
 
 
 # 1. Define your query generation model (a simple linear layer can work)
@@ -39,6 +173,8 @@ class StaticQuery(nn.Module):
         return self.queries
 
 
+@torch.profiler.record_function("forward_fill_masked_values")
+@torch.compile()
 def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill forward values at masked entries in dimension -2.
@@ -79,6 +215,8 @@ def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tens
         return filled_x
 
 
+@torch.profiler.record_function("backward_fill_masked_values")
+@torch.compile()
 def backward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill backwards values at masked entries in dimension -2.
@@ -107,21 +245,113 @@ def backward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Ten
         return torch.flip(x, dims=(-2,))
 
 
-class NormalizationStats:
+class InstanceNormalization(ABC):
+    @abstractmethod
+    def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None, **kwargs) -> Any:
+        """
+        Extract stats from values for instance normalization.
+
+        Args:
+            values (Tensor): Values to instance normalize. Shape: [B, ..., D]
+            mask (Optional[Tensor]): True indicates inclusion in stats computation. Shape: [B, ..., 1]
+        """
+        raise NotImplementedError("`get_norm_stats` is not implemented in your class!")
+
+    @abstractmethod
+    def normalization_map(self, values: Tensor, norm_stats: Any, derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        Return the (up to second) derivative of the instance normalization to some values.
+
+        Args:
+            values (Tensor): Values to instance normalize. Shape: [B, ..., D]
+            norm_stats (Any): Stats from `get_norm_stats` defining normalization map.
+            derivative_num (int): Derivative of instance normalization to return.
+
+        Returns:
+            (derivative) of image of values under instance normalization. Shape: [B, ..., D]
+        """
+        raise NotImplementedError("`normalization_map` is not implemented in your class!")
+
+    @abstractmethod
+    def inverse_normalization_map(self, values: Tensor, norm_stats: Any, derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        Return the (up to second) derivative of the inverse of instance normalization.
+
+        Args:
+            values (Tensor): Values to apply inverse instance normalization to. Shape: [B, ..., D]
+            norm_stats (Any): Stats from `get_norm_stats` defining normalization map.
+            derivative_num (int): Derivative of inverse instance normalization to return.
+
+        Returns:
+            (derivative) of image of values under inverse instance normalization. Shape: [B, ..., D]
+        """
+        raise NotImplementedError("`inverse_normalization_map` is not implemented in your class!")
+
+    @classmethod
+    def from_values(
+        cls, values: Tensor, mask: Optional[Tensor], get_norm_stats_kwargs: Optional[dict] = {}, init_kwargs: Optional[dict] = {}
+    ):
+        """
+        Pass kwargs to cls.__init__ and get norm_stats.
+
+        Args:
+            values (Tensor): Values to instance normalize. Shape: [B, ..., D]
+            mask (Optional[Tensor]): True indicates inclusion in stats computation. Shape: [B, ..., 1]
+            get_norm_stats_kwargs (Optional[dict]): passed to cls.get_norm_stats.
+            kwargs (Optional[dict]): passed to cls.__init__
+
+        Returns:
+            norm_instance (InstanceNormalization): Instance of class.
+            norm_stats (Any): Stats from `get_norm_stats` defining normalization map.
+        """
+        norm_instance = cls(**init_kwargs)
+        norm_stats = norm_instance.get_norm_stats(values, mask, **get_norm_stats_kwargs)
+
+        return norm_instance, norm_stats
+
+    @staticmethod
+    def squash_intermediate_dims(values: Tensor) -> tuple[Tensor, tuple]:
+        """
+        Reshape values from [B, ..., D] to [B, *, D] momentarily. Return original shape for later reshaping.
+
+        Args:
+            values (Tensor): tensor to reshape. Shape: [B, ..., D]
+
+        Returns:
+            reshaped_values (Tensor): Shape: [B, *, D]
+            original_shape: original shape of values for further use
+        """
+
+        original_shape = values.shape
+        B, D = values.shape[0], values.shape[-1]
+        reshaped_values = values.reshape(B, -1, D)
+
+        return reshaped_values, original_shape
+
+    @staticmethod
+    def expand_norm_stats(shape: tuple, norm_stats: tuple[Tensor]) -> tuple[Tensor]:
+        """
+        Return normalization statistics expanded to desired shape
+
+        Args:
+            shape (tuple): Expected shape. Must be of length 3, specifically (B, *, D), where norm_stats are of [B, D].
+
+        Returns:
+            expanded_norm_stats (tuple[Tensor]): norm_stats expanded to (B, *, D)
+        """
+        assert len(shape) == 3, "Expect 3 dimensions, got " + str(len(shape)) + ". Passed shape: " + str(shape)
+
+        return tuple([x.unsqueeze(-2).expand(shape) for x in norm_stats])
+
+
+class MinMaxNormalization(InstanceNormalization):
     """
-    Stores statistics needed to map values into a particular interval.
+    Linear transformation to values s.t. defining values are in the interval [normalized_min, normalized_max].
     """
 
-    def __init__(
-        self, values: Tensor, mask: Optional[Tensor] = None, normalized_min: Optional[float] = -1, normalized_max: Optional[float] = 1
-    ):
+    def __init__(self, normalized_min: float, normalized_max: float, **kwargs):
         # values and target interval boundaries
         self.normalized_min, self.normalized_max = normalized_min, normalized_max
-        self.unnormalized_min, self.unnormalized_max = self.get_unnormalized_stats(values, mask)
-
-        # batch and observed dimension for reference
-        self.batch_size = self.unnormalized_min.shape[0]
-        self.dim = self.unnormalized_min.shape[-1]
 
         # apply transform map over three axes: batch, time, dimension
         transform_map_grad = torch.func.grad(self.transform_map)
@@ -130,6 +360,53 @@ class NormalizationStats:
         self.batch_transform_map = torch.vmap(torch.vmap(torch.vmap(self.transform_map)))
         self.batch_transform_map_grad = torch.vmap(torch.vmap(torch.vmap(transform_map_grad)))
         self.batch_transform_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(transform_map_grad_grad)))
+
+    @torch.profiler.record_function("minmax_get_stats")
+    @torch.compile()
+    def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
+        """
+        Return min and max of passed values along all dimensions 1 to -2, where mask == True.
+        Return self.normalized_min and self.normalized_max as Tensors.
+
+        Args:
+            values (Tensor): Shape: [B, ..., D]
+            mask (Tensor): Shape: [B, ...., 1]
+
+        Returns:
+            ref_min, ref_max (Tensor): Statistics of values along dimensions 1 to -2. Shape: [B, D]
+            tar_min, tar_max (Tensor): Normalization targets. Shape: [B, D]
+        """
+        # Squash intermediate dimensions
+        values, _ = self.squash_intermediate_dims(values)
+
+        # reference values
+        if mask is None:
+            values_min = torch.amin(values, dim=-2)
+            values_max = torch.amax(values, dim=-2)
+
+        else:
+            mask = mask.bool()
+
+            mask, _ = self.squash_intermediate_dims(mask)
+            mask = torch.broadcast_to(mask, values.shape)
+
+            values_min = torch.amin(torch.where(mask, values, torch.inf), dim=-2)
+            values_max = torch.amax(torch.where(mask, values, -torch.inf), dim=-2)
+
+        assert values_min.ndim == values_max.ndim == 2, f"Got {values_min.ndim} and {values_max.ndim}."
+
+        # target values
+        if isinstance(self.normalized_min, Tensor):
+            target_min, target_max = self.normalized_min, self.normalized_max
+
+        else:
+            target_min = self.normalized_min * torch.ones_like(values_min)
+            target_max = self.normalized_max * torch.ones_like(values_max)
+
+        B, D = values_min.shape
+        assert target_min.shape == target_max.shape == (B, D), f"Got {target_min} and {target_max}."
+
+        return values_min, values_max, target_min, target_max
 
     @staticmethod
     def transform_map(value: Tensor, src_min: Tensor, src_max: Tensor, tar_min: Tensor, tar_max: Tensor) -> Tensor:
@@ -157,80 +434,9 @@ class NormalizationStats:
 
         return transformed_value
 
-    @staticmethod
-    def squash_intermediate_dims(values: Tensor) -> tuple[Tensor, tuple]:
-        """
-        Reshape values from [B, ..., D] to [B, *, D] momentarily. Return original shape for later reshaping.
-
-        Args:
-            values (Tensor): tensor to reshape. Shape: [B, ..., D]
-
-        Returns:
-            reshaped_values (Tensor): Shape: [B, *, D]
-            original_shape: original shape of values for further use
-        """
-
-        original_shape = values.shape
-        B, D = values.shape[0], values.shape[-1]
-        reshaped_values = values.reshape(B, -1, D)
-
-        return reshaped_values, original_shape
-
-    def get_unnormalized_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
-        """
-        Return min and max of passed values along all dimensions 1 to -2, where mask == 1.
-
-        Args:
-            values (Tensor): Shape: [B, ..., D]
-            mask (Tensor): Shape: [B, ...., 1]
-
-        Returns:
-            min, max (Tensor): Statistics of inputs along all dimensions 1 to -2. Shape: [B, D]
-        """
-
-        # Squash intermediate dimensions
-        values, _ = self.squash_intermediate_dims(values)
-
-        if mask is None:
-            values_min = torch.amin(values, dim=-2)
-            values_max = torch.amax(values, dim=-2)
-
-        else:
-            mask = mask.bool()
-
-            mask, _ = self.squash_intermediate_dims(mask)
-            mask = torch.broadcast_to(mask, values.shape)
-
-            values_min = torch.amin(torch.where(mask, values, torch.inf), dim=-2)
-            values_max = torch.amax(torch.where(mask, values, -torch.inf), dim=-2)
-
-        return values_min, values_max
-
-    def get_intervals_boundaries(self, shape: tuple) -> tuple[Tensor]:
-        """
-        Return normalization statistics (attributes) as tensors in required shape.
-
-        Args:
-            shape (tuple): Expected shape. Must be of length 3, specifically (B, *, D), where self.unnormalized_...shape == [B, D].
-
-        Returns:
-            normalization_stats (tuple[Tensor]): tensors needed to describe normalization map
-
-        """
-        assert len(shape) == 3, "Expect 3 dimensions, got " + str(len(shape)) + ". Passed shape: " + str(shape)
-
-        unnormalized_min = self.unnormalized_min.unsqueeze(-2).expand(shape)  # [B, *, D]
-        unnormalized_max = self.unnormalized_max.unsqueeze(-2).expand(shape)  # [B, *, D]
-
-        normalized_min = self.normalized_min * torch.ones_like(unnormalized_min)  # [B, *, D]
-        normalized_max = self.normalized_max * torch.ones_like(unnormalized_max)  # [B, *, D]
-
-        assert unnormalized_min.ndim == 3
-        assert unnormalized_max.ndim == 3
-
-        return unnormalized_min, unnormalized_max, normalized_min, normalized_max
-
-    def normalization_map(self, values: Tensor, derivative_num: Optional[int] = 0) -> Tensor:
+    @torch.profiler.record_function("minmax_norm_map")
+    @torch.compile()
+    def normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
         """
         (Derivative of) normalization based on previously set statistics, i.e. evaluate the map
         x -> (x - unnormalized_min) / (unnormalized_max - unnormalized_min) * (normalized_max - normalized_min) + normalized_min
@@ -238,29 +444,34 @@ class NormalizationStats:
 
         Args:
             values (Tensor): Values to normalized based on previously set statistics. Shape: [B, ..., D]
+            norm_stats (tuple[Tensor]): stats needed for normalization: (ref_min, ref_max, tar_min, tar_max). Shape: [B, D]
             derivative_num (int): Derivative of normalization map to return.
 
         Returns:
             (derivative) of image of values under normalization_map: Normalized values. Shape: [B, ..., D]
         """
+        # check shapes
+        B, D = norm_stats[0].shape
         assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
-        assert values.shape[0] == self.batch_size, "Got batch size " + str(values.shape[0]) + ", expected " + str(self.batch_size)
-        assert values.shape[-1] == self.dim, "Got dimension " + str(values.shape[-1]) + ", expected " + str(self.dim)
+        assert values.shape[0] == B, "Got batch size " + str(values.shape[0]) + ", expected " + str(B)
+        assert values.shape[-1] == D, "Got dimension " + str(values.shape[-1]) + ", expected " + str(D)
 
         # Squash intermediate dimensions from values
         values, original_shape = self.squash_intermediate_dims(values)
 
-        unnormalized_min, unnormalized_max, normalized_min, normalized_max = self.get_intervals_boundaries(values.shape)
+        # prepare shapes of norm stats
+        expanded_norm_stats: tuple[Tensor] = self.expand_norm_stats(values.shape, norm_stats)
+        reference_min, reference_max, normalized_min, normalized_max = expanded_norm_stats
 
         # apply transformation from unnormalized to normalized
         if derivative_num == 0:
-            out = self.batch_transform_map(values, unnormalized_min, unnormalized_max, normalized_min, normalized_max)
+            out = self.batch_transform_map(values, reference_min, reference_max, normalized_min, normalized_max)
 
         elif derivative_num == 1:
-            out = self.batch_transform_map_grad(values, unnormalized_min, unnormalized_max, normalized_min, normalized_max)
+            out = self.batch_transform_map_grad(values, reference_min, reference_max, normalized_min, normalized_max)
 
         elif derivative_num == 2:
-            out = self.batch_transform_map_grad_grad(values, unnormalized_min, unnormalized_max, normalized_min, normalized_max)
+            out = self.batch_transform_map_grad_grad(values, reference_min, reference_max, normalized_min, normalized_max)
 
         else:
             raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
@@ -270,7 +481,7 @@ class NormalizationStats:
 
         return out
 
-    def inverse_normalization_map(self, values: Tensor, derivative_num: Optional[int] = 0) -> Tensor:
+    def inverse_normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
         """
         (Derivative of) inverse normalization of the passed values based on previously set statistics, i.e. evaluate the map
         x -> (x - normalized_min) / (normalized_max - normalized_min) * (unnormalized_max - unnormalized_min) + unnormalized_min
@@ -278,29 +489,229 @@ class NormalizationStats:
 
         Args:
             values (Tensor): Values to apply inverse normalization based on previously set statistics to. Shape: [B, ..., D]
+            norm_stats (tuple[Tensor]): stats needed for normalization: (ref_min, ref_max, tar_min, tar_max). Shape: [B, D]
             derivative_num (int): Derivative of inverse normalization map to return.
 
         Returns:
             renormalized_values: Reormalized values. Shape: [B, ..., D]
         """
+        # check shapes
+        B, D = norm_stats[0].shape
         assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
-        assert values.shape[0] == self.batch_size, "Got batch size " + str(values.shape[0]) + ", expected " + str(self.batch_size)
-        assert values.shape[-1] == self.dim, "Got dimension " + str(values.shape[-1]) + ", expected " + str(self.dim)
+        assert values.shape[0] == B, "Got batch size " + str(values.shape[0]) + ", expected " + str(B)
+        assert values.shape[-1] == D, "Got dimension " + str(values.shape[-1]) + ", expected " + str(D)
 
         # Squash intermediate dimensions from values
         values, original_shape = self.squash_intermediate_dims(values)
 
-        unnormalized_min, unnormalized_max, normalized_min, normalized_max = self.get_intervals_boundaries(values.shape)
+        # prepare shapes of norm stats
+        expanded_norm_stats: tuple[Tensor] = self.expand_norm_stats(values.shape, norm_stats)
+        reference_min, reference_max, normalized_min, normalized_max = expanded_norm_stats
 
         # apply transformation from normalized to unnormalized
         if derivative_num == 0:
-            out = self.batch_transform_map(values, normalized_min, normalized_max, unnormalized_min, unnormalized_max)
+            out = self.batch_transform_map(values, normalized_min, normalized_max, reference_min, reference_max)
 
         elif derivative_num == 1:
-            out = self.batch_transform_map_grad(values, normalized_min, normalized_max, unnormalized_min, unnormalized_max)
+            out = self.batch_transform_map_grad(values, normalized_min, normalized_max, reference_min, reference_max)
 
         elif derivative_num == 2:
-            out = self.batch_transform_map_grad_grad(values, normalized_min, normalized_max, unnormalized_min, unnormalized_max)
+            out = self.batch_transform_map_grad_grad(values, normalized_min, normalized_max, reference_min, reference_max)
+
+        else:
+            raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
+
+        # Reintroduce intermediate dimensions from values
+        out = out.reshape(original_shape)
+
+        return out
+
+
+class Standardization(InstanceNormalization):
+    """
+    Standardize defining values to standard normal: x -> (x - mean) / std
+    """
+
+    def __init__(self, **kwargs):
+        # apply standardization map over three axes: batch, time, dimension
+        standardize_map_grad = torch.func.grad(self.standardize_map)
+        standardize_map_grad_grad = torch.func.grad(standardize_map_grad)
+
+        self.batch_standardize_map = torch.vmap(torch.vmap(torch.vmap(self.standardize_map)))
+        self.batch_standardize_map_grad = torch.vmap(torch.vmap(torch.vmap(standardize_map_grad)))
+        self.batch_standardize_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(standardize_map_grad_grad)))
+
+        # apply inverse standardization map over three axes: batch, time, dimension
+        inv_standardize_map_grad = torch.func.grad(self.inv_standardize_map)
+        inv_standardize_map_grad_grad = torch.func.grad(inv_standardize_map_grad)
+
+        self.batch_inv_standardize_map = torch.vmap(torch.vmap(torch.vmap(self.inv_standardize_map)))
+        self.batch_inv_standardize_map_grad = torch.vmap(torch.vmap(torch.vmap(inv_standardize_map_grad)))
+        self.batch_inv_standardize_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_standardize_map_grad_grad)))
+
+    @torch.profiler.record_function("stand_get_stats")
+    @torch.compile()
+    def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
+        """
+        Return mean and standard deviation of passed values along all dimensions 1 to -2, where mask == True.
+
+        Args:
+            values (Tensor): Shape: [B, ..., D]
+            mask (Tensor): Shape: [B, ...., 1]
+
+        Returns:
+            ref_mean, ref_std (Tensor): Statistics of values along dimensions 1 to -2. Shape: [B, D]
+        """
+        # Squash intermediate dimensions
+        values, _ = self.squash_intermediate_dims(values)
+
+        # reference values
+        if mask is None:
+            values_mean = torch.mean(values, dim=-2)
+            values_std = torch.std(values, dim=-2)
+
+        else:
+            mask = mask.bool()
+
+            mask, _ = self.squash_intermediate_dims(mask)
+            mask = torch.broadcast_to(mask, values.shape)
+
+            values_mean = torch.nanmean(torch.where(mask, values, torch.nan), dim=-2, keepdim=True)  # [B, 1, D]
+
+            # masked std
+            se = (values - values_mean) ** 2
+            masked_se = torch.where(mask, se, torch.nan)
+            masked_var = torch.nanmean(masked_se, dim=-2)
+
+            values_std = torch.sqrt(masked_var)
+            values_mean = values_mean.squeeze(-2)
+
+        values_std = torch.clip(values_std, min=1e-6)
+
+        assert values_std.ndim == values_mean.ndim == 2, f"Got {values_std.ndim} and {values_mean.ndim}."
+
+        return values_mean, values_std
+
+    @staticmethod
+    def standardize_map(value: Tensor, ref_mean: Tensor, ref_std: Tensor) -> Tensor:
+        """
+        Apply the transformation that standardizes the reference values: x -> (x - ref_mean) / ref_std
+
+        Args:
+            value (Tensor): Shape: []
+            ref_mean, ref_std (Tensor): Statistics that standardize reference values.
+
+        Returns:
+            transformed_value (Tensor): Image of value under standardization transformation. Shape: []
+        """
+        assert value.ndim == 0, "Got value.ndim == " + str(value.ndim) + ", expected 0"
+
+        transformed_value = (value - ref_mean) / ref_std
+
+        assert transformed_value.ndim == 0, "Got transformed_value.ndim == " + str(transformed_value.ndim) + ", expected 0"
+
+        return transformed_value
+
+    @staticmethod
+    def inv_standardize_map(value: Tensor, ref_mean: Tensor, ref_std: Tensor) -> Tensor:
+        """
+        Apply the transformation that reverse the standardization of reference values: x -> x * ref_std + ref_mean
+
+        Args:
+            value (Tensor): Shape: []
+            ref_mean, ref_std (Tensor): Statistics that standardize reference values.
+
+        Returns:
+            transformed_value (Tensor): Image of value under standardization revision transformation. Shape: []
+        """
+        assert value.ndim == 0, "Got value.ndim == " + str(value.ndim) + ", expected 0"
+
+        transformed_value = value * ref_std + ref_mean
+
+        assert transformed_value.ndim == 0, "Got transformed_value.ndim == " + str(transformed_value.ndim) + ", expected 0"
+
+        return transformed_value
+
+    def normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        (Derivative of) normalization based on previously set statistics, i.e. evaluate the map
+        x -> (x - ref_mean) / ref_std
+        at all values.
+
+        Args:
+            values (Tensor): Values to nromalize based on previously set statistics. Shape: [B, ..., D]
+            norm_stats (tuple[Tensor]): stats needed for normalization: (ref_mean, ref_std). Shape: [B, D]
+            derivative_num (int): Derivative of normalization map to return.
+
+        Returns:
+            (derivative) of image of values under normalization_map: Normalized values. Shape: [B, ..., D]
+        """
+        # check shapes
+        B, D = norm_stats[0].shape
+        assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
+        assert values.shape[0] == B, "Got batch size " + str(values.shape[0]) + ", expected " + str(B)
+        assert values.shape[-1] == D, "Got dimension " + str(values.shape[-1]) + ", expected " + str(D)
+
+        # Squash intermediate dimensions from values
+        values, original_shape = self.squash_intermediate_dims(values)
+
+        # prepare shapes of norm stats
+        expanded_norm_stats: tuple[Tensor] = self.expand_norm_stats(values.shape, norm_stats)
+        ref_mean, ref_std = expanded_norm_stats
+
+        # apply transformation from unnormalized to normalized
+        if derivative_num == 0:
+            out = self.batch_standardize_map(values, ref_mean, ref_std)
+
+        elif derivative_num == 1:
+            out = self.batch_standardize_map_grad(values, ref_mean, ref_std)
+
+        elif derivative_num == 2:
+            out = self.batch_standardize_map_grad_grad(values, ref_mean, ref_std)
+
+        else:
+            raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
+
+        # Reintroduce intermediate dimensions from values
+        out = out.reshape(original_shape)
+
+        return out
+
+    def inverse_normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        (Derivative of) inverse normalization based on previously set statistics, i.e. evaluate the map
+        x -> x * ref_std + ref_mean
+        at all values.
+
+        Args:
+            values (Tensor): Values to apply inverse normalization based on previously set statistics to. Shape: [B, ..., D]
+            norm_stats (tuple[Tensor]): stats needed for normalization: (ref_mean, ref_std). Shape: [B, D]
+            derivative_num (int): Derivative of inverse normalization map to return.
+
+        Returns:
+            renormalized_values: Renormalized values. Shape: [B, ..., D]
+        """
+        # check shapes
+        B, D = norm_stats[0].shape
+        assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
+        assert values.shape[0] == B, "Got batch size " + str(values.shape[0]) + ", expected " + str(B)
+        assert values.shape[-1] == D, "Got dimension " + str(values.shape[-1]) + ", expected " + str(D)
+
+        # Squash intermediate dimensions from values
+        values, original_shape = self.squash_intermediate_dims(values)
+
+        expanded_norm_stats: tuple[Tensor] = self.expand_norm_stats(values.shape, norm_stats)
+        ref_mean, ref_std = expanded_norm_stats
+
+        # apply transformation from normalized to unnormalized
+        if derivative_num == 0:
+            out = self.batch_inv_standardize_map(values, ref_mean, ref_std)
+
+        elif derivative_num == 1:
+            out = self.batch_inv_standardize_map_grad(values, ref_mean, ref_std)
+
+        elif derivative_num == 2:
+            out = self.batch_inv_standardize_map_grad_grad(values, ref_mean, ref_std)
 
         else:
             raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
@@ -363,27 +774,27 @@ class SDEConcepts:
         return is_equal
 
     @classmethod
-    def from_dbt(cls, databatch: FIMSDEDatabatchTuple | None, normalized: Optional[bool] = False):
+    def from_dict(cls, data: dict | None, normalized: Optional[bool] = False):
         """
-        Construct SDEConcepts from FIMSDEDatabatchTuple.
+        Construct SDEConcepts from data dict.
 
         Args:
-            databatch (FIMSDEDatabatchTuple | None): Data to extract locations and concepts from. Return None if not passed.
-            normalized (bool): Flag if data in databatch is normalized. Default: False.
+            data (dict | None): Data to extract locations and concepts from. Return None if not passed.
+            normalized (bool): Flag if data is normalized. Default: False.
 
         Returns:
-            sde_concepts (SDEConcepts): SDEConcepts with locations, drift and diffusion extracted from FIMSDEDatabatchTuple.
+            sde_concepts (SDEConcepts): SDEConcepts with locations, drift and diffusion extracted from data dict.
         """
-        if databatch is not None:
+        if data is not None:
             if (
-                databatch.locations is not None
-                and databatch.drift_at_locations is not None
-                and databatch.diffusion_at_locations is not None
+                data.get("locations") is not None
+                and data.get("drift_at_locations") is not None
+                and data.get("diffusion_at_locations") is not None
             ):
                 return cls(
-                    locations=databatch.locations,
-                    drift=databatch.drift_at_locations,
-                    diffusion=databatch.diffusion_at_locations,
+                    locations=data["locations"],
+                    drift=data["drift_at_locations"],
+                    diffusion=data["diffusion_at_locations"],
                     log_var_drift=None,
                     log_var_diffusion=None,
                     normalized=normalized,
@@ -404,24 +815,25 @@ class SDEConcepts:
         if self.log_var_diffusion is not None:
             broadcasted_shape = torch.broadcast_shapes(broadcasted_shape, self.log_var_diffusion.shape)
 
-    def _state_transformation(self, states_norm_stats: NormalizationStats, normalize: bool) -> None:
+    def _states_transformation(self, states_norm: InstanceNormalization, states_norm_stats: Any, normalize: bool) -> None:
         """
-        Apply the transformation to concepts induced by the transformation of the states from the NormalizationStats.
+        Apply the transformation to concepts induced by the transformation of the states from the InstanceNormalization.
 
         Args:
-            states_norm_stats (NormalizationStats): Underlying transformations of states.
+            states_norm (InstanceNormalization): Underlying transformations of states.
+            states_norm_stats (Any): Statistics used by states_norm.
             normalize (bool): If true, applies transformation induced by normalization, else by the inverse of normalization.
         """
         self._assert_shape()
 
         # evaluate gradient of the normalization map at the respective locations
         if normalize is True:
-            grad = states_norm_stats.normalization_map(self.locations, derivative_num=1)
-            grad_grad = states_norm_stats.normalization_map(self.locations, derivative_num=2)
+            grad = states_norm.normalization_map(self.locations, states_norm_stats, derivative_num=1)
+            grad_grad = states_norm.normalization_map(self.locations, states_norm_stats, derivative_num=2)
 
         else:
-            grad = states_norm_stats.inverse_normalization_map(self.locations, derivative_num=1)
-            grad_grad = states_norm_stats.inverse_normalization_map(self.locations, derivative_num=2)
+            grad = states_norm.inverse_normalization_map(self.locations, states_norm_stats, derivative_num=1)
+            grad_grad = states_norm.inverse_normalization_map(self.locations, states_norm_stats, derivative_num=2)
 
         log_grad = torch.log(grad)
 
@@ -437,12 +849,13 @@ class SDEConcepts:
 
         self._assert_shape()
 
-    def _time_transformation(self, time_norm_stats: NormalizationStats, normalize: bool) -> None:
+    def _times_transformation(self, times_norm: InstanceNormalization, times_norm_stats: Any, normalize: bool) -> None:
         """
-        Apply the transformation to concepts induced by the transformation of time from the NormalizationStats.
+        Apply the transformation to concepts induced by the transformation of time from the InstanceNormalization.
 
         Args:
-            time_norm_stats (NormalizationStats): Underlying transformations of time.
+            times_norm (InstanceNormalization): Underlying transformations of time.
+            times_norm_stats (Any): Statistics used by times_norm.
             normalize (bool): If true, applies transformation induced by normalization, else by the inverse of normalization.
         """
         self._assert_shape()
@@ -452,10 +865,10 @@ class SDEConcepts:
         dummy_times = torch.zeros_like(self.locations[..., 0].unsqueeze(-1))  # [..., 1]
 
         if normalize is True:
-            inverse_grad = time_norm_stats.inverse_normalization_map(dummy_times, derivative_num=1)
+            inverse_grad = times_norm.inverse_normalization_map(dummy_times, times_norm_stats, derivative_num=1)
 
         else:
-            inverse_grad = time_norm_stats.normalization_map(dummy_times, derivative_num=1)
+            inverse_grad = times_norm.normalization_map(dummy_times, times_norm_stats, derivative_num=1)
 
         log_inverse_grad = torch.log(inverse_grad)
 
@@ -471,49 +884,56 @@ class SDEConcepts:
 
         self._assert_shape()
 
-    def _locations_transformation(self, states_norm_stats: NormalizationStats, normalize: bool) -> None:
+    def _locations_transformation(self, states_norm: InstanceNormalization, states_norm_stats: Any, normalize: bool) -> None:
         """
         Apply transformation of states to the locations at which equation concepts are evaluated at.
 
         Args:
-            states_norm_stats (NormalizationStats): Specifies transformations of states.
+            states_norm (InstanceNormalization): Specifies transformations of states.
+            states_norm_stats (Any): Statistics used by states_norm.
             normalize (bool): If true, applies transformation induced by normalization, else by the inverse of normalization.
         """
         self._assert_shape()
 
         if normalize is True:
-            self.locations = states_norm_stats.normalization_map(self.locations)
+            self.locations = states_norm.normalization_map(self.locations, states_norm_stats)
 
         else:
-            self.locations = states_norm_stats.inverse_normalization_map(self.locations)
+            self.locations = states_norm.inverse_normalization_map(self.locations, states_norm_stats)
 
         self._assert_shape()
 
-    def normalize(self, states_norm_stats: NormalizationStats, time_norm_stats: NormalizationStats) -> None:
+    def normalize(
+        self, states_norm: InstanceNormalization, states_norm_stats: Any, times_norm: InstanceNormalization, times_norm_stats: Any
+    ) -> None:
         """
         Normalize locations and concepts if not already normalized.
 
         Args:
-            states_norm_stats, time_norm_stats (NormalizationStats): Specifies normalizations to apply.
+            states_norm, times_norm (InstanceNormalization): Specifies normalizations to apply.
+            states_norm_stats, times_norm_stats (Any): Statistics used by the normalizations.
         """
         if self.normalized is False:
-            self._state_transformation(states_norm_stats, normalize=True)
-            self._locations_transformation(states_norm_stats, normalize=True)
-            self._time_transformation(time_norm_stats, normalize=True)
+            self._states_transformation(states_norm, states_norm_stats, normalize=True)
+            self._locations_transformation(states_norm, states_norm_stats, normalize=True)
+            self._times_transformation(times_norm, times_norm_stats, normalize=True)
 
             self.normalized = True
 
-    def renormalize(self, states_norm_stats: NormalizationStats, time_norm_stats: NormalizationStats) -> None:
+    def renormalize(
+        self, states_norm: InstanceNormalization, states_norm_stats: Any, times_norm: InstanceNormalization, times_norm_stats: Any
+    ) -> None:
         """
         Reormalize locations and concepts if not already renormalized.
 
         Args:
-            states_norm_stats, time_norm_stats (NormalizationStats): Specifies renormalizations to apply.
+            states_norm, times_norm (InstanceNormalization): Specifies renormalizations to apply.
+            states_norm_stats, times_norm_stats (Any): Statistics used by the normalizations.
         """
         if self.normalized is True:
-            self._state_transformation(states_norm_stats, normalize=False)
-            self._locations_transformation(states_norm_stats, normalize=False)
-            self._time_transformation(time_norm_stats, normalize=False)
+            self._states_transformation(states_norm, states_norm_stats, normalize=False)
+            self._locations_transformation(states_norm, states_norm_stats, normalize=False)
+            self._times_transformation(times_norm, times_norm_stats, normalize=False)
 
             self.normalized = False
 
@@ -531,31 +951,30 @@ class FIMSDEConfig(PretrainedConfig):
         max_location_size (int): Maximum location size. Default is 1024.
         max_num_paths (int): Maximum number of paths. Default is 30.
         model_embedding_size (int): Embedding size used throughout model. Default is 64.
+        delta_time_only (bool): Only use delta-time as time encoding. Default is False.
+        layer_norms_in_phi_0 (bool): Use layer norms in encodings for phi_0. Default is False.
+        separate_phi_0_encoders (bool): Use separate copies of encoding modules for phi_0s. Default is False.
+        phi_0t (dict): Config for phi_0t. Default is {}.
         phi_0x (dict): Config for phi_0x. Default is {}.
-        phi_0_combination (str): "concatenate" or "add" specifying how time and value embeddings are combined. Default: "concatenate".
-        psi_1_transformer_layer (dict): Config for psi_1_transformer_layer. Default is {}.
-        psi_1_transformer_encoder (dict): Config for psi_1_transformer_encoder. Default is {}.
+        psi_1 (dict): Config for psi_1. Default is {}.
         phi_1x (dict): Config for phi_1x. Default is {}.
+        learn_vf_var (bool): Learn also (log) var of drift and diffusion. default is False
         operator_specificity (str): "all", "per_concept" or "per_head" specifying separate operators per heads. Default is "all".
         operator (dict): Config for operator. Default is {}.
         non_negative_diffusion_by (str): Specify if and how to make estimated diffusion non-negative. Defaults to None.
-        values_norm_min (float): lower normalized values range boundary. Default is -1.
-        values_norm_max (float): upper normalized values range boundary. Default is 1.
-        times_norm_min (float): lower normalized times range boundary. Default is 0.
-        times_norm_max (float): upper normalized times range boundary. Default is 1.
+        states_norm (dict): Config for states instance normalization. Default is MinMaxNormalization.
+        times_norm (dict): Config for times instance normalization. Default is MinMaxNormalization.
         loss_filter_nans (bool): Default is True.
         num_epochs (int): Number of epochs. Default is 2.
         learning_rate (float): Learning rate. Default is 1.0e-5.
         weight_decay (float): Weight decay. Default is 1.0e-4.
         dropout_rate (float): Dropout rate. Default is 0.1.
-        diffusion_loss_scale (float): Scale for diffusion loss. Default is 1.0.
         loss_type (str): Type of loss. Default is "rmse".
         log_images_every_n_epochs (int): Log images every n epochs. Default is 2.
         train_with_normalized_head (bool): Train with normalized head. Default is True.
         skip_nan_grads (bool): Skip optimizer update if (at least one) gradient is Nan. Default is True.
         dt_pipeline (float): Time step for pipeline. Default is 0.01.
         number_of_time_steps_pipeline (int): Number of time steps in the pipeline. Default is 128.
-        pipeline_data (FIMSDEDatabatchTuple): Data to evaluate pipelines on. Default is None, i.e. no evaluation.
         evaluate_with_unnormalized_heads (bool): Evaluate with unnormalized heads. Default is True.
     """
 
@@ -571,32 +990,31 @@ class FIMSDEConfig(PretrainedConfig):
         max_location_size: int = 1024,
         max_num_paths: int = 30,
         model_embedding_size: int = 64,
-        phi_0x: dict = {},
-        phi_0_combination: str = "concatenate",
-        psi_1_transformer_layer: dict = {},
-        psi_1_transformer_encoder: dict = {},
-        phi_1x: dict = {},
+        delta_time_only: bool = False,
+        layer_norms_in_phi_0: bool = False,
+        separate_phi_0_encoders: bool = False,
+        phi_0t: dict = {},
+        phi_0x: dict = {"hidden_layers": [64]},
+        psi_1: dict = {"name": "PathTransformer", "num_layers": 2, "layer": {}},
+        phi_1x: dict = {"hidden_layers": [64]},
+        learn_vf_var: bool = False,
         operator_specificity: str = "all",
-        operator: dict = {},
+        operator: dict = {"attention": {"nhead": 2}, "projection": {"hidden_layers": [64]}},
         non_negative_diffusion_by: Optional[str] = None,
-        values_norm_min: float = -1.0,
-        values_norm_max: float = 1.0,
-        times_norm_min: float = 0.0,
-        times_norm_max: float = 1.0,
+        states_norm: dict = {"name": "fim.models.sde.MinMaxNormalization"},
+        times_norm: dict = {"name": "fim.models.sde.MinMaxNormalization", "normalized_min": 0, "normalized_max": 1},
         loss_filter_nans: bool = True,
         lightning_training: bool = True,
         num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)
         learning_rate: float = 1.0e-5,
         weight_decay: float = 1.0e-4,
         dropout_rate: float = 0.1,
-        diffusion_loss_scale: float = 1.0,
         loss_type: str = "rmse",
         log_images_every_n_epochs: int = 2,
         train_with_normalized_head: bool = True,
         skip_nan_grads: bool = True,
         dt_pipeline: float = 0.01,
         number_of_time_steps_pipeline: int = 128,
-        pipeline_data: FIMSDEDatabatchTuple = None,
         evaluate_with_unnormalized_heads: bool = True,
         **kwargs,
     ):
@@ -608,19 +1026,20 @@ class FIMSDEConfig(PretrainedConfig):
         self.max_location_size = max_location_size
         self.max_num_paths = max_num_paths
         self.model_embedding_size = model_embedding_size
+        self.delta_time_only = delta_time_only
+        self.layer_norms_in_phi_0 = layer_norms_in_phi_0
+        self.separate_phi_0_encoders = separate_phi_0_encoders
+        self.phi_0t = phi_0t
         self.phi_0x = phi_0x
-        self.phi_0_combination = phi_0_combination
-        self.psi_1_transformer_layer = psi_1_transformer_layer
-        self.psi_1_transformer_encoder = psi_1_transformer_encoder
+        self.psi_1 = psi_1
         self.phi_1x = phi_1x
+        self.learn_vf_var = learn_vf_var
         self.operator_specificity = operator_specificity
         self.operator = operator
         self.non_negative_diffusion_by = non_negative_diffusion_by
         # normalization
-        self.values_norm_min = values_norm_min
-        self.values_norm_max = values_norm_max
-        self.times_norm_min = times_norm_min
-        self.times_norm_max = times_norm_max
+        self.states_norm = states_norm
+        self.times_norm = times_norm
         # regularization
         self.loss_filter_nans = loss_filter_nans
         # training variables
@@ -629,20 +1048,18 @@ class FIMSDEConfig(PretrainedConfig):
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.dropout_rate = dropout_rate
-        self.diffusion_loss_scale = diffusion_loss_scale
         self.loss_type = loss_type
         self.log_images_every_n_epochs = log_images_every_n_epochs
         self.train_with_normalized_head = train_with_normalized_head
         self.skip_nan_grads = skip_nan_grads
         self.dt_pipeline = dt_pipeline
-        self.pipeline_data = pipeline_data
         self.number_of_time_steps_pipeline = number_of_time_steps_pipeline
         self.evaluate_with_unnormalized_heads = evaluate_with_unnormalized_heads
         super().__init__(**kwargs)
 
 
 # 3. Model Following FIM conventions
-# class FIMSDE(AModel)
+# class FIMSDE(AModel):
 class FIMSDE(AModel, pl.LightningModule):
     """
     Stochastic Differential Equation Trainining
@@ -676,59 +1093,133 @@ class FIMSDE(AModel, pl.LightningModule):
         if device_map is not None:
             self.to(device_map)
 
-        self.DatabatchNameTuple = FIMSDEDatabatchTuple
         # Important: This property activates manual optimization (Lightning)
         self.automatic_optimization = False
 
     def _create_modules(self):
         config = deepcopy(self.config)  # model loading won't work without it
 
+        # states and times normalization
+        states_norm_config = config.states_norm
+        self.states_norm: InstanceNormalization = create_class_instance(states_norm_config.pop("name"), states_norm_config)
+
+        times_norm_config = config.times_norm
+        self.times_norm: InstanceNormalization = create_class_instance(times_norm_config.pop("name"), times_norm_config)
+
         # observation times encoder
-        self.phi_0t = SineTimeEncoding(out_features=config.model_embedding_size)
+        phi_0t_out_features = config.model_embedding_size if config.separate_phi_0_encoders is False else config.model_embedding_size // 4
+
+        phi_0t_module_name = config.phi_0t.get("name", "SineTimeEncoding")
+        if "SineTimeEncoding" in phi_0t_module_name:
+            phi_0t_encoder = SineTimeEncoding(out_features=phi_0t_out_features)
+
+        else:
+            config.phi_0t.update({"in_features": 1, "out_features": phi_0t_out_features})
+            phi_0t_encoder = create_class_instance(config.phi_0t.pop("name"), config.phi_0t)
+
+        if config.layer_norms_in_phi_0:
+            phi_0t_layer_norm = nn.LayerNorm(phi_0t_out_features, dtype=torch.float32)
+            self.phi_0t = nn.Sequential(phi_0t_encoder, phi_0t_layer_norm)
+
+        else:
+            self.phi_0t = phi_0t_encoder
 
         # observation values encoder; encode X, del_X and (del_X)**2
-        phi_0x_mlp = MLP(in_features=config.max_dimension * 3, out_features=config.model_embedding_size, **config.phi_0x)
-        phi_0x_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
-        # self.phi_0x = lambda x: phi_0x_layer_norm(phi_0x_mlp(x))
-        self.phi_0x = nn.Sequential(phi_0x_mlp, phi_0x_layer_norm)
+        phi_0x_in_features = 3 * config.max_dimension if config.separate_phi_0_encoders is False else config.max_dimension
+        phi_0x_out_features = config.model_embedding_size if config.separate_phi_0_encoders is False else config.model_embedding_size // 4
+        config.phi_0x.update({"in_features": phi_0x_in_features, "out_features": phi_0x_out_features})
+
+        if config.separate_phi_0_encoders is False:
+            phi_0x_encoder = create_class_instance(config.phi_0x.pop("name"), config.phi_0x)
+
+            if config.layer_norms_in_phi_0:
+                phi_0x_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
+                self.phi_0x = nn.Sequential(phi_0x_encoder, phi_0x_layer_norm)
+
+            else:
+                self.phi_0x = phi_0x_encoder
+
+        else:
+            phi_0x_x_encoder_config = deepcopy(config.phi_0x)
+            phi_0x_dx_encoder_config = deepcopy(config.phi_0x)
+            phi_0x_dx2_encoder_config = deepcopy(config.phi_0x)
+
+            self.phi_0x_x = create_class_instance(phi_0x_x_encoder_config.pop("name"), phi_0x_x_encoder_config)
+            self.phi_0x_dx = create_class_instance(phi_0x_dx_encoder_config.pop("name"), phi_0x_dx_encoder_config)
+            self.phi_0x2_dx = create_class_instance(phi_0x_dx2_encoder_config.pop("name"), phi_0x_dx2_encoder_config)
 
         # combine times and values embedding to config.model_embedding_size
+        if config.delta_time_only is True:  # combine spatial and temporal differences
+            phi_0_projection_in_features = phi_0t_out_features + phi_0x_out_features
 
-        assert config.phi_0_combination in ["concatenate", "add"]
-        phi_0_projection_in_features = (
-            2 * config.model_embedding_size if config.phi_0_combination == "concatenate" else config.model_embedding_size
-        )
+        else:  # combine spatial, temporal and temporal differences
+            phi_0_projection_in_features = 2 * phi_0t_out_features + phi_0x_out_features
 
         phi_0_projection = nn.Linear(phi_0_projection_in_features, config.model_embedding_size)
-        phi_0_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
 
-        self.phi_0 = nn.Sequential(phi_0_projection, phi_0_layer_norm)
+        if config.layer_norms_in_phi_0:
+            phi_0_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
+            self.phi_0 = nn.Sequential(phi_0_projection, phi_0_layer_norm)
 
-        # path transformer encoder
-        psi_1_transformer_layer = nn.TransformerEncoderLayer(
-            d_model=config.model_embedding_size, batch_first=True, **config.psi_1_transformer_layer
-        )
-        self.psi_1 = nn.TransformerEncoder(psi_1_transformer_layer, **config.psi_1_transformer_encoder)
+        else:
+            self.phi_0 = phi_0_projection
+
+        # observations transformer encoder
+        self.psi_1_module_name = config.psi_1.get("name", "PathTransformer")
+        assert self.psi_1_module_name in [
+            "PathTransformer",
+            "SetTransformer",
+            "CombinedPathTransformer",
+            "None",
+        ], f"Got {self.psi_1_module_name}."
+
+        num_layers: int = config.psi_1.get("num_layers")
+        layer_config = config.psi_1.get("layer")
+
+        if self.psi_1_module_name == "PathTransformer":
+            psi_1_transformer_layer = nn.TransformerEncoderLayer(d_model=config.model_embedding_size, batch_first=True, **layer_config)
+            self.psi_1 = nn.TransformerEncoder(psi_1_transformer_layer, num_layers=num_layers)
+
+        elif self.psi_1_module_name == "SetTransformer":
+            self.psi_1 = InducedSetTransformerEncoder(d_model=config.model_embedding_size, num_layers=num_layers, layer=layer_config)
+            self.psi_1_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
+
+        elif self.psi_1_module_name == "CombinedPathTransformer":
+            psi_1_transformer_layer = ResidualEncoderLayer(d_model=config.model_embedding_size, batch_first=True, **layer_config)
+            self.psi_1 = nn.TransformerEncoder(psi_1_transformer_layer, num_layers=num_layers)
+
+        else:
+            pass
 
         # locations encoder
-        phi_1x_mlp = MLP(in_features=config.max_dimension, out_features=config.model_embedding_size, **config.phi_1x)
-        phi_1x_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
-        self.phi_1x = nn.Sequential(phi_1x_mlp, phi_1x_layer_norm)
+        phi_1x_in_features = config.max_dimension
+        phi_1x_out_features = config.model_embedding_size
+        config.phi_1x.update({"in_features": phi_1x_in_features, "out_features": phi_1x_out_features})
+
+        phi_1x_encoder = create_class_instance(config.phi_1x.pop("name"), config.phi_1x)
+
+        if config.layer_norms_in_phi_0:
+            phi_1x_layer_norm = nn.LayerNorm(config.model_embedding_size, dtype=torch.float32)
+            self.phi_1x = nn.Sequential(phi_1x_encoder, phi_1x_layer_norm)
+
+        else:
+            self.phi_1x = phi_1x_encoder
 
         # operator(s) evaluated at locations
         assert config.operator_specificity in ["all", "per_concept", "per_head"]
+        concepts_outs = 2 if config.learn_vf_var is True else 1
         if config.operator_specificity == "all":
             self.operator = AttentionOperator(
-                embed_dim=config.model_embedding_size, out_features=4 * config.max_dimension, **deepcopy(config.operator)
+                embed_dim=config.model_embedding_size, out_features=2 * concepts_outs * config.max_dimension, **deepcopy(config.operator)
             )
             self.apply_operator = self.heads_projection_all_functions
 
         elif config.operator_specificity == "per_concept":
             self.operator_drift = AttentionOperator(
-                embed_dim=config.model_embedding_size, out_features=2 * config.max_dimension, **deepcopy(config.operator)
+                embed_dim=config.model_embedding_size, out_features=concepts_outs * config.max_dimension, **deepcopy(config.operator)
             )
             self.operator_diffusion = AttentionOperator(
-                embed_dim=config.model_embedding_size, out_features=2 * config.max_dimension, **deepcopy(config.operator)
+                embed_dim=config.model_embedding_size, out_features=concepts_outs * config.max_dimension, **deepcopy(config.operator)
             )
             self.apply_operator = self.heads_projection_per_concept
 
@@ -736,19 +1227,20 @@ class FIMSDE(AModel, pl.LightningModule):
             self.operator_drift = AttentionOperator(
                 embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
             )
-            self.operator_log_var_drift = AttentionOperator(
-                embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
-            )
             self.operator_diffusion = AttentionOperator(
                 embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
             )
-            self.operator_log_var_diffusion = AttentionOperator(
-                embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
-            )
+            if self.learn_vf_var is True:
+                self.operator_log_var_drift = AttentionOperator(
+                    embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
+                )
+                self.operator_log_var_diffusion = AttentionOperator(
+                    embed_dim=config.model_embedding_size, out_features=config.max_dimension, **deepcopy(config.operator)
+                )
             self.apply_operator = self.heads_projection_per_head
 
     def heads_projection_all_functions(
-        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_mask: Optional[Tensor] = None
+        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_padding_mask: Optional[Tensor] = None
     ) -> Tensor:
         """
         Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
@@ -757,18 +1249,25 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
             observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
-            observations_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
+            observations_padding_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
 
         Returns:
             heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
         """
-        operator_output = self.operator(locations_encoding, observations_encoding, observations_mask=observations_mask)
-        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = torch.chunk(operator_output, 4, dim=-1)
+        operator_output = self.operator(locations_encoding, observations_encoding, observations_padding_mask=observations_padding_mask)
+        if self.config.learn_vf_var:
+            drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = torch.chunk(
+                operator_output, 4, dim=-1
+            )
+
+        else:
+            drift_estimator, diffusion_estimator = torch.chunk(operator_output, 2, dim=-1)
+            log_var_drift_estimator, log_var_drift_estimator = None, None
 
         return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
 
     def heads_projection_per_concept(
-        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_mask: Optional[Tensor] = None
+        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_padding_mask: Optional[Tensor] = None
     ) -> Tensor:
         """
         Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
@@ -777,21 +1276,29 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
             observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
-            observations_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
+            observations_padding_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
 
         Returns:
             heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
         """
-        drift_output = self.operator_drift(locations_encoding, observations_encoding, observations_mask=observations_mask)
-        diffusion_output = self.operator_diffusion(locations_encoding, observations_encoding, observations_mask=observations_mask)
+        drift_output = self.operator_drift(locations_encoding, observations_encoding, observations_padding_mask=observations_padding_mask)
+        diffusion_output = self.operator_diffusion(
+            locations_encoding, observations_encoding, observations_padding_mask=observations_padding_mask
+        )
 
-        drift_estimator, log_var_drift_estimator = torch.chunk(drift_output, 2, dim=-1)
-        diffusion_estimator, log_var_diffusion_estimator = torch.chunk(diffusion_output, 2, dim=-1)
+        if self.config.learn_vf_var:
+            drift_estimator, log_var_drift_estimator = torch.chunk(drift_output, 2, dim=-1)
+            diffusion_estimator, log_var_diffusion_estimator = torch.chunk(diffusion_output, 2, dim=-1)
+
+        else:
+            drift_estimator = drift_output
+            diffusion_estimator = diffusion_output
+            log_var_drift_estimator, log_var_diffusion_estimator = None, None
 
         return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
 
     def heads_projection_per_head(
-        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_mask: Optional[Tensor] = None
+        self, locations_encoding: Tensor, observations_encoding: Tensor, observations_padding_mask: Optional[Tensor] = None
     ) -> Tensor:
         """
         Combine encodings of locations and observations via attention and projection to an value of size self.config.max_dimension for each head.
@@ -800,24 +1307,55 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             locations_encoding (Tensor): Encoding for each location on grid. Shape: [B, G, H]
             observations_encoding (Tensor): Encoding per observation and path. Shape: [B, P, T, H]
-            observations_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
+            observations_padding_mask (Optional[Tensor]): Mask per observation and path. True indicates value is observed. Shape: [B, P, T, 1]
 
         Returns:
             heads (Tensor): Heads that define SDEConcepts. Shape each: [B, G, self.config.max_dimension]
         """
-        drift_estimator = self.operator_drift(locations_encoding, observations_encoding, observations_mask=observations_mask)
-        log_var_drift_estimator = self.operator_log_var_drift(
-            locations_encoding, observations_encoding, observations_mask=observations_mask
+        drift_estimator = self.operator_drift(
+            locations_encoding, observations_encoding, observations_padding_mask=observations_padding_mask
+        )
+        diffusion_estimator = self.operator_diffusion(
+            locations_encoding, observations_encoding, observations_padding_mask=observations_padding_mask
         )
 
-        diffusion_estimator = self.operator_diffusion(locations_encoding, observations_encoding, observations_mask=observations_mask)
-        log_var_diffusion_estimator = self.operator_log_var_diffusion(
-            locations_encoding, observations_encoding, observations_mask=observations_mask
-        )
+        if self.config.learn_vf_var:
+            log_var_drift_estimator = self.operator_log_var_drift(
+                locations_encoding, observations_encoding, observations_padding_mask=observations_padding_mask
+            )
+            log_var_diffusion_estimator = self.operator_log_var_diffusion(
+                locations_encoding, observations_encoding, observations_padding_mask=observations_padding_mask
+            )
+
+        else:
+            log_var_drift_estimator, log_var_diffusion_estimator = None, None
 
         return drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator
 
-    def preprocess_inputs(self, databatch: FIMSDEDatabatchTuple, locations: Optional[Tensor] = None) -> tuple[Tensor, NormalizationStats]:
+    @staticmethod
+    @torch.profiler.record_function("fimsde_fill_masekd_values")
+    @torch.compile()
+    def _fill_masked_values(data: dict):
+        if "obs_mask" in data.keys() and data["obs_mask"] is not None:
+            obs_mask = data["obs_mask"].bool()
+
+            # for sanity, removed masked out values
+            obs_times = obs_mask * data["obs_times"]
+            obs_values = obs_mask * data["obs_values"]
+
+            # backward fill masked values s.t. values differences and squares respect masks
+            obs_times = backward_fill_masked_values(obs_times, obs_mask)
+            obs_values = backward_fill_masked_values(obs_values, obs_mask)
+
+        else:
+            obs_mask = torch.ones_like(data["obs_times"]).bool()
+            obs_times = data["obs_times"]
+            obs_values = data["obs_values"]
+
+        return obs_times, obs_values, obs_mask
+
+    @torch.profiler.record_function("preprocess_inputs")
+    def preprocess_inputs(self, data: dict, locations: Optional[Tensor] = None) -> tuple[Tensor, Any]:
         """
         Preprocessing of forward inputs. Includes:
             1. Backward fill on masked / padded observations.
@@ -828,45 +1366,47 @@ class FIMSDE(AModel, pl.LightningModule):
 
         Returns:
             Preprocessed inputs: obs_times, obs_values, obs_mask, locations
-            Instance normalization statistics: values_norm_stats, times_norm_stats
+            Instance normalization statistics: states_norm_stats, times_norm_stats
         """
+        assert (
+            data["obs_values"].shape[-1] <= self.config.max_dimension
+        ), f"Can not process observations of dim >{self.config.max_dimension}. Got {data['obs_values'].shape[-1]}."
 
-        if hasattr(databatch, "obs_mask"):
-            obs_mask = databatch.obs_mask.bool()
+        obs_times, obs_values, obs_mask = self._fill_masked_values(data)
 
-            # for sanity, removed masked out values
-            obs_times = obs_mask * databatch.obs_times
-            obs_values = obs_mask * databatch.obs_values
-
-            # backward fill masked values s.t. values differences and squares respect masks
-            obs_times = backward_fill_masked_values(obs_times, obs_mask)
-            obs_values = backward_fill_masked_values(obs_values, obs_mask)
-
-        else:
-            obs_mask = None
-            obs_times = databatch.obs_times
-            obs_values = databatch.obs_values
-
-        # Default to passed locations, otherwise use databatch.locations
+        # Default to passed locations, otherwise use data["locations"]
         if locations is None:
-            locations = databatch.locations
+            locations = data.get("locations")
+
+        # Expand input tensors to max_dimension for inference (assume train targets have correct shape)
+        if obs_values.shape[-1] < self.config.max_dimension:
+            missing_dims = self.config.max_dimension - obs_values.shape[-1]
+
+            obs_pad = torch.broadcast_to(torch.zeros_like(obs_values[..., 0][..., None]), obs_values.shape[:-1] + (missing_dims))
+            obs_values = torch.concatenate([obs_values, obs_pad], dim=-1)
+            if obs_mask is not None:
+                obs_mask = torch.concatenate([obs_mask, obs_pad], dim=-1)
+
+        if locations is not None and locations.shape[-1] < self.config.max_dimension:
+            missing_dims = self.config.max_dimension - locations.shape[-1]
+
+            locations_pad = torch.broadcast_to(torch.zeros_like(locations[..., 0][..., None]), locations.shape[:-1] + (missing_dims))
+            locations = torch.concatenate([locations, locations_pad], dim=-1)
 
         # Instance normalization
-        values_norm_stats = NormalizationStats(
-            obs_values, obs_mask, normalized_min=self.config.values_norm_min, normalized_max=self.config.values_norm_max
-        )
-        obs_values = values_norm_stats.normalization_map(obs_values)
+        states_norm_stats: Any = self.states_norm.get_norm_stats(obs_values, obs_mask)
+        obs_values = self.states_norm.normalization_map(obs_values, states_norm_stats)
 
         if locations is not None:
-            locations = values_norm_stats.normalization_map(locations)
+            locations = self.states_norm.normalization_map(locations, states_norm_stats)
 
-        times_norm_stats = NormalizationStats(
-            obs_times, obs_mask, normalized_min=self.config.times_norm_min, normalized_max=self.config.times_norm_max
-        )
-        obs_times = times_norm_stats.normalization_map(obs_times)
+        times_norm_stats: InstanceNormalization = self.times_norm.get_norm_stats(obs_times, obs_mask)
+        obs_times = self.times_norm.normalization_map(obs_times, times_norm_stats)
 
-        return obs_times, obs_values, obs_mask, locations, values_norm_stats, times_norm_stats
+        return obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats
 
+    @torch.profiler.record_function("get_paths_encoding")
+    @torch.compile()
     def get_paths_encoding(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Optional[Tensor] = None) -> Tensor:
         """
         Obtain embedding of all observed values in all paths.
@@ -888,19 +1428,35 @@ class FIMSDE(AModel, pl.LightningModule):
         dX = obs_values[:, :, 1:, :] - obs_values[:, :, :-1, :]
         dX2 = dX**2
 
-        x_full = torch.cat([X, dX, dX2], dim=-1)  # [B, P, T, 3*D]
-        spatial_encoding = self.phi_0x(x_full)  # [B, P, T, model_embedding_size]
+        if self.config.separate_phi_0_encoders is False:
+            x_full = torch.cat([X, dX, dX2], dim=-1)  # [B, P, T, 3*D]
+            spatial_encoding = self.phi_0x(x_full)  # [B, P, T, model_embedding_size]
+
+        else:
+            X = self.phi_0x_x(X)
+            dX = self.phi_0x_dx(dX)
+            dX2 = self.phi_0x2_dx(dX2)
+
+            spatial_encoding = torch.concatenate([X, dX, dX2], dim=-1)
 
         # separate time encoding; drop last time because dropped for values
-        obs_times = obs_times[:, :, :-1, :]  # [B, P, T-1, 1]
-        time_encoding = self.phi_0t(obs_times)  # [B, P, T-1, model_embedding_size]
+        if self.config.delta_time_only:
+            delta_times = obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]
+            time_encoding = self.phi_0t(delta_times)  # [B, P, T-1, model_embedding_size]
+
+        else:
+            absolute_time_encoding = self.phi_0t(obs_times)  # [B, P, T-1, model_embedding_size]
+            delta_time_encoding = absolute_time_encoding[:, :, 1:, :] - absolute_time_encoding[:, :, :-1, :]
+            time_encoding = torch.concatenate([absolute_time_encoding[:, :, :-1, :], delta_time_encoding], dim=-1)
 
         # combine time and value encodings per observation
-        if self.config.phi_0_combination == "concatenate":
-            U = self.phi_0(torch.concat([time_encoding, spatial_encoding], dim=-1))
+        phi_0_in_features = torch.concat([time_encoding, spatial_encoding], dim=-1)
 
-        else:  # "add"
-            U = self.phi_0(time_encoding + spatial_encoding)
+        if self.config.separate_phi_0_encoders is False:
+            U = self.phi_0(phi_0_in_features)
+
+        else:
+            U = phi_0_in_features
 
         assert U.shape == (
             B,
@@ -914,35 +1470,55 @@ class FIMSDE(AModel, pl.LightningModule):
             key_padding_mask = None
 
         else:
-            # revert mask as attention uses other convention
-            obs_mask = torch.logical_not(obs_mask.bool())  # [B, P, T, 1]
-
             # drop last element because it is dropped for values
             obs_mask = obs_mask[:, :, :-1, :]  # [B, P, T-1, 1]
 
+            # revert mask as attention uses other convention
+            key_padding_mask = torch.logical_not(obs_mask.bool())  # [B, P, T-1, 1]
+
+        if self.psi_1_module_name == "PathTransformer":
             # apply transformer to all paths separately
-            key_padding_mask = obs_mask.view(B * P, T - 1)  # [B * P, T-1]
+            U = U.view(B * P, T - 1, self.config.model_embedding_size)
+            key_padding_mask = key_padding_mask.view(B * P, T - 1)  # [B * P, T-1]
 
-        U = U.view(B * P, T - 1, self.config.model_embedding_size)
-        H = self.psi_1(U, src_key_padding_mask=key_padding_mask)  # [B * P, T-1, model_embedding_size]
+            H = self.psi_1(U, src_key_padding_mask=key_padding_mask)  # [B * P, T-1, model_embedding_size]
 
-        return H.view(B, P, T - 1, self.config.model_embedding_size)
+        elif self.psi_1_module_name == "SetTransformer":
+            U = U.view(B, P * (T - 1), self.config.model_embedding_size)
+            key_padding_mask = key_padding_mask.view(B, P * (T - 1), 1)
 
+            H = self.psi_1(U, key_padding_mask)  # [B, P * (T-1), H]
+            H = self.psi_1_layer_norm(H + U)
+
+        elif self.psi_1_module_name == "CombinedPathTransformer":
+            U = U.view(B, P * (T - 1), self.config.model_embedding_size)
+            key_padding_mask = key_padding_mask.view(B, P * (T - 1), 1)
+
+            H = self.psi_1(U, src_key_padding_mask=key_padding_mask)  # [B, P * (T-1), H]
+
+        elif self.psi_1_module_name == "None":  # don't apply any transformer
+            H = U
+
+        return H.view(B, P, T - 1, self.config.model_embedding_size), obs_mask
+
+    @torch.profiler.record_function("get_estimated_sde_concepts")
     def get_estimated_sde_concepts(
         self,
         locations: Tensor,
         obs_times: Optional[Tensor] = None,
         obs_values: Optional[Tensor] = None,
         obs_mask: Optional[Tensor] = None,
+        dimension_mask: Optional[Tensor] = None,
         paths_encoding: Optional[Tensor] = None,
     ):
         """
         Applies modules to preprocessed model inputs to estimate SDEConcepts at locations.
-        SDEConcepts are returned normalized.
+        SDEConcepts are returned normalized. Padded dimensions of vector fields are set to 0.
 
         Args:
             locations (Tensor): Locations to extract SDEConcepts at. Shape: [B, G, D]
             obs_times, obs_values, obs_mask (Tensor): See args of self.forward(...). Shape: [B, P, T, 1 or D]
+            dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
             paths_encoding (Optional[Tensor]): Encoding of observed paths. If not passed, it is recalculated. Shape: [B, P, T, model_embedding_size]
 
         Returns:
@@ -955,7 +1531,7 @@ class FIMSDE(AModel, pl.LightningModule):
             assert obs_times is not None
             assert obs_values is not None
 
-            paths_encoding = self.get_paths_encoding(obs_times, obs_values, obs_mask)  # [B, P, T - 1, embed_dim]
+            paths_encoding, obs_mask = self.get_paths_encoding(obs_times, obs_values, obs_mask)  # [B, P, T - 1, embed_dim]
 
             B, P, T, _ = obs_values.shape
             assert paths_encoding.shape == (
@@ -976,7 +1552,8 @@ class FIMSDE(AModel, pl.LightningModule):
         ), f"Expect {(B, G, self.config.model_embedding_size)}. Got {locations_encoding.shape}"
 
         # projection to heads
-        heads = self.apply_operator(locations_encoding, paths_encoding, observations_mask=obs_mask)
+        observations_padding_mask = torch.logical_not(obs_mask)  # revert convention for neural operator
+        heads = self.apply_operator(locations_encoding, paths_encoding, observations_padding_mask=observations_padding_mask)
         drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = heads  # [B, G, D]
 
         # Optionally make diffusion non-negative, already during training
@@ -986,6 +1563,18 @@ class FIMSDE(AModel, pl.LightningModule):
             diffusion_estimator = torch.abs(diffusion_estimator)
         elif self.config.non_negative_diffusion_by == "exp":
             diffusion_estimator = torch.exp(diffusion_estimator)
+
+        # set values at padded dimensions to 0
+        if dimension_mask is not None:
+            zeros_ = torch.zeros_like(drift_estimator)
+            ninf_ = -torch.inf * torch.ones_like(drift_estimator)
+
+            dimension_mask = dimension_mask.bool()
+            drift_estimator = torch.where(dimension_mask, drift_estimator, zeros_)
+            diffusion_estimator = torch.where(dimension_mask, diffusion_estimator, zeros_)
+            if self.config.learn_vf_var is True:
+                log_var_drift_estimator = torch.where(dimension_mask, log_var_drift_estimator, ninf_)
+                log_var_diffusion_estimator = torch.where(dimension_mask, log_var_diffusion_estimator, ninf_)
 
         estimated_concepts = SDEConcepts(
             locations=locations,
@@ -998,9 +1587,10 @@ class FIMSDE(AModel, pl.LightningModule):
 
         return estimated_concepts, paths_encoding
 
+    @torch.profiler.record_function("fimsde_forward")
     def forward(
         self,
-        databatch: FIMSDEDatabatchTuple,
+        data: dict,
         locations: Optional[Tensor] = None,
         training: bool = True,
         return_losses: bool = False,
@@ -1009,16 +1599,19 @@ class FIMSDE(AModel, pl.LightningModule):
     ) -> dict | tuple[SDEConcepts, dict]:
         """
         Args:
-            databatch (FIMSDEDatabatchTuple):
-                obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
-                obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
-                obs_mask (Tensor): mask for padded observations. == 1.0 if observed. Shape: [B, P, T, 1]
-                locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
-                drift/diffusion_at_locations (Tensor): ground-truth concepts at locations. Shape: [B, G, D]
-                dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
+            data (dict):
+                Required keys:
+                    obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
+                    obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
+                Optional keys:
+                    obs_mask (Tensor): mask for padded observations. == 1.0 if observed. Shape: [B, P, T, 1]
+                    locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
+                Optional keys for loss calculations:
+                    drift/diffusion_at_locations (Tensor): ground-truth concepts at locations. Shape: [B, G, D]
+                    dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
                 where B: batch size P: number of paths T: number of time steps G: location grid size D: dimensions
 
-            locations (Optional[Tensor]): If passed, is prioritized over databatch.locations. Shape: [B, G, D]
+            locations (Optional[Tensor]): If passed, is prioritized over data.locations. Shape: [B, G, D]
             training (bool): if True returns only dict with losses, including training objective
             return_losses (bool): is True computes and returns losses, even if training is False
 
@@ -1027,45 +1620,77 @@ class FIMSDE(AModel, pl.LightningModule):
                 if training == True or return_losses == True return (additionally):
                     losses (dict): training objective has key "loss", other keys are auxiliary for monitoring
         """
-
         # Instance normalization and appyling mask to observations
-        obs_times, obs_values, obs_mask, locations, values_norm_stats, times_norm_stats = self.preprocess_inputs(databatch, locations)
+        obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats = self.preprocess_inputs(data, locations)
 
         # Apply networks to get estimated concepts at locations
-        estimated_concepts, _ = self.get_estimated_sde_concepts(locations, obs_times, obs_values, obs_mask)
+        estimated_concepts, _ = self.get_estimated_sde_concepts(locations, obs_times, obs_values, obs_mask, data.get("dimension_mask"))
 
         # Losses
-        target_concepts: SDEConcepts | None = SDEConcepts.from_dbt(databatch)
+        target_concepts: SDEConcepts | None = SDEConcepts.from_dict(data)
 
-        if hasattr(databatch, "dimension_mask"):
-            dimension_mask = databatch.dimension_mask.bool()
+        if data.get("dimension_mask") is not None:
+            dimension_mask = data["dimension_mask"].bool()
 
         else:
-            dimension_mask = torch.ones(estimated_concepts.drift.shape, dtype=bool)
+            dimension_mask = torch.ones_like(estimated_concepts.drift, dtype=bool)
 
         if schedulers is not None:
             if "loss_threshold" in schedulers.keys() and training is True:
-                loss_threshold = torch.tensor(schedulers.get("loss_threshold")(step), device=self.device)
+                # loss_threshold = torch.tensor(schedulers.get("loss_threshold")(step), device=self.device)
+                loss_threshold = schedulers.get("loss_threshold")(step)
 
             else:
-                loss_threshold = torch.tensor(torch.inf, device=self.device)
+                # loss_threshold = torch.tensor(torch.inf, device=self.device)
+                loss_threshold = torch.inf
 
+            if "vector_field_max_norm" in schedulers.keys() and training is True:
+                # vector_field_max_norm = torch.tensor(schedulers.get("vector_field_max_norm")(step), device=self.device)
+                vector_field_max_norm = schedulers.get("vector_field_max_norm")(step)
+
+            else:
+                # vector_field_max_norm = torch.tensor(torch.inf, device=self.device)
+                vector_field_max_norm = torch.inf
+
+            if "diffusion_loss_scale" in schedulers.keys() and training is True:
+                diffusion_loss_scale = schedulers.get("diffusion_loss_scale")(step)
+
+            else:
+                diffusion_loss_scale = 1.0
         else:
-            loss_threshold = torch.tensor(torch.inf, device=self.device)
+            # loss_threshold = torch.tensor(torch.inf, device=self.device)
+            # vector_field_max_norm = torch.tensor(torch.inf, device=self.device)
+            loss_threshold = torch.inf
+            vector_field_max_norm = torch.inf
+            diffusion_loss_scale = 1.0
 
         # Returns
         if training is True:
             losses: dict = self.loss(
-                estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask, loss_threshold
+                estimated_concepts,
+                target_concepts,
+                states_norm_stats,
+                times_norm_stats,
+                dimension_mask,
+                loss_threshold,
+                vector_field_max_norm,
+                diffusion_loss_scale,
             )
             return {"losses": losses}
 
         else:
-            estimated_concepts.renormalize(values_norm_stats, times_norm_stats)
+            estimated_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
 
             if return_losses is True:
                 losses: dict = self.loss(
-                    estimated_concepts, target_concepts, values_norm_stats, times_norm_stats, dimension_mask, loss_threshold
+                    estimated_concepts,
+                    target_concepts,
+                    states_norm_stats,
+                    times_norm_stats,
+                    dimension_mask,
+                    loss_threshold,
+                    vector_field_max_norm,
+                    diffusion_loss_scale,
                 )
                 return estimated_concepts, {"losses": losses}
 
@@ -1073,75 +1698,9 @@ class FIMSDE(AModel, pl.LightningModule):
                 return estimated_concepts
 
     @staticmethod
-    def gaussian_nll_at_locations(estimated: Tensor, log_var_estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
-        """
-        Return (diagonal) gaussian NLL of target under estimated distribution. Mask indicates which values (in last dimension) to include.
-
-        Args:
-            estimated (Tensor): Mean estimated of target. Shape: [B, G, D]
-            log_var_estimated (Tensor): Log of variance of estimated of target. Shape: [B, G, D]
-            target (Tensor): Target values to compute the NLL of. Shape: [B, G, D]
-            mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
-
-        Return:
-            nll (Tensor): Gaussian NLL, (regularized) averaged over all batches and grid points. Shape: []
-        """
-        assert estimated.ndim == 3, "Got " + str(estimated.ndim)
-        assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
-        assert estimated.shape == log_var_estimated.shape, "Got " + str(estimated.shape) + " and " + str(log_var_estimated.shape)
-        assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
-
-        # (diagonal) gaussian NLL per dimension
-        var_estimated = torch.exp(log_var_estimated)
-        nll_per_dim = (
-            (estimated - target) ** 2 / (2 * var_estimated)
-            + 1 / 2 * log_var_estimated
-            + 1 / 2 * torch.log(2 * torch.pi * torch.ones_like(estimated))
-        )  # [B, G, D]
-
-        # sum over non-masked values
-        nll = torch.sum(mask * nll_per_dim, dim=-1)  # [B, G]
-
-        assert nll.ndim == 2, "Got " + str(nll.ndim)
-
-        return nll
-
-    @staticmethod
-    def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
-        """
-        Return RMSE between target and estimated values per location. Mask indicates which values (in last dimension) to include.
-
-        Args:
-            estimated (Tensor): estimated of target values. Shape: [B, G, D]
-            target (Tensor): Target values. Shape: [B, G, D]
-            mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
-
-        Return:
-            rmse (Tensor): RMSE at locations. Shape: [B, G]
-        """
-        assert estimated.ndim == 3, "Got " + str(estimated.ndim)
-        assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
-        assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
-
-        # squared error at non-masked values
-        se = mask * (estimated - target) ** 2
-        se = torch.sum(se, dim=-1)  # [B, G]
-
-        # mean over non-masked values
-        non_masked_values_count = torch.sum(mask, dim=-1)
-        mse = se / torch.clip(non_masked_values_count, min=1)  # [B, G]
-
-        # take root per location
-        rmse = torch.sqrt(mse)  # [B, G]
-
-        assert rmse.ndim == 2, "Got " + str(rmse.ndim)
-
-        return rmse
-
-    @staticmethod
     def filter_nans_from_vector_fields(estimated: Tensor, log_var_estimated: Tensor | None, target: Tensor, mask: Tensor) -> tuple[Tensor]:
         """
-        Filter locations where either estimate or target is Nan (or infinite). Record percentage of inifnite values (of non-masked values).
+        Filter locations where either estimate or target is Nan (or infinite)
 
         Args:
             vector field values (Tensor): Vector fields to filter. Shape: [B, G, D]
@@ -1149,34 +1708,15 @@ class FIMSDE(AModel, pl.LightningModule):
 
         Returns
             filtered vector field values (Tensor): Shape: [B, G, D]
-            are_finite_mask (Tensor): marks finite values with 1. Shape: [B, G, D]
-            estimated / target infinite perc (Tensor): Percentage of infinites in batch. Shape: []
         """
         # mask Nans per vector field
-        estimated_is_finite_mask = torch.isfinite(estimated)
-        target_is_finite_mask = torch.isfinite(target)
+        estimated = torch.nan_to_num(estimated)
+        target = torch.nan_to_num(target)
 
         if log_var_estimated is not None:
-            estimated_is_finite_mask = estimated_is_finite_mask * torch.isfinite(torch.exp(log_var_estimated))
+            log_var_estimated = torch.nan_to_num(log_var_estimated)
 
-        # combine masks
-        are_finite_mask = estimated_is_finite_mask * target_is_finite_mask
-
-        # fill Nans with 0s
-        estimated = torch.where(are_finite_mask, estimated, 0.0)
-        target = torch.where(are_finite_mask, target, 0.0)
-
-        if log_var_estimated is not None:
-            log_var_estimated = torch.where(are_finite_mask, log_var_estimated, 0.0)
-
-        # percentage of infinite values in batch, considering already masked values
-        non_masked_values_count = torch.clip(torch.sum(mask), min=1)
-        estimated_is_infinite_perc = (
-            torch.sum(torch.logical_not(estimated_is_finite_mask) * mask, dtype=torch.float32) / non_masked_values_count
-        )
-        target_is_infinite_perc = torch.sum(torch.logical_not(target_is_finite_mask) * mask, dtype=torch.float32) / non_masked_values_count
-
-        return estimated, log_var_estimated, target, are_finite_mask, estimated_is_infinite_perc, target_is_infinite_perc
+        return estimated, log_var_estimated, target
 
     @staticmethod
     def filter_loss_at_locations(loss_at_locations: Tensor, threshold: Optional[float] = None) -> tuple[Tensor]:
@@ -1188,11 +1728,13 @@ class FIMSDE(AModel, pl.LightningModule):
             threshold (Optional[float]): If passed, filter out locations with loss above threshold.
 
         Returns:
+            filtered_loss_at_locations (Tensor): loss_at_locations without Nans. Shape: [B, G]
             filter_mask (Tensor): Masks Nans or above threshold values with 0. Shape: [B, G]
             filtered_loss_locations_perc (Tensor): Percentage of filtered locations in batch. Shape: []
         """
         # mask locations with non-Nan loss values
         loss_is_finite_mask = torch.isfinite(loss_at_locations)  # [B, G]
+        loss_at_locations = torch.nan_to_num(loss_at_locations)
 
         # mask locations below threshold
         if threshold is not None:
@@ -1210,7 +1752,29 @@ class FIMSDE(AModel, pl.LightningModule):
         # record statistics of locations with nan or above threshold loss
         filtered_loss_locations_perc = torch.logical_not(loss_at_locations_mask).mean(dtype=torch.float32)  # []
 
-        return loss_at_locations_mask, filtered_loss_locations_perc
+        return loss_at_locations, loss_at_locations_mask, filtered_loss_locations_perc
+
+    @staticmethod
+    def clip_norms_of_vector_field(vector_field: Tensor, clip_threshold: float) -> tuple[Tensor]:
+        """
+        If norm of vector field value is above clip_threshold, rescale its norm to the clip_threshold.
+
+        Args:
+            vector_field (Tensor): vector field values to clip. Shape: [B, G, D]
+            clip_threshold (float): target value after clipping
+
+        Returns:
+            clipped_vector_field (Tensor): vector field values, rescaled to have norm <= clip_threshold
+        """
+        vector_field_norm = torch.linalg.norm(torch.clip(torch.abs(vector_field), min=1.0), dim=-1, keepdim=True)  # [B, G, 1]
+
+        vector_field_clip_mask = vector_field_norm > clip_threshold
+        vector_field_clipped_norm = vector_field / vector_field_norm * clip_threshold
+        vector_field = torch.where(vector_field_clip_mask, vector_field_clipped_norm, vector_field)
+
+        vector_field_clipped_norm_perc = vector_field_clip_mask.mean(dtype=torch.float)
+
+        return vector_field, vector_field_clipped_norm_perc
 
     def vector_field_loss(
         self,
@@ -1219,6 +1783,7 @@ class FIMSDE(AModel, pl.LightningModule):
         target: Tensor,
         mask: Tensor,
         loss_threshold: Optional[float] = None,
+        vector_field_max_norm: Optional[float] = None,
     ) -> tuple[Tensor]:
         """
         Compute (regularized) loss of vector field values at locations. Return statistics about regularization for monitoring.
@@ -1231,12 +1796,14 @@ class FIMSDE(AModel, pl.LightningModule):
             vector field values (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
             mask (Tensor): 0 masks padded values to ignore in loss calculation. Shape: [B, G, D]
             loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
+            vector_field_max_norm (Optional[float]): If passed, clip norm of vector fields to this value
 
         Returns
             loss (Tensor): Loss of vector field. Shape: []
             filtered_loss_locations_perc (Tensor): Percentage of locations where loss is above threshold or Nan. Shape: []
             estimated_is_infinite_perc (Tensor): Percentage of locations where estimated vector field is Nan. Shape: []
             target_is_infinite_perc (Tensor): Percentage of locations where target vector field is Nan. Shape: []
+            target_clip_perc (Tensor): Percentage of locations where target vector field exceeds norm clip threshold. Shape: []
         """
         # comparing vector field should have 3 dimensions and equal shape
         assert estimated.ndim == 3
@@ -1247,48 +1814,49 @@ class FIMSDE(AModel, pl.LightningModule):
 
         # filter Nans and infinite values
         if self.config.loss_filter_nans:
-            estimated, log_var_estimated, target, are_finite_mask, estimated_is_infinite_perc, target_is_infinite_perc = (
-                self.filter_nans_from_vector_fields(estimated, log_var_estimated, target, mask)
-            )
-            mask = mask * are_finite_mask
+            estimated, log_var_estimated, target = self.filter_nans_from_vector_fields(estimated, log_var_estimated, target, mask)
 
-        else:
-            estimated_is_infinite_perc, target_is_infinite_perc = None, None
-
-        # ensure: compute gradients at non-masked values
-        estimated = estimated * mask
-        target = target * mask
-        if log_var_estimated is not None:
-            log_var_estimated = log_var_estimated * mask
+        # clip vector field values for stabilities
+        if vector_field_max_norm is not None:
+            target, target_clipped_norm_perc = self.clip_norms_of_vector_field(target, vector_field_max_norm)
 
         # compute loss per location
         if self.config.loss_type == "rmse":
-            loss_at_locations = self.rmse_at_locations(estimated, target, mask)  # [B, G]
+            loss_at_locations = rmse_at_locations(estimated, target, mask)  # [B, G]
+
+        elif self.config.loss_type == "nrmse":
+            loss_at_locations = nrmse_at_locations(estimated, target, mask)
 
         elif self.config.loss_type == "nll":
             assert log_var_estimated is not None, "Must pass ´log_var_estimated` to compute nll loss."
-            loss_at_locations = self.gaussian_nll_at_locations(estimated, log_var_estimated, target, mask)  # [B, G]
+            loss_at_locations = gaussian_nll_at_locations(estimated, log_var_estimated, target, mask)  # [B, G]
 
         else:
-            raise ValueError("`loss_type` must be `rmse` or `nll`, got " + self.config.loss_type)
+            raise ValueError("`loss_type` must be `rmse`, `nrmse` or `nll`, got " + self.config.loss_type)
 
         # filter out Nans or above threshold locations from loss
-        loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(loss_at_locations, loss_threshold)
+        loss_at_locations, loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(
+            loss_at_locations, loss_threshold
+        )
 
         # mean loss at non-masked locations
         non_masked_values_count = torch.sum(loss_at_locations_mask)
         loss = torch.sum(loss_at_locations_mask * loss_at_locations) / torch.clip(non_masked_values_count, min=1)  # []
 
-        return loss, filtered_loss_locations_perc, estimated_is_infinite_perc, target_is_infinite_perc
+        return loss, filtered_loss_locations_perc, target_clipped_norm_perc
 
+    @torch.profiler.record_function("fimsde_loss")
+    @torch.compile(fullgraph=True)
     def loss(
         self,
         estimated_concepts: SDEConcepts,
         target_concepts: SDEConcepts | None,
-        values_norm_stats: NormalizationStats,
-        times_norm_stats: NormalizationStats,
+        states_norm_stats: Any,
+        times_norm_stats: Any,
         dimension_mask: Optional[Tensor] = None,
         loss_threshold: Optional[float] = None,
+        vector_field_max_norm: Optional[float] = None,
+        diffusion_loss_scale: Optional[float] = 1.0,
     ):
         """
         Compute supervised losses (RMSE or NLL) of sde concepts at non-padded dimensions.
@@ -1296,10 +1864,12 @@ class FIMSDE(AModel, pl.LightningModule):
         Args:
             estimated_concepts (SDEConcepts): Learned SDEConcepts. Shape: [B, G, D]
             target_concepts (SDEConcepts ): Ground-truth, target SDEConcepts. Shape: [B, G, D]
-            values_norm_stats (NormalizationStats): Values instance normalization statistics.
-            times_norm_stats (NormalizationStats): Times instance normalization statistics.
+            states_norm_stats (Any): Statistics used by self.states_norm for normalization.
+            times_norm_stats (Any): Statistics used by self.times_norm for normalization.
             dimension_mask (Optional[Tensor]): Masks padded dimensions to ignore in loss computations. Shape: [B, G, D]
             loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
+            vector_field_max_norm (Optional[float]): If passed, clip norm of vector fields to this value
+            diffusion_loss_scale (Optional[float]): Scale of diffusion relative to drift loss. Defaults to 1.
 
         Returns:
             losses (dict):
@@ -1311,7 +1881,7 @@ class FIMSDE(AModel, pl.LightningModule):
         assert target_concepts is not None, "Need ground-truth concepts at locations to compute train losses."
 
         if dimension_mask is None:
-            dimension_mask = torch.ones(estimated_concepts.drift.shape, dtype=bool)
+            dimension_mask = torch.ones_like(estimated_concepts.drift, dtype=bool)
 
         else:
             dimension_mask = dimension_mask.bool()
@@ -1322,147 +1892,156 @@ class FIMSDE(AModel, pl.LightningModule):
 
         # Ensure that estimation and target are on same normalization
         if self.config.train_with_normalized_head:
-            estimated_concepts.normalize(values_norm_stats, times_norm_stats)
-            target_concepts.normalize(values_norm_stats, times_norm_stats)
+            estimated_concepts.normalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
+            target_concepts.normalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
         else:
-            estimated_concepts.renormalize(values_norm_stats, times_norm_stats)
-            target_concepts.renormalize(values_norm_stats, times_norm_stats)
+            estimated_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
+            target_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
 
         # compute loss per vector field
         (
             drift_loss,
             drift_loss_above_threshold_or_nan_perc,
-            drift_estimated_is_infinite_perc,
-            drift_target_is_infinite_perc,
+            drift_target_above_max_norm,
         ) = self.vector_field_loss(
-            estimated_concepts.drift, estimated_concepts.log_var_drift, target_concepts.drift, dimension_mask, loss_threshold
+            estimated_concepts.drift,
+            estimated_concepts.log_var_drift,
+            target_concepts.drift,
+            dimension_mask,
+            loss_threshold,
+            vector_field_max_norm,
         )
         (
             diffusion_loss,
             diffusion_loss_above_threshold_or_nan_perc,
-            diffusion_estimated_is_infinite_perc,
-            diffusion_target_is_infinite_perc,
+            diffusion_target_above_max_norm,
         ) = self.vector_field_loss(
-            estimated_concepts.diffusion, estimated_concepts.log_var_diffusion, target_concepts.diffusion, dimension_mask, loss_threshold
+            estimated_concepts.diffusion,
+            estimated_concepts.log_var_diffusion,
+            target_concepts.diffusion,
+            dimension_mask,
+            loss_threshold,
+            vector_field_max_norm,
         )
 
         # assemble losses
-        total_loss = drift_loss + self.config.diffusion_loss_scale * diffusion_loss
+        total_loss = drift_loss + diffusion_loss_scale * diffusion_loss
         losses = {
             "loss": total_loss,
             "drift_loss": drift_loss,
             "diffusion_loss": diffusion_loss,
             "drift_loss_above_threshold_or_nan_perc": drift_loss_above_threshold_or_nan_perc,
             "diffusion_loss_above_threshold_or_nan_perc": diffusion_loss_above_threshold_or_nan_perc,
-            "drift_estimated_is_infinite_perc": drift_estimated_is_infinite_perc,
-            "diffusion_estimated_is_infinite_perc": diffusion_estimated_is_infinite_perc,
-            "drift_target_is_infinite_perc": drift_target_is_infinite_perc,
-            "diffusion_target_is_infinite_perc": diffusion_target_is_infinite_perc,
             "loss_threshold": loss_threshold,
+            "drift_target_norm_exceeds_threshold": drift_target_above_max_norm,
+            "diffusion_target_norm_exceeds_threshold": diffusion_target_above_max_norm,
+            "vector_field_max_norm": vector_field_max_norm,
         }
 
         return losses
 
-    # ----------------------------- Lightning Functionality ---------------------------------------------
-    def prepare_batch(self, batch) -> FIMSDEDatabatchTuple:
-        """lightning will convert name tuple into a full tensor for training
-        here we create the nametuple as required for the model
-        """
-        databatch = self.DatabatchNameTuple(*batch)
-        return databatch
-
-    def training_step(self, batch, batch_idx):
-        optimizer = self.optimizers()
-        databatch: FIMSDEDatabatchTuple = self.prepare_batch(batch)
-        losses = self.forward(databatch, training=True)
-
-        total_loss = losses.get("loss")
-
-        optimizer.zero_grad()
-        self.manual_backward(total_loss)
-        if self.config.clip_grad:
-            torch.nn.utils.clip_grad_norm_(self.parameters(), self.config.clip_max_norm)
-
-        if self.config.skip_nan_grads is True:  # skip updates if gradients contain Nans
-            grad_is_finite = [torch.isfinite(p.grad).all() if p.grad is not None else True for p in self.parameters()]
-            if all(grad_is_finite):
-                optimizer.step()
-
-            self.log("skipped_grad_due_to_nan", not all(grad_is_finite), prog_bar=False, logger=True)
-
-        else:
-            optimizer.step()
-
-        prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
-
-        for label, loss in losses.items():
-            prog_bar = label in prog_bar_labels
-            if loss is not None:
-                self.log(label, loss, on_step=True, prog_bar=prog_bar, logger=True)
-
-        return total_loss
-
-    def validation_step(self, batch, batch_idx):
-        databatch = self.prepare_batch(batch)
-        _, losses = self.forward(databatch, training=False, return_losses=True)
-
-        total_loss = losses.get("loss")
-
-        # losses["val_loss"] = losses.pop("loss")  # take loss as val_loss
-        # prog_bar_labels = ["val_loss", "drift_loss", "diffusion_loss"]
-        prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
-
-        for label, loss in losses.items():
-            prog_bar = label in prog_bar_labels
-            if loss is not None:
-                self.log("val_" + label, loss, on_step=True, prog_bar=prog_bar, logger=True)
-
-        return total_loss
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
-
-    def on_train_epoch_start(self):
-        # Action to be executed at the start of each training epoch
-        if (self.current_epoch + 1) % self.config.log_images_every_n_epochs == 0:
-            if self.config.pipeline_data is not None:
-                pipeline = FIMSDEPipeline(self)
-                pipeline_sample = pipeline(self.config.pipeline_data)
-                self.images_log(self.config.pipeline_data, pipeline_sample)
-
-    def images_log(self, databatch, pipeline_sample):
-        fig_vf, fig_paths = images_log_1D(databatch, pipeline_sample)
-        if fig_vf is not None:
-            mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_1D_vector_field.png")
-        if fig_paths is not None:
-            mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_1D_paths.png")
-        plt.close(fig_vf)
-        plt.close(fig_paths)
-
-        fig_vf, fig_paths = images_log_2D(databatch, pipeline_sample)
-        if fig_vf is not None:
-            mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_2D_vector_field.png")
-        if fig_paths is not None:
-            mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_2D_paths.png")
-        plt.close(fig_vf)
-        plt.close(fig_paths)
-
-        fig_vf, fig_paths = images_log_3D(databatch, pipeline_sample)
-        if fig_vf is not None:
-            mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_3D_vector_field.png")
-        if fig_paths is not None:
-            mlflow_client_ = self.logger.experiment
-            mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_3D_paths.png")
-        plt.close(fig_vf)
-        plt.close(fig_paths)
-
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)
+
+    # ----------------------------- Lightning Functionality ---------------------------------------------
+    # ----------------------------- Remove temporarily due to circular inputs ---------------------------
+    # def prepare_batch(self, batch) -> FIMSDEDatabatchTuple:
+    #     """lightning will convert name tuple into a full tensor for training
+    #     here we create the nametuple as required for the model
+    #     """
+    #     databatch = self.DatabatchNameTuple(*batch)
+    #     return databatch
+    #
+    # def training_step(self, batch, batch_idx):
+    #     optimizer = self.optimizers()
+    #     databatch: FIMSDEDatabatchTuple = self.prepare_batch(batch)
+    #     losses = self.forward(databatch, training=True)
+    #
+    #     total_loss = losses.get("loss")
+    #
+    #     optimizer.zero_grad()
+    #     self.manual_backward(total_loss)
+    #     if self.config.clip_grad:
+    #         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config.clip_max_norm)
+    #
+    #     if self.config.skip_nan_grads is True:  # skip updates if gradients contain Nans
+    #         grad_is_finite = [torch.isfinite(p.grad).all() if p.grad is not None else True for p in self.parameters()]
+    #         if all(grad_is_finite):
+    #             optimizer.step()
+    #
+    #         self.log("skipped_grad_due_to_nan", not all(grad_is_finite), prog_bar=False, logger=True)
+    #
+    #     else:
+    #         optimizer.step()
+    #
+    #     prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
+    #
+    #     for label, loss in losses.items():
+    #         prog_bar = label in prog_bar_labels
+    #         if loss is not None:
+    #             self.log(label, loss, on_step=True, prog_bar=prog_bar, logger=True)
+    #
+    #     return total_loss
+    #
+    # def validation_step(self, batch, batch_idx):
+    #     databatch = self.prepare_batch(batch)
+    #     _, losses = self.forward(databatch, training=False, return_losses=True)
+    #
+    #     total_loss = losses.get("loss")
+    #
+    #     # losses["val_loss"] = losses.pop("loss")  # take loss as val_loss
+    #     # prog_bar_labels = ["val_loss", "drift_loss", "diffusion_loss"]
+    #     prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
+    #
+    #     for label, loss in losses.items():
+    #         prog_bar = label in prog_bar_labels
+    #         if loss is not None:
+    #             self.log("val_" + label, loss, on_step=True, prog_bar=prog_bar, logger=True)
+    #
+    #     return total_loss
+    #
+    # def configure_optimizers(self):
+    #     return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
+    #
+    # def on_train_epoch_start(self):
+    #     # Action to be executed at the start of each training epoch
+    #     if (self.current_epoch + 1) % self.config.log_images_every_n_epochs == 0:
+    #         if self.config.pipeline_data is not None:
+    #             pipeline = FIMSDEPipeline(self)
+    #             pipeline_sample = pipeline(self.config.pipeline_data)
+    #             self.images_log(self.config.pipeline_data, pipeline_sample)
+    #
+    # def images_log(self, databatch, pipeline_sample):
+    #     fig_vf, fig_paths = images_log_1D(databatch, pipeline_sample)
+    #     if fig_vf is not None:
+    #         mlflow_client_ = self.logger.experiment
+    #         mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_1D_vector_field.png")
+    #     if fig_paths is not None:
+    #         mlflow_client_ = self.logger.experiment
+    #         mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_1D_paths.png")
+    #     plt.close(fig_vf)
+    #     plt.close(fig_paths)
+    #
+    #     fig_vf, fig_paths = images_log_2D(databatch, pipeline_sample)
+    #     if fig_vf is not None:
+    #         mlflow_client_ = self.logger.experiment
+    #         mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_2D_vector_field.png")
+    #     if fig_paths is not None:
+    #         mlflow_client_ = self.logger.experiment
+    #         mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_2D_paths.png")
+    #     plt.close(fig_vf)
+    #     plt.close(fig_paths)
+    #
+    #     fig_vf, fig_paths = images_log_3D(databatch, pipeline_sample)
+    #     if fig_vf is not None:
+    #         mlflow_client_ = self.logger.experiment
+    #         mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_3D_vector_field.png")
+    #     if fig_paths is not None:
+    #         mlflow_client_ = self.logger.experiment
+    #         mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_3D_paths.png")
+    #     plt.close(fig_vf)
+    #     plt.close(fig_paths)
+    #
 
 
 ModelFactory.register(FIMSDEConfig.model_type, FIMSDE)

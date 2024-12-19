@@ -107,9 +107,7 @@ class TestTrainSDE:
         config.trainer.experiment_dir = results_dir
         dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
 
-        model_config = dataloader.update_kwargs(config.model.to_dict())
-
-        model = ModelFactory.create(FIMSDEConfig(**model_config))
+        model = ModelFactory.create(FIMSDEConfig(**config.model.to_dict()))
         trainer = Trainer(model, dataloader, config)
 
         trainer.train()

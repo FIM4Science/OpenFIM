@@ -8,6 +8,62 @@ from torch import Tensor
 from fim.data.data_generation.dynamical_systems import DynamicalSystem
 from fim.data.data_generation.dynamical_systems_sample import PathGenerator
 from fim.data.datasets import FIMSDEDatabatch
+from fim.models.sde import MinMaxNormalization, SDEConcepts
+
+
+def get_dynamical_system_data(
+    system: DynamicalSystem,
+    integration_config: dict,
+    locations_params: dict,
+    normalize: Optional[bool] = False,
+    return_params: Optional[bool] = False,
+) -> FIMSDEDatabatch:
+    """
+    Generate dynamical system data and optionally normalize it.
+
+    Args:
+        system (DynamicalSystem): dynamical system to sample paths from
+        integration_config (dict): solver configuration
+        locations_params (dict): hypercube locations configuration
+        normalize (bool): return instance normalized dynamical systems data
+        return_params (bool): return tensors with params from dynamical system
+
+    Returns:
+        data (FIMSDEDatabatch): Data generated from dynamical system, via integration and location configs.
+    """
+    path_generator = PathGenerator(
+        dataset_type="FIMSDEpDataset", system=system, integrator_params=integration_config, locations_params=locations_params
+    )
+
+    if return_params is True:
+        data, drift_params, diffusion_params = path_generator.generate_paths(return_params=True)
+
+    else:
+        data: FIMSDEDatabatch = path_generator.generate_paths(return_params=False)
+
+    if normalize is True:
+        values_norm = MinMaxNormalization(normalized_min=-1, normalized_max=1)
+        values_norm_stats = values_norm.get_norm_stats(data.obs_values)
+        data.obs_values = values_norm.normalization_map(data.obs_values, values_norm_stats)
+
+        if data.locations is not None:
+            data.locations = values_norm.normalization_map(data.locations, values_norm_stats)
+
+        times_norm = MinMaxNormalization(normalized_min=0, normalized_max=1)
+        times_norm_stats = times_norm.get_norm_stats(data.obs_times)
+        data.obs_times = times_norm.normalization_map(data.obs_times, times_norm_stats)
+
+        target_concepts: SDEConcepts | None = SDEConcepts.from_dict(data)
+        target_concepts.normalize(values_norm, values_norm_stats, times_norm, times_norm_stats)
+
+        data.drift_at_locations = target_concepts.drift
+        data.diffusion_at_locations = target_concepts.diffusion
+
+    if return_params is True:
+        return data, drift_params, diffusion_params
+
+    else:
+        return data
 
 
 def show_paths_vector_fields_and_statistics(
@@ -17,6 +73,7 @@ def show_paths_vector_fields_and_statistics(
     fig_config: Optional[dict] = {},
     paths_plt_config: Optional[dict] = {},
     vector_field_plt_config: Optional[dict] = {},
+    normalize: Optional[bool] = False,
 ) -> tuple[plt.Figure, pd.DataFrame]:
     """
     Sample paths from a system and plot them, including the vector fields. Also return some statistics of paths.
@@ -34,11 +91,7 @@ def show_paths_vector_fields_and_statistics(
         stats_df (pd.Dataframe): Dataframe with some statistics of paths
     """
 
-    # generate data
-    path_generator = PathGenerator(
-        dataset_type="FIMSDEpDataset", system=system, integrator_params=integration_config, locations_params=locations_params
-    )
-    data: FIMSDEDatabatch = path_generator.generate_paths()
+    data: FIMSDEDatabatch = get_dynamical_system_data(system, integration_config, locations_params, normalize)
 
     num_realizations, _, _, D = data.obs_values.shape
 
@@ -88,6 +141,7 @@ def plot_paths_in_axis(
     ax: plt.Axes,
     paths_times: Tensor,
     paths_values: Tensor,
+    paths_mask: Optional[Tensor] = None,
     cmap: Optional[str] = None,
     init_states_marker_size: Optional[int] = 2,
     paths_label: Optional[str] = None,
@@ -102,11 +156,16 @@ def plot_paths_in_axis(
         ax (plt.Axes): Axis to plot paths into using passed plotting config
         paths_times (Tensor): Times of paths from one system. Shape: [num_paths, num_obs, 1]
         paths_values (Tensor): Values of paths from one system. Shape: [num_paths, num_obs, state_dim]
+        paths_mask (Optional[Tensor]): True indicates where observation is valid.
         init_states_marker_size (float): size of marker for initial state of each path
         paths_label (str): Label for plotted paths.
         initial_states_label_label (str): Label for plotted initial states.
         plt_config (dict): kwargs passed to plt.plot().
     """
+    # handle no mask passed
+    if paths_mask is None:
+        paths_mask = torch.ones_like(paths_times).bool()
+
     # update default plotting config if not passed
     default_plt_config = {"linewidth": 0.5}
     plt_config = default_plt_config | plt_config
@@ -128,25 +187,48 @@ def plot_paths_in_axis(
         colors = num_paths * ["black"]
 
     # paths, path times are trunkated because sometimes model paths are passed here and they might be fewer than paths_times
-    for path_num, (path_times, path_values, color) in enumerate(
-        zip(paths_times[: paths_values.shape[0], : paths_values.shape[1]], paths_values, colors)
+    for path_num, (path_times, path_values, path_mask, color) in enumerate(
+        zip(
+            paths_times[: paths_values.shape[0], : paths_values.shape[1]],
+            paths_values,
+            paths_mask[: paths_values.shape[0], : paths_values.shape[1]],
+            colors,
+        )
     ):
         plt_config.update({"color": color})
 
+        path_mask = path_mask.squeeze()
+
         if state_dim == 1:
-            ax.plot(path_times, path_values, label=paths_label if path_num == 0 else None, **plt_config)
-            ax.plot(path_times[0], path_values[0], label=initial_states_label if path_num == 0 else None, **init_states_plt_config)
+            ax.plot(path_times[path_mask], path_values[path_mask], label=paths_label if path_num == 0 else None, **plt_config)
+            ax.plot(
+                path_times[path_mask][0],
+                path_values[path_mask][0],
+                label=initial_states_label if path_num == 0 else None,
+                **init_states_plt_config,
+            )
 
         elif state_dim == 2:
-            ax.plot(path_values[:, 0], path_values[:, 1], label=paths_label if path_num == 0 else None, **plt_config)
-            ax.plot(path_values[0, 0], path_values[0, 1], label=initial_states_label if path_num == 0 else None, **init_states_plt_config)
+            ax.plot(path_values[path_mask][:, 0], path_values[path_mask][:, 1], label=paths_label if path_num == 0 else None, **plt_config)
+            ax.plot(
+                path_values[path_mask][0, 0],
+                path_values[path_mask][0, 1],
+                label=initial_states_label if path_num == 0 else None,
+                **init_states_plt_config,
+            )
 
         elif state_dim == 3:
-            ax.plot(path_values[:, 0], path_values[:, 1], path_values[:, 2], label=paths_label if path_num == 0 else None, **plt_config)
             ax.plot(
-                path_values[0, 0],
-                path_values[0, 1],
-                path_values[0, 2],
+                path_values[path_mask][:, 0],
+                path_values[path_mask][:, 1],
+                path_values[path_mask][:, 2],
+                label=paths_label if path_num == 0 else None,
+                **plt_config,
+            )
+            ax.plot(
+                path_values[path_mask][0, 0],
+                path_values[path_mask][0, 1],
+                path_values[path_mask][0, 2],
                 label=initial_states_label if path_num == 0 else None,
                 **init_states_plt_config,
             )

@@ -101,9 +101,11 @@ class TrainLossTracker:
         self.batch_line_plots.append(line_plots)
 
     def add_batch_stats(self, stats: dict):
-        self.add_batch_losses(stats["losses"])
+        with torch.profiler.record_function("losses"):
+            self.add_batch_losses(stats["losses"])
         # self.add_batch_histograms(stats["histograms"])
-        self.add_batch_line_plots(stats.get("line_plots"))
+        with torch.profiler.record_function("line_plots"):
+            self.add_batch_line_plots(stats.get("line_plots"))
 
     def summarize_epoch(self):
         """
@@ -325,7 +327,9 @@ class StepProgressBar:
             if (metrics is None or key in metrics) and not (
                 isinstance(value, tuple) or (isinstance(value, torch.Tensor) and len(value.size()) >= 1)
             ):
-                log_str += f"{key}: {value.item():4.4g} "
+                if isinstance(value, torch.Tensor):
+                    value = value.item()
+                log_str += f"{key}: {value:4.4g} "
         return log_str
 
 
@@ -626,10 +630,13 @@ class TrainLogging:
     def _log_tensorboard_scalars(self, label, statistics):
         for k, v in statistics.items():
             # if v is not a scalar: continue
-            if v.numel() != 1:
-                continue
+            if isinstance(v, torch.Tensor):
+                if v.numel() != 1:
+                    continue
 
-            self.tensorboard_logger.add_scalar(label + k.upper(), v.float(), self.__tensorboard_global_step, new_style=True)
+                v = float(v.item())
+
+            self.tensorboard_logger.add_scalar(label + k.upper(), v, self.__tensorboard_global_step, new_style=True)
 
     def _log_tensorboard_histograms(self, label, histograms):
         if histograms is None:
@@ -1032,6 +1039,29 @@ def move_batch_to_local_rank(batch: dict | tuple, local_rank: str) -> dict | tup
             batch[key] = batch[key].to(local_rank)
 
     return batch
+
+
+def prefetch_to_device(iterator, rank):
+    """
+    Prefatch iterator on different cuda stream.
+    Similar to torch_geometric prefetch.
+    """
+    s1 = torch.cuda.Stream(device=rank)
+
+    batch_on_device = None
+
+    for i, batch in enumerate(iterator):
+        with torch.profiler.record_function("prefetch_to_device"):
+            with torch.cuda.stream(s1):
+                batch = torch.utils._pytree.tree_map(lambda x: x.pin_memory().to(rank, non_blocking=True), batch)
+
+        if i != 0:
+            yield batch_on_device
+
+        torch.cuda.default_stream().wait_stream(s1)
+        batch_on_device = batch
+
+    yield batch_on_device
 
 
 # This context manager is used to track the peak memory usage of the process

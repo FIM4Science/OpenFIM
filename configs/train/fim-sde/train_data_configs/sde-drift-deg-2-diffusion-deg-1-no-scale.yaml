@@ -10,19 +10,20 @@ integration:
   num_paths: 50
   num_locations: 1024
   chunk_size: 40000 # generate at one time so many realizations (to filter Nans)
-  reject_threshold: 1000
+  reject_threshold: 100
   stochastic: true
 
 locations:
   type: regular_cube
+  extension_perc: 0.0
 
 train:
   - name: Degree2Polynomial
-    data_bulk_name: train
+    data_bulk_name: train_deg_2
     num_realizations: &num_realizations_train 5000
     observed_dimension: null
     state_dim: 2
-    redo: true
+    redo: &redo false
     drift_params: &drift_params
       constant:
         distribution: "normal"
@@ -77,83 +78,83 @@ train:
       activation: null
 
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: train_deg_3
     num_realizations: *num_realizations_train
     observed_dimension: null
     state_dim: 3
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: train_deg_1
     num_realizations: *num_realizations_train
     observed_dimension: null
     state_dim: 1
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
 test:
   - name: Degree2Polynomial
-    data_bulk_name: test
+    data_bulk_name: test_deg_2
     num_realizations: &num_realizations_test 500
     observed_dimension: null
     state_dim: 2
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: test_deg_3
     num_realizations: *num_realizations_test
     observed_dimension: null
     state_dim: 3
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: test_deg_1
     num_realizations: *num_realizations_test
     observed_dimension: null
     state_dim: 1
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
 validation:
   - name: Degree2Polynomial
-    data_bulk_name: validation
+    data_bulk_name: val_deg_2
     num_realizations: &num_realizations_validation 500
     observed_dimension: null
     state_dim: 2
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: val_deg_3
     num_realizations: *num_realizations_validation
     observed_dimension: null
     state_dim: 3
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
   - name: Degree2Polynomial
-    data_bulk_name: polynomial_diffusion
+    data_bulk_name: val_deg_1
     num_realizations: *num_realizations_validation
     observed_dimension: null
     state_dim: 1
-    redo: true
+    redo: *redo
     drift_params: *drift_params
     diffusion_params: *diffusion_params
     initial_state: *initial_state

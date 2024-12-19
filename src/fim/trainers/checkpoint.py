@@ -313,8 +313,8 @@ class TrainCheckpoint:
         model_checkpoint_path = checkpoint_path / "model-checkpoint.pth"
         train_checkpoint_path = checkpoint_path / "train-state-checkpoint.pth"
         self.__logger.info("Loading Model State: %s ...", model_checkpoint_path)
-        model_state = torch.load(model_checkpoint_path)
-        train_checkpoint_state = torch.load(train_checkpoint_path)
+        model_state = torch.load(model_checkpoint_path, weights_only=False)
+        train_checkpoint_state = torch.load(train_checkpoint_path, weights_only=False)
 
         self.model.load_state_dict(model_state)
         self.training_logger.load_state_dict(train_checkpoint_state["training_logger"])

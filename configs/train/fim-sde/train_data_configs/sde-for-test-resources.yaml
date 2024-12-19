@@ -1,0 +1,160 @@
+experiment_name: sde-test-resources
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  method: "EulerMaruyama"
+  # time_step: 0.1
+  time_length: 10
+  steps_per_dt: 20
+  num_steps: 128
+  num_paths: 5
+  num_locations: 1024
+  chunk_size: 4000 # generate at one time so many realizations (to filter Nans)
+  reject_threshold: 100
+  stochastic: true
+
+locations:
+  type: regular_cube
+  extension_perc: 0.0
+
+train:
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_train_deg_1
+    num_realizations: &num_realizations_train 5
+    observed_dimension: null
+    state_dim: 1
+    redo: &redo false
+    drift_params: &drift_params
+      constant:
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
+      degree_1:
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
+      degree_2_squared:
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
+      degree_2_mixed:
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
+      scale: &scale
+        sample_per_dimension: false
+        distribution: "fix"
+        fix_value: 1.0
+    diffusion_params: &diffusion_params
+      constant:
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
+      degree_1:
+        distribution: "normal"
+        mean: 0.0
+        std: 1
+        bernoulli_survival_rate: 0.5
+      degree_2_squared:
+        distribution: "fix"
+        fix_value: 0.0
+      degree_2_mixed:
+        distribution: "fix"
+        fix_value: 0.0
+      scale: *scale
+    initial_state: &initial_state
+      # distribution: "uniform"
+      # min: -1
+      # max: 1
+      # activation: null
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1
+      activation: null
+
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_train_deg_2
+    num_realizations: *num_realizations_train
+    observed_dimension: null
+    state_dim: 2
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_train_deg_3
+    num_realizations: *num_realizations_train
+    observed_dimension: null
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+test:
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_test_deg_1
+    num_realizations: &num_realizations_test 5
+    observed_dimension: null
+    state_dim: 1
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_test_deg_2
+    num_realizations: *num_realizations_test
+    observed_dimension: null
+    state_dim: 2
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_test_deg_3
+    num_realizations: *num_realizations_test
+    observed_dimension: null
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+validation:
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_validation_deg_1
+    num_realizations: &num_realizations_validation 500
+    observed_dimension: null
+    state_dim: 1
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_validation_deg_2
+    num_realizations: *num_realizations_validation
+    observed_dimension: null
+    state_dim: 2
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Degree2Polynomial
+    data_bulk_name: test_resources_validation_deg_3
+    num_realizations: *num_realizations_validation
+    observed_dimension: null
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state

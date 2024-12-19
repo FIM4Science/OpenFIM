@@ -18,6 +18,7 @@ T = TypeVar("T")
 class DataInFiles:
     obs_times: str = "obs_times.h5"
     obs_values: str = "obs_values.h5"
+    obs_mask: str = "obs_mask.h5"
     locations: str = "hypercube_locations.h5"
     drift_at_locations: str = "drift_functions_at_hypercube.h5"
     diffusion_at_locations: str = "scaled_diffusion_functions_at_hypercube.h5"

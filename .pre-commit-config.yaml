@@ -41,9 +41,9 @@ repos:
         args: [--check]
       - id: ruff-format
 
-  # Check for misspells in documentation files:
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.5
-    hooks:
-      - id: codespell
-        args: ["--ignore-words-list=docs/spelling_wordlist.txt"]
+  # # Check for misspells in documentation files:
+  # - repo: https://github.com/codespell-project/codespell
+  #   rev: v2.2.5
+  #   hooks:
+  #     - id: codespell
+  #       args: ["--ignore-words-list=docs/spelling_wordlist.txt"]

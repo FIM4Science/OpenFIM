@@ -162,7 +162,7 @@ def test_path_statistics() -> None:
 ### Test combination
 def test_show_paths_vector_fields_and_statistics():
     dynamical_model, integration_config, locations_params = get_example_system(3)
-    fig, stats_df = show_paths_vector_fields_and_statistics(dynamical_model, integration_config, locations_params)
+    fig, stats_df, data = show_paths_vector_fields_and_statistics(dynamical_model, integration_config, locations_params)
 
     print(stats_df)
     plt.show()
