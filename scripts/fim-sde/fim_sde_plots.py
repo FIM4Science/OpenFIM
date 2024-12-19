@@ -1,5 +1,6 @@
-from fim.data.config_dataclasses import FIMDatasetConfig
-from fim.models.config_dataclasses import FIMSDEConfig
+from fim.data.data_generation.dynamical_systems_target import generate_all
+from fim.data.datasets import FIMSDEDatabatchTuple
+from fim.models import FIMSDEConfig
 from fim.models.sde import FIMSDE
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
 from fim.utils.helper import select_dimension_for_plot
@@ -10,24 +11,22 @@ from fim.utils.plots.sde_estimation_plots import (
 )
 
 
-def test_plot_1d():
+def test_plot_1d(target_data: FIMSDEDatabatchTuple):
     model_config = FIMSDEConfig()
-    data_config = FIMDatasetConfig()
-    model = FIMSDE(model_config, data_config)
-    databatch_target = model.target_data
+    model = FIMSDE(model_config)
     pipeline = FIMSDEPipeline(model)
-    pipeline_output = pipeline(databatch_target)
+    pipeline_output = pipeline(target_data)
 
     selected_data = select_dimension_for_plot(
         1,
-        databatch_target.dimension_mask,
-        databatch_target.obs_times,
-        databatch_target.obs_values,
-        databatch_target.locations,
+        target_data.dimension_mask,
+        target_data.obs_times,
+        target_data.obs_values,
+        target_data.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
-        databatch_target.drift_at_locations,
-        databatch_target.diffusion_at_locations,
+        target_data.drift_at_locations,
+        target_data.diffusion_at_locations,
         pipeline_output.path,
     )
 
@@ -51,24 +50,22 @@ def test_plot_1d():
     )
 
 
-def test_plot_2d():
+def test_plot_2d(target_data: FIMSDEDatabatchTuple):
     model_config = FIMSDEConfig()
-    data_config = FIMDatasetConfig()
-    model = FIMSDE(model_config, data_config)
-    databatch_target = model.target_data
+    model = FIMSDE(model_config)
     pipeline = FIMSDEPipeline(model)
-    pipeline_output = pipeline(databatch_target)
+    pipeline_output = pipeline(target_data)
 
     selected_data = select_dimension_for_plot(
         2,
-        databatch_target.dimension_mask,
-        databatch_target.obs_times,
-        databatch_target.obs_values,
-        databatch_target.locations,
+        target_data.dimension_mask,
+        target_data.obs_times,
+        target_data.obs_values,
+        target_data.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
-        databatch_target.drift_at_locations,
-        databatch_target.diffusion_at_locations,
+        target_data.drift_at_locations,
+        target_data.diffusion_at_locations,
         pipeline_output.path,
     )
 
@@ -92,24 +89,22 @@ def test_plot_2d():
     )
 
 
-def test_plot_3d():
+def test_plot_3d(target_data: FIMSDEDatabatchTuple):
     model_config = FIMSDEConfig()
-    data_config = FIMDatasetConfig()
-    model = FIMSDE(model_config, data_config)
-    databatch_target = model.target_data
+    model = FIMSDE(model_config)
     pipeline = FIMSDEPipeline(model)
-    pipeline_output = pipeline(databatch_target)
+    pipeline_output = pipeline(target_data)
 
     selected_data = select_dimension_for_plot(
         3,
-        databatch_target.dimension_mask,
-        databatch_target.obs_times,
-        databatch_target.obs_values,
-        databatch_target.locations,
+        target_data.dimension_mask,
+        target_data.obs_times,
+        target_data.obs_values,
+        target_data.locations,
         pipeline_output.drift_at_locations_estimator,
         pipeline_output.diffusion_at_locations_estimator,
-        databatch_target.drift_at_locations,
-        databatch_target.diffusion_at_locations,
+        target_data.drift_at_locations,
+        target_data.diffusion_at_locations,
         pipeline_output.path,
     )
 
@@ -135,6 +130,7 @@ def test_plot_3d():
 
 
 if __name__ == "__main__":
-    test_plot_1d()
-    test_plot_2d()
-    test_plot_3d()
+    target_data = generate_all(128, 50)
+    # test_plot_1d(target_data)
+    test_plot_2d(target_data)
+    # test_plot_3d(target_data)

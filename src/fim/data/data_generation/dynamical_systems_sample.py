@@ -2,7 +2,7 @@ import os
 from abc import ABC, abstractmethod
 from copy import copy
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import yaml
@@ -35,15 +35,16 @@ class EulerMaruyama(SDEIntegrator):
         self.steps_per_dt = integrator_params.get("steps_per_dt", 1)
         self.stochastic = integrator_params["stochastic"]
 
-    @torch.compile()
-    def step(self, states, system, drift_params, diffusion_params):
+    def step(self, states, time, system, drift_params, diffusion_params):
+        dt_step = self.dt / self.steps_per_dt
         for _ in range(self.steps_per_dt):
-            drift = system.drift(states, None, drift_params)
+            drift = system.drift(states, time[:, None], drift_params)
             diffusion = system.diffusion(states, None, diffusion_params)
-            states = states + drift * self.dt / self.steps_per_dt
+            states = states + drift * dt_step
             if self.stochastic:
-                states = states + diffusion * torch.sqrt(torch.tensor(self.dt / self.steps_per_dt)) * torch.randn_like(states)
-        return states
+                states = states + diffusion * torch.sqrt(torch.tensor(dt_step)) * torch.randn_like(states)
+            time = time + dt_step
+        return states, time
 
 
 INTERGRATORS_METHODS = {"EulerMaruyama": EulerMaruyama}
@@ -84,6 +85,8 @@ class PathGenerator:
 
         self.reject_threshold = integrator_params.get("reject_threshold")  # reject if one component is larger than threshold
 
+        self.relative_diffusion_scale: float = integrator_params.get("relative_diffusion_scale")
+
         self.num_locations = integrator_params["num_locations"]
         self.sampling_device = integrator_params.get("device", "cuda")
 
@@ -119,7 +122,7 @@ class PathGenerator:
 
         self.integrator = INTERGRATORS_METHODS[integrator_params["method"]](integrator_params)
 
-    def generate_paths(self) -> FIMSDEDatabatch:
+    def generate_paths(self, return_params: Optional[bool] = False) -> FIMSDEDatabatch:
         """
         generate paths such that every realization of the parameters
         has a num of paths
@@ -144,46 +147,26 @@ class PathGenerator:
             drift_params = self.system.sample_drift_params(self.chunk_size)  # [chunk_size,max_drift_params]
             diffusion_params = self.system.sample_diffusion_params(self.chunk_size)  # [chunk_size,max_diffusion_params]
 
-            # repeats according to the numbr of paths per parameter realization
-            drift_params_repeated = torch.repeat_interleave(drift_params, self.num_paths, 0)
-            diffusion_params_repeated = torch.repeat_interleave(diffusion_params, self.num_paths, 0)
+            if self.relative_diffusion_scale is not None:
+                # solve ODE
+                diffusion_params = torch.zeros_like(diffusion_params)
+                hidden_paths, hidden_times, drift_params, diffusion_params = self.solve_equations(
+                    states, drift_params, diffusion_params, total_num_paths
+                )
 
-            # paths
-            hidden_paths = torch.zeros((total_num_paths, self.num_steps + 1, self.state_dim))
-            hidden_paths[:, 0] = states.clone()
+                # range per equation (adapted for multi-paths from SVISE)
+                hidden_paths = hidden_paths.view(hidden_paths.shape[0], -1)
+                paths_range = 1 / 2 * (torch.amax(hidden_paths) - torch.amin(hidden_paths))
 
-            # times
-            hidden_times = torch.linspace(0.0, self.num_steps * self.dt, self.num_steps + 1)
-            hidden_times = hidden_times[None, :].repeat(total_num_paths, 1)  # [total_num_paths,max_diffusion_params]
+                # update diffusion_params
+                target_shape = tuple([hidden_paths.shape[0]] + [1 for _ in diffusion_params.shape[1:]])
+                paths_range = torch.broadcast_to(paths_range.reshape(*target_shape), diffusion_params.shape)
+                diffusion_params = self.relative_diffusion_scale * paths_range * torch.ones_like(diffusion_params)
 
-            # solve on device
-            if torch.cuda.is_available() and self.sampling_device == "cuda":
-                drift_params_repeated = drift_params_repeated.to("cuda")
-                diffusion_params_repeated = diffusion_params_repeated.to("cuda")
-                states = states.to("cuda")
-
-            # go through iterator
-            for step in tqdm(range(self.num_steps), desc="Data sample step", leave=False, total=self.num_steps, position=1):
-                states = self.integrator.step(states, self.system, drift_params_repeated, diffusion_params_repeated)
-                hidden_paths[:, step + 1] = states.to("cpu").clone()
-
-            # Undo repeat interleave i.e. first shape corresponds to number of realizations (parameters are not repited)
-            hidden_paths = hidden_paths.view(self.chunk_size, self.num_paths, self.num_steps + 1, -1)
-            hidden_times = hidden_times.view(self.chunk_size, self.num_paths, self.num_steps + 1, -1)
-
-            # remove realizations with Nans
-            is_finite_mask = torch.all(torch.isfinite(hidden_paths.view(self.chunk_size, -1)), dim=1)
-            hidden_paths = hidden_paths[is_finite_mask]
-            hidden_times = hidden_times[is_finite_mask]
-            drift_params = drift_params[is_finite_mask]
-            diffusion_params = diffusion_params[is_finite_mask]
-
-            if self.reject_threshold is not None:
-                is_below_threshold = torch.all(torch.abs(hidden_paths).view(hidden_paths.shape[0], -1) < self.reject_threshold, dim=1)
-                hidden_paths = hidden_paths[is_below_threshold]
-                hidden_times = hidden_times[is_below_threshold]
-                drift_params = drift_params[is_below_threshold]
-                diffusion_params = diffusion_params[is_below_threshold]
+            # solve sde
+            hidden_paths, hidden_times, drift_params, diffusion_params = self.solve_equations(
+                states, drift_params, diffusion_params, total_num_paths
+            )
 
             # add remaining to generated data
             all_hidden_paths.append(hidden_paths)
@@ -192,18 +175,80 @@ class PathGenerator:
             all_diffusion_params.append(diffusion_params)
             num_generated_realizations = num_generated_realizations + hidden_paths.shape[0]
 
-            pbar.update(n=is_finite_mask.sum().item())
+            pbar.update(n=hidden_paths.shape[0])
 
-        hidden_times = torch.concatenate(all_hidden_times, dim=0)[: self.num_realizations]
-        hidden_paths = torch.concatenate(all_hidden_paths, dim=0)[: self.num_realizations]
-        drift_params = torch.concatenate(all_drift_params, dim=0)[: self.num_realizations]
-        diffusion_params = torch.concatenate(all_diffusion_params, dim=0)[: self.num_realizations]
+        hidden_times = torch.concatenate(all_hidden_times, dim=0)
+        hidden_paths = torch.concatenate(all_hidden_paths, dim=0)
+        drift_params = torch.concatenate(all_drift_params, dim=0)
+        diffusion_params = torch.concatenate(all_diffusion_params, dim=0)
+        assert hidden_times.shape[0] == hidden_paths.shape[0] == drift_params.shape[0] == diffusion_params.shape[0]
 
         pbar.close()
 
-        return self.define_bulk(hidden_paths, hidden_times, drift_params, diffusion_params)
+        obs_mask = torch.ones_like(hidden_times).bool()  # for now no masking
 
-    def define_bulk(self, hidden_paths, hidden_times, drift_params, diffusion_params) -> FIMSDEDatabatch:
+        databatch = self.define_bulk(
+            hidden_times[: self.num_realizations],
+            hidden_paths[: self.num_realizations],
+            obs_mask,
+            drift_params[: self.num_realizations],
+            diffusion_params[: self.num_realizations],
+        )
+
+        if return_params is True:
+            return databatch, drift_params[: self.num_realizations], diffusion_params[: self.num_realizations]
+
+        else:
+            return databatch
+
+    def solve_equations(self, states, drift_params, diffusion_params, total_num_paths: int):
+        # repeats according to the numbr of paths per parameter realization
+        drift_params_repeated = torch.repeat_interleave(drift_params, self.num_paths, 0)
+        diffusion_params_repeated = torch.repeat_interleave(diffusion_params, self.num_paths, 0)
+
+        # paths
+        hidden_paths = torch.zeros((total_num_paths, self.num_steps + 1, self.state_dim))
+        hidden_paths[:, 0] = states.clone()
+
+        # times
+        hidden_times = torch.linspace(0.0, self.num_steps * self.dt, self.num_steps + 1)
+        hidden_times = hidden_times[None, :].repeat(total_num_paths, 1)  # [total_num_paths,max_diffusion_params]
+        solver_time = hidden_times[:, 0]
+
+        # solve on device
+        if torch.cuda.is_available() and self.sampling_device == "cuda":
+            drift_params_repeated = drift_params_repeated.to("cuda")
+            diffusion_params_repeated = diffusion_params_repeated.to("cuda")
+            states = states.to("cuda")
+            solver_time = solver_time.to("cuda")
+
+        # go through iterator
+
+        for step in tqdm(range(self.num_steps), desc="Data sample step", leave=False, total=self.num_steps, position=1):
+            states, solver_time = self.integrator.step(states, solver_time, self.system, drift_params_repeated, diffusion_params_repeated)
+            hidden_paths[:, step + 1] = states.to("cpu").clone()
+
+        # Undo repeat interleave i.e. first shape corresponds to number of realizations (parameters are not repited)
+        hidden_paths = hidden_paths.view(self.chunk_size, self.num_paths, self.num_steps + 1, -1)
+        hidden_times = hidden_times.view(self.chunk_size, self.num_paths, self.num_steps + 1, -1)
+
+        # remove realizations with Nans
+        is_finite_mask = torch.all(torch.isfinite(hidden_paths.view(self.chunk_size, -1)), dim=1)
+        hidden_paths = hidden_paths[is_finite_mask]
+        hidden_times = hidden_times[is_finite_mask]
+        drift_params = drift_params[is_finite_mask]
+        diffusion_params = diffusion_params[is_finite_mask]
+
+        if self.reject_threshold is not None and hidden_paths.shape[0] > 0:
+            is_below_threshold = torch.all(torch.abs(hidden_paths).view(hidden_paths.shape[0], -1) < self.reject_threshold, dim=1)
+            hidden_paths = hidden_paths[is_below_threshold]
+            hidden_times = hidden_times[is_below_threshold]
+            drift_params = drift_params[is_below_threshold]
+            diffusion_params = diffusion_params[is_below_threshold]
+
+        return hidden_paths, hidden_times, drift_params, diffusion_params
+
+    def define_bulk(self, hidden_times, hidden_paths, obs_mask, drift_params, diffusion_params) -> FIMSDEDatabatch:
         """
         Evaluates cases for the different data bulks
 
@@ -211,7 +256,7 @@ class PathGenerator:
         as well as the noise to the observations
         """
         if self.dataset_type == "FIMSDEpDataset":
-            return self.define_fim_sde_data(hidden_paths, hidden_times, drift_params, diffusion_params)
+            return self.define_fim_sde_data(hidden_times, hidden_paths, obs_mask, drift_params, diffusion_params)
         elif self.dataset_type == "FIMPOODEDataset":
             obs_values, obs_times, obs_mask, obs_lenght = self.time_observations_and_mask(hidden_paths, hidden_times)
             noisy_obs_values = self.obs_noise(obs_values)
@@ -255,7 +300,7 @@ class PathGenerator:
 
         return locations
 
-    def define_fim_sde_data(self, obs_values, obs_times, drift_parameters, diffusion_parameters) -> FIMSDEDatabatch:
+    def define_fim_sde_data(self, obs_times, obs_values, obs_mask, drift_parameters, diffusion_parameters) -> FIMSDEDatabatch:
         """
         Define locations and evaluate drift and diffusion at them.
         Store generated data in FIMSDEDatabatch.
@@ -288,9 +333,10 @@ class PathGenerator:
         diffusion_at_locations = diffusion_at_locations.reshape(num_realizations, num_locations, D)
 
         return FIMSDEDatabatch(
-            locations=locations,
             obs_times=obs_times,
             obs_values=obs_values,
+            obs_mask=obs_mask,
+            locations=locations,
             diffusion_at_locations=diffusion_at_locations,
             drift_at_locations=drift_at_locations,
             process_dimension=process_dimension,
@@ -379,22 +425,15 @@ def set_up_a_dynamical_system(
     if return_data:
         data: FIMSDEDatabatch
         # study data does not exist we generated again
-        if not study_path.exists():
+        if not study_path.exists() or (redo_study is True):
             path_generator = PathGenerator(dataset_type, dynamical_model, integrator_params, locations_params)
             data = path_generator.generate_paths()
             torch.save(data, study_path)
             return data
+        # data exist and we take it
         else:
-            # data exist but we must simulate again
-            if redo_study:
-                path_generator = PathGenerator(dataset_type, dynamical_model, integrator_params, locations_params)
-                data = path_generator.generate_paths()
-                torch.save(data, study_path)
-                return data
-            # data exist and we take it
-            else:
-                data = torch.load(study_path)
-                return data
+            data = torch.load(study_path, weights_only=False)
+            return data
 
     return dynamical_model
 

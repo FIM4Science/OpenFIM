@@ -5,6 +5,7 @@ from functools import partial
 from pathlib import Path
 from typing import List, Optional, Union
 
+import optree
 import pandas as pd
 import torch
 import torch.distributed as dist
@@ -19,7 +20,16 @@ from fim.data.data_generation.gp_dynamical_systems import get_dynamicals_system_
 from fim.models import FIMSDEConfig
 from fim.utils.helper import create_class_instance, verify_str_arg
 
-from ..data.datasets import FIMDataset, FIMSDEDatabatch, FIMSDEDatabatchTuple, FIMSDEDataset, TimeSeriesImputationDatasetTorch
+from ..data.datasets import (
+    FIMDataset,
+    FIMSDEDatabatch,
+    FIMSDEDatabatchTuple,
+    FIMSDEDataset,
+    HeterogeneousFIMSDEDataset,
+    PaddedFIMSDEDataset,
+    StreamingFIMSDEDataset,
+    TimeSeriesImputationDatasetTorch,
+)
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
 from .utils import get_path_counts
@@ -523,44 +533,35 @@ class FIMSDEDataloader(BaseDataLoader):
             A new FIMSDEDatabatchTuple with randomly selected number of paths and grids.
         """
         # Extract all fields from the batch (list of FIMSDEDatabatchTuple)
-        obs_values = torch.stack([item.obs_values for item in batch])
         obs_times = torch.stack([item.obs_times for item in batch])
+        obs_values = torch.stack([item.obs_values for item in batch])
         drift_at_locations = torch.stack([item.drift_at_locations for item in batch])
         diffusion_at_locations = torch.stack([item.diffusion_at_locations for item in batch])
         locations = torch.stack([item.locations for item in batch])
         dimension_mask = torch.stack([item.dimension_mask for item in batch])
 
-        # determine and truncate number of paths
-        if config.random_paths is True:
-            # Permute paths (for now, all elements in batch are permuted the same)
-            paths_perm = torch.randperm(obs_values.shape[1])
-
-            obs_values = obs_values[:, paths_perm]
-            obs_times = obs_times[:, paths_perm]
-
-            # Randomly select number of paths for the entire batch
-            max_paths = obs_values.size(1)
-            number_of_paths = torch.randint(config.min_num_paths, min(config.max_num_paths, max_paths) + 1, size=(1,)).item()
-
-        elif config.max_num_paths is not None:  # default to max_num_paths
-            number_of_paths = config.max_num_paths
+        if hasattr(batch[0], "obs_mask") and batch[0].obs_mask is not None:
+            obs_mask = torch.stack([item.obs_mask for item in batch])
 
         else:
-            number_of_paths = None
+            obs_mask = torch.ones_like(obs_times)
 
-        if number_of_paths is not None:
-            obs_values = obs_values[:, :number_of_paths]
-            obs_times = obs_times[:, :number_of_paths]
+        # determine and truncate number of paths
+        if config.random_paths is True:
+            max_paths = obs_values.shape[1]
+            indices = torch.randperm(max_paths)
+
+            number_of_paths = torch.randint(config.min_num_paths, min(config.max_num_paths, max_paths) + 1, size=(1,))
+            number_of_paths = number_of_paths.item()
+
+            indices = indices[:number_of_paths]
+            obs_times = obs_times[:, indices]
+            obs_values = obs_values[:, indices]
+            obs_mask = obs_mask[:, indices]
 
         # determine and truncate number of grids
         if config.random_grids is True:
-            # Permute grids (for now, all elements in batch are permuted the same)
-            grids_perm = torch.randperm(locations.shape[1])
-
-            drift_at_locations = drift_at_locations[:, grids_perm]
-            diffusion_at_locations = diffusion_at_locations[:, grids_perm]
-            locations = locations[:, grids_perm]
-            dimension_mask = dimension_mask[:, grids_perm]
+            indices = torch.randperm(locations.shape[1])
 
             if config.min_num_grid_points is not None and config.min_num_grid_points != -1:
                 # Randomly select number of paths for the entire batch
@@ -568,15 +569,17 @@ class FIMSDEDataloader(BaseDataLoader):
                 number_of_grids = torch.randint(config.min_num_grid_points, min(config.max_num_grid_points, max_grids) + 1, size=(1,))
                 number_of_grids = number_of_grids.item()
 
-                drift_at_locations = drift_at_locations[:, :number_of_grids]
-                diffusion_at_locations = diffusion_at_locations[:, :number_of_grids]
-                locations = locations[:, :number_of_grids]
-                dimension_mask = dimension_mask[:, :number_of_grids]
+                indices = indices[:number_of_grids]
+                drift_at_locations = drift_at_locations[:, indices]
+                diffusion_at_locations = diffusion_at_locations[:, indices]
+                locations = locations[:, indices]
+                dimension_mask = dimension_mask[:, indices]
 
         # Return a new FIMSDEDatabatchTuple
         return FIMSDEDatabatchTuple(
-            obs_values=obs_values,
             obs_times=obs_times,
+            obs_values=obs_values,
+            obs_mask=obs_mask,
             drift_at_locations=drift_at_locations,
             diffusion_at_locations=diffusion_at_locations,
             locations=locations,
@@ -600,7 +603,131 @@ class FIMSDEDataloader(BaseDataLoader):
             batch_size=config.batch_size,
             collate_fn=partial(self.fimsde_collate_fn, config=config),
             num_workers=self.num_workers,
+            persistent_workers=True if self.num_workers > 0 else False,
         )
+
+
+class FIMSDEDataloaderIterableDataset(BaseDataLoader):
+    """
+    Dataloader for FIM SDE model.
+    """
+
+    def __init__(self, num_workers: Optional[int] = 2, **kwargs):
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+        num_workers
+
+        if isinstance(num_workers, int):
+            self.num_workers: dict = {
+                "train": num_workers,
+                "test": num_workers,
+                "validation": num_workers,
+            }
+        else:  # assume num_workers has the above structure
+            self.num_workers: dict = num_workers
+
+        # kwargs contain config of each dataset
+        dataset_config: dict[str, dict] = {
+            "train": self._get_dataset_config("train", kwargs),
+            "validation": self._get_dataset_config("validation", kwargs),
+            "test": self._get_dataset_config("test", kwargs),
+        }
+
+        self.dataset: dict[str, torch.utils.data.IterableDataset] = {
+            "train": self._get_dataset(**dataset_config.get("train")),
+            "validation": self._get_dataset(**dataset_config.get("validation")),
+            "test": self._get_dataset(**dataset_config.get("test")),
+        }
+
+        self.iter = {
+            "train": self._init_dataloader(self.dataset.get("train"), self.num_workers["train"]),
+            "validation": self._init_dataloader(self.dataset.get("validation"), self.num_workers["validation"]),
+            "test": self._init_dataloader(self.dataset.get("test"), self.num_workers["test"]),
+        }
+
+        self.samplers = {}
+
+    @staticmethod
+    def _get_dataset_config(label: str, config: dict) -> dict:
+        """
+        Return dataset config for some set label (e.g. train, test, validation) from some dict, likely passed from config yaml.
+        For each key, check if passed config is dict that contains label, e.g.
+            {"train":..., "test":..., "validation":...}
+        extract the value under the label and set it as value.
+        Otherwise, extract the value from the dict directly for this key, e.g. value = config.get(key_label)
+
+        Args:
+            label (str): set label, e.g. train, test, validation
+            config (dict): contains values to construct Dataset with, e.g.:
+                {
+                "key_1": value_1,
+                "key_2": {"train": value_2_train, "test": value_2_test, "validation": value_2_validation}
+                }
+
+        Returns:
+            config_for_label (dict): Key, values extracted from config under label.
+        """
+        config_for_label = {}
+
+        for key, value in config.items():
+            if isinstance(value, dict) and label in value.keys():
+                config_for_label[key] = value[label]
+
+            else:
+                config_for_label[key] = value
+
+        return config_for_label
+
+    def _init_dataloader(self, dataset: torch.utils.data.IterableDataset, num_workers: int) -> torch.utils.data.DataLoader:
+        return DataLoader(
+            dataset,
+            drop_last=False,
+            batch_size=None,  # handled by iterable dataset
+            num_workers=num_workers,
+            persistent_workers=num_workers != 0,
+            pin_memory=True,
+        )
+
+    def _get_dataset(self, **dataset_config):
+        dataset_name = dataset_config.pop("dataset_name")
+
+        if dataset_name == "HeterogeneousFIMSDEDataset":
+            dataset_class = HeterogeneousFIMSDEDataset
+        elif dataset_name == "PaddedFIMSDEDataset":
+            dataset_class = PaddedFIMSDEDataset
+        elif dataset_name == "StreamingFIMSDEDataset":
+            dataset_class = StreamingFIMSDEDataset
+        else:
+            raise ValueError(f"Dataset {dataset_name} not recognized.")
+
+        return dataset_class(**dataset_config)
+
+
+def fimdataset_to_sde_collate_fn(batch: List[dict]):
+    """
+    Collate FIMDataset dict output into FIMSDEDatabatchTuple (for model input) and extraneous dict (for evaluation).
+
+    Args:
+        batch (list[dict]): Returned by FIMDataset's __getitem__.
+
+    Returns:
+        databatch (FIMSDEDatabatchTuple): Input for FIMSDE.
+        extra_data (dict): Extraneous data for evaluation.
+    """
+    batch: dict = optree.tree_map(lambda *x: torch.stack(x, dim=0), *batch)
+
+    databatch: FIMSDEDatabatchTuple = FIMSDEDatabatchTuple(
+        obs_values=batch.get("obs_values"),
+        obs_times=batch.get("obs_times"),
+        drift_at_locations=batch.get("drift_at_locations"),
+        diffusion_at_locations=batch.get("diffusion_at_locations"),
+        locations=batch.get("locations"),
+        dimension_mask=batch.get("dimension_mask"),
+    )
+
+    for key in ["obs_values", "obs_times", "drift_at_locations", "diffusion_at_locations", "locations", "dimension_mask"]:
+        batch.pop(key, None)
+
+    return databatch, batch
 
 
 class DataLoaderFactory:
@@ -641,3 +768,4 @@ class DataLoaderFactory:
 DataLoaderFactory.register("ts_torch_dataloader", TimeSeriesDataLoaderTorch)
 DataLoaderFactory.register("FIMDataLoader", FIMDataLoader)
 DataLoaderFactory.register("FIMSDEDataloader", FIMSDEDataloader)
+DataLoaderFactory.register("FIMSDEDataloaderIterableDataset", FIMSDEDataloaderIterableDataset)

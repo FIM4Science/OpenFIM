@@ -27,6 +27,7 @@ tags
 results
 ./evaluations
 saved_evaluations
+evaluations
 
 # Package files
 *.egg

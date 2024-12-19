@@ -1,0 +1,294 @@
+experiment:
+  # name: 15k_deg_2_drift_deg_1_diff_rmse_delta_time_only_linear_location_enc_no_psi_1_transfomer_model_embd_256_hidden_layers_256_8_heads
+  # name: 30K_deg_3_drift_deg_0_diff_50_paths_linear_out_projection_set_transf_4_layers_32_ind_points_block_attn_no_queries_residual
+  # name: linear_self_attention_softmax_feature_map_with_normalization_4_layers
+  # name: 30K_deg_3_drift_deg_0_diff_mlp_out_projection_GNOT_repeated_location_query_attention_separate_encoders_2_layer_linear_self_attention
+  name: test_new_dataloader
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  seed: 10
+  device_map: cuda # auto, cuda, cpu
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  model_type: fimsde
+  ###################################################################################
+  # Input data (corrected by dataloader)
+  max_dimension: &max_dimension 3
+  max_time_steps: &max_time_steps 128
+  max_location_size: &max_location_size 1024
+  max_num_paths: &max_num_of_paths 300
+
+  # General model config
+  non_negative_diffusion_by: null
+  model_embedding_size: &model_embedding_size 128
+
+  # General transformer config
+  residual_ff_size: &residual_ff_size 512
+  transformer_layer_activation: &transformer_layer_activation "gelu"
+
+  # General MLP config
+  hidden_layers: &hidden_layers !!python/tuple [128, 128]
+  dropout_rate: &dropout_rate 0.1
+  hidden_act: &hidden_act
+    name: &activation torch.nn.GELU
+
+  # Networks
+  layer_norms_in_phi_0: false
+  separate_phi_0_encoders: true
+  delta_time_only: true
+
+  phi_0t:
+    name: fim.models.sde.SineTimeEncoding
+
+  phi_0x:
+    name: torch.nn.Linear
+
+  psi_1:
+    # name: "SetTransformer"
+    # num_layers: 2
+    # layer:
+    #   nhead: 4
+    #   dim_feedforward: *residual_ff_size
+    #   dropout: *dropout_rate
+    #   activation: *activation
+    #   num_induced_points: 128
+
+    # name: "PathTransformer"
+    # num_layers: 2
+    # layer:
+    #   attn_method: "efficient"
+    #   nhead: 4
+    #   dim_feedforward: *residual_ff_size
+    #   dropout: *dropout_rate
+    #   activation: *transformer_layer_activation
+
+    # name: "None"
+
+    name: "CombinedPathTransformer"
+    num_layers: 2
+    layer:
+      attn_method: "linear"
+      lin_feature_map: "softmax"
+      lin_normalize: true
+      nhead: 4
+      dim_feedforward: *residual_ff_size
+      dropout: *dropout_rate
+      activation: *activation
+
+  phi_1x:
+    name: torch.nn.Linear
+
+  learn_vf_var: false
+  operator_specificity: "per_concept" # all, per_concept, per_head
+
+  operator:
+    paths_block_attention: false
+    num_res_layers: 4
+    attention:
+      nhead: 4
+      dim_feedforward: *residual_ff_size
+      dropout: *dropout_rate
+      activation: *activation
+
+    projection:
+      # name: torch.nn.Linear
+      name: fim.models.blocks.base.MLP
+      hidden_layers: *hidden_layers
+      hidden_act: *hidden_act
+      dropout: *dropout_rate
+
+
+
+  # instance normalization
+  states_norm:
+    name: fim.models.sde.Standardization
+
+  times_norm:
+    name: fim.models.sde.MinMaxNormalization
+    normalized_min: 0
+    normalized_max: 1
+
+  # loss regularization
+  train_with_normalized_head: true
+  loss_filter_nans: true
+
+  # loss
+  loss_type: "nrmse" #nll, rmse, nrmse
+
+  # INFERENCE/PIPELINE ------------------------------------------------------------
+  dt_pipeline: 0.1
+  number_of_time_steps_pipeline: 128
+  evaluate_with_unnormalized_heads: true
+
+dataset:
+  name: FIMSDEDataloaderIterableDataset
+
+  max_dim: *max_dimension
+
+  dataset_name:
+    train: &train_set_name StreamingFIMSDEDataset # PaddedFIMSDEDataset, HeterogeneousFIMSDEDataset, StreamingFIMSDEDataset
+    validation: *train_set_name
+    test: PaddedFIMSDEDataset
+
+  batch_size: 32
+
+  shuffle_locations:
+    train: true
+    validation: true
+    test: false
+  shuffle_paths: true
+  shuffle_elements: true # only for PaddedFIMSDEDataset and HeterogeneousFIMSDEDataset
+
+  num_locations:
+    train: 1
+    validation: 1
+    test: null
+
+  num_observations:
+    train: !!python/tuple [1280, 6400]
+    validation: null
+    test: null
+
+  num_workers:
+    train: 4
+    validation: 2
+    test: 2
+
+  files_to_load:
+    obs_times: "obs_times.h5"
+    obs_values: "obs_values.h5"
+    locations: "locations.h5"
+    drift_at_locations: "drift_at_locations.h5"
+    diffusion_at_locations: "diffusion_at_locations.h5"
+
+  data_dirs:
+    train: !!python/tuple [
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/0_train_deg_2 ,
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/1_train_deg_3 ,
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/2_train_deg_1 , ]
+     /home/seifnerp_hpc/current_train_data/train/2_train_deg_1,
+     /home/seifnerp_hpc/current_train_data/train/0_train_deg_2,
+     /home/seifnerp_hpc/current_train_data/train/1_train_deg_3, ]
+
+    test: !!python/tuple [
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/0_test_deg_2,
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/1_test_deg_3,
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/2_test_deg_1 , ]
+     /home/seifnerp_hpc/current_train_data/test/2_test_deg_1,
+     /home/seifnerp_hpc/current_train_data/test/0_test_deg_2,
+     /home/seifnerp_hpc/current_train_data/test/1_test_deg_3, ]
+    validation: !!python/tuple [
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/0_val_deg_2 ,
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/1_val_deg_3 ,
+     # /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/2_val_deg_1 , ]
+     /home/seifnerp_hpc/current_train_data/validation/2_val_deg_1,
+     /home/seifnerp_hpc/current_train_data/validation/0_val_deg_2,
+     /home/seifnerp_hpc/current_train_data/validation/1_val_deg_3, ]
+
+
+#
+#   # ###### For data from dynamical systems class
+#   # data_type: theory # synthetic, theory
+#   # # data_paths: configs/train/fim-sde/train_data_configs/sde-drift-deg-2-diffusion-deg-1-no-scale.yaml
+#   # data_paths: configs/train/fim-sde/train_data_configs/only-lorenz.yaml
+#
+#   ##### For data from files
+#   data_type: synthetic # synthetic, theory
+#   data_in_files:
+#     obs_times: "obs_times.h5"
+#     obs_values: "obs_values.h5"
+#     locations: "locations.h5"
+#     drift_at_locations: "drift_at_locations.h5"
+#     diffusion_at_locations: "diffusion_at_locations.h5"
+#
+#   data_paths:
+#     train: !!python/tuple [
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/0_train_deg_2 ,
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/1_train_deg_3 ,
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/2_train_deg_1 , ]
+#     test: !!python/tuple [
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/0_test_deg_2,
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/1_test_deg_3,
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/2_test_deg_1 , ]
+#     validation: !!python/tuple [
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/0_val_deg_2 ,
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/1_val_deg_3 ,
+#      /lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/2_val_deg_1 , ]
+#
+#
+#   batch_size:
+#     train: 32
+#     validation: 32
+#     test: 1
+#
+#   random_grids:
+#     train: true
+#     test: false
+#     validation: true
+#
+#   min_num_grid_points: 1
+#   max_num_grid_points: 1
+#
+#   random_paths:
+#     train: true
+#     test: false
+#     validation: false
+#
+#   min_num_paths: 10
+#   max_num_paths: 50
+
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 700
+  detect_anomaly: false
+  save_every: 10
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.SDEEvaluationPlots
+    plot_frequency: 5
+    plot_paths_count: 50
+
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: loss_threshold
+      beta: 1000.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: vector_field_max_norm
+      beta: 1000.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: diffusion_loss_scale
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: &lr_rate 1.0e-4
+      weight_decay: 0
+      # gradient_norm_clipping: 10
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.SequentialLR
+      #     step_type: minibatch
+      #     schedulers: !!python/tuple
+      #       - name: fim.trainers.lr_warmup.LinearWarmupScheduler
+      #         warmup_steps: &warmup_steps 10000
+      #         target_lr: *lr_rate
+      # # # # #       - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      # # # # #         T_max: 700000
+      # # # # #         eta_min: 1.0e-6
+      # # # # #         last_epoch: -1
+      #     milestones: !!python/tuple []

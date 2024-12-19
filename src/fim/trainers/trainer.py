@@ -1,6 +1,8 @@
 import functools
+import itertools
 import logging
 import os
+import threading
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
@@ -12,6 +14,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+from torch.utils.data import IterableDataset
 
 from fim.trainers.evaluation_epochs import EvaluationEpoch
 
@@ -53,6 +56,8 @@ class Trainer:
 
         self._save_experiment_parameters()
         torch.autograd.set_detect_anomaly(self.config.trainer.detect_anomaly)
+
+        self.profiler_config: dict = self.config.trainer.to_dict().get("profiler")  # None or {"trace_path": , "num_batches": }
 
     def _prepare_model(self, model, config, resume: Optional[Path | str] = None):
         self.model = model
@@ -201,6 +206,9 @@ class Trainer:
         self.logger.info("Saving training configuration to %s", params_path)
         yaml.dump(self.config.to_dict(), open(params_path, "w", encoding="utf-8"), default_flow_style=False)
         model_architecture_path = self.experiment_dir / "model_architecture.txt"
+        if isinstance(self.dataloader.train_it.dataset, IterableDataset):
+            logging.warning("Saving model architecture is not supported for IterableDatasets!")
+            return
         if isinstance(self.dataloader.train_it.dataset[0], tuple):
             logging.warning("Saving model architecture is not supported for tuple datasets!")
             return
@@ -288,42 +296,69 @@ class Trainer:
         if self.is_distributed:
             self.dataloader.samplers["train"].set_epoch(epoch)
         step = epoch * self.steps_in_epoch
-        # with torch.profiler.profile(
-        #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-        #     on_trace_ready=torch.profiler.tensorboard_trace_handler(self.training_logger.tensorboard_dir),
-        #     record_shapes=True,
-        #     profile_memory=True,
-        #     with_stack=True,
-        # ) as prof:
+
+        if self.profiler_config is not None:
+            prof = torch.profiler.profile(
+                activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA], profile_memory=True
+            )
+
+            if (num_profiling_batches := self.profiler_config.get("num_batches")) is not None:
+                data_it = itertools.islice(data_it, num_profiling_batches)
+
+            prof.start()
+
         for batch_idx, batch in enumerate(data_it):
-            # prof.step()
+            if self.profiler_config is not None:
+                prof.step()
+
             step_ = (step + batch_idx) // self.gradient_accumulation_steps
-            batch_stats = self._train_batch(step_, batch)
-            self.training_loss_tracker.add_batch_stats(batch_stats)
-            p_bar.update_and_set_postfix(1, batch_stats["losses"])
-            self.training_logger.log_train_batch(epoch, batch_idx, batch_stats)
+            with torch.profiler.record_function("train_batch"):
+                batch_stats = self._train_batch(step_, batch)
+            with torch.profiler.record_function("batch_stats"):
+                self.training_loss_tracker.add_batch_stats(batch_stats)
+
+            with torch.profiler.record_function("pbar_update"):
+                p_bar_thread = threading.Thread(
+                    target=p_bar.update_and_set_postfix, name="p_bar_update_train", args=(1, batch_stats["losses"])
+                )
+                p_bar_thread.start()
+
+            with torch.profiler.record_function("log_batch"):
+                log_train_batch_thread = threading.Thread(
+                    target=self.training_logger.log_train_batch, name="log_train_batch", args=(epoch, batch_idx, batch_stats)
+                )
+                log_train_batch_thread.start()
         self.training_loss_tracker.summarize_epoch()
         p_bar.close()
         del p_bar
+
+        if self.profiler_config is not None:
+            prof.stop()
+            prof.export_chrome_trace(self.profiler_config["trace_path"])
+
         return self.training_loss_tracker.get_last_epoch_stats()
 
     def _train_batch(self, step: int, batch: dict) -> dict:
-        batch = move_batch_to_local_rank(batch, self.local_rank)
-        with torch.amp.autocast(
-            self.accel_type,
-            enabled=self._use_mixeprecision and self.is_accelerator,
-            dtype=self._auto_cast_type,
-        ):
-            stats = self.model(batch, schedulers=self.schedulers, step=step)
-            losses = stats["losses"]
-            loss = losses["loss"]
-            loss = loss / self.gradient_accumulation_steps
-        losses = {k: v.detach().float() for k, v in losses.items()}
+        with torch.profiler.record_function("move_data_to_gpu"):
+            batch = move_batch_to_local_rank(batch, self.local_rank)
+        with torch.profiler.record_function("forward_pass"):
+            with torch.amp.autocast(
+                self.accel_type,
+                enabled=self._use_mixeprecision and self.is_accelerator,
+                dtype=self._auto_cast_type,
+            ):
+                stats = self.model(batch, schedulers=self.schedulers, step=step)
+                losses = stats["losses"]
+                loss = losses["loss"]
+                loss = loss / self.gradient_accumulation_steps
+
+        with torch.profiler.record_function("backward_pass"):
+            lrs = self._model_update_step(step, loss)
+
+        losses = {k: v.detach().float() if isinstance(v, torch.Tensor) else v for k, v in losses.items()}
         histograms = {}
         # if "histograms" in stats:
         #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
-
-        lrs = self._model_update_step(step, loss)
         return {"losses": losses | lrs, "histograms": histograms, "line_plots": stats.get("visualizations", {})}
         # return {"losses": losses | lrs}
 
@@ -372,7 +407,10 @@ class Trainer:
                 self.validation_loss_tracker.add_batch_losses(batch_stats.get("losses"))
                 # self.validation_loss_tracker.add_batch_histograms(batch_stats.get("histograms"))
                 self.validation_loss_tracker.add_batch_line_plots(batch_stats.get("line_plots"))
-                p_bar.update_and_set_postfix(1, batch_stats["losses"])
+                pbar_thread = threading.Thread(
+                    target=p_bar.update_and_set_postfix, name="pbar_update_validation", args=(1, batch_stats["losses"])
+                )
+                pbar_thread.start()
             self.validation_loss_tracker.summarize_epoch()
 
             p_bar.close()
@@ -387,7 +425,7 @@ class Trainer:
             dtype=self._auto_cast_type,
         ):
             stats = self.model(batch)
-        losses = {k: v.detach().float() for k, v in stats["losses"].items()}
+        losses = {k: v.detach().float() if isinstance(v, torch.Tensor) else v for k, v in stats["losses"].items()}
         histograms = {}
         # if "histograms" in stats:
         #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}

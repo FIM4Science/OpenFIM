@@ -1,15 +1,100 @@
 from copy import deepcopy
+from typing import Any
 
 import pytest
 import torch
 from torch import Tensor
 
 from fim.data.data_generation.dynamical_systems import Degree2Polynomial, DynamicalSystem, Lorenz63System
-from fim.data.datasets import FIMSDEDatabatchTuple
-from fim.models.sde import NormalizationStats, SDEConcepts
+from fim.models.sde import InstanceNormalization, MinMaxNormalization, SDEConcepts, Standardization
 
 
-class TestNormalizationStats:
+class TestMinMaxandStandard:
+    @pytest.fixture
+    def data(self) -> Tensor:
+        return torch.tensor(
+            [
+                [[1, 2], [3, 4], [5, 6]],
+                [[-1, -2], [-3, -4], [-5, -6]],
+            ],
+            dtype=torch.float,
+        )
+
+    @pytest.mark.parametrize(
+        "instance_norm_class", [MinMaxNormalization, Standardization], ids=["min_max_normalization", "standardization"]
+    )
+    def test_expand_norm_stats(self, data: Tensor, instance_norm_class) -> None:
+        norm = instance_norm_class(normalized_min=-1, normalized_max=1)
+        norm_stats = norm.get_norm_stats(data)
+
+        target_shape = (2, 5, 2)
+        expanded_norm_stats: tuple[Tensor] = norm.expand_norm_stats(target_shape, norm_stats)
+
+        for t in expanded_norm_stats:
+            assert t.shape == target_shape
+
+    @pytest.mark.parametrize(
+        "instance_norm_class", [MinMaxNormalization, Standardization], ids=["min_max_normalization", "standardization"]
+    )
+    def test_squash_intermedate_dims(self, data: Tensor, instance_norm_class) -> None:
+        norm = instance_norm_class(normalized_min=-1, normalized_max=1)
+
+        # invariant for dim 3 tensors
+        assert data.ndim == 3
+        assert torch.all(data == norm.squash_intermediate_dims(data)[0])
+
+        # reshaping for larger dims works as well
+        data = torch.repeat_interleave(data.unsqueeze(0), dim=0, repeats=10)
+        data = torch.repeat_interleave(data.unsqueeze(0), dim=0, repeats=5)
+        assert data.ndim == 5
+
+        reshaped_data, original_shape = norm.squash_intermediate_dims(data)
+        assert reshaped_data.ndim == 3
+        assert torch.all(data == reshaped_data.reshape(original_shape))
+
+    @pytest.mark.parametrize(
+        "instance_norm_class", [MinMaxNormalization, Standardization], ids=["min_max_normalization", "standardization"]
+    )
+    def test_derivatives_and_invertible(self, data: Tensor, instance_norm_class):
+        norm = instance_norm_class(normalized_min=-1, normalized_max=1)
+        norm_stats = norm.get_norm_stats(data)
+
+        # is invertible
+        transformed_data = norm.normalization_map(data, norm_stats)
+        retransformed_data = norm.inverse_normalization_map(transformed_data, norm_stats)
+        assert torch.allclose(data, retransformed_data)
+
+        # normalization first derivative is constant
+        dummy_input = torch.randn_like(data)
+        grad = norm.normalization_map(dummy_input, norm_stats, derivative_num=1)
+
+        expected_value = grad[:, 0][:, None]  # first element should be everywhere
+        expected_value = expected_value * torch.ones_like(grad)
+        assert torch.allclose(expected_value, grad)
+
+        # normalization second derivative is zero
+        dummy_input = torch.randn_like(data)
+        grad_grad = norm.normalization_map(dummy_input, norm_stats, derivative_num=2)
+
+        expected_value = torch.zeros_like(dummy_input)
+        assert torch.allclose(expected_value, grad_grad)
+
+        # inverse normalization first derivative is constant
+        dummy_input = torch.randn_like(data)
+        grad = norm.inverse_normalization_map(dummy_input, norm_stats, derivative_num=1)
+
+        expected_value = grad[:, 0][:, None]  # first element should be everywhere
+        expected_value = expected_value * torch.ones_like(grad)
+
+        # inverse normalization second derivative is zero
+        dummy_input = torch.randn_like(data)
+        grad_grad = norm.inverse_normalization_map(dummy_input, norm_stats, derivative_num=2)
+
+        expected_value = torch.zeros_like(dummy_input)
+        assert torch.allclose(expected_value, grad_grad)
+
+
+class TestMinMaxNormalization:
     @pytest.fixture
     def data(self) -> Tensor:
         return torch.tensor(
@@ -31,30 +116,17 @@ class TestNormalizationStats:
     def targets(self) -> tuple[float]:
         return -10.0, 100.0
 
-    def test_squash_intermedate_dims(self, data: Tensor) -> None:
-        norm_stats = NormalizationStats(data)
-
-        # invariant for dim 3 tensors
-        assert data.ndim == 3
-        assert torch.all(data == norm_stats.squash_intermediate_dims(data)[0])
-
-        # reshaping for larger dims works as well
-        data = torch.repeat_interleave(data.unsqueeze(0), dim=0, repeats=10)
-        data = torch.repeat_interleave(data.unsqueeze(0), dim=0, repeats=5)
-        assert data.ndim == 5
-
-        reshaped_data, original_shape = norm_stats.squash_intermediate_dims(data)
-        assert reshaped_data.ndim == 3
-        assert torch.all(data == reshaped_data.reshape(original_shape))
-
-    def test_get_unnormalized_stats(self, data: Tensor, data_stats: tuple[Tensor]) -> None:
+    def test_get_norm_stats(self, data: Tensor, data_stats: tuple[Tensor], targets: tuple[float]) -> None:
         data_min, data_max = data_stats
+        target_min, target_max = targets
 
-        norm_stats = NormalizationStats(data)
-        min_, max_ = norm_stats.get_unnormalized_stats(data)
+        norm = MinMaxNormalization(normalized_min=target_min, normalized_max=target_max)
+        data_min_, data_max_, target_min_, target_max_ = norm.get_norm_stats(data)
 
-        assert torch.allclose(min_, data_min.squeeze(-2))
-        assert torch.allclose(max_, data_max.squeeze(-2))
+        assert torch.allclose(data_min_, data_min.squeeze(-2))
+        assert torch.allclose(data_max_, data_max.squeeze(-2))
+        assert torch.allclose(target_min_, target_min * torch.ones_like(target_min_))
+        assert torch.allclose(target_max_, target_max * torch.ones_like(target_max_))
 
     def test_masked_unnormalized_stats(self) -> None:
         data = torch.tensor(
@@ -73,66 +145,47 @@ class TestNormalizationStats:
             dtype=torch.bool,
         )
 
-        norm_stats = NormalizationStats(data, mask=observed_mask)
-        min_, max_ = norm_stats.get_unnormalized_stats(data, observed_mask)
+        norm = MinMaxNormalization(normalized_min=-1, normalized_max=1)
+        data_min_, data_max_, _, _ = norm.get_norm_stats(data, observed_mask)
 
-        assert torch.allclose(min_, torch.Tensor([[1, 2], [7, 8]]).float())
-        assert torch.allclose(max_, torch.Tensor([[3, 4], [9, 10]]).float())
-
-    def test_get_intervals_boundaries(self, data: Tensor, data_stats: tuple[Tensor], targets: tuple[float]) -> None:
-        data_min, data_max = data_stats
-        target_min, target_max = targets
-        norm_stats = NormalizationStats(data, normalized_min=target_min, normalized_max=target_max)
-
-        unnormalized_min, unnormalized_max, normalized_min, normalized_max = norm_stats.get_intervals_boundaries(data.shape)
-
-        assert torch.allclose(unnormalized_min, data_min)
-        assert torch.allclose(unnormalized_max, data_max)
-        assert torch.allclose(normalized_min, target_min * torch.ones(2, 1, 2))
-        assert torch.allclose(normalized_max, target_max * torch.ones(2, 1, 2))
+        assert torch.allclose(data_min_, torch.Tensor([[1, 2], [7, 8]]).float())
+        assert torch.allclose(data_max_, torch.Tensor([[3, 4], [9, 10]]).float())
 
     def test_normalization_map(self, data: Tensor, targets: tuple[Tensor]) -> None:
         target_min, target_max = targets
-        norm_stats = NormalizationStats(data, normalized_min=target_min, normalized_max=target_max)
+        norm = MinMaxNormalization(normalized_min=target_min, normalized_max=target_max)
+        norm_stats = norm.get_norm_stats(data)
 
         # reaches its target
-        unnormalized_min, unnormalized_max, normalized_min, normalized_max = norm_stats.get_intervals_boundaries(data.shape)
-        transformed_data = norm_stats.normalization_map(data)
+        transformed_data = norm.normalization_map(data, norm_stats)
 
         assert torch.all(transformed_data.amin(dim=-2, keepdims=True) == target_min)
         assert torch.all(transformed_data.amax(dim=-2, keepdims=True) == target_max)
 
-        # is invertible
-        retransformed_data = norm_stats.inverse_normalization_map(transformed_data)
-        assert torch.allclose(data, retransformed_data)
 
-        # normalization first derivative is constant
-        dummy_input = torch.randn_like(data)
-        grad = norm_stats.normalization_map(dummy_input, derivative_num=1)
+class TestStandardization:
+    @pytest.fixture
+    def data(self) -> Tensor:
+        return torch.tensor(
+            [
+                [[1, 2], [3, 4], [5, 6]],
+                [[-1, -2], [-3, -4], [-5, -6]],
+            ],
+            dtype=torch.float,
+        )
 
-        expected_value = (normalized_max - normalized_min) / (unnormalized_max - unnormalized_min) * torch.ones_like(grad)
-        assert torch.allclose(expected_value, grad)
+    def test_normalization_map(self, data: Tensor) -> None:
+        norm = Standardization()
+        norm_stats = norm.get_norm_stats(data)
 
-        # normalization second derivative is zero
-        dummy_input = torch.randn_like(data)
-        grad_grad = norm_stats.normalization_map(dummy_input, derivative_num=2)
+        # reaches its target
+        transformed_data = norm.normalization_map(data, norm_stats)
 
-        expected_value = torch.zeros_like(dummy_input)
-        assert torch.allclose(expected_value, grad_grad)
+        transformed_mean = torch.mean(transformed_data, dim=-2)
+        transformed_std = torch.std(transformed_data, dim=-2)
 
-        # inverse normalization first derivative is constant
-        dummy_input = torch.randn_like(data)
-        grad = norm_stats.inverse_normalization_map(dummy_input, derivative_num=1)
-
-        expected_value = (unnormalized_max - unnormalized_min) / (normalized_max - normalized_min) * torch.ones_like(grad)
-        assert torch.allclose(expected_value, grad)
-
-        # inverse normalization second derivative is zero
-        dummy_input = torch.randn_like(data)
-        grad_grad = norm_stats.inverse_normalization_map(dummy_input, derivative_num=2)
-
-        expected_value = torch.zeros_like(dummy_input)
-        assert torch.allclose(expected_value, grad_grad)
+        assert torch.all(transformed_mean == torch.zeros_like(transformed_mean))
+        assert torch.all(transformed_std == torch.ones_like(transformed_std))
 
 
 class TestSDEConceptsBasics:
@@ -190,7 +243,7 @@ class TestSDEConceptsBasics:
 
         return obs_times, obs_vals, sde_concepts
 
-    def test_from_dbt(self) -> None:
+    def test_from_dict(self) -> None:
         obs_times = torch.randn(self.obs_times_shape)
         obs_values = torch.randn(self.obs_vals_shape)
         locations = torch.randn(self.locations_shape)
@@ -198,34 +251,34 @@ class TestSDEConceptsBasics:
         diffusion_at_locations = torch.randn(self.locations_shape)
         dimension_mask = torch.randn(self.locations_shape)
 
-        dbt = FIMSDEDatabatchTuple(
-            obs_times=obs_times,
-            obs_values=obs_values,
-            locations=locations,
-            drift_at_locations=drift_at_locations,
-            diffusion_at_locations=diffusion_at_locations,
-            dimension_mask=dimension_mask,
-        )
+        data_dict = {
+            "obs_times": obs_times,
+            "obs_values": obs_values,
+            "locations": locations,
+            "drift_at_locations": drift_at_locations,
+            "diffusion_at_locations": diffusion_at_locations,
+            "dimension_mask": dimension_mask,
+        }
 
         expected_sde_concepts = SDEConcepts(locations=locations, drift=drift_at_locations, diffusion=diffusion_at_locations)
-        from_dbt_sde_concepts = SDEConcepts.from_dbt(dbt)
+        from_dbt_sde_concepts = SDEConcepts.from_dict(data_dict)
 
         assert expected_sde_concepts == from_dbt_sde_concepts
 
         # test None
-        assert SDEConcepts.from_dbt(None) is None
+        assert SDEConcepts.from_dict(None) is None
 
-        # test only one entry of dbt is None
-        dbt_with_none = FIMSDEDatabatchTuple(
-            obs_times=obs_times,
-            obs_values=obs_values,
-            locations=None,
-            drift_at_locations=drift_at_locations,
-            diffusion_at_locations=diffusion_at_locations,
-            dimension_mask=dimension_mask,
-        )
+        # test only one entry of required data is None
+        data_dict = {
+            "obs_times": obs_times,
+            "obs_values": obs_values,
+            "locations": None,
+            "drift_at_locations": drift_at_locations,
+            "diffusion_at_locations": diffusion_at_locations,
+            "dimension_mask": dimension_mask,
+        }
 
-        assert SDEConcepts.from_dbt(dbt_with_none) is None
+        assert SDEConcepts.from_dict(data_dict) is None
 
     def test_assert_shapes(self, data_without_var: tuple, data_with_var: tuple) -> None:
         sde_concepts_without_var: SDEConcepts = data_without_var[-1]
@@ -235,17 +288,20 @@ class TestSDEConceptsBasics:
         sde_concepts_with_var._assert_shape()
 
     def test_any_locations_num_can_be_normalized(self, data_with_extended_shapes: tuple, data_with_var: tuple) -> None:
-        # interface to NormalizationStats should work for arbitrary intermediate dimensions
+        # interface to InstanceNormalization should work for arbitrary intermediate dimensions
         obs_times, obs_vals, sde_concepts = data_with_extended_shapes
 
-        states_norm_stats = NormalizationStats(obs_vals, normalized_min=-1, normalized_max=1)
-        time_norm_stats = NormalizationStats(obs_times, normalized_min=0, normalized_max=1)
+        states_norm = MinMaxNormalization(normalized_min=-1, normalized_max=1)
+        states_norm_stats = states_norm.get_norm_stats(obs_vals)
+
+        times_norm = MinMaxNormalization(normalized_min=0, normalized_max=1)
+        times_norm_stats = times_norm.get_norm_stats(obs_times)
 
         # save sde_concepts for comparison
         original_sde_concepts = deepcopy(sde_concepts)
 
-        sde_concepts.normalize(states_norm_stats, time_norm_stats)
-        sde_concepts.renormalize(states_norm_stats, time_norm_stats)
+        sde_concepts.normalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
+        sde_concepts.renormalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
 
         assert sde_concepts == original_sde_concepts
         assert sde_concepts.locations.ndim == 4
@@ -254,8 +310,8 @@ class TestSDEConceptsBasics:
 
         # if B and D agree, should be able to apply (re)normalization to other shaped locations
         other_sde_concepts = data_with_var[-1]
-        other_sde_concepts.normalize(states_norm_stats, time_norm_stats)
-        other_sde_concepts.renormalize(states_norm_stats, time_norm_stats)
+        other_sde_concepts.normalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
+        other_sde_concepts.renormalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
 
         assert other_sde_concepts.locations.ndim == 3
         assert other_sde_concepts.drift.ndim == 3
@@ -265,28 +321,34 @@ class TestSDEConceptsBasics:
         # without var
         obs_times, obs_vals, sde_concepts = data_without_var
 
-        states_norm_stats = NormalizationStats(obs_vals, normalized_min=-1, normalized_max=1)
-        time_norm_stats = NormalizationStats(obs_times, normalized_min=0, normalized_max=1)
+        states_norm = MinMaxNormalization(normalized_min=-1, normalized_max=1)
+        states_norm_stats = states_norm.get_norm_stats(obs_vals)
+
+        times_norm = MinMaxNormalization(normalized_min=0, normalized_max=1)
+        times_norm_stats = times_norm.get_norm_stats(obs_times)
 
         # save sde_concepts for comparison
         original_sde_concepts = deepcopy(sde_concepts)
 
-        sde_concepts.normalize(states_norm_stats, time_norm_stats)
-        sde_concepts.renormalize(states_norm_stats, time_norm_stats)
+        sde_concepts.normalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
+        sde_concepts.renormalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
 
         assert sde_concepts == original_sde_concepts
 
         # with var
         obs_times, obs_vals, sde_concepts = data_with_var
 
-        states_norm_stats = NormalizationStats(obs_vals, normalized_min=-1, normalized_max=1)
-        time_norm_stats = NormalizationStats(obs_times, normalized_min=0, normalized_max=1)
+        states_norm = MinMaxNormalization(normalized_min=-1, normalized_max=1)
+        states_norm_stats = states_norm.get_norm_stats(obs_vals)
+
+        times_norm = MinMaxNormalization(normalized_min=0, normalized_max=1)
+        times_norm_stats = times_norm.get_norm_stats(obs_times)
 
         # save sde_concepts for comparison
         original_sde_concepts = deepcopy(sde_concepts)
 
-        sde_concepts.normalize(states_norm_stats, time_norm_stats)
-        sde_concepts.renormalize(states_norm_stats, time_norm_stats)
+        sde_concepts.normalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
+        sde_concepts.renormalize(states_norm, states_norm_stats, times_norm, times_norm_stats)
 
         assert sde_concepts == original_sde_concepts
 
@@ -540,7 +602,8 @@ class TestSDEConceptsTransformationsValid:
         system: DynamicalSystem,
         drift_or_diffusion: str,
         state_or_time: str,
-        normalization_stat: NormalizationStats,
+        norm: InstanceNormalization,
+        norm_stats: Any,
         num_realizations: int,
         num_paths: int,
         num_dimensions: int,
@@ -554,11 +617,11 @@ class TestSDEConceptsTransformationsValid:
         def normalized_vector_field(states, times, params):
             # renormalize state or time to apply unnormalized vector_field
             if state_or_time == "state":
-                states = normalization_stat.inverse_normalization_map(states.reshape(num_realizations, num_paths, num_dimensions))
+                states = norm.inverse_normalization_map(states.reshape(num_realizations, num_paths, num_dimensions), norm_stats)
                 states = states.reshape(-1, num_dimensions)
 
             else:
-                times = normalization_stat.inverse_normalization_map(times.reshape(num_realizations, num_paths, 1))
+                times = norm.inverse_normalization_map(times.reshape(num_realizations, num_paths, 1), norm_stats)
                 times = times.reshape(-1, 1)
 
             # apply unnormalized vector_field
@@ -584,10 +647,10 @@ class TestSDEConceptsTransformationsValid:
 
             # use SDEConcepts to normalize vector_field value
             if state_or_time == "state":
-                sde_concept._state_transformation(normalization_stat, normalize=True)
+                sde_concept._states_transformation(norm, norm_stats, normalize=True)
 
             else:
-                sde_concept._time_transformation(normalization_stat, normalize=True)
+                sde_concept._times_transformation(norm, norm_stats, normalize=True)
 
             vector_field_value = sde_concept.drift if drift_or_diffusion == "drift" else sde_concept.diffusion
             vector_field_value = vector_field_value.reshape(-1, num_dimensions)
@@ -637,6 +700,17 @@ class TestSDEConceptsTransformationsValid:
         ],
     )
     @pytest.mark.parametrize(
+        "instance_normalization_class",
+        [
+            MinMaxNormalization,
+            Standardization,
+        ],
+        ids=[
+            "min_max_normalization",
+            "standardization",
+        ],
+    )
+    @pytest.mark.parametrize(
         "transformation",
         [
             "state",
@@ -650,6 +724,7 @@ class TestSDEConceptsTransformationsValid:
     def test_transformation(
         self,
         transformation: str,
+        instance_normalization_class: object,
         system_descr: str,
         system_class: object,
         system_config: dict,
@@ -712,65 +787,76 @@ class TestSDEConceptsTransformationsValid:
             unnormalized_solution.ndim
         )
 
-        # already unnormalized solutions might contain Nans
-        if torch.isnan(unnormalized_solution).any().item() is True:
-            nan_count = torch.isnan(unnormalized_solution).any(dim=(1, 2, 3)).sum()
-            assert False, "Found Nan in " + str(nan_count.item()) + " of " + str(num_realizations) + " unnormalized solutions."
+        # remove realizations with Nans
+        is_finite = torch.isfinite(unnormalized_solution).all(dim=(1, 2, 3))
+
+        if is_finite.sum().item() == 0:
+            assert False, "Found Nan in all unnormalized realizations."
+
+        is_finite_indices = torch.nonzero(is_finite.float()).reshape(-1)
+        unnormalized_solution = unnormalized_solution[is_finite_indices]
+        initial_states = initial_states[is_finite_indices]
+        obs_times = obs_times[is_finite_indices]
+        drift_params = drift_params[is_finite_indices]
+        diffusion_params = diffusion_params[is_finite_indices]
+        dWs = dWs[is_finite_indices]
+
+        num_realizations = obs_times.shape[0]
+
+        # apply transformation to inputs
+        if transformation == "state":
+            norm: InstanceNormalization = instance_normalization_class(normalized_min=-1, normalized_max=1)
+            norm_stats = norm.get_norm_stats(unnormalized_solution.reshape(num_realizations, -1, D))
+            initial_states = norm.normalization_map(initial_states, norm_stats)
 
         else:
-            # apply transformation to inputs
-            if transformation == "state":
-                norm_stats = NormalizationStats(unnormalized_solution.reshape(num_realizations, -1, D), normalized_min=-1, normalized_max=1)
-                initial_states = norm_stats.normalization_map(initial_states)
+            norm: InstanceNormalization = instance_normalization_class(normalized_min=0, normalized_max=1)
+            norm_stats = norm.get_norm_stats(obs_times.reshape(num_realizations, -1, 1))
+            obs_times = norm.normalization_map(obs_times.reshape(num_realizations, -1, 1), norm_stats)
+            obs_times = obs_times.reshape(num_realizations, num_paths, -1, 1)
 
-            else:
-                norm_stats = NormalizationStats(obs_times.reshape(num_realizations, -1, 1), normalized_min=0, normalized_max=1)
-                obs_times = norm_stats.normalization_map(obs_times.reshape(num_realizations, -1, 1)).reshape(
-                    num_realizations, num_paths, -1, 1
-                )
+        # apply transformation to equations
+        normalized_drift = self._get_normalized_vector_field(
+            system, "drift", transformation, norm, norm_stats, num_realizations, num_paths, D
+        )
+        normalized_diffusion = self._get_normalized_vector_field(
+            system, "diffusion", transformation, norm, norm_stats, num_realizations, num_paths, D
+        )
 
-            # apply transformation to equations
-            normalized_drift = self._get_normalized_vector_field(
-                system, "drift", transformation, norm_stats, num_realizations, num_paths, D
-            )
-            normalized_diffusion = self._get_normalized_vector_field(
-                system, "diffusion", transformation, norm_stats, num_realizations, num_paths, D
-            )
+        # solve transformed equation
+        solution_in_normalized_space = self._euler_maruyama(
+            normalized_drift,
+            normalized_diffusion,
+            initial_states,
+            drift_params,
+            diffusion_params,
+            obs_times,
+            dWs,
+            num_realizations,
+            num_paths,
+            num_steps,
+        )
 
-            # solve transformed equation
-            solution_in_normalized_space = self._euler_maruyama(
-                normalized_drift,
-                normalized_diffusion,
-                initial_states,
-                drift_params,
-                diffusion_params,
-                obs_times,
-                dWs,
-                num_realizations,
-                num_paths,
-                num_steps,
-            )
+        # normalize unnormalized_solution to compare against
+        if transformation == "state":
+            unnormalized_solution = unnormalized_solution.reshape(num_realizations, -1, D)
+            unnormalized_solution_normalized = norm.normalization_map(unnormalized_solution, norm_stats)
+            unnormalized_solution_normalized = unnormalized_solution_normalized.reshape(num_realizations, num_paths, num_steps, D)
 
-            # normalize unnormalized_solution to compare against
-            if transformation == "state":
-                print(unnormalized_solution.shape)
-                unnormalized_solution_normalized = norm_stats.normalization_map(unnormalized_solution.reshape(num_realizations, -1, D))
-                unnormalized_solution_normalized = unnormalized_solution_normalized.reshape(num_realizations, num_paths, num_steps, D)
+        else:  # solution values do not change under time transformation
+            unnormalized_solution_normalized = unnormalized_solution
 
-            else:  # solution values do not change under time transformation
-                unnormalized_solution_normalized = unnormalized_solution
+        # compare two solutions
+        atol = 1e-3
+        rtol = 1e-3
 
-            # compare two solutions
-            atol = 1e-3
-            rtol = 1e-3
-
-            max_deviation_in_norm_space = torch.amax(torch.abs(solution_in_normalized_space - unnormalized_solution_normalized)).item()
-            assert torch.allclose(solution_in_normalized_space, unnormalized_solution_normalized, atol=atol, rtol=rtol, equal_nan=True), (
-                "Normalized solutions deviate by max. "
-                + str(max_deviation_in_norm_space)
-                + ", more than atol="
-                + str(atol)
-                + ", rtol="
-                + str(rtol)
-                + "."
-            )
+        max_deviation_in_norm_space = torch.amax(torch.abs(solution_in_normalized_space - unnormalized_solution_normalized)).item()
+        assert torch.allclose(solution_in_normalized_space, unnormalized_solution_normalized, atol=atol, rtol=rtol, equal_nan=True), (
+            "Normalized solutions deviate by max. "
+            + str(max_deviation_in_norm_space)
+            + ", more than atol="
+            + str(atol)
+            + ", rtol="
+            + str(rtol)
+            + "."
+        )

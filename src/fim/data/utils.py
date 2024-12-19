@@ -3,12 +3,12 @@
 import math
 import os
 import pickle
+from pathlib import Path
 from typing import Optional, Tuple
 
 import h5py
 import numpy as np
 import torch
-from pathlib import Path
 
 
 def load_ODEBench_as_torch(directory: str) -> dict:
@@ -115,7 +115,7 @@ def split_into_windows(
         x (torch.Tensor): input tensor with shape (batch_size*process_dim, max_sequence_length, 1)
         max_sequence_length (int): the maximum length of the sequence
         padding_value (int): value to pad with.
-            if None: for the first window the first value and for the last window the last value is used. (intereseting for locations)
+            if None: for the first window the first value and for the last window the last value is used. (interesting for locations)
             else: the value is used for padding. Recommnedation to use 1 as this automatically masks the values.
 
     Returns:
@@ -133,7 +133,7 @@ def split_into_windows(
     padding_size_windowing_end = None
     for i in range(window_count):
         if i == 0:
-            # first window gets special treatment: no overlap to the left hence need to padd it for full size if overlap > 0
+            # first window gets special treatment: no overlap to the left hence need to pad it for full size if overlap > 0
             window = x[:, start_idx : start_idx + window_size, :]
             if overlap_size > 0:
                 if padding_value is not None:
@@ -292,7 +292,7 @@ def load_file(file_path):
         case ".pt":
             return torch.load(file_path, weights_only=True)
         case ".h5":
-            return h5py.File(file_path, "r")
+            return load_h5(file_path)
         case _:
             raise ValueError(f"Unsupported file type {file_type}.")
 
@@ -304,8 +304,15 @@ def load_h5(path: Path):
         data = f["data"][:]
         try:
             # Attempt to convert the data to floats
-            arr = np.array(data, dtype="float32").T  # Transpose for C-order
+            arr = torch.as_tensor(data, dtype=torch.float32)
         except ValueError:
             # If the conversion fails, keep the data as a string
-            arr = np.array(data, dtype=str)
+            arr = torch.as_tensor(data, dtype=str)
     return arr
+
+
+def save_h5(tensor, path: Path):
+    array = tensor.detach().cpu().numpy()
+
+    with h5py.File(path, "w") as f:
+        f.create_dataset("data", array.shape, array.dtype, array)
