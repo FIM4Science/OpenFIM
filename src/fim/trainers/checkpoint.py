@@ -70,6 +70,7 @@ class TrainCheckpoint:
         rank: int = 0,
         is_peft: bool = False,
         resume_dir: Path | str = None,
+        hub_model_id: str = None,
     ):
         """
         Initializes the TrainCheckpoint instance.
@@ -86,6 +87,7 @@ class TrainCheckpoint:
         self.optimizers = optimizers
         self.schedulers = schedulers
         self.grad_scaler = grad_scaler
+        self.hub_model_id = hub_model_id
         self.best_model_flag = {
             "train_loss": torch.tensor(float("inf")),
             "val_loss": torch.tensor(float("inf")),
@@ -255,6 +257,10 @@ class TrainCheckpoint:
             self.__logger.info("Saving Best Model ...")
         self._save_model_state(epoch, best_model_dir)
         self._save_optimizers_state(epoch, best_model_dir)
+        if self.hub_model_id is not None:
+            self.__logger.info(f"Pushing Best Model to Huggingface Hub in Repo: {self.hub_model_id}")
+            self.model.push_to_hub(self.hub_model_id)
+        self.__logger.info("Best Model Saved!")
 
     def _update_best_model_flag(self, train_stats: dict, validation_stats: dict) -> None:
         """

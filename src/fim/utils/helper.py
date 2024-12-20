@@ -27,9 +27,9 @@ def check_model_devices(x):
 
 
 def nametuple_to_device(named_tuple, device):
-    return named_tuple._replace(**{
-        key: (value.to(device) if isinstance(value, torch.Tensor) else value) for key, value in named_tuple._asdict().items()
-    })
+    return named_tuple._replace(
+        **{key: (value.to(device) if isinstance(value, torch.Tensor) else value) for key, value in named_tuple._asdict().items()}
+    )
 
 
 def save_hyperparameters_to_yaml(hyperparams, file_path: str):
@@ -52,6 +52,9 @@ class GenericConfig:
                 setattr(self, key, values)
             else:
                 setattr(self, key, value)
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
 
     def to_dict(self) -> dict:
         data_dict = {}

@@ -86,6 +86,7 @@ trainer:
   epochs: &epochs 2
   detect_anomaly: false
   save_every: 10
+  hub_model_id: null
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"

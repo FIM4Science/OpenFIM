@@ -72,6 +72,7 @@ class Trainer:
             rank=self.rank,
             is_peft=False,  # self.model.is_peft(),
             resume_dir=resume,
+            hub_model_id=config.trainer.get("hub_model_id", None),
         )
         if config.experiment.device_map == "auto":
             device = torch.device(self.accel_type)
