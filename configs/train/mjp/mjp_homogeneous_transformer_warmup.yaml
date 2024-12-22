@@ -42,7 +42,7 @@ dataset:
   loader_kwargs:
     batch_size: 32
     num_workers: 4
-    test_batch_size: 64
+    test_batch_size: 32
     pin_memory: true
     max_path_count: 300
     max_number_of_minibatch_sizes: 10
@@ -112,7 +112,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 5000
+  epochs: &epochs 5_000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
@@ -141,7 +141,7 @@ optimizers: !!python/tuple
           step_type: minibatch
           schedulers: !!python/tuple
             - name: fim.trainers.lr_warmup.LinearWarmupScheduler
-              warmup_steps: &warmup_steps 50_000
+              warmup_steps: &warmup_steps 10_000
               target_lr: *lr_rate
             - name: torch.optim.lr_scheduler.CosineAnnealingLR
               T_max: 2000000

@@ -41,6 +41,7 @@ model_dim: &model_dim 64
 
 model:
   model_type: fimmjp
+  base_model: cvejoski/fim-mjp-test
   n_states: 6
   use_adjacency_matrix: False
 

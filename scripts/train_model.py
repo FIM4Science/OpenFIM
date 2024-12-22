@@ -12,6 +12,7 @@ from typing import List
 import click
 import numpy as np
 import torch
+from transformers import AutoModel
 
 from fim.data.dataloaders import DataLoaderFactory
 from fim.models.blocks import ModelFactory
@@ -76,8 +77,10 @@ def train_distributed(config: List[GenericConfig], resume: Path):
             device_map = get_accel_type()
 
         dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-
-        model = ModelFactory.create(config.model.to_dict())
+        if config.model.get("base_model", None) is None:
+            model = ModelFactory.create(config.model.to_dict())
+        else:
+            model = AutoModel.from_pretrained(config.model.base_model)
         trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
         trainer.train()
     # dist.barrier()
@@ -95,8 +98,13 @@ def train_single(config: List[GenericConfig], resume: Path):
     # device_map = config.experiment.device_map
 
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
+    if config.model.get("base_model", None) is None:
+        logger.info("Creating model from scratch")
+        model = ModelFactory.create(config.model.to_dict())
+    else:
+        logger.info(f"Loading model from {config.model.base_model}")
+        model = AutoModel.from_pretrained(config.model.base_model)
 
-    model = ModelFactory.create(config.model.to_dict())
     trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
     trainer.train()
 
