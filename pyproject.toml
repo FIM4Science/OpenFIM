@@ -35,6 +35,7 @@ dependencies = [
    "tensorboard",
    "h5py",
    "optimum",
+   "optree",
    "pyyaml",
    "jupyterlab",
    "ipywidgets",
