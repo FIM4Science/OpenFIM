@@ -21,6 +21,7 @@ pre-commit
 pytest
 pytest-cov
 pytest-dependency
+pytest-env
 pyyaml
 recommonmark
 ruff
