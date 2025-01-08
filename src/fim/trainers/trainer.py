@@ -98,11 +98,11 @@ class Trainer:
 
             self.optimizers: dict = create_optimizers(self.model, config.optimizers)
             self.checkpointer.model = self.model
-            self.checkpointer.optimizers = self.optimizers
+            # self.checkpointer.optimizers = self.optimizers
 
-            if resume is not None:
-                self.checkpointer.load_optimizers_state("last-epoch")
-                self.optimizers = self.checkpointer.optimizers
+            # if resume is not None:
+            # self.checkpointer.load_optimizers_state("last-epoch")
+            # self.optimizers = self.checkpointer.optimizers
 
     def _setup_variables(self):
         self.is_accelerator = is_accelerator_available()
@@ -207,18 +207,20 @@ class Trainer:
         yaml.dump(self.config.to_dict(), open(params_path, "w", encoding="utf-8"), default_flow_style=False)
         model_architecture_path = self.experiment_dir / "model_architecture.txt"
         if isinstance(self.dataloader.train_it.dataset, IterableDataset):
-            logging.warning("Saving model architecture is not supported for IterableDatasets!")
-            return
-        if isinstance(self.dataloader.train_it.dataset[0], tuple):
+            x = next(iter(self.dataloader.train_it.dataset))
+            x = {key: val[0][None].to(self.model.device) for key, val in x.items()}
+
+        elif isinstance(self.dataloader.train_it.dataset[0], tuple):
             logging.warning("Saving model architecture is not supported for tuple datasets!")
             return
-        self.logger.info("Saving model architecture to %s", model_architecture_path)
-        with open(model_architecture_path, "w") as f:
-            x = self.dataloader.train_it.dataset[0]
 
+        else:
+            x = self.dataloader.train_it.dataset[0]
             x = {key: val.unsqueeze(0).to(self.model.device) for key, val in x.items()}
 
+        with open(model_architecture_path, "w") as f:
             f.write(str(self.model.summary(x)))
+            self.logger.info("Saving model architecture to %s", model_architecture_path)
 
     def _prepare_evaluation_epoch(self) -> EvaluationEpoch:
         if hasattr(self.config.trainer, "evaluation_epoch"):
@@ -293,7 +295,7 @@ class Trainer:
         data_it = self.dataloader.train_it
         if self.debug_mode:
             data_it = islice(data_it, self.number_of_debug_iterations)
-        if self.is_distributed:
+        if self.is_distributed and "train" in self.dataloader.samplers.keys():
             self.dataloader.samplers["train"].set_epoch(epoch)
         step = epoch * self.steps_in_epoch
 
@@ -438,8 +440,8 @@ class Trainer:
             if v["schedulers"] is not None:
                 for step_type, scheduler in v["schedulers"]:
                     if step_type == call_place:
-                        self.training_logger.file_logger.info("Updating the leargning rate of '%s'", k)
-                        self.logger.info("Updating the leargning rate of '%s'", k)
+                        # self.training_logger.file_logger.info("Updating the leargning rate of '%s'", k)
+                        # self.logger.info("Updating the leargning rate of '%s'", k)
                         scheduler.step()
 
     def _get_sharding_strategy(self) -> ShardingStrategy:

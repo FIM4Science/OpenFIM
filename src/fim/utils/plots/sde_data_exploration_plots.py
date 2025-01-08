@@ -41,23 +41,32 @@ def get_dynamical_system_data(
     else:
         data: FIMSDEDatabatch = path_generator.generate_paths(return_params=False)
 
+    # to dict
+    data: dict = {
+        "obs_times": data.obs_times,
+        "obs_values": data.obs_values,
+        "obs_mask": data.obs_mask,
+        "locations": data.locations,
+        "diffusion_at_locations": data.diffusion_at_locations,
+        "drift_at_locations": data.drift_at_locations,
+    }
     if normalize is True:
         values_norm = MinMaxNormalization(normalized_min=-1, normalized_max=1)
-        values_norm_stats = values_norm.get_norm_stats(data.obs_values)
-        data.obs_values = values_norm.normalization_map(data.obs_values, values_norm_stats)
+        values_norm_stats = values_norm.get_norm_stats(data["obs_values"])
+        data["obs_values"] = values_norm.normalization_map(data["obs_values"], values_norm_stats)
 
-        if data.locations is not None:
-            data.locations = values_norm.normalization_map(data.locations, values_norm_stats)
+        if data["locations"] is not None:
+            data["locations"] = values_norm.normalization_map(data["locations"], values_norm_stats)
 
         times_norm = MinMaxNormalization(normalized_min=0, normalized_max=1)
-        times_norm_stats = times_norm.get_norm_stats(data.obs_times)
-        data.obs_times = times_norm.normalization_map(data.obs_times, times_norm_stats)
+        times_norm_stats = times_norm.get_norm_stats(data["obs_times"])
+        data["obs_times"] = times_norm.normalization_map(data["obs_times"], times_norm_stats)
 
         target_concepts: SDEConcepts | None = SDEConcepts.from_dict(data)
         target_concepts.normalize(values_norm, values_norm_stats, times_norm, times_norm_stats)
 
-        data.drift_at_locations = target_concepts.drift
-        data.diffusion_at_locations = target_concepts.diffusion
+        data["drift_at_locations"] = target_concepts.drift
+        data["diffusion_at_locations"] = target_concepts.diffusion
 
     if return_params is True:
         return data, drift_params, diffusion_params

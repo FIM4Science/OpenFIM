@@ -1,0 +1,243 @@
+experiment:
+  name: 450k_deg_3_drift_deg_0_diff_monomial_survive_uniform_2_lin_self_att_4_loc_query_finetune_std_10_coeff_data
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  seed: 10
+  device_map: cuda # auto, cuda, cpu
+
+distributed:
+  enabled: false # true for multi gpu training
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD (data parallelism), HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED (decides how to split parameters along GPUs)
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  model_type: fimsde
+  ###################################################################################
+  # Input data (corrected by dataloader)
+  max_dimension: &max_dimension 3
+  # max_time_steps: &max_time_steps 128
+  # max_location_size: &max_location_size 1024
+  # max_num_paths: &max_num_of_paths 300
+
+  # General model config
+  non_negative_diffusion_by: null
+  model_embedding_size: &model_embedding_size 128
+
+  # General transformer config
+  residual_ff_size: &residual_ff_size 512
+  transformer_layer_activation: &transformer_layer_activation "gelu"
+
+  # General MLP config
+  hidden_layers: &hidden_layers !!python/tuple [128, 128]
+  dropout_rate: &dropout_rate 0.1
+  hidden_act: &hidden_act
+    name: &activation torch.nn.GELU
+
+  # Networks
+  layer_norms_in_phi_0: false
+  separate_phi_0_encoders: true
+  delta_time_only: true
+
+  phi_0t:
+    name: fim.models.sde.SineTimeEncoding
+
+  phi_0x:
+    name: torch.nn.Linear
+
+  psi_1:
+    name: "CombinedPathTransformer"
+    num_layers: 2
+    layer:
+      attn_method: "linear"
+      lin_feature_map: "softmax"
+      lin_normalize: true
+      nhead: 4
+      dim_feedforward: *residual_ff_size
+      dropout: *dropout_rate
+      activation: *activation
+
+  phi_1x:
+    name: torch.nn.Linear
+
+  learn_vf_var: false
+  operator_specificity: "per_concept" # all, per_concept, per_head
+
+  operator:
+    paths_block_attention: false
+    num_res_layers: 4
+    attention:
+      nhead: 4
+      dim_feedforward: *residual_ff_size
+      dropout: *dropout_rate
+      activation: *activation
+
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: *hidden_layers
+      hidden_act: *hidden_act
+      dropout: *dropout_rate
+
+
+
+  # instance normalization
+  states_norm:
+    name: fim.models.sde.Standardization
+
+  times_norm:
+    name: fim.models.sde.MinMaxNormalization
+    normalized_min: 0
+    normalized_max: 1
+
+  # loss regularization
+  train_with_normalized_head: true
+  loss_filter_nans: true
+
+  # loss
+  loss_type: "nrmse" #nll, rmse, nrmse
+
+  # INFERENCE/PIPELINE ------------------------------------------------------------
+  dt_pipeline: 0.1
+  number_of_time_steps_pipeline: 128
+  evaluate_with_unnormalized_heads: true
+
+dataset:
+  name: FIMSDEDataloaderIterableDataset
+
+  max_dim: 3
+
+  dataset_name:
+    train: &train_set_name StreamingFIMSDEDataset # PaddedFIMSDEDataset, HeterogeneousFIMSDEDataset, StreamingFIMSDEDataset
+    validation: *train_set_name
+    test: PaddedFIMSDEDataset
+
+  batch_size:
+    train: 64
+    validation: 64
+    test: 64
+
+  shuffle_locations:
+    train: true
+    validation: true
+    test: false
+  shuffle_paths: true
+  shuffle_elements: true # only for PaddedFIMSDEDataset and HeterogeneousFIMSDEDataset
+
+  num_locations:
+    train: 32
+    validation: 32
+    test: null
+
+  num_observations:
+    train: !!python/tuple [1280, 12800]
+    validation: null
+    test: null
+
+
+  num_workers:
+    train: 16
+    validation: 4
+    test: 0
+
+  files_to_load:
+    obs_times: "obs_times.h5"
+    obs_values: "obs_values.h5"
+    locations: "locations.h5"
+    drift_at_locations: "drift_at_locations.h5"
+    diffusion_at_locations: "diffusion_at_locations.h5"
+
+  data_dirs:
+    # /raid/seifner/
+    train: !!python/tuple [
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/0_30k_train_deg_1_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/1_30k_train_deg_2_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/2_30k_train_deg_3_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/3_30k_train_deg_1_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/4_30k_train_deg_2_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/5_30k_train_deg_3_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/6_30k_train_deg_1_chunk_2,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/7_30k_train_deg_2_chunk_2,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/8_30k_train_deg_3_chunk_2,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/9_30k_train_deg_1_chunk_3,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/10_30k_train_deg_2_chunk_3,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/11_30k_train_deg_3_chunk_3,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/12_30k_train_deg_1_chunk_4,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/13_30k_train_deg_2_chunk_4,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/train/14_30k_train_deg_3_chunk_4,
+    ]
+    test: !!python/tuple [
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/0_10k_test_deg_1_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/1_10k_test_deg_2_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/2_10k_test_deg_3_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/3_10k_test_deg_1_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/4_10k_test_deg_2_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/5_10k_test_deg_3_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/6_10k_test_deg_1_chunk_2,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/7_10k_test_deg_2_chunk_2,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/test/8_10k_test_deg_3_chunk_2,
+     ]
+    validation: !!python/tuple [
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/0_10k_val_deg_1_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/1_10k_val_deg_2_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/2_10k_val_deg_3_chunk_0,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/3_10k_val_deg_1_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/4_10k_val_deg_2_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/5_10k_val_deg_3_chunk_1,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/6_10k_val_deg_1_chunk_2,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/7_10k_val_deg_2_chunk_2,
+      /home/seifner/repos/FIM/data/processed/train/450k_drift_deg_3_diffusion_deg_0_100_paths_monomial_coeffs_std_10/validation/8_10k_val_deg_3_chunk_2,
+      ]
+
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
+  epochs: &epochs 700
+  detect_anomaly: false
+  save_every: 3
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  # profiler:
+  #   num_batches: 40
+  #   trace_path: "/home/seifner/repos/FIM/results/profiler/trace.json"
+
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.SDEEvaluationPlots
+    plot_frequency: 1
+    plot_paths_count: 50
+
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: loss_threshold
+      beta: 10000000.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: vector_field_max_norm
+      beta: 10000000.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: diffusion_loss_scale
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: &lr_rate 1.0e-4
+      weight_decay: 0
+      # gradient_norm_clipping: 10
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.SequentialLR
+      #     step_type: minibatch
+      #     schedulers: !!python/tuple
+      #       - name: fim.trainers.lr_warmup.LinearWarmupScheduler
+      #         warmup_steps: &warmup_steps 10000
+      #         target_lr: *lr_rate
+      # #       - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      # #         T_max: 700000
+      # #         eta_min: 1.0e-6
+      # #         last_epoch: -1
+      #     milestones: !!python/tuple []

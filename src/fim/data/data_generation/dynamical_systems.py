@@ -895,6 +895,10 @@ class Polynomials(DynamicalSystem):
         degree_survival_masks = []
         monomial_survival_masks = []
 
+        if "uniform_degrees" in sample_params.keys() and sample_params["uniform_degrees"] is True:
+            degree_in_equation_mask = self._sample_uniformly_random_mask(num_realizations * self.state_dim, max_degree + 1)
+            degree_in_equation_mask = degree_in_equation_mask.reshape(num_realizations, self.state_dim, max_degree + 1)
+
         for deg in range(max_degree + 1):
             coeffs_count = self.monomial_count[deg]
 
@@ -915,36 +919,49 @@ class Polynomials(DynamicalSystem):
 
             # [num_realizations, state_dim, coeffs_count]
 
-            # sample if monomials of degree are used (per dimension)
-            degree_survival_rate: float = sample_params.get("degree_survival_rate")
+            if "uniform_degrees" in sample_params.keys() and sample_params["uniform_degrees"] is True:
+                # survival of degree is uniformly distributed
+                degree_survival_mask = degree_in_equation_mask[:, :, deg][:, :, None]  # [num_realizations, state_dim, 1]
+                degree_survival_mask = torch.broadcast_to(degree_survival_mask, (num_realizations, self.state_dim, coeffs_count))
 
-            degree_survival_dist = torch.distributions.bernoulli.Bernoulli(probs=degree_survival_rate)
-            degree_survival_mask = degree_survival_dist.sample((num_realizations, self.state_dim, 1))
-            degree_survival_mask = torch.broadcast_to(degree_survival_mask, coeff_samples.shape)
+                # survival of monomial is uniformly distributed
+                monomial_survival_mask = self._sample_uniformly_random_mask(num_realizations * self.state_dim, coeffs_count)
+                monomial_survival_mask = monomial_survival_mask.reshape(num_realizations, self.state_dim, coeffs_count)
 
-            if sample_params.get("max_degree_survives", False) is False:
+            else:  # decide with bernoulli samples if monoomial is included
+                # sample if monomials of degree are used (per dimension)
+                degree_survival_rate: float = sample_params.get("degree_survival_rate")
+
+                degree_survival_dist = torch.distributions.bernoulli.Bernoulli(probs=degree_survival_rate)
+                degree_survival_mask = degree_survival_dist.sample((num_realizations, self.state_dim, 1))
+                degree_survival_mask = torch.broadcast_to(degree_survival_mask, coeff_samples.shape)
+
+                # sample additionally if monomials survive
+                monomials_survival_config = sample_params["monomials_survival_distribution"]
+
+                if monomials_survival_config["name"] == "uniform":
+                    monomial_survival_rate_dist = torch.distributions.uniform.Uniform(
+                        monomials_survival_config["min"], monomials_survival_config["max"]
+                    )
+                    monomial_survival_rate = monomial_survival_rate_dist.sample((num_realizations, self.state_dim))
+
+                elif monomials_survival_config["name"] == "fix":
+                    fix_value = monomials_survival_config["fix_value"]
+                    monomial_survival_rate = fix_value * torch.ones(num_realizations, self.state_dim)
+                else:
+                    assert False, "Not implemented"
+
+                survival_dist = torch.distributions.bernoulli.Bernoulli(probs=monomial_survival_rate)
+                survival_mask = survival_dist.sample((coeffs_count,))  # [coeffs_count, num_realizations, state_dim]
+                monomial_survival_mask = torch.permute(survival_mask, (1, 2, 0))  # [num_realizations, state_dim, coeffs_count]
+
+            if sample_params.get("max_degree_survives", False) is False or deg < max_degree:
                 degree_survival_masks.append(degree_survival_mask)
 
             else:
                 degree_survival_masks.append(torch.ones_like(degree_survival_mask))
 
-            # sample additionally if monomials survive
-            monomials_survival_config = sample_params["monomials_survival_distribution"]
-
-            if monomials_survival_config["name"] == "uniform":
-                monomial_survival_rate_dist = torch.distributions.uniform.Uniform(
-                    monomials_survival_config["min"], monomials_survival_config["max"]
-                )
-                monomial_survival_rate = monomial_survival_rate_dist.sample((num_realizations, self.state_dim))
-
-            else:
-                assert False, "Not implemented"
-
-            survival_dist = torch.distributions.bernoulli.Bernoulli(probs=monomial_survival_rate)
-            survival_mask = survival_dist.sample((coeffs_count,))  # [coeffs_count, num_realizations, state_dim]
-            monomial_survival_mask = torch.permute(survival_mask, (1, 2, 0))  # [num_realizations, state_dim, coeffs_count]
             monomial_survival_masks.append(monomial_survival_mask)
-
             coeffs_samples_per_degree.append(coeff_samples)
 
         # Combine sampled coefficients to single tensor
@@ -984,6 +1001,43 @@ class Polynomials(DynamicalSystem):
         params = params * scale
 
         return params
+
+    @staticmethod
+    def _sample_uniformly_random_mask(num_masks: int, num_entries: int) -> Tensor:
+        """
+        Sample num_masks masks with num_entries. Each mask contains ~U[1, num_entries] 1s.
+
+        Args:
+            num_masks (int): How many masks to sample.
+            num_entries (int): How many entries each mask contains.
+
+        Returns:
+            masks (Tensor): Masks with ~U[1, num_entries] 1s. Shape: [num_masks, num_entries].
+        """
+        # set up base mask with uniformly random number of 1s at the beginning
+        arange_ = torch.arange(num_entries).reshape(1, -1)  # [1, num_entries]
+        num_1s = torch.randint(low=0, high=num_entries, size=(num_masks, 1))  # [num_masks, 1]
+
+        base_mask = arange_ <= num_1s  # [num_masks, num_entries]
+
+        # set up function for independent permutation in each mask
+        def _permute_in_first_axis(tensor: Tensor, perm: Tensor):
+            """
+            Args:
+                tensor (Tensor): Tensor to permute. Shape: [T]
+                perm (Tensor): Tensor with permutation inices. Shape: [T]
+            """
+            return tensor[perm]
+
+        _vmapped_permute_in_first_axis = torch.vmap(_permute_in_first_axis)
+
+        perm = torch.argsort(torch.randn(num_masks, num_entries), dim=-1)  # [num_masks, num_entries]
+
+        # permute each base mask independently
+        mask = _vmapped_permute_in_first_axis(base_mask, perm)  # [num_entries, num_masks]
+        assert mask.shape == (num_masks, num_entries)
+
+        return mask
 
     def evaluate_polynomial(self, states: Tensor, coeffs: Tensor) -> Tensor:
         """
@@ -1201,7 +1255,29 @@ class Polynomials(DynamicalSystem):
             initial_states (Tensor): Initial states. Shape: [num_initial_states, state_dim]
 
         """
-        return self.sample_initial_states_generic(num_initial_states)
+        if self.initial_state["distribution"] == "normal":
+            if isinstance(self.initial_state["mean"], dict) and "distribution" in self.initial_state["mean"]:
+                if self.initial_state["mean"]["distribution"] == "uniform":
+                    _min = self.initial_state["mean"]["min"]
+                    _max = self.initial_state["mean"]["max"]
+                    _num_paths = self.initial_state["mean"]["num_paths"]  # need to sample mean per equation
+                    num_batch = num_initial_states // _num_paths
+                    mean = _min + torch.rand(size=(num_batch, 1, self.state_dim)) * (_max - _min)
+
+                    mean = mean.expand(num_batch, _num_paths, self.state_dim)
+                    mean = mean.reshape(-1, self.state_dim)
+
+            else:
+                mean = self.initial_state["mean"]
+
+            std_dev = self.initial_state["std_dev"]
+            initial_states = mean + std_dev * torch.randn((num_initial_states, self.state_dim))
+        elif self.initial_state["distribution"] == "uniform":
+            _min = self.initial_state["min"]
+            _max = self.initial_state["max"]
+            initial_states = _min + torch.rand(size=(num_initial_states, self.state_dim)) * (_max - _min)
+
+        return initial_states
 
 
 class HybridDynamicalSystem(DynamicalSystem):

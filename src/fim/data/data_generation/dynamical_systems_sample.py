@@ -104,6 +104,9 @@ class PathGenerator:
         self.num_paths = integrator_params["num_paths"]
         self.chunk_size = integrator_params.get("chunk_size", self.num_realizations)
         self.num_steps = integrator_params["num_steps"]
+        if integrator_params.get("time_length") is not None:  # remove one step, because we pass total length of sampled path
+            self.num_steps = self.num_steps - 1
+
         self.stochastic = integrator_params["stochastic"]
 
         # observation parameters

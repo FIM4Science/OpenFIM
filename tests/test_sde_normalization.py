@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 
 from fim.data.data_generation.dynamical_systems import Degree2Polynomial, DynamicalSystem, Lorenz63System
-from fim.models.sde import InstanceNormalization, MinMaxNormalization, SDEConcepts, Standardization
+from fim.models.sde import DeltaLogCentering, InstanceNormalization, MinMaxNormalization, SDEConcepts, Standardization
 
 
 class TestMinMaxandStandard:
@@ -186,6 +186,24 @@ class TestStandardization:
 
         assert torch.all(transformed_mean == torch.zeros_like(transformed_mean))
         assert torch.all(transformed_std == torch.ones_like(transformed_std))
+
+
+class TestDeltaLogCentering:
+    @pytest.fixture
+    def data(self) -> Tensor:
+        return torch.broadcast_to(torch.arange(10).reshape(1, 1, 10, 1), (2, 5, 10, 1))
+
+    def test_normalization_map(self, data: Tensor) -> None:
+        norm = DeltaLogCentering(target_value=0.01)
+
+        # only applicable to deltas
+        delta_data = data[..., 1:, :] - data[..., :-1, :]
+        norm_stats = norm.get_norm_stats(delta_data)
+
+        # reaches its target (0.01)
+        transformed_data = norm.normalization_map(delta_data, norm_stats)
+
+        assert torch.allclose(transformed_data, 0.01 * torch.ones_like(transformed_data))
 
 
 class TestSDEConceptsBasics:

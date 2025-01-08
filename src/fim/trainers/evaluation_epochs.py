@@ -213,7 +213,7 @@ class SDEEvaluationPlots(EvaluationEpoch):
             batch_with_all_dims: tuple[dict] = []
 
             for dim in range(1, max_dim + 1):
-                for batch in self.dataloader:
+                for batch in iter(self.dataloader):
                     batch = optree.tree_map(lambda x: x.to(self.model.device), batch, namespace="sde")
 
                     dim_in_batch = (batch["dimension_mask"].sum(dim=-1) == dim)[:, 0]  # [B]
@@ -232,8 +232,9 @@ class SDEEvaluationPlots(EvaluationEpoch):
             # get concepts and samples from batch_with_all_dims
             with torch.no_grad():
                 estimated_concepts: SDEConcepts = self.model(batch_with_all_dims, training=False)
-
-            sample_paths, sample_paths_grid = fimsde_sample_paths(self.model, batch_with_all_dims, grid=batch_with_all_dims["obs_times"])
+                sample_paths, sample_paths_grid = fimsde_sample_paths(
+                    self.model, batch_with_all_dims, grid=batch_with_all_dims["obs_times"]
+                )
 
             # Create figures from model outputs and samples
             figures = {}
