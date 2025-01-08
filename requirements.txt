@@ -22,6 +22,7 @@ pytest
 pytest-cov
 pytest-dependency
 pytest-env
+python-dotenv
 pyyaml
 recommonmark
 ruff
