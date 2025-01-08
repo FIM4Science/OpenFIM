@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import shutil
 import sys
@@ -8,6 +9,7 @@ from typing import Literal, Union
 
 import torch
 import torch.distributed as dist
+from dotenv import load_dotenv
 from torch.cuda.amp import GradScaler
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     CheckpointImpl,
@@ -33,6 +35,9 @@ from ..utils.logging import RankLoggerAdapter
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 fullstate_save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
 optim_save_policy = FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)
+
+
+load_dotenv()
 
 
 class TrainCheckpoint:
@@ -259,7 +264,7 @@ class TrainCheckpoint:
         self._save_optimizers_state(epoch, best_model_dir)
         if self.hub_model_id is not None:
             self.__logger.info(f"Pushing Best Model to Huggingface Hub in Repo: {self.hub_model_id}")
-            self.model.push_to_hub(self.hub_model_id)
+            self.model.push_to_hub(self.hub_model_id, private=True, token=os.getenv("HF_TOKEN", None))
         self.__logger.info("Best Model Saved!")
 
     def _update_best_model_flag(self, train_stats: dict, validation_stats: dict) -> None:

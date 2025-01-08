@@ -14,7 +14,8 @@ on:
 
 permissions:
   contents: read
-
+env:
+  HF_TOKEN: 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
 jobs:
   build:
     runs-on: ubuntu-latest

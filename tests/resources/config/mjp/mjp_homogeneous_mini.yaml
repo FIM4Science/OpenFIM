@@ -89,7 +89,7 @@ trainer:
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1
-  hub_model_id: cvejoski/fim-mjp-test
+  hub_model_id: FIM4Science/fim-mjp-test
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
