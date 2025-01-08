@@ -25,7 +25,7 @@ class InducedSetAttentionLayer(Block):
         self.res_attn_layer_0 = ResidualAttentionLayer(batch_first=True, **deepcopy(layer))
         self.res_attn_layer_1 = ResidualAttentionLayer(batch_first=True, **deepcopy(layer))
 
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def forward(self, values: Tensor, key_padding_mask: Optional[Tensor] = None) -> Tensor:
         """
         Applies sinduced set attention with num_induced_points induced points.
@@ -266,7 +266,7 @@ class ResidualAttentionLayer(Block):
         # Flag for resiual connection with query
         self.query_residual = query_residual
 
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def forward(self, queries: Tensor, keys: Tensor, values: Tensor, key_padding_mask: Optional[Tensor] = None) -> Tensor:
         """
         Apply attention and layer norm, followed by a residual feedforward block.
@@ -327,7 +327,7 @@ class LinearAttention(Block):
         self.feature_map = feature_map
         self.normalize = normalize
 
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def forward(self, query: Tensor, key: Tensor, value: Tensor, key_padding_mask: Optional[Tensor] = None):
         B, Tq, _ = query.shape
         B, Tk, _ = key.shape

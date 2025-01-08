@@ -174,7 +174,7 @@ class StaticQuery(nn.Module):
 
 
 @torch.profiler.record_function("forward_fill_masked_values")
-@torch.compile()
+@torch.compile(disable=not torch.cuda.is_available())
 def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill forward values at masked entries in dimension -2.
@@ -216,7 +216,7 @@ def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tens
 
 
 @torch.profiler.record_function("backward_fill_masked_values")
-@torch.compile()
+@torch.compile(disable=not torch.cuda.is_available())
 def backward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill backwards values at masked entries in dimension -2.
@@ -362,7 +362,7 @@ class MinMaxNormalization(InstanceNormalization):
         self.batch_transform_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(transform_map_grad_grad)))
 
     @torch.profiler.record_function("minmax_get_stats")
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return min and max of passed values along all dimensions 1 to -2, where mask == True.
@@ -435,7 +435,7 @@ class MinMaxNormalization(InstanceNormalization):
         return transformed_value
 
     @torch.profiler.record_function("minmax_norm_map")
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
         """
         (Derivative of) normalization based on previously set statistics, i.e. evaluate the map
@@ -550,7 +550,7 @@ class Standardization(InstanceNormalization):
         self.batch_inv_standardize_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_standardize_map_grad_grad)))
 
     @torch.profiler.record_function("stand_get_stats")
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return mean and standard deviation of passed values along all dimensions 1 to -2, where mask == True.
@@ -1334,7 +1334,7 @@ class FIMSDE(AModel, pl.LightningModule):
 
     @staticmethod
     @torch.profiler.record_function("fimsde_fill_masekd_values")
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def _fill_masked_values(data: dict):
         if "obs_mask" in data.keys() and data["obs_mask"] is not None:
             obs_mask = data["obs_mask"].bool()
@@ -1406,7 +1406,7 @@ class FIMSDE(AModel, pl.LightningModule):
         return obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats
 
     @torch.profiler.record_function("get_paths_encoding")
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def get_paths_encoding(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Optional[Tensor] = None) -> Tensor:
         """
         Obtain embedding of all observed values in all paths.
@@ -1846,7 +1846,7 @@ class FIMSDE(AModel, pl.LightningModule):
         return loss, filtered_loss_locations_perc, target_clipped_norm_perc
 
     @torch.profiler.record_function("fimsde_loss")
-    @torch.compile(fullgraph=True)
+    # @torch.compile(fullgraph=True)
     def loss(
         self,
         estimated_concepts: SDEConcepts,

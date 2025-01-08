@@ -26,11 +26,11 @@ model:
   model_embedding_size: &model_embedding_size 8
 
   # General transformer config
-  residual_ff_size: &residual_ff_size 8
+  residual_ff_size: &residual_ff_size 4
   transformer_layer_activation: &transformer_layer_activation "gelu"
 
   # General MLP config
-  hidden_layers: &hidden_layers !!python/tuple [8, 8]
+  hidden_layers: &hidden_layers !!python/tuple [4, 4]
   dropout_rate: &dropout_rate 0.1
   hidden_act: &hidden_act
     name: &activation torch.nn.GELU
@@ -53,7 +53,7 @@ model:
       attn_method: "linear"
       lin_feature_map: "softmax"
       lin_normalize: true
-      nhead: 4
+      nhead: 2
       dim_feedforward: *residual_ff_size
       dropout: *dropout_rate
       activation: *activation
@@ -66,9 +66,9 @@ model:
 
   operator:
     paths_block_attention: false
-    num_res_layers: 4
+    num_res_layers: 2
     attention:
-      nhead: 4
+      nhead: 2
       dim_feedforward: *residual_ff_size
       dropout: *dropout_rate
       activation: *activation
@@ -125,11 +125,11 @@ dataset:
     test: null
 
   num_observations:
-    train: !!python/tuple [1280, 6400]
+    train: !!python/tuple [256, 512]
     validation: null
     test: null
 
-  num_workers: 0
+  num_workers: 4
 
   files_to_load:
     obs_times: "obs_times.h5"
@@ -155,9 +155,9 @@ dataset:
 
 trainer:
   name: Trainer
-  debug_iterations: 3
+  debug_iterations: 2
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 3
+  epochs: &epochs 2
   detect_anomaly: false
   save_every: 1
   gradient_accumulation_steps: 1
