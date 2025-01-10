@@ -35,7 +35,9 @@ def save_fimsdedatabatch_to_files(databatch: FIMSDEDatabatch, save_dir: Path) ->
     save_dir.mkdir(exist_ok=True, parents=True)
 
     save_h5(databatch.obs_values, save_dir / "obs_values.h5")
+    save_h5(databatch.obs_noisy_values, save_dir / "obs_noisy_values.h5")
     save_h5(databatch.obs_times, save_dir / "obs_times.h5")
+    save_h5(databatch.obs_mask, save_dir / "obs_mask.h5")
     save_h5(databatch.locations, save_dir / "locations.h5")
     save_h5(databatch.drift_at_locations, save_dir / "drift_at_locations.h5")
     save_h5(databatch.diffusion_at_locations, save_dir / "diffusion_at_locations.h5")

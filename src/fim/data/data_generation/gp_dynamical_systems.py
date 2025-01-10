@@ -402,6 +402,7 @@ class SDEGPDynamicalSystem:
             locations=locations,
             obs_times=obs_times,
             obs_values=obs_values,
+            obs_noisy_values=None,  # for now
             obs_mask=None,  # for now
             diffusion_at_locations=diffusion_at_locations,
             drift_at_locations=drift_at_locations,

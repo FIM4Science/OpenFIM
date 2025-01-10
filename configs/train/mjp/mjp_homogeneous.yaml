@@ -63,13 +63,11 @@ model_dim: &model_dim 128
 
 model:
   model_type: fimmjp
-  model_type: fimmjp
   n_states: 6
   use_adjacency_matrix: false
   use_num_of_paths: true
 
   ts_encoder:
-    name: torch.nn.TransformerEncoder
     name: torch.nn.TransformerEncoder
     num_layers: 4
 

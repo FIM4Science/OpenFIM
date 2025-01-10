@@ -85,7 +85,7 @@ class PathGenerator:
 
         self.reject_threshold = integrator_params.get("reject_threshold")  # reject if one component is larger than threshold
 
-        self.relative_diffusion_scale: float = integrator_params.get("relative_diffusion_scale")
+        self.relative_diffusion_scale: float = integrator_params.get("relative_diffusion_scale", None)
 
         self.num_locations = integrator_params["num_locations"]
         self.sampling_device = integrator_params.get("device", "cuda")
@@ -107,18 +107,8 @@ class PathGenerator:
         self.stochastic = integrator_params["stochastic"]
 
         # observation parameters
-        if "observation_time" in integrator_params.keys():
-            self.observation_time_params = integrator_params["observation_time"]
-        else:
-            self.observation_time_params = False
-        if "observation_coordinate" in integrator_params.keys():
-            self.observation_coordinate_params = integrator_params["observation_coordinate"]
-        else:
-            self.observation_coordinate_params = False
-        if "observation_noise" in integrator_params.keys():
-            self.observation_noise_params = integrator_params["observation_noise"]
-        else:
-            self.observation_noise_params = False
+        self.observation_time_params = integrator_params.get("observation_time", None)
+        self.observation_coordinate_params = integrator_params.get("observation_coordinate", None)
 
         self.integrator = INTERGRATORS_METHODS[integrator_params["method"]](integrator_params)
 
@@ -136,6 +126,7 @@ class PathGenerator:
         all_hidden_times = []
         all_drift_params = []
         all_diffusion_params = []
+        all_paths_range = []
 
         num_generated_realizations = 0
 
@@ -147,7 +138,7 @@ class PathGenerator:
             drift_params = self.system.sample_drift_params(self.chunk_size)  # [chunk_size,max_drift_params]
             diffusion_params = self.system.sample_diffusion_params(self.chunk_size)  # [chunk_size,max_diffusion_params]
 
-            if self.relative_diffusion_scale is not None:
+            if self.relative_diffusion_scale:
                 # solve ODE
                 diffusion_params = torch.zeros_like(diffusion_params)
                 hidden_paths, hidden_times, drift_params, diffusion_params = self.solve_equations(
@@ -156,7 +147,7 @@ class PathGenerator:
 
                 # range per equation (adapted for multi-paths from SVISE)
                 hidden_paths = hidden_paths.view(hidden_paths.shape[0], -1)
-                paths_range = 1 / 2 * (torch.amax(hidden_paths) - torch.amin(hidden_paths))
+                paths_range = 1 / 2 * (torch.amax(hidden_paths, dim=1) - torch.amin(hidden_paths, dim=1))
 
                 # update diffusion_params
                 target_shape = tuple([hidden_paths.shape[0]] + [1 for _ in diffusion_params.shape[1:]])
@@ -167,6 +158,11 @@ class PathGenerator:
             hidden_paths, hidden_times, drift_params, diffusion_params = self.solve_equations(
                 states, drift_params, diffusion_params, total_num_paths
             )
+            if self.system.is_relative_noise:
+                hidden_paths = hidden_paths.view(hidden_paths.shape[0], -1)
+                paths_range = 1 / 2 * (torch.amax(hidden_paths, dim=1) - torch.amin(hidden_paths, dim=1))
+                all_paths_range.append(paths_range)
+                hidden_paths = hidden_paths.view(hidden_paths.shape[0], self.num_paths, self.num_steps + 1, -1)
 
             # add remaining to generated data
             all_hidden_paths.append(hidden_paths)
@@ -181,18 +177,25 @@ class PathGenerator:
         hidden_paths = torch.concatenate(all_hidden_paths, dim=0)
         drift_params = torch.concatenate(all_drift_params, dim=0)
         diffusion_params = torch.concatenate(all_diffusion_params, dim=0)
+        if self.system.is_relative_noise:
+            paths_range = torch.concatenate(all_paths_range, dim=0)
+        else:
+            paths_range = None
+
         assert hidden_times.shape[0] == hidden_paths.shape[0] == drift_params.shape[0] == diffusion_params.shape[0]
 
         pbar.close()
-
         obs_mask = torch.ones_like(hidden_times).bool()  # for now no masking
+        if self.system.mask_sampler is not None:
+            obs_mask = self.system.mask_sampler(hidden_paths)
 
         databatch = self.define_bulk(
             hidden_times[: self.num_realizations],
             hidden_paths[: self.num_realizations],
-            obs_mask,
+            obs_mask[: self.num_realizations],
             drift_params[: self.num_realizations],
             diffusion_params[: self.num_realizations],
+            paths_range[: self.num_realizations] if paths_range is not None else None,
         )
 
         if return_params is True:
@@ -248,7 +251,7 @@ class PathGenerator:
 
         return hidden_paths, hidden_times, drift_params, diffusion_params
 
-    def define_bulk(self, hidden_times, hidden_paths, obs_mask, drift_params, diffusion_params) -> FIMSDEDatabatch:
+    def define_bulk(self, hidden_times, hidden_paths, obs_mask, drift_params, diffusion_params, path_range=None) -> FIMSDEDatabatch:
         """
         Evaluates cases for the different data bulks
 
@@ -256,10 +259,12 @@ class PathGenerator:
         as well as the noise to the observations
         """
         if self.dataset_type == "FIMSDEpDataset":
-            return self.define_fim_sde_data(hidden_times, hidden_paths, obs_mask, drift_params, diffusion_params)
+            noisy_obs_values = self.add_noise(hidden_paths, path_range)
+
+            return self.define_fim_sde_data(hidden_times, hidden_paths, noisy_obs_values, obs_mask, drift_params, diffusion_params)
         elif self.dataset_type == "FIMPOODEDataset":
             obs_values, obs_times, obs_mask, obs_lenght = self.time_observations_and_mask(hidden_paths, hidden_times)
-            noisy_obs_values = self.obs_noise(obs_values)
+            noisy_obs_values = self.add_noise(obs_values)
             o_values = self.coordinate_observation(obs_values)
 
             return self.define_fim_poode_data(
@@ -300,18 +305,28 @@ class PathGenerator:
 
         return locations
 
-    def define_fim_sde_data(self, obs_times, obs_values, obs_mask, drift_parameters, diffusion_parameters) -> FIMSDEDatabatch:
+    def define_fim_sde_data(
+        self, obs_times, obs_values, noisy_obs_values, obs_mask, drift_parameters, diffusion_parameters
+    ) -> FIMSDEDatabatch:
         """
-        Define locations and evaluate drift and diffusion at them.
-        Store generated data in FIMSDEDatabatch.
+           Store generated data in a FIMSDEDatabatch.
 
-        Args:
-            obs_times (Tensor): Shape [num_realizations, num_paths, num_obs, 1]
-            obs_values (Tensor): Shape [num_realizations, num_paths, num_obs, D]
-            drift/diffusion_parameters (Tensor): Parameters observations were generated with. Shape [num_realizations, ...]
+            obs_times (Tensor):
+                Observation times with shape [num_realizations, num_paths, num_obs, 1].
+            obs_values (Tensor):
+                Observation values with shape [num_realizations, num_paths, num_obs, D].
+            noisy_obs_values (Tensor):
+                Noisy observation values.
+            obs_mask (Tensor):
+                Mask for observations indicating valid data points.
+            drift_parameters (Tensor):
+                Parameters used for drift evaluation. Shape [num_realizations, ...].
+            diffusion_parameters (Tensor):
+                Parameters used for diffusion evaluation. Shape [num_realizations, ...].
 
-        returns:
-            data (FIMSDEDatabatch): Generated data stored in a FIMSDEDatabatch.
+        Returns:
+            FIMSDEDatabatch:
+                Generated data stored in a FIMSDEDatabatch.
         """
         num_realizations, _, _, D = obs_values.shape
 
@@ -335,6 +350,7 @@ class PathGenerator:
         return FIMSDEDatabatch(
             obs_times=obs_times,
             obs_values=obs_values,
+            obs_noisy_values=noisy_obs_values,
             obs_mask=obs_mask,
             locations=locations,
             diffusion_at_locations=diffusion_at_locations,
@@ -378,12 +394,28 @@ class PathGenerator:
         else:
             return obs_values
 
-    def obs_noise(self, obs_values):
+    def add_noise(self, obs_values, system_range=None):
         """Not implemented keeps the same values"""
-        if self.obs_noise:
-            return obs_values
-        else:
-            return obs_values
+        if self.system.is_observation_noise:
+            noise_dist_params = self.system.observation_noise_params["distribution"]
+            match noise_dist_params["name"]:
+                case "normal":
+                    mean_of_mean = noise_dist_params.get("mean_of_mean")
+                    std_of_mean = noise_dist_params.get("std_of_mean")
+                    mean = torch.normal(mean_of_mean, std_of_mean, size=system_range.shape)
+                    menan_of_std = noise_dist_params.get("mean_of_std")
+                    std_of_std = noise_dist_params.get("std_of_std")
+                    std = torch.abs(torch.normal(menan_of_std, std_of_std, size=system_range.shape))
+                    if system_range is not None:
+                        std = std * system_range
+                    total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim
+                    epsilon = torch.normal(mean.unsqueeze(1).repeat(1, total_dim), std.unsqueeze(1).repeat(1, total_dim))
+                case _:
+                    raise ValueError(f"Unknown noise distribution: {noise_dist_params['name']}")
+
+            return obs_values + epsilon.view_as(obs_values)
+
+        return obs_values
 
 
 def set_up_a_dynamical_system(

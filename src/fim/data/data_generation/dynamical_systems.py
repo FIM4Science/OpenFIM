@@ -8,6 +8,8 @@ import numpy as np
 import torch
 from torch import Tensor
 
+from ...utils.helper import create_class_instance
+
 
 class DynamicalSystem(ABC):
     """
@@ -28,6 +30,11 @@ class DynamicalSystem(ABC):
 
         self.drift_params = config.get("drift_params")
         self.diffusion_params = config.get("diffusion_params")
+        self.observation_noise_params = config.get("observation_noise", None)
+        self.mask_sampler_params = config.get("mask_sampler_params", None)
+        self.mask_sampler = None
+        if self.mask_sampler_params:
+            self.mask_sampler = create_class_instance(self.mask_sampler_params.pop("name"), self.mask_sampler_params)
         self.initial_state = config.get("initial_state")
 
     @abstractmethod
@@ -99,6 +106,28 @@ class DynamicalSystem(ABC):
             initial_states = torch.sigmoid(initial_states)
 
         return initial_states
+
+    @property
+    def is_observation_noise(self) -> bool:
+        """
+        Determine whether observation noise is present in the system.
+
+        Returns:
+            bool: True if observation noise parameters are set, False otherwise.
+        """
+
+        return self.observation_noise_params is not None
+
+    @property
+    def is_relative_noise(self) -> bool:
+        """
+        Determine whether the noise is relative to the system range.
+
+        Returns:
+            bool: True if observation noise parameters are set and indicate relative noise, False otherwise.
+        """
+
+        return self.observation_noise_params and self.observation_noise_params["relative"]
 
 
 class Lorenz63System(DynamicalSystem):
