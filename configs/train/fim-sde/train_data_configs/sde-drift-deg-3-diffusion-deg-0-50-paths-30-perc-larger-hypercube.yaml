@@ -27,6 +27,11 @@ train:
     enforce_positivity: &enforce_positivity "abs"
     max_degree_drift: &max_degree_drift 3
     max_degree_diffusion: &max_degree_diffusion 0
+    observation_noise:
+      relative: true  # Set to false to use absolute standard deviation
+      distribution:
+        name: normal
+        std: 0.1
     drift_params: &drift_params
       distribution:
         name: normal

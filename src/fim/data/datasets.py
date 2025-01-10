@@ -474,6 +474,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
 class FIMSDEDatabatch:
     obs_times: Tensor | np.ndarray
     obs_values: Tensor | np.ndarray
+    obs_noisy_values: Tensor | np.ndarray
 
     drift_at_locations: Tensor | np.ndarray
     diffusion_at_locations: Tensor | np.ndarray
@@ -503,6 +504,7 @@ FIMSDEDatabatchTuple = namedtuple(
     [
         "obs_times",
         "obs_values",
+        "obs_noisy_values",
         "obs_mask",
         "diffusion_at_locations",
         "drift_at_locations",
