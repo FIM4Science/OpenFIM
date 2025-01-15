@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 import torch
+import tabulate
 
 from dataloader_inits.synthetic_test_equations import get_cspd_dataloaders_inits, get_difficult_synth_equations_dataloaders_inits, get_opper_or_wang_dataloaders_inits, get_svise_dataloaders_inits, get_up_to_deg_3_polynomial_test_sets_init
 from model_dicts.development_models_deg_3_drift import (
@@ -14,12 +15,13 @@ from fim.utils.evaluation_sde import (
     ModelEvaluation,
     get_maps_from_dicts,
     load_evaluations,
-    get_data_from_model_evaluation
+    get_data_from_model_evaluation,
+    save_evaluations
 )
 from compute_mmd import get_mmd
 
 
-def compute_mmd(model_evaluation, evaluation_config):
+def compute_mmd(model_evaluation, evaluation_config):  
     model_sample_paths = model_evaluation.results["sample_paths"] # [1, num_paths, num_steps, num_dim]
     model_sample_path_grid = model_evaluation.results["sample_paths_grid"]
     ground_truth_data = get_data_from_model_evaluation(model_evaluation, evaluation_config)
@@ -27,7 +29,10 @@ def compute_mmd(model_evaluation, evaluation_config):
     ground_truth_sample_path_grid = ground_truth_data["obs_times"]
     assert torch.allclose(model_sample_path_grid, ground_truth_sample_path_grid), "Sample path grids do not match"
     assert model_sample_paths.shape == ground_truth_sample_paths.shape, "Sample paths do not match in shape"
-    return get_mmd(model_sample_paths[0], ground_truth_sample_paths[0])
+    mmd = get_mmd(model_sample_paths[0], ground_truth_sample_paths[0])
+    model_evaluation.results["mmd"] = mmd
+    
+    return model_evaluation
 
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
@@ -108,7 +113,11 @@ if __name__ == "__main__":
     
         all_evaluations.append(model_evaluation)
 
-    # # Save
-    # save_evaluations(all_evaluations, evaluation_dir / "model_evaluations")
+    # Save
+    save_evaluations(all_evaluations, evaluation_dir / "model_evaluations")
 
-    # Maybe create table?
+    # Print a tabulate table
+    evaluation_names = [model_evaluation.__repr__() for model_evaluation in all_evaluations]
+    mmds = [model.results["mmd"] for model in all_evaluations]
+    table = tabulate.tabulate(zip(evaluation_names, mmds), headers=["Model", "MMD"], tablefmt="fancy_grid")
+    print(table)
