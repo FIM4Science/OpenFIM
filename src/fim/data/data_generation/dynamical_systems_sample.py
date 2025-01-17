@@ -400,12 +400,12 @@ class PathGenerator:
             noise_dist_params = self.system.observation_noise_params["distribution"]
             match noise_dist_params["name"]:
                 case "normal":
-                    mean_of_mean = noise_dist_params.get("mean_of_mean")
-                    std_of_mean = noise_dist_params.get("std_of_mean")
+                    mean_of_mean = torch.tensor(noise_dist_params.get("mean_of_mean"))
+                    std_of_mean = torch.tensor(noise_dist_params.get("std_of_mean"))
                     mean = torch.normal(mean_of_mean, std_of_mean, size=system_range.shape)
-                    menan_of_std = noise_dist_params.get("mean_of_std")
-                    std_of_std = noise_dist_params.get("std_of_std")
-                    std = torch.abs(torch.normal(menan_of_std, std_of_std, size=system_range.shape))
+                    mean_of_std = torch.tensor(noise_dist_params.get("mean_of_std"))
+                    std_of_std = torch.tensor(noise_dist_params.get("std_of_std"))
+                    std = torch.abs(torch.normal(mean_of_std, std_of_std, size=system_range.shape))
                     if system_range is not None:
                         std = std * system_range
                     total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim

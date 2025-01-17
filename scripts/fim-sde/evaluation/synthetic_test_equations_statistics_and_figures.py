@@ -14,7 +14,7 @@ from dataloader_inits.synthetic_test_equations import (
     get_up_to_deg_3_polynomial_test_sets_init,
 )
 from model_dicts.development_models_deg_3_drift import (
-    get_model_dicts_20241230_trained_on_30k_deg_3_drift_deg_0_diffusion_50_paths_streaming_dataloader,
+    get_models_dict_20250116_traind_on_30k_deg_3_drift_deg_0_diffusion_50_paths_with_noise_and_mask,
 )
 from tqdm import tqdm
 
@@ -76,7 +76,8 @@ if __name__ == "__main__":
     # experiment_descr = "models_trained_on_deg_3_drift_deg_0_diff_streaming_dataloader_development"
     experiment_descr = "testing"
 
-    model_dicts, models_display_ids = get_model_dicts_20241230_trained_on_30k_deg_3_drift_deg_0_diffusion_50_paths_streaming_dataloader()
+    # model_dicts, models_display_ids = get_model_dicts_20241230_trained_on_30k_deg_3_drift_deg_0_diffusion_50_paths_streaming_dataloader()
+    model_dicts, models_display_ids = get_models_dict_20250116_traind_on_30k_deg_3_drift_deg_0_diffusion_50_paths_with_noise_and_mask()
 
     # train_test_split_dir = [
     #     "/lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths/test/0_test_deg_2",
@@ -86,7 +87,7 @@ if __name__ == "__main__":
     train_test_split_dir = None
 
     results_to_load: list[str] = [
-        "synthetic_datasets/01062334_testing/model_evaluations",
+        "/home/cvejoski/Projects/FoundationModels/FIM/evaluations/synthetic_datasets/01171007_testing/model_evaluations",
     ]
 
     BATCH_SIZE = 128
