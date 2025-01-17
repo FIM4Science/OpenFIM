@@ -311,6 +311,14 @@ def load_h5(path: Path):
     return arr
 
 
+def load_h5s_in_folder(folder_path: Path):
+    """
+    Detect all files that end with .h5 in the folder and load them.
+    """
+    h5_files = list(folder_path.glob("*.h5"))
+    return {file.stem: load_h5(file) for file in h5_files}
+
+
 def save_h5(tensor, path: Path):
     array = tensor.detach().cpu().numpy()
 
