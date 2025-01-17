@@ -4,6 +4,9 @@ import os
 from unittest.mock import MagicMock
 import sys
 
+
+use_cuda = False # We are memory bottlenecked so we don't want to use GPU and mock Cupy instead
+
 class MockCuPy:
     random = None  # Will be set later
 
@@ -113,49 +116,20 @@ class MockCuPy:
         def RandomState(seed=None):
             return np.random.RandomState(seed)
 
-# Create an instance of MockCuPy and set the random attribute
-mock_cupy = MockCuPy()
-mock_cupy.random = mock_cupy.Random()
+if not use_cuda:
+    # Create an instance of MockCuPy and set the random attribute
+    mock_cupy = MockCuPy()
+    mock_cupy.random = mock_cupy.Random()
 
-# Replace 'cupy' and related modules with our mock
-sys.modules['cupy'] = mock_cupy
-sys.modules['cupy.random'] = mock_cupy.random
-sys.modules['cupy._core'] = MagicMock()
-sys.modules['cupy.cuda'] = MagicMock()
-sys.modules['cupy_backends'] = MagicMock()
+    # Replace 'cupy' and related modules with our mock
+    sys.modules['cupy'] = mock_cupy
+    sys.modules['cupy.random'] = mock_cupy.random
+    sys.modules['cupy._core'] = MagicMock()
+    sys.modules['cupy.cuda'] = MagicMock()
+    sys.modules['cupy_backends'] = MagicMock()
 
 
 import ksig #Follow the instruction on https://github.com/tgcsaba/KSig to install it
-
-# MockCuPy class to cover more CuPy-specific functionalities
-class MockCuPy:
-    def __getattr__(self, name):
-        print(f"Accessing: {name}")
-        if name in ['asnumpy', 'asarray']:
-            return np.asarray
-        elif name == 'get_array_module':
-            return lambda x: np
-        elif name == '_environment':
-            class MockEnvironment:
-                def __init__(self):
-                    self.available = False
-                    self._log = self.MockLog()
-
-                class MockLog:
-                    def __call__(self, *args, **kwargs):
-                        pass
-
-                    def info(self, *args, **kwargs):
-                        pass
-
-            return MockEnvironment()
-        elif name in ['_core', 'cuda', 'cupy_backends']:
-            return MockCuPy()  # Recursively return MockCuPy for submodules
-        return getattr(np, name)
-
-
-sys.modules['cupy'] = MockCuPy()
-use_cuda = False
 
 def get_mmd(x, y, n_levels=5):
     """
