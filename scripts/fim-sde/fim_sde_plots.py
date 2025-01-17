@@ -5,6 +5,8 @@ import pickle
 from matplotlib import pyplot as plt
 import matplotlib
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.lines import Line2D
+from matplotlib.patches import FancyArrowPatch
 import numpy as np
 from torch import Tensor
 import torch
@@ -28,6 +30,10 @@ ground_truth_locations, ground_truth_drift, ground_truth_diffusion = ground_trut
 assert model_drift.shape == ground_truth_drift.shape, f"Drifts have different shapes between model and ground truth data: {model_drift.shape} vs {ground_truth_drift.shape}"
 assert model_diffusion.shape == ground_truth_diffusion.shape, f"Diffusions have different shapes between model and ground truth data: {model_diffusion.shape} vs {ground_truth_diffusion.shape}"
 
+c = model_drift.shape[1]//2
+model_locations, model_drift, model_diffusion = model_locations[:,:c], model_drift[:,:c], model_diffusion[:,:c]
+ground_truth_locations, ground_truth_drift, ground_truth_diffusion = ground_truth_locations[:,:c], ground_truth_drift[:,:c], ground_truth_diffusion[:,:c]
+
 # Only consider every nth point
 n = 10
 model_locations, model_drift, model_diffusion = model_locations[:,::n], model_drift[:,::n], model_diffusion[:,::n]
@@ -44,14 +50,6 @@ def create_2D_quiver_plot(
     estimated_diffusion: Tensor,  # [B, G, D]
     **kwargs,
 ):
-    """
-    Plot B equations of dimension 2 as a grid of figures.
-    Each row contains ground-truth and (single) model estimation drift and diffusion, and P 2D paths from data and sampled from model.
-
-    Args: Ground-truth and estimation of paths and vector fields. Shape: [B, G, D] or [B, P, T, D] for inputs and [B, P, L, D] model paths.
-
-    Returns: Figure with data from B equations.
-    """
     ncols = 2
     nrows = locations.shape[0]
 
@@ -77,7 +75,6 @@ def create_2D_quiver_plot(
 
     return fig
 
-
 def plot_2d_vf_real_and_estimation_axes(
     axis_drift,
     axis_diffusion,
@@ -86,7 +83,11 @@ def plot_2d_vf_real_and_estimation_axes(
     drift_at_locations_estimation: Tensor,
     diffusion_at_locations_real: Tensor,
     diffusion_at_locations_estimation: Tensor,
+    **kwargs
 ):
+    ground_truth_color = kwargs.get("ground_truth_color", "red")
+    fim_color = kwargs.get("fim_color", "black")
+    
     # Extract grid points (x, y)
     x, y = locations[:, 0], locations[:, 1]
 
@@ -104,7 +105,7 @@ def plot_2d_vf_real_and_estimation_axes(
         y, 
         u_real_drift, 
         v_real_drift, 
-        color="red"
+        color=ground_truth_color,
     )
 
     axis_drift.quiver(
@@ -113,7 +114,7 @@ def plot_2d_vf_real_and_estimation_axes(
         u_estimated_drift,
         v_estimated_drift,
         scale=real_drift_quiver.scale,
-        color="black",
+        color=fim_color,
     )
     axis_drift.set_title("Drift")
 
@@ -123,7 +124,7 @@ def plot_2d_vf_real_and_estimation_axes(
         y,
         u_real_diffusion,
         v_real_diffusion,
-        color="red",
+        color=ground_truth_color,
     )
 
     axis_diffusion.quiver(
@@ -132,29 +133,19 @@ def plot_2d_vf_real_and_estimation_axes(
         u_estimated_diffusion,
         v_estimated_diffusion,
         scale=real_diffusion_quiver.scale,
-        color="black",
+        color=fim_color,
     )
     axis_diffusion.set_title("Diffusion")
+    
+    # Create custom legend handles with arrows using Line2D
+    legend_elements = [
+        Line2D([0], [0], color=ground_truth_color, lw=2, label='Ground Truth', marker=r'$\rightarrow$', markersize=10, linestyle='None'),
+        Line2D([0], [0], color=fim_color, lw=2, label='FIM', marker=r'$\rightarrow$', markersize=10, linestyle='None')
+    ]
 
-    # Plot diffusion
-    real_diffusion_quiver = axis_diffusion.quiver(
-        x,
-        y,
-        u_real_diffusion,
-        v_real_diffusion,
-        color="red",
-    )
-
-    axis_diffusion.quiver(
-        x,
-        y,
-        u_estimated_diffusion,
-        v_estimated_diffusion,
-        scale=real_diffusion_quiver.scale,
-        color="black",
-    )
-    axis_diffusion.set_title("Diffusion")
-
+    # Add legends
+    axis_drift.legend(handles=legend_elements)
+    axis_diffusion.legend(handles=legend_elements)
 
 fig = create_2D_quiver_plot(model_locations, ground_truth_drift, ground_truth_diffusion, model_drift, model_diffusion)
 
