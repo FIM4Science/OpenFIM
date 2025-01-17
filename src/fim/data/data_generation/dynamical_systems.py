@@ -1,3 +1,4 @@
+import copy
 import itertools
 from abc import ABC, abstractmethod
 from functools import reduce
@@ -34,7 +35,8 @@ class DynamicalSystem(ABC):
         self.mask_sampler_params = config.get("mask_sampler_params", None)
         self.mask_sampler = None
         if self.mask_sampler_params:
-            self.mask_sampler = create_class_instance(self.mask_sampler_params.pop("name"), self.mask_sampler_params)
+            mask_sampler_params = copy.deepcopy(self.mask_sampler_params)
+            self.mask_sampler = create_class_instance(mask_sampler_params.pop("name"), mask_sampler_params)
         self.initial_state = config.get("initial_state")
 
     @abstractmethod

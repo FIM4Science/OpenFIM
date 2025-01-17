@@ -40,6 +40,15 @@ def get_sde_drift_deg_3_diffusion_deg_0_50_paths_30_perc_hypercube(project_path:
     return yaml_path, labels_to_use, save_dir
 
 
+def get_sde_drift_deg_3_diffusion_deg_0_50_paths_30_perc_hypercube_10_noise_5_mask(project_path: Path, data_path: Path):
+    yaml_path = project_path / Path(
+        "configs/train/fim-sde/train_data_configs/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-10-noise-5-mask.yaml"
+    )
+    save_dir = data_path / Path("data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask")
+    labels_to_use = ["train", "test", "validation"]
+    return yaml_path, labels_to_use, save_dir
+
+
 def get_sde_test_resources_data(project_path: Path, data_path: Path):
     yaml_path = project_path / Path("configs/train/fim-sde/train_data_configs/sde-for-test-resources.yaml")
     save_dir = data_path / Path("data/processed/train/sde-for-test-resources")
@@ -48,8 +57,8 @@ def get_sde_test_resources_data(project_path: Path, data_path: Path):
 
 
 if __name__ == "__main__":
-    project_path = Path("/home/seifner/repos/FIM/")
-    data_path = Path("/home/seifner/repos/FIM/")
+    project_path = Path("/home/cvejoski/Projects/FoundationModels/FIM/")
+    data_path = Path("/home/cvejoski/Projects/FoundationModels/FIM/")
 
     # project_path = Path("/home/seifnerp_hpc/repos/FIM/")
     # data_path = Path("/lustre/scratch/data/seifnerp_hpc-fim_data/")
@@ -57,6 +66,8 @@ if __name__ == "__main__":
     # project_path = Path("/Users/patrickseifner/repos/FIM")
     # data_path = Path("/Users/patrickseifner/repos/FIM")
 
-    yaml_path, labels_to_use, save_dir = get_sde_drift_deg_3_diffusion_deg_0_50_paths_30_perc_hypercube(project_path, data_path)
+    yaml_path, labels_to_use, save_dir = get_sde_drift_deg_3_diffusion_deg_0_50_paths_30_perc_hypercube_10_noise_5_mask(
+        project_path, data_path
+    )
 
     save_dynamical_system_from_yaml(yaml_path, labels_to_use, save_dir)

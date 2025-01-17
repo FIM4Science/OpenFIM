@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from torch import Tensor
 
 
@@ -21,11 +22,12 @@ class BernoulliMaskSampler:
 
     def __call__(self, data: Tensor) -> Tensor:
         mask_shape = data.shape
-        mask = np.random.binomial(size=mask_shape[:-1], n=1, p=self.survival_probability)
+        survival_probability = np.random.uniform(self.survival_probability, 1.0, size=(mask_shape[0], 1, 1))
+        mask = np.random.binomial(size=mask_shape[:-1], n=1, p=survival_probability)
 
         while (mask.sum(axis=-1) < self.min_survival_count).any() is True:
             resample_mask = mask.sum(axis=-1) < self.min_survival_count
             resample_count = mask[resample_mask].shape
-            mask[resample_mask] = np.random.binomial(size=resample_count, n=1, p=self.survival_probability)
+            mask[resample_mask] = np.random.binomial(size=resample_count, n=1, p=survival_probability[resample_mask])
 
-        return mask
+        return torch.from_numpy(mask).unsqueeze(-1).bool()
