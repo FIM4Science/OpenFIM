@@ -792,7 +792,7 @@ class DeltaLogCentering(InstanceNormalization):
         self.batch_inv_center_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_center_map_grad_grad)))
 
     @torch.profiler.record_function("stand_get_stats")
-    @torch.compile()
+    @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return mean of ln(values) along all dimensions 1 to -2, where mask == True.
@@ -2182,7 +2182,7 @@ class FIMSDE(AModel, pl.LightningModule):
         return loss, filtered_loss_locations_perc, target_clipped_norm_perc
 
     @torch.profiler.record_function("fimsde_loss")
-    # @torch.compile(fullgraph=True)
+    @torch.compile(fullgraph=True, disable=not torch.cuda.is_available())
     def loss(
         self,
         estimated_concepts: SDEConcepts,

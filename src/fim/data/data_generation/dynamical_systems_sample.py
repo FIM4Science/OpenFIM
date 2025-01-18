@@ -95,7 +95,7 @@ class PathGenerator:
 
         # locations setup
         self.locations_type = locations_params.get("type", "unit_cube")
-        assert self.locations_type in ["unit_cube", "regular_cube", "random_cube"]
+        assert self.locations_type in ["unit_cube", "regular_cube", "random_cube", "regular_grid"]
         local_locations_params = copy(locations_params)  # to reuse same dict for multiple generations
         local_locations_params.pop("type")
         self.locations_kwargs = local_locations_params
@@ -306,6 +306,10 @@ class PathGenerator:
         elif self.locations_type == "random_cube":
             locations = define_random_surrounding_cube(self.num_locations, obs_values, **self.locations_kwargs)
 
+        elif self.locations_type == "regular_grid":
+            locations = define_mesh_points(self.num_locations, D, **self.locations_kwargs)  # [num_locations, D]
+            locations = torch.repeat_interleave(locations.unsqueeze(0), repeats=num_realizations, dim=0)
+
         return locations
 
     def define_fim_sde_data(
@@ -413,6 +417,14 @@ class PathGenerator:
                         std = std * system_range
                     total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim
                     epsilon = torch.normal(mean.unsqueeze(1).repeat(1, total_dim), std.unsqueeze(1).repeat(1, total_dim))
+                case "normal_with_uniform_std":
+                    max_std = torch.tensor(noise_dist_params.get("max"))
+                    std = max_std * torch.rand(size=system_range.shape)
+                    if system_range is not None:
+                        std = std * system_range
+                    total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim
+                    std = std.unsqueeze(1).repeat(1, total_dim)
+                    epsilon = torch.normal(torch.zeros_like(std), std)
                 case _:
                     raise ValueError(f"Unknown noise distribution: {noise_dist_params['name']}")
 

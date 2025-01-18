@@ -87,7 +87,6 @@ def save_dynamical_system_from_yaml(yaml_path: str | Path, labels_to_use: list[s
 
         # enumerate subdirs to keep track, in case "data_bulk_name" overlap
         for i, params in enumerate(data_config[label]):
-            params.update({"redo": True})
             subset_label = params.get("data_bulk_name")
 
             print(f"Generating {subset_label}")
