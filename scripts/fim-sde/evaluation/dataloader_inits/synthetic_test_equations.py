@@ -143,6 +143,7 @@ def get_opper_or_wang_dataloaders_inits(
         ),
         "opper_two_d_10000_points": _get_synthetic_dataloader([opper_or_wang_dir / "two_d_opper_10000_points"]),
         "wang_two_d_80000_points": _get_synthetic_dataloader([opper_or_wang_dir / "two_d_wang_80000_points"]),
+        "wang_double_well_25000_points": _get_synthetic_dataloader([opper_or_wang_dir / "double_well_wang_25000_points"]),
         "opper_lorenz_3000_points": _get_synthetic_dataloader([opper_or_wang_dir / "lorenz_3000_points"]),
     }
 
@@ -151,6 +152,7 @@ def get_opper_or_wang_dataloaders_inits(
         "opper_double_well_state_dep_diff_5000_points": "Opper: Double Well, State Dep. Diff., 5000 Points",
         "opper_two_d_10000_points": "Opper: 2D Synth. System, Const. Diff., 10000 Points",
         "wang_two_d_80000_points": "Wang: 2D Synth. System, State Dep. Diff, 80000 Points",
+        "wang_double_well_25000_points": "Wang: Double Well, State Dep. Diff., 25000 Points",
         "opper_lorenz_3000_points": "Opper: Lorenz, 3000 points",
     }
 
