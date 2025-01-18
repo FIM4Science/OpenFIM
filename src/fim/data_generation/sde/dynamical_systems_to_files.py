@@ -97,6 +97,7 @@ def save_dynamical_system_from_yaml(yaml_path: str | Path, labels_to_use: list[s
             subset_dir.mkdir(parents=True, exist_ok=True)
 
             save_fimsdedatabatch_to_files(subset_data, subset_dir)
+            del subset_data
 
     # save data config yaml for reference
     with open(save_dir / "config.yaml", "w") as f:

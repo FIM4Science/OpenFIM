@@ -24,7 +24,7 @@ from fim.utils.helper import create_class_instance
 torch._dynamo.config.suppress_errors = True
 
 
-def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_dimension: Optional[Tensor] = None) -> Tensor:
     """
     Return RMSE between target and estimated values per location. Mask indicates which values (in last dimension) to include.
 
@@ -32,6 +32,7 @@ def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor
         estimated (Tensor): estimated of target values. Shape: [B, G, D]
         target (Tensor): Target values. Shape: [B, G, D]
         mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+        scale_per_dimension (Tensor): If not None, multiply error per location and dimension by scale.
 
     Return:
         rmse (Tensor): RMSE at locations. Shape: [B, G]
@@ -42,6 +43,11 @@ def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor
 
     # squared error at non-masked values
     se = mask * ((estimated - target) ** 2)
+
+    if scale_per_dimension is not None:
+        assert se.shape == scale_per_dimension.shape
+        se = se * scale_per_dimension
+
     se = torch.sum(se, dim=-1)  # [B, G]
 
     # mean over non-masked values
@@ -56,7 +62,43 @@ def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor
     return rmse
 
 
-def nrmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+def mse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_dimension: Optional[Tensor] = None) -> Tensor:
+    """
+    Return MSE between target and estimated values per location. Mask indicates which values (in last dimension) to include.
+
+    Args:
+        estimated (Tensor): estimated of target values. Shape: [B, G, D]
+        target (Tensor): Target values. Shape: [B, G, D]
+        mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+        scale_per_dimension (Tensor): If not None, multiply error per location and dimension by scale.
+
+    Return:
+        rmse (Tensor): MSE at locations. Shape: [B, G]
+    """
+    assert estimated.ndim == 3, "Got " + str(estimated.ndim)
+    assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
+    assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
+
+    # squared error at non-masked values
+    se = mask * ((estimated - target) ** 2)
+
+    if scale_per_dimension is not None:
+        assert se.shape == scale_per_dimension.shape
+        se = se * scale_per_dimension
+
+    se = torch.sum(se, dim=-1)  # [B, G]
+
+    # mean over non-masked values
+    non_masked_values_count = torch.sum(mask, dim=-1)
+    mse = se / torch.clip(non_masked_values_count, min=1)  # [B, G]
+
+    # take root per location
+    assert mse.ndim == 2, "Got " + str(mse.ndim)
+
+    return mse
+
+
+def nrmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_dimension: Optional[Tensor] = None) -> Tensor:
     """
     Return NRMSE (normalized by the target norm) between target and estimated values per location. Mask indicates which values (in last dimension) to include.
 
@@ -64,6 +106,7 @@ def nrmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tenso
         estimated (Tensor): estimated of target values. Shape: [B, G, D]
         target (Tensor): Target values. Shape: [B, G, D]
         mask (Tensor): 0 at values to ignore in loss computations. Shape: [B, G, D]
+        scale_per_dimension (Tensor): If not None, multiply error per location and dimension by scale.
 
     Return:
         nrmse (Tensor): NRMSE at locations. Shape: [B, G]
@@ -72,10 +115,10 @@ def nrmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor) -> Tenso
     assert estimated.shape == target.shape, "Got " + str(estimated.shape) + " and " + str(target.shape)
     assert estimated.shape == mask.shape, "Got " + str(estimated.shape) + " and " + str(mask.shape)
 
-    rmse = rmse_at_locations(estimated, target, mask)  # [B, G]
+    rmse = rmse_at_locations(estimated, target, mask, scale_per_dimension)  # [B, G]
 
     # this is not the norm currently (division by number of dimensions), but does respect masking
-    target_norm = rmse_at_locations(target, torch.zeros_like(target), mask)
+    target_norm = rmse_at_locations(target, torch.zeros_like(target), mask, scale_per_dimension)
 
     return rmse / (target_norm + 1)
 
@@ -639,7 +682,7 @@ class Standardization(InstanceNormalization):
         at all values.
 
         Args:
-            values (Tensor): Values to nromalize based on previously set statistics. Shape: [B, ..., D]
+            values (Tensor): Values to normalize based on previously set statistics. Shape: [B, ..., D]
             norm_stats (tuple[Tensor]): stats needed for normalization: (ref_mean, ref_std). Shape: [B, D]
             derivative_num (int): Derivative of normalization map to return.
 
@@ -712,6 +755,197 @@ class Standardization(InstanceNormalization):
 
         elif derivative_num == 2:
             out = self.batch_inv_standardize_map_grad_grad(values, ref_mean, ref_std)
+
+        else:
+            raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
+
+        # Reintroduce intermediate dimensions from values
+        out = out.reshape(original_shape)
+
+        return out
+
+
+class DeltaLogCentering(InstanceNormalization):
+    """
+    Center ln(x) at some target value: x -> exp(ln(x) - ln_mean + ln(target_value)) = (x  * target_value) / exp(ln_mean)
+    Where ln_mean = torch.log(y).mean() for some reference values y
+    """
+
+    def __init__(self, **kwargs):
+        self.target_value: float = kwargs.get("target_value", 0.01)
+        assert self.target_value > 0
+
+        # apply centering map over three axes: batch, time, dimension
+        center_map_grad = torch.func.grad(self.center_map)
+        center_map_grad_grad = torch.func.grad(center_map_grad)
+
+        self.batch_center_map = torch.vmap(torch.vmap(torch.vmap(self.center_map)))
+        self.batch_center_map_grad = torch.vmap(torch.vmap(torch.vmap(center_map_grad)))
+        self.batch_center_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(center_map_grad_grad)))
+
+        # apply inverse standardization map over three axes: batch, time, dimension
+        inv_center_map_grad = torch.func.grad(self.inv_center_map)
+        inv_center_map_grad_grad = torch.func.grad(inv_center_map_grad)
+
+        self.batch_inv_center_map = torch.vmap(torch.vmap(torch.vmap(self.inv_center_map)))
+        self.batch_inv_center_map_grad = torch.vmap(torch.vmap(torch.vmap(inv_center_map_grad)))
+        self.batch_inv_center_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_center_map_grad_grad)))
+
+    @torch.profiler.record_function("stand_get_stats")
+    @torch.compile()
+    def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
+        """
+        Return mean of ln(values) along all dimensions 1 to -2, where mask == True.
+        Assume masked values have been filled with '_fill_masked_values'.
+
+        Args:
+            values (Tensor): Shape: [B, ..., D]
+            mask (Tensor): Shape: [B, ...., 1]
+
+        Returns:
+            ln_ref_mean (Tensor): Mean of ln(values) along dimensions 1 to -2. Shape: [B, D]
+        """
+        # Squash intermediate dimensions
+        values, _ = self.squash_intermediate_dims(values)
+
+        # reference values
+        ln_values = torch.log(values)
+
+        if mask is None:
+            mean_ln_values = torch.mean(ln_values, dim=-2)
+
+        else:
+            mask = mask.bool()
+
+            mask, _ = self.squash_intermediate_dims(mask)
+            mask = torch.broadcast_to(mask, values.shape)
+
+            mean_ln_values = torch.nanmean(torch.where(mask, ln_values, torch.nan), dim=-2)  # [B, D]
+
+        assert mean_ln_values.ndim == 2, f"Got {mean_ln_values.shape}."
+
+        return mean_ln_values, self.target_value * torch.ones_like(mean_ln_values)
+
+    @staticmethod
+    def center_map(value: Tensor, ref_mean_ln: Tensor, target_value: Tensor) -> Tensor:
+        """
+        Apply the transformation that centers the ln(values) at the target_value:  x -> exp(ln(x) - ref_ln_mean + ln(target_value)) = (x  * target_value) / exp(ln_ref_mean)
+
+        Args:
+            value (Tensor): Shape: []
+            ref_mean_ln, target_value (Tensor): Statistics that center reference ln(values) at target_value.
+
+        Returns:
+            transformed_value (Tensor): Image of value under centering transformation. Shape: []
+        """
+        assert value.ndim == 0, "Got value.ndim == " + str(value.ndim) + ", expected 0"
+
+        transformed_value = value * target_value * torch.exp(-ref_mean_ln)
+
+        assert transformed_value.ndim == 0, "Got transformed_value.ndim == " + str(transformed_value.ndim) + ", expected 0"
+
+        return transformed_value
+
+    @staticmethod
+    def inv_center_map(value: Tensor, ref_mean_ln: Tensor, target_value: Tensor) -> Tensor:
+        """
+        Apply the transformation that reverse the centering of reference ln(values): x -> x * exp(ln_ref_mean) / target_value
+
+        Args:
+            value (Tensor): Shape: []
+            ref_mean, ref_std (Tensor): Statistics that center reference values.
+
+        Returns:
+            transformed_value (Tensor): Image of value under centering revision transformation. Shape: []
+        """
+        assert value.ndim == 0, "Got value.ndim == " + str(value.ndim) + ", expected 0"
+
+        transformed_value = value / target_value * torch.exp(ref_mean_ln)
+
+        assert transformed_value.ndim == 0, "Got transformed_value.ndim == " + str(transformed_value.ndim) + ", expected 0"
+
+        return transformed_value
+
+    def normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        (Derivative of) normalization based on previously set statistics, i.e. evaluate the map
+        x -> (x * target_value) / exp(ln_ref_mean)
+        at all values.
+
+        Args:
+            values (Tensor): Values to normalize based on previously set statistics. Shape: [B, ..., D]
+            norm_stats (tuple[Tensor]): stats needed for normalization: (ref_mean, ref_std). Shape: [B, D]
+            derivative_num (int): Derivative of normalization map to return.
+
+        Returns:
+            (derivative) of image of values under normalization_map: Normalized values. Shape: [B, ..., D]
+        """
+        # check shapes
+        B, D = norm_stats[0].shape
+        assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
+        assert values.shape[0] == B, "Got batch size " + str(values.shape[0]) + ", expected " + str(B)
+        assert values.shape[-1] == D, "Got dimension " + str(values.shape[-1]) + ", expected " + str(D)
+
+        # Squash intermediate dimensions from values
+        values, original_shape = self.squash_intermediate_dims(values)
+
+        # prepare shapes of norm stats
+        expanded_norm_stats: tuple[Tensor] = self.expand_norm_stats(values.shape, norm_stats)
+        ref_mean_ln, target_value = expanded_norm_stats
+
+        # apply transformation from unnormalized to normalized
+        if derivative_num == 0:
+            out = self.batch_center_map(values, ref_mean_ln, target_value)
+
+        elif derivative_num == 1:
+            out = self.batch_center_map_grad(values, ref_mean_ln, target_value)
+
+        elif derivative_num == 2:
+            out = self.batch_center_map_grad_grad(values, ref_mean_ln, target_value)
+
+        else:
+            raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
+
+        # Reintroduce intermediate dimensions from values
+        out = out.reshape(original_shape)
+
+        return out
+
+    def inverse_normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
+        """
+        (Derivative of) inverse normalization based on previously set statistics, i.e. evaluate the map
+        x -> x * exp(ln_ref_mean) / target_value
+        at all values.
+
+        Args:
+            values (Tensor): Values to apply inverse normalization based on previously set statistics to. Shape: [B, ..., D]
+            norm_stats (tuple[Tensor]): stats needed for normalization: (ref_mean, ref_std). Shape: [B, D]
+            derivative_num (int): Derivative of inverse normalization map to return.
+
+        Returns:
+            renormalized_values: Renormalized values. Shape: [B, ..., D]
+        """
+        # check shapes
+        B, D = norm_stats[0].shape
+        assert values.ndim >= 2, "Got values.ndim == " + str(values.ndim) + ", expected >=2."
+        assert values.shape[0] == B, "Got batch size " + str(values.shape[0]) + ", expected " + str(B)
+        assert values.shape[-1] == D, "Got dimension " + str(values.shape[-1]) + ", expected " + str(D)
+
+        # Squash intermediate dimensions from values
+        values, original_shape = self.squash_intermediate_dims(values)
+
+        expanded_norm_stats: tuple[Tensor] = self.expand_norm_stats(values.shape, norm_stats)
+        ref_mean_ln, target_value = expanded_norm_stats
+
+        # apply transformation from normalized to unnormalized
+        if derivative_num == 0:
+            out = self.batch_inv_center_map(values, ref_mean_ln, target_value)
+
+        elif derivative_num == 1:
+            out = self.batch_inv_center_map_grad(values, ref_mean_ln, target_value)
+
+        elif derivative_num == 2:
+            out = self.batch_inv_center_map_grad_grad(values, ref_mean_ln, target_value)
 
         else:
             raise ValueError("Can only return up to second derivative. Got " + str(derivative_num))
@@ -964,7 +1198,11 @@ class FIMSDEConfig(PretrainedConfig):
         non_negative_diffusion_by (str): Specify if and how to make estimated diffusion non-negative. Defaults to None.
         states_norm (dict): Config for states instance normalization. Default is MinMaxNormalization.
         times_norm (dict): Config for times instance normalization. Default is MinMaxNormalization.
+        times_norm_on_deltas (dict): To calculate times normalization on delta-time instead. Default is False.
         loss_filter_nans (bool): Default is True.
+        learnable_loss_scales (dict | None): Config for AttentionOperator defining learnable loss scales per location.
+        detach_learnable_loss_scale_heads (bool): Default is True.
+        single_learnable_loss_scale_head (bool): Default is False
         num_epochs (int): Number of epochs. Default is 2.
         learning_rate (float): Learning rate. Default is 1.0e-5.
         weight_decay (float): Weight decay. Default is 1.0e-4.
@@ -1003,7 +1241,11 @@ class FIMSDEConfig(PretrainedConfig):
         non_negative_diffusion_by: Optional[str] = None,
         states_norm: dict = {"name": "fim.models.sde.MinMaxNormalization"},
         times_norm: dict = {"name": "fim.models.sde.MinMaxNormalization", "normalized_min": 0, "normalized_max": 1},
+        times_norm_on_deltas: bool = False,
         loss_filter_nans: bool = True,
+        learnable_loss_scales: Optional[dict] = None,
+        detach_learnable_loss_scale_heads: Optional[bool] = True,
+        single_learnable_loss_scale_head: Optional[bool] = False,
         lightning_training: bool = True,
         num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)
         learning_rate: float = 1.0e-5,
@@ -1040,8 +1282,12 @@ class FIMSDEConfig(PretrainedConfig):
         # normalization
         self.states_norm = states_norm
         self.times_norm = times_norm
+        self.times_norm_on_deltas = times_norm_on_deltas
         # regularization
         self.loss_filter_nans = loss_filter_nans
+        self.learnable_loss_scales = learnable_loss_scales
+        self.detach_learnable_loss_scale_heads = detach_learnable_loss_scale_heads
+        self.single_learnable_loss_scale_head = single_learnable_loss_scale_head
         # training variables
         self.num_epochs = num_epochs
         self.lightning_training = lightning_training
@@ -1075,6 +1321,16 @@ class FIMSDE(AModel, pl.LightningModule):
     ):
         AModel.__init__(self, config, **kwargs)
         pl.LightningModule.__init__(self)
+
+        # for backward compatibility
+        self.learnable_loss_scales = config.learnable_loss_scales if hasattr(config, "learnable_loss_scales") else None
+        self.detach_learnable_loss_scale_heads = (
+            config.detach_learnable_loss_scale_heads if hasattr(config, "detach_learnable_loss_scale_heads") else True
+        )
+        self.single_learnable_loss_scale_head = (
+            config.single_learnable_loss_scale_head if hasattr(config, "single_learnable_loss_scale_head") else False
+        )
+        self.times_norm_on_deltas = config.times_norm_on_deltas if hasattr(config, "times_norm_on_deltas") else False
 
         # Save hyperparameters
         self.save_hyperparameters()
@@ -1239,6 +1495,18 @@ class FIMSDE(AModel, pl.LightningModule):
                 )
             self.apply_operator = self.heads_projection_per_head
 
+        if self.learnable_loss_scales is not None:
+            self.operator_loss_scale_drift = AttentionOperator(
+                embed_dim=config.model_embedding_size, out_features=1, **deepcopy(self.learnable_loss_scales)
+            )
+            if self.single_learnable_loss_scale_head is True:
+                self.operator_loss_scale_diffusion = self.operator_loss_scale_drift
+
+            else:
+                self.operator_loss_scale_diffusion = AttentionOperator(
+                    embed_dim=config.model_embedding_size, out_features=1, **deepcopy(self.learnable_loss_scales)
+                )
+
     def heads_projection_all_functions(
         self, locations_encoding: Tensor, observations_encoding: Tensor, observations_padding_mask: Optional[Tensor] = None
     ) -> Tensor:
@@ -1400,7 +1668,15 @@ class FIMSDE(AModel, pl.LightningModule):
         if locations is not None:
             locations = self.states_norm.normalization_map(locations, states_norm_stats)
 
-        times_norm_stats: InstanceNormalization = self.times_norm.get_norm_stats(obs_times, obs_mask)
+        if self.times_norm_on_deltas is True:
+            delta_times = obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]  # obs_times are backward filled
+            delta_mask = obs_mask[:, :, :-1, :]
+            times_norm_stats: InstanceNormalization = self.times_norm.get_norm_stats(delta_times, delta_mask)
+            # transformation can still be applied to obs_times, as delta_times will be recomputed later
+
+        else:
+            times_norm_stats: InstanceNormalization = self.times_norm.get_norm_stats(obs_times, obs_mask)
+
         obs_times = self.times_norm.normalization_map(obs_times, times_norm_stats)
 
         return obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats
@@ -1624,7 +1900,38 @@ class FIMSDE(AModel, pl.LightningModule):
         obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats = self.preprocess_inputs(data, locations)
 
         # Apply networks to get estimated concepts at locations
-        estimated_concepts, _ = self.get_estimated_sde_concepts(locations, obs_times, obs_values, obs_mask, data.get("dimension_mask"))
+        estimated_concepts, paths_encoding = self.get_estimated_sde_concepts(
+            locations, obs_times, obs_values, obs_mask, data.get("dimension_mask")
+        )
+
+        # Weighting loss from each location
+        if self.learnable_loss_scales is not None:
+            locations_encoding = self.phi_1x(locations)  # should return this from get_estimated_sde_concepts
+
+            locations_encoding_ = (
+                locations_encoding.clone().detach() if self.detach_learnable_loss_scale_heads is True else locations_encoding
+            )
+            paths_encoding_ = paths_encoding.clone().detach() if self.detach_learnable_loss_scale_heads is True else paths_encoding
+            observations_padding_mask_ = (
+                torch.logical_not(obs_mask[..., :-1, :].contiguous()).clone().detach()
+                if self.detach_learnable_loss_scale_heads is True
+                else torch.logical_not(obs_mask[..., :-1, :].contiguous())
+            )
+
+            drift_log_loss_scale_per_location = self.operator_loss_scale_drift(
+                locations_encoding_,
+                paths_encoding_,
+                observations_padding_mask=observations_padding_mask_,
+            )  # [B, G, 1]
+            diffusion_log_loss_scale_per_location = self.operator_loss_scale_diffusion(
+                locations_encoding_,
+                paths_encoding_,
+                observations_padding_mask=observations_padding_mask_,
+            )  # [B, G, 1]
+
+        else:
+            drift_log_loss_scale_per_location = torch.zeros_like(locations[..., 0][..., None])
+            diffusion_log_loss_scale_per_location = torch.zeros_like(locations[..., 0][..., None])
 
         # Losses
         target_concepts: SDEConcepts | None = SDEConcepts.from_dict(data)
@@ -1675,6 +1982,8 @@ class FIMSDE(AModel, pl.LightningModule):
                 loss_threshold,
                 vector_field_max_norm,
                 diffusion_loss_scale,
+                drift_log_loss_scale_per_location,
+                diffusion_log_loss_scale_per_location,
             )
             return {"losses": losses}
 
@@ -1691,6 +2000,8 @@ class FIMSDE(AModel, pl.LightningModule):
                     loss_threshold,
                     vector_field_max_norm,
                     diffusion_loss_scale,
+                    drift_log_loss_scale_per_location,
+                    diffusion_log_loss_scale_per_location,
                 )
                 return estimated_concepts, {"losses": losses}
 
@@ -1784,6 +2095,8 @@ class FIMSDE(AModel, pl.LightningModule):
         mask: Tensor,
         loss_threshold: Optional[float] = None,
         vector_field_max_norm: Optional[float] = None,
+        target_diffusion: Optional[Tensor] = None,
+        log_loss_scale_per_location: Optional[Tensor] = None,
     ) -> tuple[Tensor]:
         """
         Compute (regularized) loss of vector field values at locations. Return statistics about regularization for monitoring.
@@ -1797,6 +2110,8 @@ class FIMSDE(AModel, pl.LightningModule):
             mask (Tensor): 0 masks padded values to ignore in loss calculation. Shape: [B, G, D]
             loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
             vector_field_max_norm (Optional[float]): If passed, clip norm of vector fields to this value
+            target_diffusion (Optional[Tensor]): If passed, divide loss by norm of target diffusion per location. Shape: [B, G, D]
+            log_loss_scale_per_location (Optional[Tensor]): Multiply the loss at each location by a (potentially) different scale. Shape: [B, G, 1]
 
         Returns
             loss (Tensor): Loss of vector field. Shape: []
@@ -1820,28 +2135,49 @@ class FIMSDE(AModel, pl.LightningModule):
         if vector_field_max_norm is not None:
             target, target_clipped_norm_perc = self.clip_norms_of_vector_field(target, vector_field_max_norm)
 
+        # scale drift loss by target diffusion
+        if target_diffusion is not None:
+            eps = 1e-6
+            scale_per_dimension = 1 / (target_diffusion + eps)
+
+        else:
+            scale_per_dimension = torch.ones_like(estimated)
+
+        scale_per_dimension = torch.ones_like(estimated)
+
         # compute loss per location
         if self.config.loss_type == "rmse":
-            loss_at_locations = rmse_at_locations(estimated, target, mask)  # [B, G]
+            loss_at_locations = rmse_at_locations(estimated, target, mask, scale_per_dimension=scale_per_dimension)  # [B, G]
 
         elif self.config.loss_type == "nrmse":
-            loss_at_locations = nrmse_at_locations(estimated, target, mask)
+            loss_at_locations = nrmse_at_locations(estimated, target, mask, scale_per_dimension=scale_per_dimension)
+
+        elif self.config.loss_type == "mse":
+            loss_at_locations = mse_at_locations(estimated, target, mask, scale_per_dimension=scale_per_dimension)  # [B, G]
 
         elif self.config.loss_type == "nll":
             assert log_var_estimated is not None, "Must pass ´log_var_estimated` to compute nll loss."
             loss_at_locations = gaussian_nll_at_locations(estimated, log_var_estimated, target, mask)  # [B, G]
 
         else:
-            raise ValueError("`loss_type` must be `rmse`, `nrmse` or `nll`, got " + self.config.loss_type)
+            raise ValueError("`loss_type` must be `rmse`, `nrmse`, 'mse' or `nll`, got " + self.config.loss_type)
 
         # filter out Nans or above threshold locations from loss
         loss_at_locations, loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(
             loss_at_locations, loss_threshold
         )
 
-        # mean loss at non-masked locations
-        non_masked_values_count = torch.sum(loss_at_locations_mask)
-        loss = torch.sum(loss_at_locations_mask * loss_at_locations) / torch.clip(non_masked_values_count, min=1)  # []
+        # weight per locations
+        assert log_loss_scale_per_location.ndim == 3, f"Got {log_loss_scale_per_location.ndim}"
+
+        loss_at_locations = loss_at_locations * torch.exp(-log_loss_scale_per_location[..., 0])
+
+        assert loss_at_locations.ndim == 2, f"Got {loss_at_locations.ndim}"
+
+        loss_per_batch_element = torch.sum(loss_at_locations * loss_at_locations_mask, dim=-1)  # [B]
+        assert loss_per_batch_element.ndim == 1
+
+        loss = torch.mean(loss_per_batch_element)
 
         return loss, filtered_loss_locations_perc, target_clipped_norm_perc
 
@@ -1857,6 +2193,8 @@ class FIMSDE(AModel, pl.LightningModule):
         loss_threshold: Optional[float] = None,
         vector_field_max_norm: Optional[float] = None,
         diffusion_loss_scale: Optional[float] = 1.0,
+        drift_log_loss_scale_per_location: Optional[Tensor] = None,
+        diffusion_log_loss_scale_per_location: Optional[Tensor] = None,
     ):
         """
         Compute supervised losses (RMSE or NLL) of sde concepts at non-padded dimensions.
@@ -1870,6 +2208,7 @@ class FIMSDE(AModel, pl.LightningModule):
             loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
             vector_field_max_norm (Optional[float]): If passed, clip norm of vector fields to this value
             diffusion_loss_scale (Optional[float]): Scale of diffusion relative to drift loss. Defaults to 1.
+            drift/diffusion_log_loss_scale_per_location (Optional[Tensor]): Log of cale of loss per location. Shape: [B, G, 1]
 
         Returns:
             losses (dict):
@@ -1885,6 +2224,12 @@ class FIMSDE(AModel, pl.LightningModule):
 
         else:
             dimension_mask = dimension_mask.bool()
+
+        if drift_log_loss_scale_per_location is None:
+            drift_log_loss_scale_per_location = torch.zeros_like(dimension_mask[..., 0][..., None])  # [B, G, 1]
+
+        if diffusion_log_loss_scale_per_location is None:
+            diffusion_log_loss_scale_per_location = torch.zeros_like(dimension_mask[..., 0][..., None])  # [B, G, 1]
 
         assert dimension_mask.shape == estimated_concepts.drift.shape, (
             "Shapes of mask " + str(dimension_mask.shape) + " and concepts " + str(estimated_concepts.drift.shape) + " need to be equal."
@@ -1910,6 +2255,8 @@ class FIMSDE(AModel, pl.LightningModule):
             dimension_mask,
             loss_threshold,
             vector_field_max_norm,
+            target_diffusion=target_concepts.diffusion,
+            log_loss_scale_per_location=drift_log_loss_scale_per_location,
         )
         (
             diffusion_loss,
@@ -1922,10 +2269,23 @@ class FIMSDE(AModel, pl.LightningModule):
             dimension_mask,
             loss_threshold,
             vector_field_max_norm,
+            log_loss_scale_per_location=diffusion_log_loss_scale_per_location,
         )
 
+        assert drift_log_loss_scale_per_location.ndim == 3
+        assert diffusion_log_loss_scale_per_location.ndim == 3
+
+        learned_scale_add_loss_term_drift = drift_log_loss_scale_per_location.squeeze(-1).sum(dim=-1).mean()
+        learned_scale_add_loss_term_diffusion = diffusion_log_loss_scale_per_location.squeeze(-1).sum(dim=-1).mean()
+
+        if self.single_learnable_loss_scale_head is True:  # drift and diffusion add term are the same, so divide by 2
+            learned_scale_add_loss_term_drift = learned_scale_add_loss_term_drift / 2
+            learned_scale_add_loss_term_diffusion = learned_scale_add_loss_term_diffusion / 2
+
         # assemble losses
-        total_loss = drift_loss + diffusion_loss_scale * diffusion_loss
+        total_loss = (
+            drift_loss + diffusion_loss_scale * diffusion_loss + learned_scale_add_loss_term_drift + learned_scale_add_loss_term_diffusion
+        )
         losses = {
             "loss": total_loss,
             "drift_loss": drift_loss,
@@ -1936,6 +2296,8 @@ class FIMSDE(AModel, pl.LightningModule):
             "drift_target_norm_exceeds_threshold": drift_target_above_max_norm,
             "diffusion_target_norm_exceeds_threshold": diffusion_target_above_max_norm,
             "vector_field_max_norm": vector_field_max_norm,
+            "drift_log_loss_scale_per_location": drift_log_loss_scale_per_location.mean(),
+            "diffusion_log_loss_scale_per_location": diffusion_log_loss_scale_per_location.mean(),
         }
 
         return losses

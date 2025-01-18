@@ -74,7 +74,9 @@ if __name__ == "__main__":
 
     # How to name experiments
     # experiment_descr = "models_trained_on_deg_3_drift_deg_0_diff_streaming_dataloader_development"
-    experiment_descr = "testing"
+    # experiment_descr = "30k_deg_3_ablation_studies_extended"
+    # experiment_descr = "450k_deg_3_drift_deg_0_diffusion"
+    experiment_descr = "30k_deg_3_ablation_studies_only_learn_scale"
 
     # model_dicts, models_display_ids = get_model_dicts_20241230_trained_on_30k_deg_3_drift_deg_0_diffusion_50_paths_streaming_dataloader()
     model_dicts, models_display_ids = get_models_dict_20250116_traind_on_30k_deg_3_drift_deg_0_diffusion_50_paths_with_noise_and_mask()

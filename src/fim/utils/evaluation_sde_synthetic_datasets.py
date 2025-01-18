@@ -330,7 +330,7 @@ def _get_statistics_from_synthetic_dataset(
     if dimension_mask is None:
         dimension_mask = torch.ones_like(locations)
 
-    num_elements, num_paths, ts_length, max_dim = obs_times.shape
+    num_elements, num_paths, ts_length, max_dim = obs_values.shape
     num_locations = locations.shape[1]
 
     # shapes and sizes
