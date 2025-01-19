@@ -175,6 +175,8 @@ def get_forecasting_mask(traj: np.array, forecasting_percentage: float):
 
     Returns:
         forecasting_mask (Array): 1s at forecasting points at the of trajectory. Shape: [traj_length, 1]
+        last_context_mask (Array): 1 at last observed index. Shape: [traj_length, 1]
+        last_forecasting_mask (Array): 1 at last forecasting index. Shape: [traj_length, 1]
     """
     traj_length = traj.shape[0]
 
@@ -183,7 +185,13 @@ def get_forecasting_mask(traj: np.array, forecasting_percentage: float):
 
     forecasting_mask = np.concatenate([np.zeros(num_context_points), np.ones(num_forecasting_points)], axis=0).reshape(-1, 1)
 
-    return forecasting_mask
+    last_context_mask = np.zeros_like(forecasting_mask)
+    last_context_mask[num_context_points - 1, 0] = 1
+
+    last_forecasting_mask = np.zeros_like(forecasting_mask)
+    last_forecasting_mask[-1, 0] = 1
+
+    return forecasting_mask, last_context_mask, last_forecasting_mask
 
 
 def get_mocap_forecasting_data(mocap43_path: Path, forecasting_percentage: float) -> None:
@@ -210,33 +218,39 @@ def get_mocap_forecasting_data(mocap43_path: Path, forecasting_percentage: float
     max_len = max([len(traj) for traj in data_space_trajectory_list])
 
     # Get masks for each trajectory
-    all_forecasting_masks = [get_forecasting_mask(traj, forecasting_percentage) for traj in data_space_trajectory_list]
+    all_forecasting_masks, all_last_obs_mask, all_last_forecasting_mask = zip(
+        *[get_forecasting_mask(traj, forecasting_percentage) for traj in data_space_trajectory_list]
+    )
 
     # observation mask is everything but forecasting mask
     observation_masks = [np.logical_not(mask.astype(bool)) for mask in all_forecasting_masks]
 
-    # observation grids end with 1 at last observation
-    observation_grid = [
-        np.linspace(start=0, stop=traj.shape[0], num=traj.shape[0]).reshape(-1, 1) / traj.shape[0] for traj in data_space_trajectory_list
-    ]
+    # # observation grids end with 1 at last observation
+    # observation_grid = [
+    #     np.linspace(start=0, stop=traj.shape[0], num=traj.shape[0]).reshape(-1, 1) / traj.shape[0] for traj in data_space_trajectory_list
+    # ]
 
     # pad and stack masks from all trajectories
     def _pad_masks_to_max_len(traj):
         return np.pad(traj, [(0, max_len - traj.shape[0]), (0, 0)], mode="constant", constant_values=False)
 
-    all_masks = all_forecasting_masks, observation_masks
+    all_masks = all_forecasting_masks, observation_masks, all_last_obs_mask, all_last_forecasting_mask
     all_masks = optree.tree_map(_pad_masks_to_max_len, all_masks)
     all_masks = [np.stack(x, axis=0).astype(bool) for x in all_masks]
-    forecasting_masks, observation_masks = all_masks
+    forecasting_masks, observation_masks, last_obs_mask, last_forecasting_mask = all_masks
 
     # pad and stack obs from all trajectories
     def _pad_obs_to_max_len(traj):
         return np.pad(traj, [(0, max_len - traj.shape[0]), (0, 0)], mode="constant", constant_values=0)
 
-    all_obs_data = (observation_grid, data_space_trajectory_list, pca_space_trajectory_list, data_space_from_pca_space_trajectory_list)
+    all_obs_data = (data_space_trajectory_list, pca_space_trajectory_list, data_space_from_pca_space_trajectory_list)
     all_obs_data = optree.tree_map(_pad_obs_to_max_len, all_obs_data)
     all_obs_data = [np.stack(x, axis=0) for x in all_obs_data]
-    observation_grid, data_space_trajectory, pca_space_trajectory, data_space_from_pca_space_trajectory = all_obs_data
+    data_space_trajectory, pca_space_trajectory, data_space_from_pca_space_trajectory = all_obs_data
+
+    # regular observation grid
+    B, T, _ = pca_space_trajectory.shape
+    observation_grid = np.broadcast_to(np.arange(T).reshape(1, T, 1), (B, T, 1)).copy()
 
     # prepare pca parameters
     eigenvalues = np.stack(eigenvalues_list, axis=0).squeeze()
@@ -247,6 +261,10 @@ def get_mocap_forecasting_data(mocap43_path: Path, forecasting_percentage: float
         "observation_values": pca_space_trajectory,  # [B, T, 3]
         "observation_mask": observation_masks,  # [B, T, 1]
         "forecasting_mask": forecasting_masks,  # [B, T, 1]
+        "inference_mask": np.logical_or(last_obs_mask, forecasting_masks),  # [B, T, 1], solve from last oservation
+        # "last_context_time": (observation_grid * last_obs_mask).sum(axis=1),  # [B, 1]
+        "last_context_value": (pca_space_trajectory * last_obs_mask).sum(axis=1),  # [B, 3]
+        # "last_forecasting_time": (observation_grid * last_forecasting_mask).sum(axis=1),  # [B, 1]
         "eigenvectors": eigenvectors,  # [B, 50, 50]
         "eigenvalues": eigenvalues,  # [B, 50]
         "high_dim_trajectory": data_space_trajectory,  # [B, T, 50]
@@ -258,8 +276,8 @@ def get_mocap_forecasting_data(mocap43_path: Path, forecasting_percentage: float
 
 if __name__ == "__main__":
     # set generation config
-    mocap43_path = Path("/Users/patrickseifner/repos/FIM/data/raw/SDE_mocap_43/mocap43.mat")
-    save_dir = Path("/Users/patrickseifner/repos/FIM/data/processed/test/20250115_preprocessed_mocap43")
+    mocap43_path = Path("raw/SDE_mocap_43/mocap43.mat")
+    save_dir = Path("processed/test/20250115_preprocessed_mocap43")
 
     imputation_percentages = [0.2, 0.15, 0.10, 0.03]
     forecasting_percentages = [0.5, 0.2]

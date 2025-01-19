@@ -36,7 +36,7 @@ def get_lorenz_63_opper():
             },
             "beta": {
                 "distribution": "fix",
-                "fix_value": 2.66,
+                "fix_value": 2.666667,
             },
             "rho": {
                 "distribution": "fix",

@@ -1,0 +1,886 @@
+experiment_name: 600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_set_2
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  method: "EulerMaruyama"
+  time_length: 10
+  steps_per_dt: 20
+  num_steps: 128
+  num_paths: 100
+  num_locations: 2048
+  chunk_size: 200000 # generate at one time so many realizations (to filter Nans)
+  reject_threshold: 100
+  stochastic: true
+
+locations:
+  type: regular_cube
+  extension_perc: 0.5
+
+train:
+
+  ####################### Dimension 1 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 25k_train_dim_1_clean_chunk_0
+    num_realizations: 25000
+    observed_dimension: &observed_dimension null
+    state_dim: 1
+    redo: &redo false
+    enforce_positivity: &enforce_positivity "clip"
+    max_degree_drift: &max_degree_drift 3
+    max_degree_diffusion: &max_degree_diffusion 2
+    drift_params: &drift_params
+      uniform_degrees: true
+      distribution:
+        name: normal
+        std: 1
+      # scale: &scale
+      #   sample_per_dimension: false
+      #   distribution: "uniform"
+      #   min: 0.0
+      #   max: 2.0
+    diffusion_params: &diffusion_params
+      uniform_degrees: true
+      distribution:
+        name: normal
+        std: 1.0
+      # scale: *scale
+    initial_state: &initial_state
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: null
+
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_1_clean_chunk_1
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 1
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+
+  ############ Additive Noise #########################
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_1_add_10_perc_chunk_0
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: &observation_noise
+      relative: true # Set to false to use absolute standard deviation
+      distribution:
+        name: normal_with_uniform_std
+        max: 0.1
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_1_drop_20_perc_chunk_0
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: &mask_sampler_params
+      name: fim.samplers.mask_sampler.BernoulliMaskSampler
+      survival_probability: 0.90
+      min_survival_count: 4
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  # ############ Additive noise and Irregular grid #########################
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_1_add_10_and_drop_20_perc_chunk_0
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 1
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #
+  # ####################### Dimension 2 ###########################################
+  #
+  # ############ Clean #########################
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_2_clean_chunk_0
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 2
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_2_clean_chunk_1
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_2_clean_chunk_2
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_2_clean_chunk_3
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #
+  # ############ Additive Noise #########################
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_2_add_10_perc_chunk_0
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 2
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_2_add_10_perc_chunk_1
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 2
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #
+  # ############ Irregular grid #########################
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_2_drop_20_perc_chunk_0
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 2
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   mask_sampler_params: *mask_sampler_params
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_2_drop_20_perc_chunk_1
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 2
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   mask_sampler_params: *mask_sampler_params
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # ############ Additive noise and Irregular grid #########################
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_2_add_10_and_drop_20_perc_chunk_0
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 2
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_2_add_10_and_drop_20_perc_chunk_1
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 2
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+
+  ####################### Dimension 3 ###########################################
+  #
+  # ############ Clean #########################
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_3_clean_chunk_0
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 3
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_3_clean_chunk_1
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_3_clean_chunk_2
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_3_clean_chunk_3
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_3_clean_chunk_4
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+
+  # - name: Polynomials
+  #   data_bulk_name: 25k_train_dim_3_clean_chunk_5
+  #   num_realizations: 25000
+  #   observed_dimension: *observed_dimension
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # ############ Additive Noise #########################
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_3_add_10_perc_chunk_0
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 3
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_3_add_10_perc_chunk_1
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 3
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_3_add_10_perc_chunk_2
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 3
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # ############ Irregular grid #########################
+  # - name: Polynomials
+  #   data_bulk_name: 16k_train_dim_3_drop_20_perc_chunk_0
+  #   num_realizations: 16300
+  #   observed_dimension: *observed_dimension
+  #   state_dim: 3
+  #   redo: *redo
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   mask_sampler_params: *mask_sampler_params
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+
+
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_3_drop_20_perc_chunk_1
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_3_drop_20_perc_chunk_2
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Additive noise and Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_3_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_3_add_10_and_drop_20_perc_chunk_1
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_3_add_10_and_drop_20_perc_chunk_2
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+
+test:
+  ####################### Dimension 1 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 5k_test_dim_1_clean_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Additive Noise #########################
+  - name: Polynomials
+    data_bulk_name: 1_6k_test_dim_1_add_10_perc_chunk_0
+    num_realizations: 1630
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 1_6k_test_dim_1_drop_20_perc_chunk_0
+    num_realizations: 1630
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive noise and Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 1_6k_test_dim_1_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 1630
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ####################### Dimension 2 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 10k_test_dim_2_clean_chunk_0
+    num_realizations: 10000
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive Noise #########################
+  - name: Polynomials
+    data_bulk_name: 3_3k_test_dim_2_add_10_perc_chunk_0
+    num_realizations: 3330
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+  ############ Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 3_3k_test_dim_2_drop_20_perc_chunk_0
+    num_realizations: 3330
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive noise and Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 3_3k_test_dim_2_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 3330
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+  ####################### Dimension 3 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 15k_test_dim_3_clean_chunk_0
+    num_realizations: 15000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive Noise #########################
+  - name: Polynomials
+    data_bulk_name: 5k_test_dim_3_add_10_perc_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 5k_test_dim_3_drop_20_perc_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Additive noise and Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 5k_test_dim_3_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+validation:
+  ####################### Dimension 1 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 5k_validation_dim_1_clean_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Additive Noise #########################
+  - name: Polynomials
+    data_bulk_name: 1_6k_validation_dim_1_add_10_perc_chunk_0
+    num_realizations: 1630
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 1_6k_validation_dim_1_drop_20_perc_chunk_0
+    num_realizations: 1630
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive noise and Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 1_6k_validation_dim_1_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 1630
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ####################### Dimension 2 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 10k_validation_dim_2_clean_chunk_0
+    num_realizations: 10000
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive Noise #########################
+  - name: Polynomials
+    data_bulk_name: 3_3k_validation_dim_2_add_10_perc_chunk_0
+    num_realizations: 3330
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+  ############ Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 3_3k_validation_dim_2_drop_20_perc_chunk_0
+    num_realizations: 3330
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive noise and Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 3_3k_validation_dim_2_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 3330
+    observed_dimension: *observed_dimension
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+  ####################### Dimension 3 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 15k_validation_dim_3_clean_chunk_0
+    num_realizations: 15000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Additive Noise #########################
+  - name: Polynomials
+    data_bulk_name: 5k_validation_dim_3_add_10_perc_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  ############ Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 5k_validation_dim_3_drop_20_perc_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Additive noise and Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 5k_validation_dim_3_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 5000
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state

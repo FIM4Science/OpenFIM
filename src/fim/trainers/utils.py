@@ -114,7 +114,10 @@ class TrainLossTracker:
         for name, loss in self.batch_losses.items():
             if is_distributed() and torch.cuda.device_count() > 1:
                 try:
-                    dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+                    if isinstance(loss, torch.Tensor):
+                        dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+                    else:
+                        pass
                 except Exception as e:
                     self.logger.error("Unable to reduce the '%s' loss from all ranks! See the exception below!", name)
                     self.logger.error(e)

@@ -273,7 +273,7 @@ class TestModelPathsSampling:
         initial_time_, end_time_, grid_size, initial_states, initial_time, end_time, solver_granularity = grid_data
 
         sample_paths, sample_paths_grid = fimsde_euler_maruyama(
-            model, data, grid_size, solver_granularity, initial_states, initial_time, end_time
+            model, data, solver_granularity, initial_states, initial_time, grid_size, end_time
         )
 
         assert sample_paths.shape == (self.B, self.I, grid_size, self.D)
@@ -287,7 +287,7 @@ class TestModelPathsSampling:
 
         # sample with initial and end time for comparison
         sample_paths, sample_paths_grid = fimsde_euler_maruyama(
-            model, deepcopy(data), grid_size, solver_granularity, initial_states, initial_time, end_time
+            model, deepcopy(data), solver_granularity, initial_states, initial_time, grid_size, end_time
         )
 
         # sample with dt
