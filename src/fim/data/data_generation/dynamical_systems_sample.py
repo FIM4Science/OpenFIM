@@ -405,6 +405,7 @@ class PathGenerator:
         """Not implemented keeps the same values"""
         if self.system.is_observation_noise:
             noise_dist_params = self.system.observation_noise_params["distribution"]
+            total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim
             match noise_dist_params["name"]:
                 case "normal":
                     mean_of_mean = torch.tensor(noise_dist_params.get("mean_of_mean"))
@@ -415,14 +416,18 @@ class PathGenerator:
                     std = torch.abs(torch.normal(mean_of_std, std_of_std, size=system_range.shape))
                     if system_range is not None:
                         std = std * system_range
-                    total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim
                     epsilon = torch.normal(mean.unsqueeze(1).repeat(1, total_dim), std.unsqueeze(1).repeat(1, total_dim))
                 case "normal_with_uniform_std":
                     max_std = torch.tensor(noise_dist_params.get("max"))
                     std = max_std * torch.rand(size=system_range.shape)
                     if system_range is not None:
                         std = std * system_range
-                    total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim
+                    std = std.unsqueeze(1).repeat(1, total_dim)
+                    epsilon = torch.normal(torch.zeros_like(std), std)
+                case "constant":
+                    std = noise_dist_params.get("value")
+                    if system_range is not None:
+                        std = std * system_range
                     std = std.unsqueeze(1).repeat(1, total_dim)
                     epsilon = torch.normal(torch.zeros_like(std), std)
                 case _:

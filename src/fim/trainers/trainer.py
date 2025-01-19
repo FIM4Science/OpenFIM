@@ -316,6 +316,11 @@ class Trainer:
             step_ = (step + batch_idx) // self.gradient_accumulation_steps
             with torch.profiler.record_function("train_batch"):
                 batch_stats = self._train_batch(step_, batch)
+
+                batch_stats = torch.utils._pytree.tree_map(
+                    lambda x: x.to("cpu").detach() if isinstance(x, torch.Tensor) else x, batch_stats
+                )
+
             with torch.profiler.record_function("batch_stats"):
                 self.training_loss_tracker.add_batch_stats(batch_stats)
 
@@ -330,6 +335,10 @@ class Trainer:
                     target=self.training_logger.log_train_batch, name="log_train_batch", args=(epoch, batch_idx, batch_stats)
                 )
                 log_train_batch_thread.start()
+
+            del batch
+            del batch_stats
+
         self.training_loss_tracker.summarize_epoch()
         p_bar.close()
         del p_bar
@@ -357,7 +366,7 @@ class Trainer:
         with torch.profiler.record_function("backward_pass"):
             lrs = self._model_update_step(step, loss)
 
-        losses = {k: v.detach().float() if isinstance(v, torch.Tensor) else v for k, v in losses.items()}
+        losses = {k: v.to("cpu").detach().float() if isinstance(v, torch.Tensor) else v for k, v in losses.items()}
         histograms = {}
         # if "histograms" in stats:
         #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
@@ -427,7 +436,7 @@ class Trainer:
             dtype=self._auto_cast_type,
         ):
             stats = self.model(batch)
-        losses = {k: v.detach().float() if isinstance(v, torch.Tensor) else v for k, v in stats["losses"].items()}
+        losses = {k: v.to("cpu").detach().float() if isinstance(v, torch.Tensor) else v for k, v in stats["losses"].items()}
         histograms = {}
         # if "histograms" in stats:
         #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}

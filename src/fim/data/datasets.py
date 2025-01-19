@@ -844,13 +844,13 @@ class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):
             if self.dim_mask_key not in data.keys():
                 data[self.dim_mask_key] = torch.utils._pytree.tree_map(torch.ones_like, data["locations"])
 
+            data[self.dim_mask_key] = torch.utils._pytree.tree_map(lambda x: x.bool(), data[self.dim_mask_key])
+
         # padding dimension of observation space to max_dim
         data = pad_data_in_dict(data, self.dim_keys, dim=-1, mode="constant", max_length=self.max_dim)
 
         # set masks dtype to bool
-        data["obs_mask"], data[self.dim_mask_key] = torch.utils._pytree.tree_map(
-            lambda x: x.bool(), (data["obs_mask"], data[self.dim_mask_key])
-        )
+        data["obs_mask"] = torch.utils._pytree.tree_map(lambda x: x.bool(), data["obs_mask"])
 
         # concatenate data per key
         data: dict[str, Tensor] = {k: torch.concatenate(v, dim=0) for k, v in data.items()}
@@ -1050,13 +1050,13 @@ class HeterogeneousFIMSDEDataset(torch.utils.data.IterableDataset):
             if self.dim_mask_key not in data.keys():
                 data[self.dim_mask_key] = torch.utils._pytree.tree_map(torch.ones_like, data["locations"])
 
+            data[self.dim_mask_key] = torch.utils._pytree.tree_map(lambda x: x.bool(), data[self.dim_mask_key])
+
         # padding observed dimension to max_dim
         data: dict[str, Tensor] = pad_data_in_dict(data, self.dim_keys, dim=-1, mode="constant", max_length=self.max_dim)
 
         # set masks dtype to bool
-        data["obs_mask"], data[self.dim_mask_key] = torch.utils._pytree.tree_map(
-            lambda x: x.bool(), (data["obs_mask"], data[self.dim_mask_key])
-        )
+        data["obs_mask"] = torch.utils._pytree.tree_map(lambda x: x.bool(), data["obs_mask"])
 
         # return only part of data
         if self.data_limit is not None:
@@ -1235,13 +1235,13 @@ class StreamingFIMSDEDataset(torch.utils.data.IterableDataset):
             if self.dim_mask_key not in data.keys():
                 data[self.dim_mask_key] = torch.utils._pytree.tree_map(torch.ones_like, data["locations"])
 
+            data[self.dim_mask_key] = torch.utils._pytree.tree_map(lambda x: x.bool(), data[self.dim_mask_key])
+
         # padding observed dimension to max_dim
         data: dict[str, Tensor] = pad_data_in_dict(data, self.dim_keys, dim=-1, mode="constant", max_length=self.max_dim)
 
         # set masks dtype to bool
-        data["obs_mask"], data[self.dim_mask_key] = torch.utils._pytree.tree_map(
-            lambda x: x.bool(), (data["obs_mask"], data[self.dim_mask_key])
-        )
+        data["obs_mask"] = torch.utils._pytree.tree_map(lambda x: x.bool(), data["obs_mask"])
 
         # shuffle
         data = shuffle_sde_data(data, self.paths_keys, self.loc_keys, self.shuffle_paths, self.shuffle_locations, shuffle_elements=False)
@@ -1442,7 +1442,7 @@ def get_subdict(d: dict, keys: list[str]):
     return {k: d[k] for k in keys if k in d.keys()}
 
 
-@torch.compile(disable=not torch.cuda.is_available())
+# @torch.compile(disable=not torch.cuda.is_available())
 def pad_data_in_dict(
     data: dict, keys_to_pad: list[str], dim: int, mode: Optional[str] = "constant", max_length: Optional[int] = None
 ) -> dict:
@@ -1484,7 +1484,7 @@ def pad_data_in_dict(
     return data
 
 
-@torch.compile(disable=not torch.cuda.is_available())
+# @torch.compile(disable=not torch.cuda.is_available())
 def shuffle_at_dim(tree: Any, dim: int) -> Tensor:
     """
     Permute leaf tensors of tree at dim, independently for each batch element, but jointly for each leaf.

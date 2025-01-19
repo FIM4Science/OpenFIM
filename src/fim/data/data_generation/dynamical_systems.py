@@ -395,7 +395,7 @@ class SelkovGlycosis(DynamicalSystem):
         alpha, beta, gamma = params[:, 0], params[:, 1], params[:, 2]
         x1, x2 = states[:, 0], states[:, 1]
         dx1dt = -(x1 - alpha * x2 - (x1**2) * x2)
-        dx2dt = gamma - beta * x1 - (x1**2) * x2
+        dx2dt = gamma - beta * x2 - (x1**2) * x2
         return torch.stack([dx1dt, dx2dt], dim=1)
 
     def diffusion(self, states, time, params):

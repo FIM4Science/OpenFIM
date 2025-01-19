@@ -15,19 +15,23 @@ from fim.data_generation.sde.dynamical_systems_to_files import get_data_from_dyn
 
 
 # general config
-NUM_PATHS = 20
 NUM_STEPS = 128
 STEPS_PER_DT = 100
-NUM_REALIZATIONS = 1
-RELATIVE_DIFFUSION_SCALE = 0.01
 
 
-def get_damped_linear_oscillator():
+def get_damped_linear_oscillator(num_realizations: int, num_paths: int, rel_add_noise: float, rel_diff_scale: float):
     process_hyperparameters = {
         "name": "DampedLinearOscillatorSystem",
         "data_bulk_name": "damped_linear_oscillator",
         "redo": True,
-        "num_realizations": NUM_REALIZATIONS,
+        "num_realizations": num_realizations,
+        "observation_noise": {
+            "relative": True,
+            "distribution": {
+                "name": "constant",
+                "value": rel_add_noise,
+            },
+        },
         "drift_params": {
             "damping": {
                 "distribution": "fix",
@@ -64,9 +68,9 @@ def get_damped_linear_oscillator():
         "time_length": 20,
         "steps_per_dt": STEPS_PER_DT,
         "num_steps": NUM_STEPS,
-        "num_paths": NUM_PATHS,
+        "num_paths": num_paths,
         "num_locations": 1024,
-        "relative_diffusion_scale": RELATIVE_DIFFUSION_SCALE,
+        "relative_diffusion_scale": rel_diff_scale,
         "stochastic": True,
     }
 
@@ -86,12 +90,19 @@ def get_damped_linear_oscillator():
     return DampedLinearOscillatorSystem(process_hyperparameters), integration_config, locations_params, config
 
 
-def get_damped_cubic_oscillator():
+def get_damped_cubic_oscillator(num_realizations: int, num_paths: int, rel_add_noise: float, rel_diff_scale: float):
     process_hyperparameters = {
         "name": "DampedCubicOscillatorSystem",
         "data_bulk_name": "damped_cubic_oscillator",
         "redo": True,
-        "num_realizations": NUM_REALIZATIONS,
+        "num_realizations": num_realizations,
+        "observation_noise": {
+            "relative": True,
+            "distribution": {
+                "name": "constant",
+                "value": rel_add_noise,
+            },
+        },
         "drift_params": {
             "damping": {
                 "distribution": "fix",
@@ -128,9 +139,9 @@ def get_damped_cubic_oscillator():
         "time_length": 25,
         "steps_per_dt": STEPS_PER_DT,
         "num_steps": NUM_STEPS,
-        "num_paths": NUM_PATHS,
+        "num_paths": num_paths,
         "num_locations": 1024,
-        "relative_diffusion_scale": RELATIVE_DIFFUSION_SCALE,
+        "relative_diffusion_scale": rel_diff_scale,
         "stochastic": True,
     }
 
@@ -150,12 +161,19 @@ def get_damped_cubic_oscillator():
     return DampedCubicOscillatorSystem(process_hyperparameters), integration_config, locations_params, config
 
 
-def get_duffing_oscillator():
+def get_duffing_oscillator(num_realizations: int, num_paths: int, rel_add_noise: float, rel_diff_scale: float):
     process_hyperparameters = {
         "name": "DuffDuffingOscillator",
         "data_bulk_name": "duffing_oscillator",
         "redo": True,
-        "num_realizations": NUM_REALIZATIONS,
+        "num_realizations": num_realizations,
+        "observation_noise": {
+            "relative": True,
+            "distribution": {
+                "name": "constant",
+                "value": rel_add_noise,
+            },
+        },
         "drift_params": {
             "alpha": {
                 "distribution": "fix",
@@ -192,9 +210,9 @@ def get_duffing_oscillator():
         "time_length": 20,
         "steps_per_dt": STEPS_PER_DT,
         "num_steps": NUM_STEPS,
-        "num_paths": NUM_PATHS,
+        "num_paths": num_paths,
         "num_locations": 1024,
-        "relative_diffusion_scale": RELATIVE_DIFFUSION_SCALE,
+        "relative_diffusion_scale": rel_diff_scale,
         "stochastic": True,
     }
 
@@ -214,12 +232,19 @@ def get_duffing_oscillator():
     return DuffingOscillator(process_hyperparameters), integration_config, locations_params, config
 
 
-def get_selkov_glycolysis():
+def get_selkov_glycolysis(num_realizations: int, num_paths: int, rel_add_noise: float, rel_diff_scale: float):
     process_hyperparameters = {
         "name": "SelkovGlycosis",
         "data_bulk_name": "selkov_glycolysis",
         "redo": True,
-        "num_realizations": NUM_REALIZATIONS,
+        "num_realizations": num_realizations,
+        "observation_noise": {
+            "relative": True,
+            "distribution": {
+                "name": "constant",
+                "value": rel_add_noise,
+            },
+        },
         "drift_params": {
             "alpha": {
                 "distribution": "fix",
@@ -256,9 +281,9 @@ def get_selkov_glycolysis():
         "time_length": 30,
         "steps_per_dt": STEPS_PER_DT,
         "num_steps": NUM_STEPS,
-        "num_paths": NUM_PATHS,
+        "num_paths": num_paths,
         "num_locations": 1024,
-        "relative_diffusion_scale": RELATIVE_DIFFUSION_SCALE,
+        "relative_diffusion_scale": rel_diff_scale,
         "stochastic": True,
     }
 
@@ -278,12 +303,19 @@ def get_selkov_glycolysis():
     return SelkovGlycosis(process_hyperparameters), integration_config, locations_params, config
 
 
-def get_lorenz_63():
+def get_lorenz_63(num_realizations: int, num_paths: int, rel_add_noise: float, rel_diff_scale: float):
     process_hyperparameters = {
         "name": "Lorenz63System",
         "data_bulk_name": "lorenzt_63",
         "redo": True,
-        "num_realizations": NUM_REALIZATIONS,
+        "num_realizations": num_realizations,
+        "observation_noise": {
+            "relative": True,
+            "distribution": {
+                "name": "constant",
+                "value": rel_add_noise,
+            },
+        },
         "drift_params": {
             "sigma": {
                 "distribution": "fix",
@@ -291,7 +323,7 @@ def get_lorenz_63():
             },
             "beta": {
                 "distribution": "fix",
-                "fix_value": 2.66,
+                "fix_value": 2.666667,
             },
             "rho": {
                 "distribution": "fix",
@@ -314,9 +346,9 @@ def get_lorenz_63():
         "time_length": 10,
         "steps_per_dt": STEPS_PER_DT,
         "num_steps": NUM_STEPS,
-        "num_paths": NUM_PATHS,
+        "num_paths": num_paths,
         "num_locations": 1024,
-        "relative_diffusion_scale": RELATIVE_DIFFUSION_SCALE,
+        "relative_diffusion_scale": rel_diff_scale,
         "stochastic": True,
     }
 
@@ -336,12 +368,19 @@ def get_lorenz_63():
     return Lorenz63System(process_hyperparameters), integration_config, locations_params, config
 
 
-def get_hopf_bifurcation():
+def get_hopf_bifurcation(num_realizations: int, num_paths: int, rel_add_noise: float, rel_diff_scale: float):
     process_hyperparameters = {
         "name": "HopfBifurcation",
         "data_bulk_name": "hopf_bifurcation",
         "redo": True,
-        "num_realizations": NUM_REALIZATIONS,
+        "num_realizations": num_realizations,
+        "observation_noise": {
+            "relative": True,
+            "distribution": {
+                "name": "constant",
+                "value": rel_add_noise,
+            },
+        },
         "drift_params": {
             "sigma": {
                 "distribution": "fix",
@@ -378,9 +417,9 @@ def get_hopf_bifurcation():
         "time_length": 20,
         "steps_per_dt": STEPS_PER_DT,
         "num_steps": NUM_STEPS,
-        "num_paths": NUM_PATHS,
+        "num_paths": num_paths,
         "num_locations": 1024,
-        "relative_diffusion_scale": RELATIVE_DIFFUSION_SCALE,
+        "relative_diffusion_scale": rel_diff_scale,
         "stochastic": True,
     }
 
@@ -411,10 +450,35 @@ if __name__ == "__main__":
         "hopf_bifurcation": get_hopf_bifurcation,
     }
 
+    # ODE system
     for name, func in funcs.items():
-        system, integration_config, locations_params, config = func()
+        system, integration_config, locations_params, config = func(num_realizations=1, num_paths=1, rel_add_noise=0, rel_diff_scale=0)
         data = get_data_from_dynamical_system(system, integration_config, locations_params)
-        save_dir = Path(data_path) / "processed" / "test" / "20241222_svise_1_perc_diffusion_no_additive_noise" / name
+        save_dir = Path(data_path) / "processed" / "test" / "20250124_svise" / "ode" / name
+        save_fimsdedatabatch_to_files(data, save_dir)
+
+        with open(save_dir / "config.json", "w") as f:
+            json.dump(config, f)
+
+    # SDE paths without additive noise
+    for name, func in funcs.items():
+        system, integration_config, locations_params, config = func(num_realizations=1, num_paths=20, rel_add_noise=0, rel_diff_scale=0.01)
+        data = get_data_from_dynamical_system(system, integration_config, locations_params)
+        save_dir = Path(data_path) / "processed" / "test" / "20250124_svise" / "sde_relative_diffusion_1_perc_20_paths" / name
+        save_fimsdedatabatch_to_files(data, save_dir)
+
+        with open(save_dir / "config.json", "w") as f:
+            json.dump(config, f)
+
+    # SDE paths with additive noise
+    for name, func in funcs.items():
+        system, integration_config, locations_params, config = func(
+            num_realizations=1, num_paths=20, rel_add_noise=0.1, rel_diff_scale=0.01
+        )
+        data = get_data_from_dynamical_system(system, integration_config, locations_params)
+        save_dir = (
+            Path(data_path) / "processed" / "test" / "20250124_svise" / "sde_relative_diffusion_1_perc_add_noise_10_perc_20_paths" / name
+        )
         save_fimsdedatabatch_to_files(data, save_dir)
 
         with open(save_dir / "config.json", "w") as f:

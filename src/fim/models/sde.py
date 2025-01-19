@@ -820,6 +820,7 @@ class DeltaLogCentering(InstanceNormalization):
             mask, _ = self.squash_intermediate_dims(mask)
             mask = torch.broadcast_to(mask, values.shape)
 
+            mask = torch.logical_and(mask, values > 0.0)  # in case of 0 at the end of a trajectory
             mean_ln_values = torch.nanmean(torch.where(mask, ln_values, torch.nan), dim=-2)  # [B, D]
 
         assert mean_ln_values.ndim == 2, f"Got {mean_ln_values.shape}."
@@ -1203,6 +1204,9 @@ class FIMSDEConfig(PretrainedConfig):
         learnable_loss_scales (dict | None): Config for AttentionOperator defining learnable loss scales per location.
         detach_learnable_loss_scale_heads (bool): Default is True.
         single_learnable_loss_scale_head (bool): Default is False
+        learnable_loss_scale_mlp (dict): Default is None
+        use_kl (bool): To use kl instead of individual losses for each term. Default is False.
+        divide_drift_loss_by_diffusion (bool): Default is True
         num_epochs (int): Number of epochs. Default is 2.
         learning_rate (float): Learning rate. Default is 1.0e-5.
         weight_decay (float): Weight decay. Default is 1.0e-4.
@@ -1246,6 +1250,8 @@ class FIMSDEConfig(PretrainedConfig):
         learnable_loss_scales: Optional[dict] = None,
         detach_learnable_loss_scale_heads: Optional[bool] = True,
         single_learnable_loss_scale_head: Optional[bool] = False,
+        learnable_loss_scale_mlp=None,
+        use_kl: bool = False,
         lightning_training: bool = True,
         num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)
         learning_rate: float = 1.0e-5,
@@ -1288,6 +1294,8 @@ class FIMSDEConfig(PretrainedConfig):
         self.learnable_loss_scales = learnable_loss_scales
         self.detach_learnable_loss_scale_heads = detach_learnable_loss_scale_heads
         self.single_learnable_loss_scale_head = single_learnable_loss_scale_head
+        self.learnable_loss_scale_mlp = learnable_loss_scale_mlp
+        self.use_kl = use_kl
         # training variables
         self.num_epochs = num_epochs
         self.lightning_training = lightning_training
@@ -1331,6 +1339,11 @@ class FIMSDE(AModel, pl.LightningModule):
             config.single_learnable_loss_scale_head if hasattr(config, "single_learnable_loss_scale_head") else False
         )
         self.times_norm_on_deltas = config.times_norm_on_deltas if hasattr(config, "times_norm_on_deltas") else False
+        self.divide_drift_loss_by_diffusion = (
+            config.divide_drift_loss_by_diffusion if hasattr(config, "divide_drift_loss_by_diffusion") else True
+        )
+        self.learnable_loss_scale_mlp = config.learnable_loss_scale_mlp if hasattr(config, "learnable_loss_scale_mlp") else None
+        self.use_kl = config.use_kl if hasattr(config, "use_kl") else False
 
         # Save hyperparameters
         self.save_hyperparameters()
@@ -1507,6 +1520,10 @@ class FIMSDE(AModel, pl.LightningModule):
                     embed_dim=config.model_embedding_size, out_features=1, **deepcopy(self.learnable_loss_scales)
                 )
 
+        if self.learnable_loss_scale_mlp is not None:
+            self.learnable_loss_scale_mlp.update({"in_features": 2, "out_features": 1})
+            self.learnable_loss_scale_mlp = create_class_instance(self.learnable_loss_scale_mlp.pop("name"), self.learnable_loss_scale_mlp)
+
     def heads_projection_all_functions(
         self, locations_encoding: Tensor, observations_encoding: Tensor, observations_padding_mask: Optional[Tensor] = None
     ) -> Tensor:
@@ -1682,7 +1699,6 @@ class FIMSDE(AModel, pl.LightningModule):
         return obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats
 
     @torch.profiler.record_function("get_paths_encoding")
-    @torch.compile(disable=not torch.cuda.is_available())
     def get_paths_encoding(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Optional[Tensor] = None) -> Tensor:
         """
         Obtain embedding of all observed values in all paths.
@@ -1839,6 +1855,8 @@ class FIMSDE(AModel, pl.LightningModule):
             diffusion_estimator = torch.abs(diffusion_estimator)
         elif self.config.non_negative_diffusion_by == "exp":
             diffusion_estimator = torch.exp(diffusion_estimator)
+        elif self.config.non_negative_diffusion_by == "softplus":
+            diffusion_estimator = torch.nn.functional.softplus(diffusion_estimator)
 
         # set values at padded dimensions to 0
         if dimension_mask is not None:
@@ -1928,6 +1946,24 @@ class FIMSDE(AModel, pl.LightningModule):
                 paths_encoding_,
                 observations_padding_mask=observations_padding_mask_,
             )  # [B, G, 1]
+
+        elif self.learnable_loss_scale_mlp is not None:
+            B, P, T, D = obs_values.shape
+            B, G, D = locations.shape
+
+            obs_values = torch.broadcast_to(obs_values.view(B, 1, P * T, D), (B, G, P * T, D))  # [B, G, P*T, D]
+            obs_mask = torch.broadcast_to(obs_mask.view(B, 1, P * T), (B, G, P * T))  # [B, G, P*T]
+            locations = torch.broadcast_to(locations.view(B, G, 1, D), (B, G, P * T, D))  # [B, G, P*T, D]
+
+            dist_to_obs = torch.linalg.vector_norm(obs_values - locations, dim=-1)  # [B, G, P*T]
+            min_dist_to_obs = torch.amin(torch.where(obs_mask, dist_to_obs, torch.inf), dim=-1)  # [B, G]
+            mean_dist_to_obs = torch.nanmean(torch.where(obs_mask, dist_to_obs, torch.nan), dim=-1)  # [B, G]
+
+            scale_mlp_input = torch.stack([min_dist_to_obs, mean_dist_to_obs], dim=-1)
+            log_scale = self.learnable_loss_scale_mlp(scale_mlp_input)  # [B, G, 1]
+
+            drift_log_loss_scale_per_location = log_scale
+            diffusion_log_loss_scale_per_location = log_scale
 
         else:
             drift_log_loss_scale_per_location = torch.zeros_like(locations[..., 0][..., None])
@@ -2087,6 +2123,66 @@ class FIMSDE(AModel, pl.LightningModule):
 
         return vector_field, vector_field_clipped_norm_perc
 
+    def kl_loss(
+        self,
+        estimated_drift: Tensor,
+        target_drift: Tensor,
+        estimated_diffusion: Tensor,
+        target_diffusion: Tensor,
+        mask: Tensor,
+        log_loss_scale_per_location: Optional[Tensor] = None,
+    ) -> tuple[Tensor]:
+        """
+        Compute (regularized) KL loss. Note that target and estimated diffusion already contain a sqrt.
+
+        Args:
+            estimated and target vector fields (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
+            mask (Tensor): 0 masks padded values to ignore in loss calculation. Shape: [B, G, D]
+            log_loss_scale_per_location (Optional[Tensor]): Multiply the loss at each location by a (potentially) different scale. Shape: [B, G, 1]
+
+        Returns
+            loss (Tensor): Loss of vector field. Shape: []
+            target_is_infinite_perc (Tensor): Percentage of locations where target vector field is Nan. Shape: []
+        """
+        # comparing vector field should have 3 dimensions and equal shape
+        assert estimated_drift.ndim == target_drift.ndim == 3
+        assert estimated_diffusion.ndim == target_diffusion.ndim == 3
+
+        # filter Nans and infinite values
+        if self.config.loss_filter_nans:
+            estimated_drift, _, target_drift = self.filter_nans_from_vector_fields(estimated_drift, None, target_drift, mask)
+            estimated_diffusion, _, target_diffusion = self.filter_nans_from_vector_fields(
+                estimated_diffusion, None, target_diffusion, mask
+            )
+
+        eps = 1e-6
+        loss_at_locations = (
+            estimated_diffusion / (2 * target_diffusion**2 + eps)
+            + (estimated_drift - target_drift) ** 2 / (2 * target_diffusion**2 + eps)
+            - 1
+            + torch.log(target_diffusion**2 + eps)
+            - torch.log(estimated_diffusion**2 + eps)
+        )  # [B, G, D]
+
+        loss_at_locations = (loss_at_locations * mask).sum(dim=-1)  # [B, G]
+
+        # weight per locations
+        assert log_loss_scale_per_location.ndim == 3, f"Got {log_loss_scale_per_location.ndim}"
+
+        loss_at_locations = loss_at_locations * torch.exp(-log_loss_scale_per_location[..., 0])
+
+        assert loss_at_locations.ndim == 2, f"Got {loss_at_locations.ndim}"
+
+        # filter out Nans or above threshold locations from loss
+        loss_at_locations, loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(loss_at_locations, None)
+
+        loss_per_batch_element = torch.sum(loss_at_locations * loss_at_locations_mask, dim=-1)  # [B]
+        assert loss_per_batch_element.ndim == 1
+
+        loss = torch.mean(loss_per_batch_element)
+
+        return loss, filtered_loss_locations_perc
+
     def vector_field_loss(
         self,
         estimated: Tensor,
@@ -2104,6 +2200,7 @@ class FIMSDE(AModel, pl.LightningModule):
             Remove Nans and infinite values in passed vector fields.
             Per location, remove Nans and infinite values from calculated loss.
             Per location, remove losses exceeding a threshold.
+            Per location, scale loss by a (learned) value.
 
         Args:
             vector field values (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
@@ -2143,8 +2240,6 @@ class FIMSDE(AModel, pl.LightningModule):
         else:
             scale_per_dimension = torch.ones_like(estimated)
 
-        scale_per_dimension = torch.ones_like(estimated)
-
         # compute loss per location
         if self.config.loss_type == "rmse":
             loss_at_locations = rmse_at_locations(estimated, target, mask, scale_per_dimension=scale_per_dimension)  # [B, G]
@@ -2162,17 +2257,17 @@ class FIMSDE(AModel, pl.LightningModule):
         else:
             raise ValueError("`loss_type` must be `rmse`, `nrmse`, 'mse' or `nll`, got " + self.config.loss_type)
 
-        # filter out Nans or above threshold locations from loss
-        loss_at_locations, loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(
-            loss_at_locations, loss_threshold
-        )
-
         # weight per locations
         assert log_loss_scale_per_location.ndim == 3, f"Got {log_loss_scale_per_location.ndim}"
 
         loss_at_locations = loss_at_locations * torch.exp(-log_loss_scale_per_location[..., 0])
 
         assert loss_at_locations.ndim == 2, f"Got {loss_at_locations.ndim}"
+
+        # filter out Nans or above threshold locations from loss
+        loss_at_locations, loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(
+            loss_at_locations, loss_threshold
+        )
 
         loss_per_batch_element = torch.sum(loss_at_locations * loss_at_locations_mask, dim=-1)  # [B]
         assert loss_per_batch_element.ndim == 1
@@ -2243,34 +2338,51 @@ class FIMSDE(AModel, pl.LightningModule):
             estimated_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
             target_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
 
-        # compute loss per vector field
-        (
-            drift_loss,
-            drift_loss_above_threshold_or_nan_perc,
-            drift_target_above_max_norm,
-        ) = self.vector_field_loss(
-            estimated_concepts.drift,
-            estimated_concepts.log_var_drift,
-            target_concepts.drift,
-            dimension_mask,
-            loss_threshold,
-            vector_field_max_norm,
-            target_diffusion=target_concepts.diffusion,
-            log_loss_scale_per_location=drift_log_loss_scale_per_location,
-        )
-        (
-            diffusion_loss,
-            diffusion_loss_above_threshold_or_nan_perc,
-            diffusion_target_above_max_norm,
-        ) = self.vector_field_loss(
-            estimated_concepts.diffusion,
-            estimated_concepts.log_var_diffusion,
-            target_concepts.diffusion,
-            dimension_mask,
-            loss_threshold,
-            vector_field_max_norm,
-            log_loss_scale_per_location=diffusion_log_loss_scale_per_location,
-        )
+        if self.use_kl is True:
+            drift_loss, drift_loss_above_threshold_or_nan_perc = self.kl_loss(
+                estimated_concepts.drift,
+                target_concepts.drift,
+                estimated_concepts.diffusion,
+                target_concepts.diffusion,
+                dimension_mask,
+                drift_log_loss_scale_per_location,
+            )
+            diffusion_loss = 0.0
+
+            drift_target_above_max_norm = 0
+            diffusion_target_above_max_norm = 0
+            diffusion_loss_above_threshold_or_nan_perc = 0
+            drift_loss_above_threshold_or_nan_perc = 0
+
+        else:
+            # compute loss per vector field
+            (
+                drift_loss,
+                drift_loss_above_threshold_or_nan_perc,
+                drift_target_above_max_norm,
+            ) = self.vector_field_loss(
+                estimated_concepts.drift,
+                estimated_concepts.log_var_drift,
+                target_concepts.drift,
+                dimension_mask,
+                loss_threshold,
+                vector_field_max_norm,
+                target_diffusion=target_concepts.diffusion if self.divide_drift_loss_by_diffusion is True else None,
+                log_loss_scale_per_location=drift_log_loss_scale_per_location,
+            )
+            (
+                diffusion_loss,
+                diffusion_loss_above_threshold_or_nan_perc,
+                diffusion_target_above_max_norm,
+            ) = self.vector_field_loss(
+                estimated_concepts.diffusion,
+                estimated_concepts.log_var_diffusion,
+                target_concepts.diffusion,
+                dimension_mask,
+                loss_threshold,
+                vector_field_max_norm,
+                log_loss_scale_per_location=diffusion_log_loss_scale_per_location,
+            )
 
         assert drift_log_loss_scale_per_location.ndim == 3
         assert diffusion_log_loss_scale_per_location.ndim == 3

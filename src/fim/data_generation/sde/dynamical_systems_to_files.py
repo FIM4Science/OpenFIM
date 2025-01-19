@@ -85,14 +85,14 @@ def save_dynamical_system_from_yaml(yaml_path: str | Path, labels_to_use: list[s
         with open(label_dir / "config.yaml", "w") as f:
             yaml.dump(data_config[label], f)
 
-        # enumerate subdirs to keep track, in case "data_bulk_name" overlap
-        for i, params in enumerate(data_config[label]):
+        print("WARNING: overlaps in data_bulk_name can lead to overwritten files.")
+        for params in data_config[label]:
             subset_label = params.get("data_bulk_name")
 
             print(f"Generating {subset_label}")
             subset_data: FIMSDEDatabatch = set_up_a_dynamical_system(dataset_type, params, integrator_params, locations_params, "", True)
 
-            subset_dir = label_dir / (str(i) + "_" + subset_label)
+            subset_dir = label_dir / (subset_label)
             subset_dir.mkdir(parents=True, exist_ok=True)
 
             save_fimsdedatabatch_to_files(subset_data, subset_dir)

@@ -28,6 +28,14 @@ def plot_1d_vf_real_and_estimation_axes(
     drift_color: Optional[str] = "tab:red",
     diffusion_color: Optional[str] = "tab:blue",
 ):
+    # sort by locations
+    asort = np.argsort(locations, axis=0).squeeze()
+    locations = locations[asort]
+    drift_at_locations_real = drift_at_locations_real[asort]
+    diffusion_at_locations_real = diffusion_at_locations_real[asort]
+    drift_at_locations_estimation = drift_at_locations_estimation[asort]
+    diffusion_at_locations_estimation = diffusion_at_locations_estimation[asort]
+
     axis_drift.set_xlabel("State")
     axis_drift.set_ylabel("Drift", color=drift_color)
     axis_drift.plot(locations, drift_at_locations_real, color="r", label="Real Drift")
