@@ -24,20 +24,30 @@ with open(model_data_pickle_path, "rb") as f:
     model_data = pickle.load(f).results["estimated_concepts"]
 ground_truth_data = load_h5s_in_folder(ground_truth_data_folder_path)
 
-model_locations, model_drift, model_diffusion = model_data.locations, model_data.drift[:,:,:2], model_data.diffusion[:,:,:2]
+model_locations, model_drift, model_diffusion = model_data.locations[:,:,:2], model_data.drift[:,:,:2], model_data.diffusion[:,:,:2]
 ground_truth_locations, ground_truth_drift, ground_truth_diffusion = ground_truth_data["locations"], ground_truth_data["drift_at_locations"], ground_truth_data["diffusion_at_locations"]
 
 assert model_drift.shape == ground_truth_drift.shape, f"Drifts have different shapes between model and ground truth data: {model_drift.shape} vs {ground_truth_drift.shape}"
 assert model_diffusion.shape == ground_truth_diffusion.shape, f"Diffusions have different shapes between model and ground truth data: {model_diffusion.shape} vs {ground_truth_diffusion.shape}"
 
-c = model_drift.shape[1]//2
-model_locations, model_drift, model_diffusion = model_locations[:,:c], model_drift[:,:c], model_diffusion[:,:c]
-ground_truth_locations, ground_truth_drift, ground_truth_diffusion = ground_truth_locations[:,:c], ground_truth_drift[:,:c], ground_truth_diffusion[:,:c]
-
 # Only consider every nth point
 n = 10
 model_locations, model_drift, model_diffusion = model_locations[:,::n], model_drift[:,::n], model_diffusion[:,::n]
 ground_truth_locations, ground_truth_drift, ground_truth_diffusion = ground_truth_locations[:,::n], ground_truth_drift[:,::n], ground_truth_diffusion[:,::n]
+
+
+
+## Some code to restrict the plot to a certain region
+# too_large_mask = (torch.abs(model_locations) > 1)
+# # Compute the logical or between the last two dimensions
+# too_large_mask = too_large_mask.any(dim=-1)[:,:,None]
+# too_large_mask = too_large_mask.repeat(1, 1, 2)
+
+# model_locations[too_large_mask] = 0
+# model_drift[too_large_mask] = 0
+# model_diffusion[too_large_mask] = 0
+# ground_truth_drift[too_large_mask] = 0
+# ground_truth_diffusion[too_large_mask] = 0
 
 
 
@@ -85,8 +95,8 @@ def plot_2d_vf_real_and_estimation_axes(
     diffusion_at_locations_estimation: Tensor,
     **kwargs
 ):
-    ground_truth_color = kwargs.get("ground_truth_color", "red")
-    fim_color = kwargs.get("fim_color", "black")
+    ground_truth_color = kwargs.get("ground_truth_color", "#0072B2")
+    fim_color = kwargs.get("fim_color", "#CC79A7")
     
     # Extract grid points (x, y)
     x, y = locations[:, 0], locations[:, 1]
