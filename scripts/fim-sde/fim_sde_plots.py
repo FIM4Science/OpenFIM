@@ -7,6 +7,7 @@ import matplotlib
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyArrowPatch
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 import numpy as np
 from torch import Tensor
 import torch
@@ -105,6 +106,12 @@ def plot_2d_vf_real_and_estimation_axes(
     diffusion_at_locations_estimation: Tensor,
     comparison_model_drift: Tensor = None,
     comparison_model_diffusion: Tensor = None,
+    zoom_area=dict(xlim=(1, 2), ylim=(-2, -1)),
+    zoom_size=0.3,
+    zoom_position_drift='lower left',
+    zoom_position_diffusion='lower left',
+    inset_scale_drift=0.2,
+    inset_scale_diffusion=0.5,
     **kwargs
 ):
     use_comparison_model = comparison_model_drift is not None and comparison_model_diffusion is not None
@@ -114,11 +121,11 @@ def plot_2d_vf_real_and_estimation_axes(
     
     # Extract grid points (x, y)
     x, y = locations[:, 0], locations[:, 1]
-
+    
     # Real vector fields
     u_real_drift, v_real_drift = drift_at_locations_real[:, 0], drift_at_locations_real[:, 1]
     u_real_diffusion, v_real_diffusion = diffusion_at_locations_real[:, 0], diffusion_at_locations_real[:, 1]
-
+    
     # Estimated vector fields
     u_estimated_drift, v_estimated_drift = drift_at_locations_estimation[:, 0], drift_at_locations_estimation[:, 1]
     u_estimated_diffusion, v_estimated_diffusion = diffusion_at_locations_estimation[:, 0], diffusion_at_locations_estimation[:, 1]
@@ -127,16 +134,16 @@ def plot_2d_vf_real_and_estimation_axes(
     if use_comparison_model:
         u_comparison_model_drift, v_comparison_model_drift = comparison_model_drift[:, 0], comparison_model_drift[:, 1]
         u_comparison_model_diffusion, v_comparison_model_diffusion = comparison_model_diffusion[:, 0], comparison_model_diffusion[:, 1]
-
+    
     # Plot drift
     real_drift_quiver = axis_drift.quiver(
         x,
-        y, 
-        u_real_drift, 
-        v_real_drift, 
+        y,
+        u_real_drift,
+        v_real_drift,
         color=ground_truth_color,
     )
-
+    
     axis_drift.quiver(
         x,
         y,
@@ -157,7 +164,7 @@ def plot_2d_vf_real_and_estimation_axes(
         )
     
     axis_drift.set_title("Drift")
-
+    
     # Plot diffusion
     real_diffusion_quiver = axis_diffusion.quiver(
         x,
@@ -166,7 +173,7 @@ def plot_2d_vf_real_and_estimation_axes(
         v_real_diffusion,
         color=ground_truth_color,
     )
-
+    
     axis_diffusion.quiver(
         x,
         y,
@@ -195,10 +202,80 @@ def plot_2d_vf_real_and_estimation_axes(
     ]
     if use_comparison_model:
         legend_elements.append(Line2D([0], [0], color=comparison_color, lw=2, label='Comparison Model', marker=r'$\rightarrow$', markersize=10, linestyle='None'))
-
+    
     # Add legends
-    axis_drift.legend(handles=legend_elements)
-    axis_diffusion.legend(handles=legend_elements)
+    axis_drift.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1, 0.9))
+    axis_diffusion.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1, 0.9))
+    
+    # Add zoom inset to drift plot
+    axins_drift = inset_axes(axis_drift, width="30%", height="30%", loc=zoom_position_drift, borderpad=3)
+    real_drift_scale = real_drift_quiver.scale if real_drift_quiver.scale is not None else 1
+    axins_drift.quiver(
+        x,
+        y,
+        u_real_drift * inset_scale_drift,
+        v_real_drift * inset_scale_drift,
+        color=ground_truth_color,
+        scale=real_drift_scale / inset_scale_drift
+    )
+    axins_drift.quiver(
+        x,
+        y,
+        u_estimated_drift * inset_scale_drift,
+        v_estimated_drift * inset_scale_drift,
+        scale=real_drift_scale / inset_scale_drift,
+        color=fim_color,
+    )
+    if use_comparison_model:
+        axins_drift.quiver(
+            x,
+            y,
+            u_comparison_model_drift * inset_scale_drift,
+            v_comparison_model_drift * inset_scale_drift,
+            scale=real_drift_scale / inset_scale_drift,
+            color=comparison_color,
+        )
+    axins_drift.set_xlim(zoom_area['xlim'])
+    axins_drift.set_ylim(zoom_area['ylim'])
+    axins_drift.set_xticks([])
+    axins_drift.set_yticks([])
+    
+    mark_inset(axis_drift, axins_drift, loc1=2, loc2=4, fc="none", ec="0.5")
+    
+    # Add zoom inset to diffusion plot
+    axins_diffusion = inset_axes(axis_diffusion, width="30%", height="30%", loc=zoom_position_diffusion, borderpad=3)
+    real_diffusion_scale = real_diffusion_quiver.scale if real_diffusion_quiver.scale is not None else 1
+    axins_diffusion.quiver(
+        x,
+        y,
+        u_real_diffusion * inset_scale_diffusion,
+        v_real_diffusion * inset_scale_diffusion,
+        color=ground_truth_color,
+        scale=real_diffusion_scale / inset_scale_diffusion
+    )
+    axins_diffusion.quiver(
+        x,
+        y,
+        u_estimated_diffusion * inset_scale_diffusion,
+        v_estimated_diffusion * inset_scale_diffusion,
+        scale=real_diffusion_scale / inset_scale_diffusion,
+        color=fim_color,
+    )
+    if use_comparison_model:
+        axins_diffusion.quiver(
+            x,
+            y,
+            u_comparison_model_diffusion * inset_scale_diffusion,
+            v_comparison_model_diffusion * inset_scale_diffusion,
+            scale=real_diffusion_scale / inset_scale_diffusion,
+            color=comparison_color,
+        )
+    axins_diffusion.set_xlim(zoom_area['xlim'])
+    axins_diffusion.set_ylim(zoom_area['ylim'])
+    axins_diffusion.set_xticks([])
+    axins_diffusion.set_yticks([])
+    
+    mark_inset(axis_diffusion, axins_diffusion, loc1=2, loc2=4, fc="none", ec="0.5")
 
 fig = create_2D_quiver_plot(model_locations, ground_truth_drift, ground_truth_diffusion, model_drift, model_diffusion, comparison_model_drift=comparison_model_drift, comparison_model_diffusion=comparison_model_diffusion)
 
