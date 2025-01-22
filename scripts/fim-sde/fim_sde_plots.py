@@ -106,7 +106,8 @@ def plot_2d_vf_real_and_estimation_axes(
     diffusion_at_locations_estimation: Tensor,
     comparison_model_drift: Tensor = None,
     comparison_model_diffusion: Tensor = None,
-    zoom_area=dict(xlim=(1, 2), ylim=(-2, -1)),
+    zoom_area_drift=dict(xlim=(2, 2.8), ylim=(-1.1, -0.9)),
+    zoom_area_diffusion=dict(xlim=(1.2, 2.2), ylim=(-2, -1)),
     zoom_size=0.3,
     zoom_position_drift='lower left',
     zoom_position_diffusion='lower left',
@@ -207,6 +208,9 @@ def plot_2d_vf_real_and_estimation_axes(
     axis_drift.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1, 0.9))
     axis_diffusion.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1, 0.9))
     
+    # Define arrow width for insets
+    inset_arrow_width = kwargs.get("inset_arrow_width", 0.03)
+    
     # Add zoom inset to drift plot
     axins_drift = inset_axes(axis_drift, width="30%", height="30%", loc=zoom_position_drift, borderpad=3)
     real_drift_scale = real_drift_quiver.scale if real_drift_quiver.scale is not None else 1
@@ -216,7 +220,8 @@ def plot_2d_vf_real_and_estimation_axes(
         u_real_drift * inset_scale_drift,
         v_real_drift * inset_scale_drift,
         color=ground_truth_color,
-        scale=real_drift_scale / inset_scale_drift
+        scale=real_drift_scale / inset_scale_drift,
+        width=inset_arrow_width
     )
     axins_drift.quiver(
         x,
@@ -225,6 +230,7 @@ def plot_2d_vf_real_and_estimation_axes(
         v_estimated_drift * inset_scale_drift,
         scale=real_drift_scale / inset_scale_drift,
         color=fim_color,
+        width=inset_arrow_width
     )
     if use_comparison_model:
         axins_drift.quiver(
@@ -234,9 +240,10 @@ def plot_2d_vf_real_and_estimation_axes(
             v_comparison_model_drift * inset_scale_drift,
             scale=real_drift_scale / inset_scale_drift,
             color=comparison_color,
+            width=inset_arrow_width
         )
-    axins_drift.set_xlim(zoom_area['xlim'])
-    axins_drift.set_ylim(zoom_area['ylim'])
+    axins_drift.set_xlim(zoom_area_drift['xlim'])
+    axins_drift.set_ylim(zoom_area_drift['ylim'])
     axins_drift.set_xticks([])
     axins_drift.set_yticks([])
     
@@ -251,7 +258,8 @@ def plot_2d_vf_real_and_estimation_axes(
         u_real_diffusion * inset_scale_diffusion,
         v_real_diffusion * inset_scale_diffusion,
         color=ground_truth_color,
-        scale=real_diffusion_scale / inset_scale_diffusion
+        scale=real_diffusion_scale / inset_scale_diffusion,
+        width=inset_arrow_width
     )
     axins_diffusion.quiver(
         x,
@@ -260,6 +268,7 @@ def plot_2d_vf_real_and_estimation_axes(
         v_estimated_diffusion * inset_scale_diffusion,
         scale=real_diffusion_scale / inset_scale_diffusion,
         color=fim_color,
+        width=inset_arrow_width
     )
     if use_comparison_model:
         axins_diffusion.quiver(
@@ -269,9 +278,10 @@ def plot_2d_vf_real_and_estimation_axes(
             v_comparison_model_diffusion * inset_scale_diffusion,
             scale=real_diffusion_scale / inset_scale_diffusion,
             color=comparison_color,
+            width=inset_arrow_width
         )
-    axins_diffusion.set_xlim(zoom_area['xlim'])
-    axins_diffusion.set_ylim(zoom_area['ylim'])
+    axins_diffusion.set_xlim(zoom_area_diffusion['xlim'])
+    axins_diffusion.set_ylim(zoom_area_diffusion['ylim'])
     axins_diffusion.set_xticks([])
     axins_diffusion.set_yticks([])
     
