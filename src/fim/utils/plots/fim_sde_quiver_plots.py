@@ -18,49 +18,6 @@ from fim.utils.plots.sde_data_exploration_plots import plot_paths_in_axis
 from fim.utils.plots.sde_estimation_plots import plot_2d_vf_real_and_estimation_axes
 
 
-model_data_pickle_path = Path("evaluations/synthetic_datasets/01221033_30k_deg_3_ablation_studies_only_learn_scale/model_evaluations/11M_params/wang_two_d_80000_points/default11M_params_wang_two_d_80000_points.pickle")
-ground_truth_data_folder_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20241223_opper_and_wang_cut_to_128_lenght_paths/two_d_wang_80000_points")
-comparison_model_data_folder_path = Path("data/processed/test/20250117_wang_estimated_equations/bisde_est_2D_synth_80000_points_split_128_length")
-
-with open(model_data_pickle_path, "rb") as f:
-    model_data = pickle.load(f).results["estimated_concepts"]
-ground_truth_data = load_h5s_in_folder(ground_truth_data_folder_path)
-comparison_model_data = load_h5s_in_folder(comparison_model_data_folder_path)
-
-model_locations, model_drift, model_diffusion = model_data.locations[:,:,:2], model_data.drift[:,:,:2], model_data.diffusion[:,:,:2]
-ground_truth_locations, ground_truth_drift, ground_truth_diffusion = ground_truth_data["locations"], ground_truth_data["drift_at_locations"], ground_truth_data["diffusion_at_locations"]
-comparison_model_locations, comparison_model_drift, comparison_model_diffusion = comparison_model_data["locations"], comparison_model_data["drift_at_locations"], comparison_model_data["diffusion_at_locations"]
-
-assert model_drift.shape == ground_truth_drift.shape, f"Drifts have different shapes between model and ground truth data: {model_drift.shape} vs {ground_truth_drift.shape}"
-assert model_drift.shape == comparison_model_drift.shape, f"Drifts have different shapes between model and comparison model data: {model_drift.shape} vs {comparison_model_drift.shape}"
-assert model_diffusion.shape == ground_truth_diffusion.shape, f"Diffusions have different shapes between model and ground truth data: {model_diffusion.shape} vs {ground_truth_diffusion.shape}"
-assert model_diffusion.shape == comparison_model_diffusion.shape, f"Diffusions have different shapes between model and comparison model data: {model_diffusion.shape} vs {comparison_model_diffusion.shape}"
-assert torch.allclose(model_locations, ground_truth_locations), "Locations are not the same between model and ground truth data"
-assert torch.allclose(model_locations, comparison_model_locations), "Locations are not the same between model and comparison model data"
-
-# Only consider every nth point
-n = 10
-model_locations, model_drift, model_diffusion = model_locations[:,::n], model_drift[:,::n], model_diffusion[:,::n]
-ground_truth_locations, ground_truth_drift, ground_truth_diffusion = ground_truth_locations[:,::n], ground_truth_drift[:,::n], ground_truth_diffusion[:,::n]
-comparison_model_locations, comparison_model_drift, comparison_model_diffusion = comparison_model_locations[:,::n], comparison_model_drift[:,::n], comparison_model_diffusion[:,::n]
-
-
-
-## Some code to restrict the plot to a certain region
-# too_large_mask = (torch.abs(model_locations) > 1)
-# # Compute the logical or between the last two dimensions
-# too_large_mask = too_large_mask.any(dim=-1)[:,:,None]
-# too_large_mask = too_large_mask.repeat(1, 1, 2)
-
-# model_locations[too_large_mask] = 0
-# model_drift[too_large_mask] = 0
-# model_diffusion[too_large_mask] = 0
-# ground_truth_drift[too_large_mask] = 0
-# ground_truth_diffusion[too_large_mask] = 0
-
-
-
-
 def create_2D_quiver_plot(
     locations: Tensor,  # [B, G, D]
     ground_truth_drift: Tensor,  # [B, G, D]
@@ -69,6 +26,13 @@ def create_2D_quiver_plot(
     estimated_diffusion: Tensor,  # [B, G, D]
     comparison_model_drift: Tensor = None,  # [B, G, D]
     comparison_model_diffusion: Tensor = None,  # [B, G, D]
+    zoom_area_drift=dict(xlim=(2, 2.8), ylim=(-1.1, -0.9)),
+    zoom_area_diffusion=dict(xlim=(1.2, 2.2), ylim=(-2, -1)),
+    zoom_position_drift='lower left',
+    zoom_position_diffusion='lower left',
+    inset_scale_drift=0.2,
+    inset_scale_diffusion=0.5,
+    title=None,
     **kwargs,
 ):
     ncols = 2
@@ -94,7 +58,21 @@ def create_2D_quiver_plot(
             estimated_diffusion[row, ..., :2],
             comparison_model_drift=comparison_model_drift[row, ..., :2] if comparison_model_drift is not None else None,
             comparison_model_diffusion=comparison_model_diffusion[row, ..., :2] if comparison_model_diffusion is not None else None,
+            zoom_area_drift=zoom_area_drift,
+            zoom_area_diffusion=zoom_area_diffusion,
+            zoom_position_drift=zoom_position_drift,
+            zoom_position_diffusion=zoom_position_diffusion,
+            inset_scale_drift=inset_scale_drift,
+            inset_scale_diffusion=inset_scale_diffusion,
+            **kwargs,
         )
+        
+    # Set title
+    if title is not None:
+        fig.suptitle(title)
+        
+    # Save figure
+    plt.savefig(f"{title}.png")
 
     return fig
 
@@ -110,7 +88,6 @@ def plot_2d_vf_real_and_estimation_axes(
     comparison_model_diffusion: Tensor = None,
     zoom_area_drift=dict(xlim=(2, 2.8), ylim=(-1.1, -0.9)),
     zoom_area_diffusion=dict(xlim=(1.2, 2.2), ylim=(-2, -1)),
-    zoom_size=0.3,
     zoom_position_drift='lower left',
     zoom_position_diffusion='lower left',
     inset_scale_drift=0.2,
@@ -288,7 +265,3 @@ def plot_2d_vf_real_and_estimation_axes(
     axins_diffusion.set_yticks([])
     
     mark_inset(axis_diffusion, axins_diffusion, loc1=2, loc2=4, fc="none", ec="0.5")
-
-fig = create_2D_quiver_plot(model_locations, ground_truth_drift, ground_truth_diffusion, model_drift, model_diffusion, comparison_model_drift=comparison_model_drift, comparison_model_diffusion=comparison_model_diffusion)
-
-plt.savefig("2D_quiver_plot.png")
