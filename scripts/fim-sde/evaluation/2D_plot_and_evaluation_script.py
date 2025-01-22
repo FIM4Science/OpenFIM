@@ -44,7 +44,10 @@ class Benchmark:
 def run_benchmark_and_plot(benchmark: Benchmark):
     ground_truth_locations, ground_truth_drift, ground_truth_diffusion = benchmark.GroundTruth.locations, benchmark.GroundTruth.drift, benchmark.GroundTruth.diffusion
     model_locations, model_drift, model_diffusion = benchmark.FIM.locations, benchmark.FIM.drift, benchmark.FIM.diffusion
-    comparison_model_locations, comparison_model_drift, comparison_model_diffusion = benchmark.ComparisonModel.locations, benchmark.ComparisonModel.drift, benchmark.ComparisonModel.diffusion
+    if benchmark.ComparisonModel is not None:
+        comparison_model_locations, comparison_model_drift, comparison_model_diffusion = benchmark.ComparisonModel.locations, benchmark.ComparisonModel.drift, benchmark.ComparisonModel.diffusion
+    else:
+        comparison_model_locations, comparison_model_drift, comparison_model_diffusion = None, None, None
     assert model_locations.shape == ground_truth_locations.shape, f"Locations have different shapes between model and ground truth data: {model_locations.shape} vs {ground_truth_locations.shape}"
     if comparison_model_locations is not None:
         assert model_locations.shape == comparison_model_locations.shape, f"Locations have different shapes between model and comparison model data: {model_locations.shape} vs {comparison_model_locations.shape}"
@@ -63,6 +66,8 @@ def run_benchmark_and_plot(benchmark: Benchmark):
     ground_truth_drift_plot, ground_truth_diffusion_plot = ground_truth_drift[:,::stride], ground_truth_diffusion[:,::stride]
     if comparison_model_locations is not None:
         comparison_model_locations_plot, comparison_model_drift_plot, comparison_model_diffusion_plot = comparison_model_locations[:,::stride], comparison_model_drift[:,::stride], comparison_model_diffusion[:,::stride]
+    else:
+        comparison_model_locations_plot, comparison_model_drift_plot, comparison_model_diffusion_plot = None, None, None
     
     ## Some code to restrict the plot to a certain region
     # too_large_mask = (torch.abs(model_locations) > 1)
@@ -108,6 +113,36 @@ if __name__ == "__main__":
             zoom_area_diffusion = dict(xlim=(1.2, 2.2), ylim=(-2, -1)),
             inset_scale_drift = 0.2,
             inset_scale_diffusion = 0.5,
+        ),
+        Benchmark(
+            name="Damped Cubic Oscillator",
+            GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20241222_svise_1_perc_diffusion_no_additive_noise/damped_cubic_oscillator")),
+            FIM = Dataset("FIM", Path("evaluations/synthetic_datasets/01221033_30k_deg_3_ablation_studies_only_learn_scale/model_evaluations/11M_params/svise_damped_cubic/default11M_params_svise_damped_cubic.pickle")),
+            stride = 10,
+        ),
+        Benchmark(
+            name="Damped Linear Oscillator",
+            GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20241222_svise_1_perc_diffusion_no_additive_noise/damped_linear_oscillator")),
+            FIM = Dataset("FIM", Path("evaluations/synthetic_datasets/01221033_30k_deg_3_ablation_studies_only_learn_scale/model_evaluations/11M_params/svise_damped_linear/default11M_params_svise_damped_linear.pickle")),
+            stride = 10,
+        ),
+        Benchmark(
+            name="Duffing Oscillator",
+            GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20241222_svise_1_perc_diffusion_no_additive_noise/duffing_oscillator")),
+            FIM = Dataset("FIM", Path("evaluations/synthetic_datasets/01221033_30k_deg_3_ablation_studies_only_learn_scale/model_evaluations/11M_params/svise_duffing/default11M_params_svise_duffing.pickle")),
+            stride = 10,
+        ),
+        Benchmark(
+            name="Hopf Bifurcation",
+            GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20241222_svise_1_perc_diffusion_no_additive_noise/hopf_bifurcation")),
+            FIM = Dataset("FIM", Path("evaluations/synthetic_datasets/01221033_30k_deg_3_ablation_studies_only_learn_scale/model_evaluations/11M_params/svise_hopf_bifurcation/default11M_params_svise_hopf_bifurcation.pickle")),
+            stride = 10,
+        ),
+        Benchmark(
+            name="Selkov Glycolysis",
+            GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20241222_svise_1_perc_diffusion_no_additive_noise/selkov_glycolysis")),
+            FIM = Dataset("FIM", Path("evaluations/synthetic_datasets/01221033_30k_deg_3_ablation_studies_only_learn_scale/model_evaluations/11M_params/svise_selkov_glycolysis/default11M_params_svise_selkov_glycolysis.pickle")),
+            stride = 10,
         ),
     ]
     

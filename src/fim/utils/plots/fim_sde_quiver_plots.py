@@ -1,5 +1,3 @@
-
-
 from pathlib import Path
 import pickle
 from matplotlib import pyplot as plt
@@ -11,7 +9,6 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 import numpy as np
 from torch import Tensor
 import torch
-
 
 from fim.data.utils import load_h5s_in_folder
 from fim.utils.plots.sde_data_exploration_plots import plot_paths_in_axis
@@ -190,78 +187,80 @@ def plot_2d_vf_real_and_estimation_axes(
     # Define arrow width for insets
     inset_arrow_width = kwargs.get("inset_arrow_width", 0.03)
     
-    # Add zoom inset to drift plot
-    axins_drift = inset_axes(axis_drift, width="30%", height="30%", loc=zoom_position_drift, borderpad=3)
-    real_drift_scale = real_drift_quiver.scale if real_drift_quiver.scale is not None else 1
-    axins_drift.quiver(
-        x,
-        y,
-        u_real_drift * inset_scale_drift,
-        v_real_drift * inset_scale_drift,
-        color=ground_truth_color,
-        scale=real_drift_scale / inset_scale_drift,
-        width=inset_arrow_width
-    )
-    axins_drift.quiver(
-        x,
-        y,
-        u_estimated_drift * inset_scale_drift,
-        v_estimated_drift * inset_scale_drift,
-        scale=real_drift_scale / inset_scale_drift,
-        color=fim_color,
-        width=inset_arrow_width
-    )
-    if use_comparison_model:
+    # Add zoom inset to drift plot if zoom_area_drift is not None
+    if zoom_area_drift is not None:
+        axins_drift = inset_axes(axis_drift, width="30%", height="30%", loc=zoom_position_drift, borderpad=3)
+        real_drift_scale = real_drift_quiver.scale if real_drift_quiver.scale is not None else 1
         axins_drift.quiver(
             x,
             y,
-            u_comparison_model_drift * inset_scale_drift,
-            v_comparison_model_drift * inset_scale_drift,
+            u_real_drift * inset_scale_drift,
+            v_real_drift * inset_scale_drift,
+            color=ground_truth_color,
             scale=real_drift_scale / inset_scale_drift,
-            color=comparison_color,
             width=inset_arrow_width
         )
-    axins_drift.set_xlim(zoom_area_drift['xlim'])
-    axins_drift.set_ylim(zoom_area_drift['ylim'])
-    axins_drift.set_xticks([])
-    axins_drift.set_yticks([])
+        axins_drift.quiver(
+            x,
+            y,
+            u_estimated_drift * inset_scale_drift,
+            v_estimated_drift * inset_scale_drift,
+            scale=real_drift_scale / inset_scale_drift,
+            color=fim_color,
+            width=inset_arrow_width
+        )
+        if use_comparison_model:
+            axins_drift.quiver(
+                x,
+                y,
+                u_comparison_model_drift * inset_scale_drift,
+                v_comparison_model_drift * inset_scale_drift,
+                scale=real_drift_scale / inset_scale_drift,
+                color=comparison_color,
+                width=inset_arrow_width
+            )
+        axins_drift.set_xlim(zoom_area_drift['xlim'])
+        axins_drift.set_ylim(zoom_area_drift['ylim'])
+        axins_drift.set_xticks([])
+        axins_drift.set_yticks([])
+        
+        mark_inset(axis_drift, axins_drift, loc1=2, loc2=4, fc="none", ec="0.5")
     
-    mark_inset(axis_drift, axins_drift, loc1=2, loc2=4, fc="none", ec="0.5")
-    
-    # Add zoom inset to diffusion plot
-    axins_diffusion = inset_axes(axis_diffusion, width="30%", height="30%", loc=zoom_position_diffusion, borderpad=3)
-    real_diffusion_scale = real_diffusion_quiver.scale if real_diffusion_quiver.scale is not None else 1
-    axins_diffusion.quiver(
-        x,
-        y,
-        u_real_diffusion * inset_scale_diffusion,
-        v_real_diffusion * inset_scale_diffusion,
-        color=ground_truth_color,
-        scale=real_diffusion_scale / inset_scale_diffusion,
-        width=inset_arrow_width
-    )
-    axins_diffusion.quiver(
-        x,
-        y,
-        u_estimated_diffusion * inset_scale_diffusion,
-        v_estimated_diffusion * inset_scale_diffusion,
-        scale=real_diffusion_scale / inset_scale_diffusion,
-        color=fim_color,
-        width=inset_arrow_width
-    )
-    if use_comparison_model:
+    # Add zoom inset to diffusion plot if zoom_area_diffusion is not None
+    if zoom_area_diffusion is not None:
+        axins_diffusion = inset_axes(axis_diffusion, width="30%", height="30%", loc=zoom_position_diffusion, borderpad=3)
+        real_diffusion_scale = real_diffusion_quiver.scale if real_diffusion_quiver.scale is not None else 1
         axins_diffusion.quiver(
             x,
             y,
-            u_comparison_model_diffusion * inset_scale_diffusion,
-            v_comparison_model_diffusion * inset_scale_diffusion,
+            u_real_diffusion * inset_scale_diffusion,
+            v_real_diffusion * inset_scale_diffusion,
+            color=ground_truth_color,
             scale=real_diffusion_scale / inset_scale_diffusion,
-            color=comparison_color,
             width=inset_arrow_width
         )
-    axins_diffusion.set_xlim(zoom_area_diffusion['xlim'])
-    axins_diffusion.set_ylim(zoom_area_diffusion['ylim'])
-    axins_diffusion.set_xticks([])
-    axins_diffusion.set_yticks([])
-    
-    mark_inset(axis_diffusion, axins_diffusion, loc1=2, loc2=4, fc="none", ec="0.5")
+        axins_diffusion.quiver(
+            x,
+            y,
+            u_estimated_diffusion * inset_scale_diffusion,
+            v_estimated_diffusion * inset_scale_diffusion,
+            scale=real_diffusion_scale / inset_scale_diffusion,
+            color=fim_color,
+            width=inset_arrow_width
+        )
+        if use_comparison_model:
+            axins_diffusion.quiver(
+                x,
+                y,
+                u_comparison_model_diffusion * inset_scale_diffusion,
+                v_comparison_model_diffusion * inset_scale_diffusion,
+                scale=real_diffusion_scale / inset_scale_diffusion,
+                color=comparison_color,
+                width=inset_arrow_width
+            )
+        axins_diffusion.set_xlim(zoom_area_diffusion['xlim'])
+        axins_diffusion.set_ylim(zoom_area_diffusion['ylim'])
+        axins_diffusion.set_xticks([])
+        axins_diffusion.set_yticks([])
+        
+        mark_inset(axis_diffusion, axins_diffusion, loc1=2, loc2=4, fc="none", ec="0.5")
