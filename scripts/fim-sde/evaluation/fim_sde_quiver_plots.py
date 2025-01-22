@@ -35,6 +35,8 @@ assert model_drift.shape == ground_truth_drift.shape, f"Drifts have different sh
 assert model_drift.shape == comparison_model_drift.shape, f"Drifts have different shapes between model and comparison model data: {model_drift.shape} vs {comparison_model_drift.shape}"
 assert model_diffusion.shape == ground_truth_diffusion.shape, f"Diffusions have different shapes between model and ground truth data: {model_diffusion.shape} vs {ground_truth_diffusion.shape}"
 assert model_diffusion.shape == comparison_model_diffusion.shape, f"Diffusions have different shapes between model and comparison model data: {model_diffusion.shape} vs {comparison_model_diffusion.shape}"
+assert torch.allclose(model_locations, ground_truth_locations), "Locations are not the same between model and ground truth data"
+assert torch.allclose(model_locations, comparison_model_locations), "Locations are not the same between model and comparison model data"
 
 # Only consider every nth point
 n = 10
