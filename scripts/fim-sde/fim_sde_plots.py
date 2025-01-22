@@ -17,8 +17,8 @@ from fim.utils.plots.sde_data_exploration_plots import plot_paths_in_axis
 from fim.utils.plots.sde_estimation_plots import plot_2d_vf_real_and_estimation_axes
 
 
-model_data_pickle_path = Path("evaluations/synthetic_datasets/01151152_testing/model_evaluations/1000_threshold_linear_softmax_attn-2_layers_GNOT_repeated_4_layers/wang_two_d_80000_points/default1000_threshold_linear_softmax_attn-2_layers_GNOT_repeated_4_layers_wang_two_d_80000_points.pickle")
-ground_truth_data_folder_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20241223_opper_and_wang_cut_to_128_lenght_paths/two_d_wang_80000_points/")
+model_data_pickle_path = Path("evaluations/synthetic_datasets/01221033_30k_deg_3_ablation_studies_only_learn_scale/model_evaluations/11M_params/wang_two_d_80000_points/default11M_params_wang_two_d_80000_points.pickle")
+ground_truth_data_folder_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20241223_opper_and_wang_cut_to_128_lenght_paths/two_d_wang_80000_points")
 comparison_model_data_folder_path = Path("data/processed/test/20250117_wang_estimated_equations/bisde_est_2D_synth_80000_points_split_128_length")
 
 with open(model_data_pickle_path, "rb") as f:

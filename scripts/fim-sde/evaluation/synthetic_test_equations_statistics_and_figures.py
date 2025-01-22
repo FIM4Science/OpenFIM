@@ -75,7 +75,14 @@ if __name__ == "__main__":
     # experiment_descr = "30k_deg_3_ablation_studies_only_learn_scale"
     experiment_descr = "600k_deg_3_drift_deg_2_diffusion_larger_model"
 
-    model_dicts, models_display_ids = get_model_dicts_600k_deg_3_drift_deg_2_diff()
+    # model_dicts, models_display_ids = get_model_dicts_20241230_trained_on_30k_deg_3_drift_deg_0_diffusion_50_paths_streaming_dataloader()
+    model_dicts = {
+        "11M_params": "/cephfs_projects/foundation_models/models/FIMSDE/600k_drift_deg_3_diff_deg_2_embed_size_256_cont_with_grad_clip_lr_1e-5_weight_decay_1e-4_01-19-2228/checkpoints",
+    }
+
+    models_display_ids = {
+        "11M_params": "11M Parameters",
+    }
 
     # train_test_split_dir = [
     #     "/lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths/test/0_test_deg_2",
