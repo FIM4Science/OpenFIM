@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import pickle
-
+from tabulate import tabulate
 import torch
 
 from fim.data.utils import load_h5s_in_folder
@@ -69,6 +69,14 @@ def run_benchmark_and_plot(benchmark: Benchmark):
     else:
         comparison_model_locations_plot, comparison_model_drift_plot, comparison_model_diffusion_plot = None, None, None
     
+    table = [["FIM",rmse(model_drift, ground_truth_drift), nrmse(model_drift, ground_truth_drift), rmse(model_diffusion, ground_truth_diffusion), nrmse(model_diffusion, ground_truth_diffusion)]]
+    if comparison_model_locations is not None:
+        table.append(["Comparison Model",rmse(comparison_model_drift, ground_truth_drift), nrmse(comparison_model_drift, ground_truth_drift), rmse(comparison_model_diffusion, ground_truth_diffusion), nrmse(comparison_model_diffusion, ground_truth_diffusion)])
+    
+    print(f"Results for {benchmark.name}")
+    print(tabulate(table, headers=["Model", "RMSE Drift", "NRMSE Drift", "RMSE Diffusion", "NRMSE Diffusion"]))
+    print("\n")
+    
     ## Some code to restrict the plot to a certain region
     # too_large_mask = (torch.abs(model_locations) > 1)
     # # Compute the logical or between the last two dimensions
@@ -99,7 +107,59 @@ def run_benchmark_and_plot(benchmark: Benchmark):
         title=benchmark.name
     )
     
+# SVISE Log10 RMSE Medians    
+# -1.5177725118483412
+# -1.5225118483412323
+# -1.3412322274881516
+# -1.5367298578199051
+# -1.9466824644549763
+# -1.3554502369668247
 
+# SVISE Log10 RMSE Lower bound    
+# -1.6171293161814488
+# -1.7095463777928233
+# -1.4524373730534867
+# -1.7853757616790793
+# -2.0815842924847665
+# -1.6467501692620177
+
+# SVISE Log10 RMSE Upper bound
+# -1.390825998645904
+# -1.310257278266757
+# -1.2664184157075153
+# -1.1846648612051456
+# -1.846987136086662
+# -1.2154705484089372
+
+# PF Log10 RMSE Medians
+# -1.4595463777928233
+# -1.3209207853757616
+# -1.5045700744752877
+# -1.4927217332430602
+# -1.772342586323629
+# -1.3422477995937712
+
+# PF Log10 RMSE Lower bound
+# -1.5815842924847665
+# -1.4631008801624916
+# -1.6135748138117807
+# -1.6538591740013542
+# -1.8825321597833446
+# -1.4571767095463777
+
+# PF Log10 RMSE Upper bound
+# -1.367298578199052
+# -1.2097156398104265
+# -1.4277251184834123
+# -1.1623222748815167
+# -1.6670616113744077
+# -1.1812796208530805
+    
+def rmse(m_pred, y_true):
+   return (m_pred - y_true).pow(2).mean().sqrt()
+
+def nrmse(m_pred, y_true):
+    return rmse(m_pred, y_true) / rmse(torch.zeros_like(y_true), y_true)
 
 if __name__ == "__main__":
     benchmarks = [
