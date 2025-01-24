@@ -49,7 +49,7 @@ def save_fimsdedatabatch_to_files(databatch: FIMSDEDatabatch, save_dir: Path) ->
     save_h5(databatch.obs_mask, save_dir / "obs_mask.h5")
 
 
-def save_dynamical_system_from_yaml(yaml_path: str | Path, labels_to_use: list[str], save_dir: str | Path) -> None:
+def save_dynamical_system_from_yaml(yaml_path: str | Path, labels_to_use: list[str], save_dir: str | Path, tr_save_dir="") -> None:
     """
     Generate dynamical systems from yaml and save them to disk.
 
@@ -90,7 +90,9 @@ def save_dynamical_system_from_yaml(yaml_path: str | Path, labels_to_use: list[s
             subset_label = params.get("data_bulk_name")
 
             print(f"Generating {subset_label}")
-            subset_data: FIMSDEDatabatch = set_up_a_dynamical_system(dataset_type, params, integrator_params, locations_params, "", True)
+            subset_data: FIMSDEDatabatch = set_up_a_dynamical_system(
+                dataset_type, params, integrator_params, locations_params, tr_save_dir, True
+            )
 
             subset_dir = label_dir / (subset_label)
             subset_dir.mkdir(parents=True, exist_ok=True)

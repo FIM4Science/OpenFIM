@@ -1,4 +1,5 @@
 import itertools
+import json
 import pickle
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import numpy as np
 import optree
 import pandas as pd
 import torch
@@ -656,3 +658,83 @@ def save_df_per_dataloader_id(metrics_df: pd.DataFrame, save_dir: Path) -> None:
         save_table(dataloader_df, save_dir, dataloader_id)
 
     pbar.close()
+
+
+# Custom encoder to convert NumPy arrays to lists
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.generic):
+            return obj.item()
+        return super(NumpyEncoder, self).default(obj)
+
+
+def preprocess_system_data(data: dict, apply_diffusion_sqrt: bool) -> dict:
+    """
+    Load observations, locations, real drift and diffusion from data of json.
+    Reshape into single batch and single paths, processable by model.
+
+    Args:
+        data (dict): keys: name, observations, observations_time, locations_points, real_drift_at_locations, real_diffusion_at_locations
+        apply_diffusion_sqrt (bool): If true, apply sqrt to loaded diffusion, to covert it to our convention of diffusion
+
+    Returns:
+        data (dict): keys: obs_times, obs_values, locations, drift_at_locations, diffusion_at_locations
+    """
+    # extract arrays
+    data.pop("name")
+    data = {k: np.array(v) for k, v in data.items()}
+
+    obs_times = data.get("observations_time")[:, None]  # [T, 1]
+    obs_values = data.get("observations")  # [T, D]
+    locations = data.get("locations_points")  # [L, D]
+    drift_at_locations = data.get("real_drift_at_locations")  # [L, D]
+
+    diffusion_at_locations = data.get("real_diffusion_at_locations")  # [L, D]
+    if apply_diffusion_sqrt is True:
+        diffusion_at_locations = np.sqrt(diffusion_at_locations)
+
+    # view single time series as one path
+    obs_times = obs_times[None]  # [1, T, 1]
+    obs_values = obs_values[None]  # [1, T, D]
+
+    data = {
+        "obs_times": obs_times,
+        "obs_values": obs_values,
+        "locations": locations,
+        "drift_at_locations": drift_at_locations,
+        "diffusion_at_locations": diffusion_at_locations,
+    }
+
+    # add batch dimension for convenience
+    data = optree.tree_map(lambda x: x[None], data)
+
+    return data
+
+
+def preprocess_gp_results(data: dict) -> dict:
+    """
+    Process results from GP model (Opper)
+    Reshape into single batch and single paths, for easier processing by evaluation script.
+
+    Args:
+        data (dict): keys: name, estimated_drift_at_locations, estimated_diffusion_at_locations, MSE drift, MSE diffusion
+
+    Returns:
+        data (dict): keys: estimated_drift_at_locations, estimated_diffusion at locations
+    """
+    # extract arrays
+    data.pop("name")
+    data = {k: np.array(v) for k, v in data.items()}
+
+    estimated_drift_at_locations = data.get("estimated_drift_at_locations")  # [L, D]
+    estimated_diffusion_at_locations = np.sqrt(np.clip(data.get("estimated_diffusion_at_locations"), a_min=0, a_max=np.inf))  # [L, D]
+
+    results = {
+        "estimated_drift_at_locations": estimated_drift_at_locations[None],  # [1, L, D]
+        "estimated_diffusion_at_locations": estimated_diffusion_at_locations[None],  # [1, L, D]
+    }
+    # IMPORTANT, GP estimates diffusion value of function under the sqrt -> need to sqrt it to our convention
+
+    return results

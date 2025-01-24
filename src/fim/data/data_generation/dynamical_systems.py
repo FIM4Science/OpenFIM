@@ -1332,6 +1332,99 @@ class HybridDynamicalSystem(DynamicalSystem):
         return self.sample_initial_states_generic(num_initial_states)
 
 
+class Opper2DSynthetic(DynamicalSystem):
+    name_str: str = "Opper2DSynthetic"
+    state_dim: int = 2
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+
+    def drift(self, states, time, params):
+        x, y = states[:, 0], states[:, 1]
+        dxdt = x * (1 - x**2 - y**2) - y
+        dydt = y * (1 - x**2 - y**2) + x
+        return torch.stack([dxdt, dydt], dim=1)
+
+    def diffusion(self, states, time, params):
+        return torch.ones_like(states)
+
+    def sample_drift_params(self, num_paths):
+        return torch.zeros(num_paths, 2)
+
+    def sample_diffusion_params(self, num_paths):
+        return torch.zeros(num_paths, 2)
+
+    def sample_initial_states(self, num_paths):
+        return 1.5 * torch.ones(num_paths, 2)  # chosen by us as no available
+
+
+class Wang2DSynthetic(DynamicalSystem):
+    name_str: str = "Wang2DSynthetic"
+    state_dim: int = 2
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+
+    def drift(self, states, time, params):
+        x, y = states[:, 0], states[:, 1]
+        dxdt = x * (1 - x**2 - y**2) - y
+        dydt = y * (1 - x**2 - y**2) + x
+        return torch.stack([dxdt, dydt], dim=1)
+
+    def diffusion(self, states, time, params):
+        x, y = states[:, 0], states[:, 1]
+        return torch.stack([torch.sqrt(1 + y**2), torch.sqrt(1 + x**2)], dim=1)
+
+    def sample_drift_params(self, num_paths):
+        return torch.zeros(num_paths, 2)
+
+    def sample_diffusion_params(self, num_paths):
+        return torch.zeros(num_paths, 2)
+
+    def sample_initial_states(self, num_paths):
+        return 1.5 * torch.ones(num_paths, 2)  # chosen by us as no available
+
+
+class WangDoubleWell(DynamicalSystem):
+    name_str: str = "WangDoubleWell"
+    state_dim: int = 1
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+
+    def drift(self, states, time, params):
+        x = states
+        return x - x**3
+
+    def diffusion(self, states, time, params):
+        x = states
+        return torch.sqrt(1 + x**2)
+
+    def sample_drift_params(self, num_paths):
+        return torch.zeros(num_paths, 1)
+
+    def sample_diffusion_params(self, num_paths):
+        return torch.zeros(num_paths, 1)
+
+    def sample_initial_states(self, num_paths):
+        return 1 * torch.ones(num_paths, 1)
+
+
+class DoubleWellConstantDiffusion(DoubleWellOneDimension):
+    name_str: str = "DoubleWellConstantDiffusion"
+    state_dim: int = 1
+
+    def __init__(self, config: dict):
+        super().__init__(config)
+
+    def diffusion(self, states, time, params) -> Tensor:
+        return params * torch.ones_like(states)
+
+    def sample_diffusion_params(self, num_paths) -> Tensor:
+        const = self.diffusion_params["constant"]
+        return const * torch.ones(num_paths, 1)
+
+
 # ------------------------------------------------------------------------------------------
 # MODEL REGISTRY
 DYNAMICS_LABELS = {

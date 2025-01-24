@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as plticker
 import optree
 import pandas as pd
 import torch
@@ -29,6 +30,7 @@ from fim.utils.evaluation_sde import (
     save_fig,
     save_table,
 )
+from fim.utils.grids import define_regular_surrounding_cube
 
 
 def get_high_dim_reconstr_mocap(paths: Tensor, eigenvalues: Tensor, eigenvectors: Tensor):
@@ -57,7 +59,7 @@ def get_high_dim_reconstr_mocap(paths: Tensor, eigenvalues: Tensor, eigenvectors
     return high_dim_reconst
 
 
-def evaluate_mocap_model(model: AModel, dataloader: DataLoader, num_sample_paths: int, device: Optional[str] = None):
+def evaluate_mocap_model(model: AModel, dataloader: DataLoader, num_sample_paths: int, zs: list[float], device: Optional[str] = None):
     model.eval()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -66,13 +68,27 @@ def evaluate_mocap_model(model: AModel, dataloader: DataLoader, num_sample_paths
     results = {}
 
     dataset: dict = next(iter(dataloader))
-    dataset = optree.tree_map(lambda x: x.to(device), dataset, namespace="fimsde")
 
-    # evaluate vector field on some location grid
-    if "locations" in dataset.keys():
-        estimated_concepts = model(dataset, training=False, return_losses=False)
-        estimated_concepts = optree.tree_map(lambda x: x.to("cpu"), estimated_concepts, namespace="fimsde")
-        results.update({"estimated_concepts": estimated_concepts})
+    # evaluate vector field location grid with specified z values, surrounding observations
+    # get regular grid in first 2 dimensions
+    obs_values = dataset["obs_values"]
+    obs_values = obs_values[..., :2]  # [..., 43, 128, 2]
+
+    L = 256
+    two_d_locations = define_regular_surrounding_cube(num_points=L, paths_values=obs_values, extension_perc=0.2)  # [1, L, 2]
+
+    locations = []
+    for z in zs:
+        z_location = torch.ones_like(two_d_locations[..., 0][..., None]) * z
+        locations.append(torch.concatenate([two_d_locations, z_location], dim=-1))  # [B, L, 3]
+
+    locations = torch.concatenate(locations, dim=-2).expand(obs_values.shape[0], -1, -1)  # [B, zs * L, 3]
+
+    dataset = optree.tree_map(lambda x: x.to(device), dataset, namespace="fimsde")
+    dataset["locations"] = locations.to(device)
+
+    estimated_concepts = model(dataset, training=False, return_losses=False)
+    results.update({"estimated_concepts": estimated_concepts})
 
     # sample multiple paths starting from last observed value
     # "inference_mask": np.logical_or(last_obs_mask, forecasting_masks),  # [B, T, 1], solve from last oservation
@@ -131,19 +147,30 @@ def evaluate_mocap_model(model: AModel, dataloader: DataLoader, num_sample_paths
         mse = torch.nanmean(torch.where(mask.squeeze(-1), se, torch.nan), dim=-1)  # [..., 43, P]
         return mse
 
-    mse_from_samples = _mse_at_forecasting(high_dim_trajectory, high_dim_from_samples, forecasting_mask)
-    mse_from_mean = _mse_at_forecasting(high_dim_trajectory, high_dim_from_mean, forecasting_mask)
-    mse_from_gt_pca = _mse_at_forecasting(high_dim_trajectory, dataset["high_dim_reconst_from_3_pca"][..., None, :, :], forecasting_mask)
-
-    mse_from_samples_mean = mse_from_samples.mean()
-    mse_from_samples_std = mse_from_samples.std()
+    # mean prediction: report std over the 43 trajectories
+    mse_from_mean = _mse_at_forecasting(high_dim_trajectory, high_dim_from_mean, forecasting_mask)  # [..., 43, 1]
     mse_from_mean_mean = mse_from_mean.mean()
     mse_from_mean_std = mse_from_mean.std()
+
+    # best possible prediction (using PCA directly): report std over the 43 trajectories
+    mse_from_gt_pca = _mse_at_forecasting(high_dim_trajectory, dataset["high_dim_reconst_from_3_pca"][..., None, :, :], forecasting_mask)
     mse_from_gt_pca_mean = mse_from_gt_pca.mean()
     mse_from_gt_pca_std = mse_from_gt_pca.std()
 
+    # prediction from samples: mean and standard deviation *over the paths* per trajectory; average both over 43 trajectories
+    mse_from_samples = _mse_at_forecasting(high_dim_trajectory, high_dim_from_samples, forecasting_mask)  # [..., 43, P]
+    mse_from_samples_mean_paths = mse_from_samples.mean(dim=-1)  # [..., 43]
+    mse_from_samples_std_paths = mse_from_samples.std(dim=-1)  # [..., 43]
+    mse_from_samples_mean = mse_from_samples_mean_paths.mean(dim=-1)
+    mse_from_samples_std = mse_from_samples_std_paths.mean(dim=-1)
+
+    mse_from_samples_mean = mse_from_samples.mean()
+    mse_from_samples_std = mse_from_samples.std()
+
     results.update(
         {
+            "locations": locations,
+            "estimated_concepts": estimated_concepts,
             "sample_paths": sample_paths,
             "sample_paths_grid": sample_paths_grid,
             "high_dim_reconst_per_path": high_dim_from_samples,
@@ -159,7 +186,7 @@ def evaluate_mocap_model(model: AModel, dataloader: DataLoader, num_sample_paths
         }
     )
 
-    results = optree.tree_map(lambda x: x.to("cpu"), results)
+    results = optree.tree_map(lambda x: x.to("cpu").detach(), results, namespace="fimsde")
 
     return results
 
@@ -169,6 +196,7 @@ def run_mocap_evaluations(
     model_map: ModelMap,
     dataloader_map: DataLoaderMap,
     num_sample_paths: int,
+    zs: list[float],
     device: Optional[str] = None,
 ) -> list[ModelEvaluation]:
     """
@@ -194,7 +222,7 @@ def run_mocap_evaluations(
         model: AModel = model_map[evaluation.model_id]().to(torch.float)
         dataloader: DataLoader = dataloader_map[evaluation.dataloader_id]()
 
-        evaluation.results = evaluate_mocap_model(model, dataloader, num_sample_paths, device)
+        evaluation.results = evaluate_mocap_model(model, dataloader, num_sample_paths, zs, device)
         evaluations_with_results.append(evaluation)
 
     return evaluations_with_results
@@ -210,32 +238,35 @@ def axis_motion_capture_single_latent(
     model_sample_paths: Tensor,  # [num_sample_paths, T, D]
     mean_model_sample_paths_grid: Optional[Tensor] = None,  # [T]
     mean_model_sample_paths: Optional[Tensor] = None,  # [T, D]
-    obs_color: Optional[str] = "black",
-    obs_obs_marker: Optional[str] = ".",
-    obs_obs_label: Optional[str] = "Context",
-    obs_forecast_marker: Optional[str] = "o",
-    obs_forecast_label: Optional[str] = "Targets",
-    model_color: Optional[str] = "#0072B2",
-    model_label: Optional[str] = "Model paths",
-    model_alpha: Optional[float] = 0.2,
-    mean_model_color: Optional[str] = "#CC79A7",
-    mean_model_label: Optional[str] = "Mean model prediction",
 ):
+    # plot in (artificial) time range [0,1]
+    max_forecast_time = obs_times[forecasting_mask].max()
+    obs_times = obs_times / max_forecast_time
+    model_sample_paths_grid = model_sample_paths_grid / max_forecast_time
+    mean_model_sample_paths_grid = mean_model_sample_paths_grid / max_forecast_time
+
     ax.plot(
         obs_times[obs_mask],
         obs_values[obs_mask],
+        label="Context",
+        marker="o",
+        markerfacecolor="None",
+        markersize=3,
+        markeredgewidth=0.6,
         linestyle="None",
-        marker=obs_obs_marker,
-        color=obs_color,
-        label=obs_obs_label,
+        color="black",
     )
     ax.plot(
         obs_times[forecasting_mask],
         obs_values[forecasting_mask],
+        label="Targets",
+        marker="^",
+        markerfacecolor="None",
+        markersize=3,
+        markeredgewidth=0.6,
         linestyle="None",
-        marker=obs_forecast_marker,
-        color=obs_color,
-        label=obs_forecast_label,
+        c="#D55E00",
+        zorder=2,
     )
 
     num_sample_paths = model_sample_paths_grid.shape[0]
@@ -244,13 +275,37 @@ def axis_motion_capture_single_latent(
         ax.plot(
             model_sample_paths_grid[i],
             model_sample_paths[i],
-            color=model_color,
-            label=model_label if i == 0 else None,
-            alpha=model_alpha,
+            color="#0072B2",
+            label=r"FIM-SDE samples" if i == 0 else None,
+            alpha=0.2,
+            linewidth=0.5,
+            zorder=0,
         )
 
     if mean_model_sample_paths is not None:
-        ax.plot(mean_model_sample_paths_grid, mean_model_sample_paths, color=mean_model_color, label=mean_model_label)
+        ax.plot(
+            mean_model_sample_paths_grid,
+            mean_model_sample_paths,
+            color="#0072B2",
+            label=r"FIM-SDE mean",
+            linewidth=1.5,
+            zorder=10,
+        )
+
+    # axis config
+    [x.set_linewidth(0.3) for x in ax.spines.values()]
+    ax.yaxis.set_major_locator(plticker.MultipleLocator(base=1.5))
+    ax.set_xlim([0, 1])
+    ax.xaxis.set_major_locator(plticker.MultipleLocator(base=0.25))
+    ax.set_xlabel(r"$Time$", fontsize=6, labelpad=0.75)
+
+    # tick config
+    ax.tick_params(axis="both", direction="out", labelsize=5, width=0.5, length=2)
+
+    # grey region for observations
+    last_time_before_imputation = obs_times[obs_mask].max()
+    vspan_config = {"facecolor": "gainsboro", "alpha": 0.3, "zorder": 0}
+    ax.axvspan(0, last_time_before_imputation, **vspan_config)
 
 
 def figure_grid_motion_capture_latent(
@@ -260,8 +315,8 @@ def figure_grid_motion_capture_latent(
     forecasting_mask: Tensor,  # [43, T]
     model_sample_paths_grid: Tensor,  # [43, num_sample_paths, T]
     model_sample_paths: Tensor,  # [43, num_sample_paths, T, 3]
-    mean_model_sample_paths_grid: Optional[Tensor] = None,  # [T]
-    mean_model_sample_paths: Optional[Tensor] = None,  # [T, D]
+    mean_model_sample_paths_grid: Optional[Tensor] = None,  # [43, T]
+    mean_model_sample_paths: Optional[Tensor] = None,  # [43, T, D]
     num_plot_traj: Optional[int] = 43,
     figsize: Optional[tuple] = (10, 100),
 ):
@@ -289,7 +344,91 @@ def figure_grid_motion_capture_latent(
     return fig
 
 
-def latent_forecasting_grid(model_evaluation: ModelEvaluation, evaluation_config: EvaluationConfig):
+def figure_single_motion_capture_latent(
+    obs_times: Tensor,  # [T]
+    obs_values: Tensor,  # [T, 3]
+    obs_mask: Tensor,  # [T]
+    forecasting_mask: Tensor,  # [T]
+    model_sample_paths_grid: Tensor,  # [num_sample_paths, T]
+    model_sample_paths: Tensor,  # [num_sample_paths, T, 3]
+    mean_model_sample_paths_grid: Optional[Tensor] = None,  # [T]
+    mean_model_sample_paths: Optional[Tensor] = None,  # [T, D]
+    figsize: Optional[tuple] = (7, 2),
+):
+    fig, axs = plt.subplots(1, 3, figsize=figsize, dpi=300, tight_layout=True)
+
+    for dim in range(3):
+        axis_motion_capture_single_latent(
+            axs[dim],
+            obs_times,
+            obs_values[:, dim],
+            obs_mask,
+            forecasting_mask,
+            model_sample_paths_grid,
+            model_sample_paths[:, :, dim],
+            mean_model_sample_paths_grid if mean_model_sample_paths_grid is not None else None,
+            mean_model_sample_paths[:, dim] if mean_model_sample_paths is not None else None,
+        )
+
+    plt.draw()
+
+    # place right legend directly on top of the plot
+    handles, labels = axs[0].get_legend_handles_labels()
+    legend_fontsize = 6
+    bbox_x = axs[1].get_position().x0 + 0.5 * (axs[1].get_position().x1 - axs[1].get_position().x0)
+    bbox_y = axs[1].get_position().y1
+
+    legend = fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=[bbox_x, bbox_y],
+        fontsize=legend_fontsize,
+        ncols=4,
+    )
+
+    # line of samples broader in legend
+    legend.get_lines()[2].set_linewidth(1.5)
+
+    return fig
+
+
+def figure_single_vector_fields(
+    locations: Tensor,  # [L, 3]
+    drift: Tensor,  # [L, 3]
+    diffusion: Tensor,  # [L, 3]
+    zs: list[float],
+    figsize: Optional[tuple] = (7, 7),
+):
+    fig, axs = plt.subplots(2, len(zs), figsize=figsize, dpi=300, tight_layout=True)
+    axs[0, 0].set_ylabel("Drift")
+    axs[1, 0].set_ylabel("Diffusion")
+
+    # only plot first two dimensions
+    locations = locations[:, :2]
+    drift = drift[:, :2]
+    diffusion = diffusion[:, :2]
+
+    # split results evenly, each chunk is associated to another z
+    locations_per_z = torch.chunk(locations, chunks=len(zs), dim=0)
+    drift_per_z = torch.chunk(drift, chunks=len(zs), dim=0)
+    diffusion_per_z = torch.chunk(diffusion, chunks=len(zs), dim=0)
+
+    for i in range(len(zs)):
+        z = zs[i]
+        locations = locations_per_z[i]
+        drift = drift_per_z[i]
+        diffusion = diffusion_per_z[i]
+
+        axs[0, i].set_title(f"Slice at z={str(z)}")
+
+        axs[0, i].quiver(locations[:, 0], locations[:, 1], drift[:, 0], drift[:, 1], color="#0072B2")
+        axs[1, i].quiver(locations[:, 0], locations[:, 1], diffusion[:, 0], diffusion[:, 1], color="#0072B2")
+
+    return fig
+
+
+def latent_forecasting_grid(model_evaluation: ModelEvaluation, evaluation_config: EvaluationConfig, zs: list[float]):
     """
     Plot forecasting sample paths of one model for multiple mocap trajectories
 
@@ -312,26 +451,70 @@ def latent_forecasting_grid(model_evaluation: ModelEvaluation, evaluation_config
     mean_model_sample_paths_grid = model_evaluation.results["mean_sample_paths_grid"].squeeze()  # [43, num_sample_paths, 128]
     mean_model_sample_paths = model_evaluation.results["mean_sample_paths"].squeeze()  # [43, num_sample_paths, 128, 3]
 
+    # # plot
+    # fig_grid = figure_grid_motion_capture_latent(
+    #     obs_times,
+    #     obs_values,
+    #     obs_mask,
+    #     forecasting_mask,
+    #     model_sample_paths_grid,
+    #     model_sample_paths,
+    #     mean_model_sample_paths_grid,
+    #     mean_model_sample_paths,
+    # )
+    #
+    # # save
+    # save_dir: Path = evaluation_dir / "figure_grid_latent_dimension" / model_evaluation.dataloader_id / model_evaluation.model_id
+    # save_dir.mkdir(parents=True, exist_ok=True)
+    # file_name = f"model_{model_evaluation.model_id}"
+    # save_fig(fig_grid, save_dir, file_name)
+    #
+    # plt.close(fig_grid)
+
+    # plot only selected trajectory
+    selected_trajectory = 12
+
     # plot
-    fig_grid = figure_grid_motion_capture_latent(
-        obs_times,
-        obs_values,
-        obs_mask,
-        forecasting_mask,
-        model_sample_paths_grid,
-        model_sample_paths,
-        mean_model_sample_paths_grid,
-        mean_model_sample_paths,
+    fig_single = figure_single_motion_capture_latent(
+        obs_times[selected_trajectory],
+        obs_values[selected_trajectory],
+        obs_mask[selected_trajectory],
+        forecasting_mask[selected_trajectory],
+        model_sample_paths_grid[selected_trajectory],
+        model_sample_paths[selected_trajectory],
+        mean_model_sample_paths_grid[selected_trajectory],
+        mean_model_sample_paths[selected_trajectory],
     )
 
     # save
-    save_dir: Path = evaluation_dir / "figure_grid_latent_dimension" / model_evaluation.dataloader_id / model_evaluation.model_id
+    save_dir: Path = evaluation_dir / "figure_single_latent_dimension" / model_evaluation.dataloader_id / model_evaluation.model_id
     save_dir.mkdir(parents=True, exist_ok=True)
     file_name = f"model_{model_evaluation.model_id}"
-    save_fig(fig_grid, save_dir, file_name)
+    save_fig(fig_single, save_dir, file_name)
 
-    plt.close(fig_grid)
-    plt.close(fig_grid)
+    # # plot
+    # estimated_concepts: SDEConcepts = model_evaluation.results["estimated_concepts"]
+    # locations = estimated_concepts.locations
+    # drift = estimated_concepts.drift
+    # diffusion = estimated_concepts.diffusion
+    #
+    # if locations.shape[0] > 1:  # individual paths case
+    #     locations = locations[selected_trajectory]
+    #     drift = drift[selected_trajectory]
+    #     diffusion = diffusion[selected_trajectory]
+    #
+    # else:
+    #     locations = locations[0]
+    #     drift = drift[0]
+    #     diffusion = diffusion[0]
+    #
+    # fig_single = figure_single_vector_fields(locations, drift, diffusion, zs)
+    #
+    # # save
+    # save_dir: Path = evaluation_dir / "figure_single_vector_field" / model_evaluation.dataloader_id / model_evaluation.model_id
+    # save_dir.mkdir(parents=True, exist_ok=True)
+    # file_name = f"model_{model_evaluation.model_id}"
+    # save_fig(fig_single, save_dir, file_name)
 
 
 def table_forecasting_mse(model_evaluations: list[ModelEvaluation], evaluation_config: EvaluationConfig):
@@ -454,15 +637,18 @@ if __name__ == "__main__":
     dataset_descr = "motion_capture"
 
     # How to name experiments
-    experiment_descr = "develop"
+    # experiment_descr = "large_models_comparison_mean_std_from_each_sampled_path_similar_to_baseline"
+    # experiment_descr = "develop_paper_figure"
+    experiment_descr = "develop_vector_field_figure"
 
     model_dicts, models_display_ids = get_model_dicts_600k_deg_3_drift_deg_2_diff()
 
     results_to_load: list[str] = [
-        # "/home/seifner/repos/FIM/evaluations/motion_capture/01221310_develop/model_evaluations",
+        "/home/seifner/repos/FIM/evaluations/motion_capture/01281819_develop_vector_field_figure/model_evaluations",
     ]
 
-    num_sample_paths = 40
+    num_sample_paths = 100
+    zs = [-1, 0, 1]
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
     # Save dir setup: project_path / evaluations / synthetic_datasets / time_stamp + _ + experiment_descr
@@ -490,7 +676,7 @@ if __name__ == "__main__":
     to_evaluate: list[ModelEvaluation] = [evaluation for evaluation in all_evaluations if evaluation not in loaded_evaluations]
 
     # Create, run and save EvaluationConfig
-    evaluated: list[ModelEvaluation] = run_mocap_evaluations(to_evaluate, model_map, dataloader_map, num_sample_paths)
+    evaluated: list[ModelEvaluation] = run_mocap_evaluations(to_evaluate, model_map, dataloader_map, num_sample_paths, zs)
     all_evaluations: list[ModelEvaluation] = loaded_evaluations + evaluated
     save_evaluations(all_evaluations, evaluation_dir / "model_evaluations")
 
@@ -499,7 +685,7 @@ if __name__ == "__main__":
     # Figure of sample paths on test set
     for model_evaluation in (pbar := tqdm(all_evaluations, total=len(all_evaluations), leave=False)):
         pbar.set_description(f"Latent forecasting grid: {model_evaluation.model_id}.")
-        latent_forecasting_grid(model_evaluation, evaluation_config)
+        latent_forecasting_grid(model_evaluation, evaluation_config, zs)
 
     pbar.close()
 

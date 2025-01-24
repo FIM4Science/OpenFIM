@@ -8,6 +8,7 @@ from tqdm import tqdm
 from fim.models.sde import FIMSDE, backward_fill_masked_values
 
 
+# @torch.compile(disable=not torch.cuda.is_available())
 def _euler_step(model, current_states, dt, solver_granularity, paths_encoding, obs_mask, dimension_mask):
     for _ in range(solver_granularity):
         with torch.amp.autocast(
@@ -60,10 +61,14 @@ def fimsde_euler_maruyama(
 
     B, I, D = initial_states.shape
 
+    # expand initial states to expected model input dimensions
+    if D < model.config.max_dimension:
+        initial_states = torch.nn.functional.pad(initial_states, (0, model.config.max_dimension - initial_states.size(-1)))
+
     assert initial_time.shape == (B, I, 1), f"Expected {(B, I, 1)}, Got {initial_time.shape}."
 
     # make sure computations are on device
-    data = optree.tree_map(lambda x: x.to(model.device), data)
+    data = optree.tree_map(lambda x: x.to(model.device) if isinstance(x, torch.Tensor) else x, data)
     initial_states = initial_states.to(model.device)
 
     # preprocess observations, extract their normalization statistics and encode them once
@@ -126,6 +131,10 @@ def fimsde_euler_maruyama(
     ):
         sample_paths = model.states_norm.inverse_normalization_map(sample_paths, states_norm_stats)
         sample_paths_grid = model.times_norm.inverse_normalization_map(sample_paths_grid, times_norm_stats)
+
+    # truncate extra dimensions
+    if D < model.config.max_dimension:
+        sample_paths = sample_paths[..., :D]
 
     return sample_paths, sample_paths_grid
 

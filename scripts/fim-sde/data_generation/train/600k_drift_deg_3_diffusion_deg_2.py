@@ -22,8 +22,12 @@ def get_600k_100_paths_half_noisy_set_2(project_path: Path, data_path: Path):
 
 
 if __name__ == "__main__":
-    project_path = Path("/home/seifner/repos/FIM/")
-    data_path = Path("/home/seifner/repos/FIM/")
+    # project_path = Path("/home/seifner/repos/FIM/")
+    # data_path = Path("/home/seifner/repos/FIM/")
+
+    project_path = Path("/home/seifnerp_hpc/repos/FIM/")
+    data_path = Path("/lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/")
+    tr_save_dir = data_path / "save_dynamical_system_tr"
 
     # print("600k, half noisy")
     # yaml_path, labels_to_use, save_dir = get_600k_100_paths_half_noisy(project_path, data_path)
@@ -31,4 +35,4 @@ if __name__ == "__main__":
 
     print("600k, half noisy set 2")
     yaml_path, labels_to_use, save_dir = get_600k_100_paths_half_noisy_set_2(project_path, data_path)
-    save_dynamical_system_from_yaml(yaml_path, labels_to_use, save_dir)
+    save_dynamical_system_from_yaml(yaml_path, labels_to_use, save_dir, tr_save_dir=tr_save_dir)

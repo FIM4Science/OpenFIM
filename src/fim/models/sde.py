@@ -217,7 +217,7 @@ class StaticQuery(nn.Module):
 
 
 @torch.profiler.record_function("forward_fill_masked_values")
-@torch.compile(disable=not torch.cuda.is_available())
+# @torch.compile(disable=not torch.cuda.is_available())
 def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill forward values at masked entries in dimension -2.
@@ -259,7 +259,7 @@ def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tens
 
 
 @torch.profiler.record_function("backward_fill_masked_values")
-@torch.compile(disable=not torch.cuda.is_available())
+# @torch.compile(disable=not torch.cuda.is_available())
 def backward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill backwards values at masked entries in dimension -2.
@@ -405,7 +405,7 @@ class MinMaxNormalization(InstanceNormalization):
         self.batch_transform_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(transform_map_grad_grad)))
 
     @torch.profiler.record_function("minmax_get_stats")
-    @torch.compile(disable=not torch.cuda.is_available())
+    # @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return min and max of passed values along all dimensions 1 to -2, where mask == True.
@@ -478,7 +478,7 @@ class MinMaxNormalization(InstanceNormalization):
         return transformed_value
 
     @torch.profiler.record_function("minmax_norm_map")
-    @torch.compile(disable=not torch.cuda.is_available())
+    # @torch.compile(disable=not torch.cuda.is_available())
     def normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
         """
         (Derivative of) normalization based on previously set statistics, i.e. evaluate the map
@@ -593,7 +593,7 @@ class Standardization(InstanceNormalization):
         self.batch_inv_standardize_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_standardize_map_grad_grad)))
 
     @torch.profiler.record_function("stand_get_stats")
-    @torch.compile(disable=not torch.cuda.is_available())
+    # @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return mean and standard deviation of passed values along all dimensions 1 to -2, where mask == True.
@@ -792,7 +792,7 @@ class DeltaLogCentering(InstanceNormalization):
         self.batch_inv_center_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_center_map_grad_grad)))
 
     @torch.profiler.record_function("stand_get_stats")
-    @torch.compile(disable=not torch.cuda.is_available())
+    # @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return mean of ln(values) along all dimensions 1 to -2, where mask == True.
@@ -1206,6 +1206,7 @@ class FIMSDEConfig(PretrainedConfig):
         single_learnable_loss_scale_head (bool): Default is False
         learnable_loss_scale_mlp (dict): Default is None
         use_kl (bool): To use kl instead of individual losses for each term. Default is False.
+        data_delta_t (float): Fine grid delta t of data generation.
         divide_drift_loss_by_diffusion (bool): Default is True
         num_epochs (int): Number of epochs. Default is 2.
         learning_rate (float): Learning rate. Default is 1.0e-5.
@@ -1213,6 +1214,10 @@ class FIMSDEConfig(PretrainedConfig):
         dropout_rate (float): Dropout rate. Default is 0.1.
         loss_type (str): Type of loss. Default is "rmse".
         log_images_every_n_epochs (int): Log images every n epochs. Default is 2.
+        ablation_feature_no_X (bool): Zero the embedding of X. Default is False
+        ablation_feature_no_dX (bool): Zero the embedding of dX. Default is False
+        ablation_feature_no_dX_2 (bool): Zero the embedding of dX^2. Default is False
+        ablation_feature_no_dt (bool): Zero the embedding of dt. Default is False
         train_with_normalized_head (bool): Train with normalized head. Default is True.
         skip_nan_grads (bool): Skip optimizer update if (at least one) gradient is Nan. Default is True.
         dt_pipeline (float): Time step for pipeline. Default is 0.01.
@@ -1252,6 +1257,7 @@ class FIMSDEConfig(PretrainedConfig):
         single_learnable_loss_scale_head: Optional[bool] = False,
         learnable_loss_scale_mlp=None,
         use_kl: bool = False,
+        data_delta_t: float = 0.003906,  # 10 / 128 / 20
         lightning_training: bool = True,
         num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)
         learning_rate: float = 1.0e-5,
@@ -1259,6 +1265,10 @@ class FIMSDEConfig(PretrainedConfig):
         dropout_rate: float = 0.1,
         loss_type: str = "rmse",
         log_images_every_n_epochs: int = 2,
+        ablation_feature_no_X: bool = False,
+        ablation_feature_no_dX: bool = False,
+        ablation_feature_no_dX_2: bool = False,
+        ablation_feature_no_dt: bool = False,
         train_with_normalized_head: bool = True,
         skip_nan_grads: bool = True,
         dt_pipeline: float = 0.01,
@@ -1296,6 +1306,7 @@ class FIMSDEConfig(PretrainedConfig):
         self.single_learnable_loss_scale_head = single_learnable_loss_scale_head
         self.learnable_loss_scale_mlp = learnable_loss_scale_mlp
         self.use_kl = use_kl
+        self.data_delta_t = data_delta_t
         # training variables
         self.num_epochs = num_epochs
         self.lightning_training = lightning_training
@@ -1309,6 +1320,11 @@ class FIMSDEConfig(PretrainedConfig):
         self.dt_pipeline = dt_pipeline
         self.number_of_time_steps_pipeline = number_of_time_steps_pipeline
         self.evaluate_with_unnormalized_heads = evaluate_with_unnormalized_heads
+        # ablations
+        self.ablation_feature_no_X = ablation_feature_no_X
+        self.ablation_feature_no_dX = ablation_feature_no_dX
+        self.ablation_feature_no_dX_2 = ablation_feature_no_dX_2
+        self.ablation_feature_no_dt = ablation_feature_no_dt
         super().__init__(**kwargs)
 
 
@@ -1344,6 +1360,11 @@ class FIMSDE(AModel, pl.LightningModule):
         )
         self.learnable_loss_scale_mlp = config.learnable_loss_scale_mlp if hasattr(config, "learnable_loss_scale_mlp") else None
         self.use_kl = config.use_kl if hasattr(config, "use_kl") else False
+        self.data_delta_t = config.data_delta_t if hasattr(config, "data_delta_t") else None
+        self.ablation_feature_no_X = config.ablation_feature_no_X if hasattr(config, "ablation_feature_no_X") else False
+        self.ablation_feature_no_dX = config.ablation_feature_no_dX if hasattr(config, "ablation_feature_no_dX") else False
+        self.ablation_feature_no_dX_2 = config.ablation_feature_no_dX_2 if hasattr(config, "ablation_feature_no_dX_2") else False
+        self.ablation_feature_no_dt = config.ablation_feature_no_dt if hasattr(config, "ablation_feature_no_dt") else False
 
         # Save hyperparameters
         self.save_hyperparameters()
@@ -1619,7 +1640,7 @@ class FIMSDE(AModel, pl.LightningModule):
 
     @staticmethod
     @torch.profiler.record_function("fimsde_fill_masekd_values")
-    @torch.compile(disable=not torch.cuda.is_available())
+    # @torch.compile(disable=not torch.cuda.is_available())
     def _fill_masked_values(data: dict):
         if "obs_mask" in data.keys() and data["obs_mask"] is not None:
             obs_mask = data["obs_mask"].bool()
@@ -1667,15 +1688,13 @@ class FIMSDE(AModel, pl.LightningModule):
         if obs_values.shape[-1] < self.config.max_dimension:
             missing_dims = self.config.max_dimension - obs_values.shape[-1]
 
-            obs_pad = torch.broadcast_to(torch.zeros_like(obs_values[..., 0][..., None]), obs_values.shape[:-1] + (missing_dims))
+            obs_pad = torch.broadcast_to(torch.zeros_like(obs_values[..., 0][..., None]), obs_values.shape[:-1] + (missing_dims,))
             obs_values = torch.concatenate([obs_values, obs_pad], dim=-1)
-            if obs_mask is not None:
-                obs_mask = torch.concatenate([obs_mask, obs_pad], dim=-1)
 
         if locations is not None and locations.shape[-1] < self.config.max_dimension:
             missing_dims = self.config.max_dimension - locations.shape[-1]
 
-            locations_pad = torch.broadcast_to(torch.zeros_like(locations[..., 0][..., None]), locations.shape[:-1] + (missing_dims))
+            locations_pad = torch.broadcast_to(torch.zeros_like(locations[..., 0][..., None]), locations.shape[:-1] + (missing_dims,))
             locations = torch.concatenate([locations, locations_pad], dim=-1)
 
         # Instance normalization
@@ -1729,6 +1748,15 @@ class FIMSDE(AModel, pl.LightningModule):
             dX = self.phi_0x_dx(dX)
             dX2 = self.phi_0x2_dx(dX2)
 
+            if self.ablation_feature_no_X is True:
+                X = torch.zeros_like(X)
+
+            if self.ablation_feature_no_dX is True:
+                dX = torch.zeros_like(dX)
+
+            if self.ablation_feature_no_dX_2 is True:
+                dX2 = torch.zeros_like(dX2)
+
             spatial_encoding = torch.concatenate([X, dX, dX2], dim=-1)
 
         # separate time encoding; drop last time because dropped for values
@@ -1740,6 +1768,9 @@ class FIMSDE(AModel, pl.LightningModule):
             absolute_time_encoding = self.phi_0t(obs_times)  # [B, P, T-1, model_embedding_size]
             delta_time_encoding = absolute_time_encoding[:, :, 1:, :] - absolute_time_encoding[:, :, :-1, :]
             time_encoding = torch.concatenate([absolute_time_encoding[:, :, :-1, :], delta_time_encoding], dim=-1)
+
+        if self.ablation_feature_no_dt is True:
+            time_encoding = torch.zeros_like(time_encoding)
 
         # combine time and value encodings per observation
         phi_0_in_features = torch.concat([time_encoding, spatial_encoding], dim=-1)
@@ -2130,6 +2161,7 @@ class FIMSDE(AModel, pl.LightningModule):
         estimated_diffusion: Tensor,
         target_diffusion: Tensor,
         mask: Tensor,
+        data_delta_t: Tensor,
         log_loss_scale_per_location: Optional[Tensor] = None,
     ) -> tuple[Tensor]:
         """
@@ -2157,11 +2189,11 @@ class FIMSDE(AModel, pl.LightningModule):
 
         eps = 1e-6
         loss_at_locations = (
-            estimated_diffusion / (2 * target_diffusion**2 + eps)
-            + (estimated_drift - target_drift) ** 2 / (2 * target_diffusion**2 + eps)
+            estimated_diffusion**2 / (2 * (target_diffusion + eps) ** 2)
+            + (estimated_drift - target_drift) ** 2 / (2 * (target_diffusion + eps) ** 2) * data_delta_t
             - 1
-            + torch.log(target_diffusion**2 + eps)
-            - torch.log(estimated_diffusion**2 + eps)
+            + torch.log(target_diffusion + eps)
+            - torch.log(estimated_diffusion + eps)
         )  # [B, G, D]
 
         loss_at_locations = (loss_at_locations * mask).sum(dim=-1)  # [B, G]
@@ -2277,7 +2309,7 @@ class FIMSDE(AModel, pl.LightningModule):
         return loss, filtered_loss_locations_perc, target_clipped_norm_perc
 
     @torch.profiler.record_function("fimsde_loss")
-    @torch.compile(fullgraph=True, disable=not torch.cuda.is_available())
+    # @torch.compile(fullgraph=True, disable=not torch.cuda.is_available())
     def loss(
         self,
         estimated_concepts: SDEConcepts,
@@ -2339,12 +2371,16 @@ class FIMSDE(AModel, pl.LightningModule):
             target_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
 
         if self.use_kl is True:
+            data_delta_t = self.data_delta_t * torch.ones_like(estimated_concepts.drift[:, :, 0][:, :, None])
+            data_delta_t = self.times_norm.normalization_map(data_delta_t, times_norm_stats)
+
             drift_loss, drift_loss_above_threshold_or_nan_perc = self.kl_loss(
                 estimated_concepts.drift,
                 target_concepts.drift,
                 estimated_concepts.diffusion,
                 target_concepts.diffusion,
                 dimension_mask,
+                data_delta_t,
                 drift_log_loss_scale_per_location,
             )
             diffusion_loss = 0.0

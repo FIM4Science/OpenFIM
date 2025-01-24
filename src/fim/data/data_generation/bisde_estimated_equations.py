@@ -190,7 +190,7 @@ class BISDEEstWind(DynamicalSystem):
         return torch.zeros(num_paths, 1)
 
     def sample_initial_states(self, num_paths):
-        return 9.4 * torch.ones(num_paths, 1)  # initial state of data
+        return 0.1 * torch.ones(num_paths, 1)  # initial state of data
 
 
 def bisde_est_oil_drift(x):
@@ -221,4 +221,4 @@ class BISDEEstOil(DynamicalSystem):
         return torch.zeros(num_paths, 1)
 
     def sample_initial_states(self, num_paths):
-        return 25.56 * torch.ones(num_paths, 1)  # initial state of data
+        return 0.44 * torch.ones(num_paths, 1)  # initial state of data

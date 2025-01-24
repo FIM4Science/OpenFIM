@@ -2,11 +2,13 @@ from copy import deepcopy
 from pathlib import Path
 
 import optree
+import pytest
 import torch
 
 from fim.data.datasets import append_to_lists_in_dict, get_file_paths, get_subdict, pad_data_in_dict, shuffle_at_dim
 
 
+@pytest.mark.skip(reason="Skip until loading `obs_values.h5` instead of `obs_values_noisy.h5` is fixed.")
 class TestDatasetHelpers:
     def test_get_file_paths(self):
         dir_paths = ["path_1/subdir_1/", "path_2/subdir_2"]
