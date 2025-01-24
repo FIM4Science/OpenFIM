@@ -227,24 +227,24 @@ class TrainCheckpoint:
         Args:
             load_dir (Union[Path, str]): Directory where the optimizer checkpoint is saved.
         """
-        # file_name = load_dir / "optimizers-checkpoint.pth"
-        # if not file_name.exists():
-        #     self.__logger.warning("Optimizer checkpoint file %s not found. Skipping optimizer state loading.", file_name)
-        #     return
-        #
-        # self.__logger.info("Loading Optimizers State from %s ...", file_name)
-        # checkpoint = torch.load(file_name, map_location=torch.device("cpu"))  # Load checkpoint on CPU
-        # if self.grad_scaler is not None and checkpoint["grad_scaler"] is not None:
-        #     self.grad_scaler.load_state_dict(checkpoint["grad_scaler"])
-        # for name, optimizer in self.optimizers.items():
-        #     if name in checkpoint:
-        #         optimizer["opt"].load_state_dict(checkpoint[name]["opt"])
-        #         if optimizer["schedulers"] is not None:
-        #             for ix, (_, scheduler) in enumerate(optimizer["schedulers"]):
-        #                 scheduler.load_state_dict(checkpoint[name]["schedulers"][ix])
-        #         self.__logger.info("Loaded optimizer state for %s.", name)
-        #     else:
-        #         self.__logger.warning("Optimizer state for %s not found in checkpoint.", name)
+        file_name = load_dir / "optimizers-checkpoint.pth"
+        if not file_name.exists():
+            self.__logger.warning("Optimizer checkpoint file %s not found. Skipping optimizer state loading.", file_name)
+            return
+
+        self.__logger.info("Loading Optimizers State from %s ...", file_name)
+        checkpoint = torch.load(file_name, map_location=torch.device("cpu"))  # Load checkpoint on CPU
+        if self.grad_scaler is not None and checkpoint["grad_scaler"] is not None:
+            self.grad_scaler.load_state_dict(checkpoint["grad_scaler"])
+        for name, optimizer in self.optimizers.items():
+            if name in checkpoint:
+                optimizer["opt"].load_state_dict(checkpoint[name]["opt"])
+                if optimizer["schedulers"] is not None:
+                    for ix, (_, scheduler) in enumerate(optimizer["schedulers"]):
+                        scheduler.load_state_dict(checkpoint[name]["schedulers"][ix])
+                self.__logger.info("Loaded optimizer state for %s.", name)
+            else:
+                self.__logger.warning("Optimizer state for %s not found in checkpoint.", name)
 
     def _save_best_model(self, epoch: int):
         """
@@ -482,49 +482,48 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
         return last_epoch + 1
 
     def load_optimizers_state(self, checkpoint: Union[int, Literal["best-model", "last-epoch"]]):
-        ...
-        # """
-        # Loads the state of optimizers from a checkpoint.
-        #
-        # Args:
-        #     load_dir (Union[Path, str]): Directory where the optimizer checkpoint is saved.
-        # """
-        # try:
-        #     checkpoint = self._get_checkpoint_path(checkpoint)
-        # except FileNotFoundError as e:
-        #     self.__logger.warning(e)
-        #     self.__logger.warning("Starting Training from Scratch")
-        #     return
-        # file_name = checkpoint / "optimizers-checkpoint.pth"
-        # if not file_name.exists():
-        #     self.__logger.warning("Optimizer checkpoint file %s not found. Skipping optimizer state loading.", file_name)
-        #     return
-        #
-        # checkpoint_ = {}
-        # grad_scaler_state = None
-        # if self.rank == 0:
-        #     self.__logger.info("Loading Optimizers State from %s ...", file_name)
-        #     checkpoint_ = torch.load(file_name, weights_only=True)  # Load checkpoint on CPU
-        #     grad_scaler_state = checkpoint_["grad_scaler"]
-        # grad_scaler_state = broadcast_state_dict(grad_scaler_state, "grad_scaler")
-        # dist.barrier()
-        # if self.grad_scaler is not None and grad_scaler_state is not None:
-        #     self.grad_scaler.load_state_dict(grad_scaler_state)
-        # for name, optimizer in self.optimizers.items():
-        #     schedulers_sd = [None] * len(optimizer["schedulers"]) if optimizer["schedulers"] is not None else None
-        #     full_osd = None
-        #     if name in checkpoint_:
-        #         full_osd = checkpoint_[name]["opt"]
-        #         schedulers_sd = checkpoint_[name]["schedulers"]
-        #     sharded_osd = FSDP.scatter_full_optim_state_dict(full_osd, self.model)
-        #     optimizer["opt"].load_state_dict(sharded_osd)
-        #     self.__logger.info("Optimizer %s Loaded!", name)
-        #     if schedulers_sd is not None:
-        #         for ix, scheduler_sd in enumerate(schedulers_sd):
-        #             scheduler_sd = broadcast_state_dict(scheduler_sd, "scheduler_state_dict")
-        #             # self.__logger.debug("Received Scheduler state for optimizer '%s': %s!", name, schedulers_sd)
-        #             optimizer["schedulers"][ix][1].load_state_dict(scheduler_sd)
-        #         self.__logger.info("Optimizer-Schedulers %s Loaded!", name)
+        """
+        Loads the state of optimizers from a checkpoint.
+
+        Args:
+            load_dir (Union[Path, str]): Directory where the optimizer checkpoint is saved.
+        """
+        try:
+            checkpoint = self._get_checkpoint_path(checkpoint)
+        except FileNotFoundError as e:
+            self.__logger.warning(e)
+            self.__logger.warning("Starting Training from Scratch")
+            return
+        file_name = checkpoint / "optimizers-checkpoint.pth"
+        if not file_name.exists():
+            self.__logger.warning("Optimizer checkpoint file %s not found. Skipping optimizer state loading.", file_name)
+            return
+
+        checkpoint_ = {}
+        grad_scaler_state = None
+        if self.rank == 0:
+            self.__logger.info("Loading Optimizers State from %s ...", file_name)
+            checkpoint_ = torch.load(file_name, weights_only=True)  # Load checkpoint on CPU
+            grad_scaler_state = checkpoint_["grad_scaler"]
+        grad_scaler_state = broadcast_state_dict(grad_scaler_state, "grad_scaler")
+        dist.barrier()
+        if self.grad_scaler is not None and grad_scaler_state is not None:
+            self.grad_scaler.load_state_dict(grad_scaler_state)
+        for name, optimizer in self.optimizers.items():
+            schedulers_sd = [None] * len(optimizer["schedulers"]) if optimizer["schedulers"] is not None else None
+            full_osd = None
+            if name in checkpoint_:
+                full_osd = checkpoint_[name]["opt"]
+                schedulers_sd = checkpoint_[name]["schedulers"]
+            sharded_osd = FSDP.scatter_full_optim_state_dict(full_osd, self.model)
+            optimizer["opt"].load_state_dict(sharded_osd)
+            self.__logger.info("Optimizer %s Loaded!", name)
+            if schedulers_sd is not None:
+                for ix, scheduler_sd in enumerate(schedulers_sd):
+                    scheduler_sd = broadcast_state_dict(scheduler_sd, "scheduler_state_dict")
+                    # self.__logger.debug("Received Scheduler state for optimizer '%s': %s!", name, schedulers_sd)
+                    optimizer["schedulers"][ix][1].load_state_dict(scheduler_sd)
+                self.__logger.info("Optimizer-Schedulers %s Loaded!", name)
 
 
 non_reentrant_wrapper = partial(

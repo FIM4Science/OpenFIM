@@ -1,5 +1,5 @@
 experiment:
-  name: 600k_drift_deg_3_diff_deg_2_mse_no_div_by_diff_softplus_2_layer_enc_8_layer_dec_continued
+  name: 600k_drift_deg_3_diff_deg_2_mse_no_div_by_diff_softplus_2_layer_enc_8_layer_dec_continued_more_data
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -179,36 +179,48 @@ dataset:
 
   data_dirs:
     train: !!python/tuple [
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_1_clean_chunk_0,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_1_clean_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_1_clean_chunk_1,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_1_add_10_perc_chunk_0,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_1_add_10_perc_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_1_drop_20_perc_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_1_add_10_and_drop_20_perc_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_2_clean_chunk_0,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_2_clean_chunk_1,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_2_clean_chunk_2,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_2_clean_chunk_1,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_2_clean_chunk_2,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_2_clean_chunk_3,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_add_10_perc_chunk_0,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_add_10_perc_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_add_10_perc_chunk_1,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_drop_20_perc_chunk_0,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_drop_20_perc_chunk_1,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_drop_20_perc_chunk_1,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_add_10_and_drop_20_perc_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_2_add_10_and_drop_20_perc_chunk_1,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_0,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_1,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_2,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_0,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_1,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_2,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_3,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_4,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/25k_train_dim_3_clean_chunk_5,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_perc_chunk_0,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_perc_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_perc_chunk_1,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_perc_chunk_2,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_drop_20_perc_chunk_0,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_drop_20_perc_chunk_0,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_drop_20_perc_chunk_1,
      /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_drop_20_perc_chunk_2,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_and_drop_20_perc_chunk_0,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_and_drop_20_perc_chunk_1,
-     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_and_drop_20_perc_chunk_2, ]
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_and_drop_20_perc_chunk_0,
+     # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_and_drop_20_perc_chunk_1,
+     /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train/16k_train_dim_3_add_10_and_drop_20_perc_chunk_2,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/1,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/2,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/1,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/2,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/3,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/4,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/5,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/6,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/7,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/1,
+     /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/2,
+     ]
 
     test: !!python/tuple [
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/test/5k_test_dim_1_clean_chunk_0,
@@ -222,28 +234,40 @@ dataset:
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/test/15k_test_dim_3_clean_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/test/5k_test_dim_3_add_10_perc_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/test/5k_test_dim_3_drop_20_perc_chunk_0,
-       /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/test/5k_test_dim_3_add_10_and_drop_20_perc_chunk_0]
+       /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/test/5k_test_dim_3_add_10_and_drop_20_perc_chunk_0,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/1,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/2,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/8,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/9,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/2,
+       ]
 
     validation: !!python/tuple [
-       /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/5k_validation_dim_1_clean_chunk_0,
+       # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/5k_validation_dim_1_clean_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/1_6k_validation_dim_1_add_10_perc_chunk_0,
-       /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/1_6k_validation_dim_1_drop_20_perc_chunk_0,
+       # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/1_6k_validation_dim_1_drop_20_perc_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/1_6k_validation_dim_1_add_10_and_drop_20_perc_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/10k_validation_dim_2_clean_chunk_0,
-       /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/3_3k_validation_dim_2_add_10_perc_chunk_0,
+       # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/3_3k_validation_dim_2_add_10_perc_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/3_3k_validation_dim_2_drop_20_perc_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/3_3k_validation_dim_2_add_10_and_drop_20_perc_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/15k_validation_dim_3_clean_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/5k_validation_dim_3_add_10_perc_chunk_0,
        /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/5k_validation_dim_3_drop_20_perc_chunk_0,
-       /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/5k_validation_dim_3_add_10_and_drop_20_perc_chunk_0]
+       # /home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/validation/5k_validation_dim_3_add_10_and_drop_20_perc_chunk_0,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/1,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/2,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/8,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/9,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/4,
+       ]
 
 
 trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
-  epochs: &epochs 1000
+  epochs: &epochs 2000
   detect_anomaly: false
   save_every: 1
   gradient_accumulation_steps: 1
