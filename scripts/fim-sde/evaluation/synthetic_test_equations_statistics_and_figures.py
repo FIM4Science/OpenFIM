@@ -43,11 +43,11 @@ def evaluate_sde_model_step(model: FIMSDE, batch: dict, device, sample_paths: Op
         estimated_concepts (SDEConcepts): FIMSDE output from evaluation on batch.
         sample_paths, sample_paths_grid (Tensor): Sample paths from model.
     """
-    batch = optree.tree_map(lambda x: x.to(device), batch, namespace="fimsde")
+    batch = optree.tree_map(lambda x: x.to(device), batch, namespace="fimsde")   
 
     # get vector fields at locations
     estimated_concepts = model(batch, training=False, return_losses=False)
-    estimated_concepts = optree.tree_map(lambda x: x.to("cpu"), estimated_concepts, namespace="fimsde")
+    estimated_concepts = optree.tree_map(lambda x: x.to("cpu"), estimated_concepts, namespace="fimsde")      
     step_results = {"estimated_concepts": estimated_concepts}
 
     # optionally: get sample paths
