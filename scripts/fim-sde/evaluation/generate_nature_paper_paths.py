@@ -39,31 +39,32 @@ def evaluate_model(model: AModel, dataloader: DataLoader, num_sample_paths: int,
     dataset: dict = next(iter(dataloader))
     dataset = optree.tree_map(lambda x: x.to(device), dataset, namespace="fimsde")
 
-    # evaluate vector field on some location grid
-    if "locations" in dataset.keys():
-        estimated_concepts = model(dataset, training=False, return_losses=False)
-        estimated_concepts = optree.tree_map(lambda x: x.to("cpu"), estimated_concepts, namespace="fimsde")
-        results.update({"estimated_concepts": estimated_concepts})
+    # # evaluate vector field on some location grid
+    # if "locations" in dataset.keys():
+    #     estimated_concepts = model(dataset, training=False, return_losses=False)
+    #     estimated_concepts = optree.tree_map(lambda x: x.to("cpu"), estimated_concepts, namespace="fimsde")
+    #     results.update({"estimated_concepts": estimated_concepts})
 
     grid = dataset["obs_times"]  # [..., 43, T, 1]
+    initial_states = dataset["obs_values"][:, :, 0]
+    
+    # Repeat grid and initial states for num_sample_paths on dim 1
+    grid = grid.repeat(1, num_sample_paths, 1, 1)[:,:num_sample_paths]  
+    initial_states = initial_states.repeat(1, num_sample_paths, 1)[:,:num_sample_paths]
 
     sample_paths, sample_paths_grid = fimsde_sample_paths(
         model,
         dataset,
         grid=grid,
         solver_granularity=20,
+        num_paths=num_sample_paths,
+        initial_states=initial_states,
     )  # [..., 43 * num_sample_paths, D]
-
-
-    # Return paths per trajectory
-    sample_paths = torch.stack(torch.split(sample_paths, num_sample_paths, dim=-3), dim=-4)  # [.., 43, num_sample_paths, T, D]
-    sample_paths_grid = torch.stack(torch.split(sample_paths_grid, num_sample_paths, dim=-3), dim=-4)  # [.., 43, num_sample_paths, T, D]
-
-    # return mean of sample paths
-    mean_sample_paths = torch.mean(sample_paths, dim=-3, keepdim=True)
-    mean_sample_paths_grid = sample_paths_grid[..., 0, :, :]  # sample path grids will be the same
     
-    return sample_paths
+    results.update({"sample_paths": sample_paths, "sample_paths_grid": sample_paths_grid})
+    
+    
+    return results
 
     
 
@@ -141,19 +142,16 @@ if __name__ == "__main__":
     model_map = model_map_from_dict(model_dicts)
     dataloader_map = dataloader_map_from_dict(dataloader_dicts)
 
-    # Load previous evaluations that don't need to be evaluated anymore
-    loaded_evaluations: list[ModelEvaluation] = load_evaluations(results_to_load)
 
     # Evaluate all models on all datasets
     all_evaluations: list[ModelEvaluation] = [
         ModelEvaluation(model_id, dataloader_id)
         for model_id, dataloader_id in itertools.product(model_dicts.keys(), dataloader_dicts.keys())
     ]
-    to_evaluate: list[ModelEvaluation] = [evaluation for evaluation in all_evaluations if evaluation not in loaded_evaluations]
+    to_evaluate: list[ModelEvaluation] = [evaluation for evaluation in all_evaluations]
 
     # Create, run and save EvaluationConfig
     evaluated: list[ModelEvaluation] = run_evaluations(to_evaluate, model_map, dataloader_map, num_sample_paths)
-    all_evaluations: list[ModelEvaluation] = loaded_evaluations + evaluated
-    save_evaluations(all_evaluations, evaluation_dir / "model_evaluations")
+    save_evaluations(evaluated, evaluation_dir / "model_evaluations")
 
     evaluation_config = EvaluationConfig(model_map, dataloader_map, evaluation_dir, models_display_ids, dataloader_display_ids)

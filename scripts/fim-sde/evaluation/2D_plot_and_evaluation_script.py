@@ -69,12 +69,12 @@ def run_benchmark_and_plot(benchmark: Benchmark):
     else:
         comparison_model_locations_plot, comparison_model_drift_plot, comparison_model_diffusion_plot = None, None, None
     
-    table = [["FIM",rmse(model_drift, ground_truth_drift), nrmse(model_drift, ground_truth_drift), rmse(model_diffusion, ground_truth_diffusion), nrmse(model_diffusion, ground_truth_diffusion)]]
+    table = [["FIM",mse(model_drift, ground_truth_drift), mse(model_diffusion, ground_truth_diffusion)]]
     if comparison_model_locations is not None:
-        table.append(["Comparison Model",rmse(comparison_model_drift, ground_truth_drift), nrmse(comparison_model_drift, ground_truth_drift), rmse(comparison_model_diffusion, ground_truth_diffusion), nrmse(comparison_model_diffusion, ground_truth_diffusion)])
+        table.append(["Comparison Model",mse(comparison_model_drift, ground_truth_drift), mse(comparison_model_diffusion, ground_truth_diffusion)])
     
     print(f"Results for {benchmark.name}")
-    print(tabulate(table, headers=["Model", "RMSE Drift", "NRMSE Drift", "RMSE Diffusion", "NRMSE Diffusion"]))
+    print(tabulate(table, headers=["Model", "MSE Drift", "MSE Diffusion"]))
     print("\n")
     
     ## Some code to restrict the plot to a certain region
@@ -154,12 +154,9 @@ def run_benchmark_and_plot(benchmark: Benchmark):
 # -1.1623222748815167
 # -1.6670616113744077
 # -1.1812796208530805
-    
-def rmse(m_pred, y_true):
-   return (m_pred - y_true).pow(2).mean().sqrt()
 
-def nrmse(m_pred, y_true):
-    return rmse(m_pred, y_true) / rmse(torch.zeros_like(y_true), y_true)
+def mse(m_pred, y_true):
+    return (m_pred - y_true).pow(2).mean()
 
 if __name__ == "__main__":
     benchmarks = [
