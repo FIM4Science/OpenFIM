@@ -359,7 +359,7 @@ def run_model_evaluations(
             f"Task: {str(evaluation.task_id)}, Data: {str(evaluation.dataloader_id)}, Model: {str(evaluation.model_id)}. Overall progress"
         )
 
-        model: AModel = model_map[evaluation.model_id]()
+        model: AModel = model_map[evaluation.model_id]().to(torch.float)
         dataloader: DataLoader = dataloader_map[evaluation.dataloader_id]()
 
         evaluation.results = EvaluationTask(model, dataloader)

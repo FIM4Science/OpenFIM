@@ -8,14 +8,10 @@ import optree
 import torch
 from dataloader_inits.synthetic_test_equations import (
     get_cspd_dataloaders_inits,
-    get_difficult_synth_equations_dataloaders_inits,
     get_opper_or_wang_dataloaders_inits,
     get_svise_dataloaders_inits,
-    get_up_to_deg_3_polynomial_test_sets_init,
 )
-from model_dicts.development_models_deg_3_drift import (
-    get_models_dict_20250116_traind_on_30k_deg_3_drift_deg_0_diffusion_50_paths_with_noise_and_mask,
-)
+from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import get_model_dicts_600k_deg_3_drift_deg_2_diff
 from tqdm import tqdm
 
 from fim import project_path
@@ -76,10 +72,10 @@ if __name__ == "__main__":
     # experiment_descr = "models_trained_on_deg_3_drift_deg_0_diff_streaming_dataloader_development"
     # experiment_descr = "30k_deg_3_ablation_studies_extended"
     # experiment_descr = "450k_deg_3_drift_deg_0_diffusion"
-    experiment_descr = "30k_deg_3_ablation_studies_only_learn_scale"
+    # experiment_descr = "30k_deg_3_ablation_studies_only_learn_scale"
+    experiment_descr = "600k_deg_3_drift_deg_2_diffusion_larger_model"
 
-    # model_dicts, models_display_ids = get_model_dicts_20241230_trained_on_30k_deg_3_drift_deg_0_diffusion_50_paths_streaming_dataloader()
-    model_dicts, models_display_ids = get_models_dict_20250116_traind_on_30k_deg_3_drift_deg_0_diffusion_50_paths_with_noise_and_mask()
+    model_dicts, models_display_ids = get_model_dicts_600k_deg_3_drift_deg_2_diff()
 
     # train_test_split_dir = [
     #     "/lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths/test/0_test_deg_2",
@@ -89,7 +85,8 @@ if __name__ == "__main__":
     train_test_split_dir = None
 
     results_to_load: list[str] = [
-        "/home/cvejoski/Projects/FoundationModels/FIM/evaluations/synthetic_datasets/01171007_testing/model_evaluations",
+        # "/home/cvejoski/Projects/FoundationModels/FIM/evaluations/synthetic_datasets/01171007_testing/model_evaluations",
+        # "/home/seifner/repos/FIM/evaluations/synthetic_datasets/01231533_600k_deg_3_drift_deg_2_diffusion/model_evaluations"
     ]
 
     BATCH_SIZE = 128
@@ -110,17 +107,21 @@ if __name__ == "__main__":
     evaluation_dir.mkdir(parents=True, exist_ok=True)
 
     # Get dataloaders inits and their display ids (for ModelEvaluation)
-    svise_dataloaders_dict, svise_dataloaders_display_ids = get_svise_dataloaders_inits(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
-    poly_dataloaders_dict, poly_dataloaders_display_ids = get_up_to_deg_3_polynomial_test_sets_init(
-        batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
+    svise_dataloaders_dict, svise_dataloaders_display_ids = get_svise_dataloaders_inits(
+        Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/sde_relative_diffusion_1_perc_20_paths/"),
+        batch_size=BATCH_SIZE,
+        num_workers=NUM_WORKERS,
     )
+    # poly_dataloaders_dict, poly_dataloaders_display_ids = get_up_to_deg_3_polynomial_test_sets_init(
+    #     batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
+    # )
     opper_or_wang_dataloaders_dict, opper_or_wang_dataloaders_display_ids = get_opper_or_wang_dataloaders_inits(
         batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
     )
     cspd_dataloaders_dict, cspd_dataloaders_display_ids = get_cspd_dataloaders_inits(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
-    difficult_dataloaders_dict, difficult_dataloaders_display_ids = get_difficult_synth_equations_dataloaders_inits(
-        batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
-    )
+    # difficult_dataloaders_dict, difficult_dataloaders_display_ids = get_difficult_synth_equations_dataloaders_inits(
+    #     batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
+    # )
 
     # choose data to evaluate
     dataloader_dict = {}
@@ -135,8 +136,8 @@ if __name__ == "__main__":
     dataloader_dict.update(cspd_dataloaders_dict)
     dataloader_display_ids.update(cspd_dataloaders_display_ids)
 
-    dataloader_dict.update(difficult_dataloaders_dict)
-    dataloader_display_ids.update(difficult_dataloaders_display_ids)
+    # dataloader_dict.update(difficult_dataloaders_dict)
+    # dataloader_display_ids.update(difficult_dataloaders_display_ids)
 
     # dataloader_dict.update(poly_dataloaders_dict)
     # dataloader_display_ids.update(poly_dataloaders_display_ids)

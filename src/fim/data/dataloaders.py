@@ -14,6 +14,7 @@ from datasets import load_dataset_builder
 from torch import Tensor
 from torch.utils.data import default_collate
 from torch.utils.data.dataloader import DataLoader
+from transformers.trainer_pt_utils import IterableDatasetShard
 
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.data_generation.gp_dynamical_systems import get_dynamicals_system_data_from_yaml
@@ -689,6 +690,7 @@ class FIMSDEDataloaderIterableDataset(BaseDataLoader):
 
     def _get_dataset(self, **dataset_config):
         dataset_name = dataset_config.pop("dataset_name")
+        shard = dataset_config.pop("shard", False)
 
         if dataset_name == "HeterogeneousFIMSDEDataset":
             dataset_class = HeterogeneousFIMSDEDataset
@@ -699,7 +701,13 @@ class FIMSDEDataloaderIterableDataset(BaseDataLoader):
         else:
             raise ValueError(f"Dataset {dataset_name} not recognized.")
 
-        return dataset_class(**dataset_config)
+        dataset = dataset_class(**dataset_config)
+
+        return (
+            IterableDatasetShard(dataset, num_processes=dist.get_world_size(), process_index=dist.get_rank(), drop_last=True)
+            if shard is True
+            else dataset
+        )
 
 
 def fimdataset_to_sde_collate_fn(batch: List[dict]):

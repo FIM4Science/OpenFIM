@@ -227,14 +227,19 @@ class SDEEvaluationPlots(EvaluationEpoch):
                         break
 
             # combine found elements to a single dict that can be evaluated by pipeline
-            batch_with_all_dims: dict = optree.tree_map(lambda *x: torch.stack(x, dim=0), *batch_with_all_dims)
+            batch_with_all_dims: dict = optree.tree_map(lambda *x: torch.stack(x, dim=0).to(self.model.device), *batch_with_all_dims)
 
             # get concepts and samples from batch_with_all_dims
             with torch.no_grad():
-                estimated_concepts: SDEConcepts = self.model(batch_with_all_dims, training=False)
-                sample_paths, sample_paths_grid = fimsde_sample_paths(
-                    self.model, batch_with_all_dims, grid=batch_with_all_dims["obs_times"]
-                )
+                with torch.amp.autocast(
+                    self.accel_type,
+                    enabled=self.use_mixeprecision and self.is_accelerator,
+                    dtype=self.auto_cast_type,
+                ):
+                    estimated_concepts: SDEConcepts = self.model(batch_with_all_dims, training=False)
+                    sample_paths, sample_paths_grid = fimsde_sample_paths(
+                        self.model, batch_with_all_dims, grid=batch_with_all_dims["obs_times"], solver_granularity=5
+                    )
 
             # Create figures from model outputs and samples
             figures = {}
