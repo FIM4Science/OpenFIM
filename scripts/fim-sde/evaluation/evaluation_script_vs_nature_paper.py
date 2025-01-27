@@ -23,6 +23,10 @@ class Dataset:
             data = load_h5s_in_folder(path)
             self.mean_path = data["obs_values"][0] # actually thats the ode solution
             self.grid = data["obs_times"][0]
+            
+        # Make sure that data is on cpu
+        self.mean_path = self.mean_path.cpu()
+        self.grid = self.grid.cpu()
     
 
 
@@ -56,27 +60,27 @@ if __name__ == "__main__":
         Benchmark(
             name="Damped Cubic Oscillator",
             GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode/damped_cubic_oscillator")),
-            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01241704_develop/model_evaluations/11M_params/svise_damped_cubic/default11M_params_svise_damped_cubic.pickle")),
+            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01271243_develop/model_evaluations/11M_params/svise_damped_cubic/default11M_params_svise_damped_cubic.pickle")),
         ),
         Benchmark(
             name="Damped Linear Oscillator",
             GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode/damped_linear_oscillator")),
-            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01241704_develop/model_evaluations/11M_params/svise_damped_linear/default11M_params_svise_damped_linear.pickle")),
+            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01271243_develop/model_evaluations/11M_params/svise_damped_linear/default11M_params_svise_damped_linear.pickle")),
         ),
         Benchmark(
             name="Duffing Oscillator",
             GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode/duffing_oscillator")),
-            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01241704_develop/model_evaluations/11M_params/svise_duffing/default11M_params_svise_duffing.pickle")),
+            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01271243_develop/model_evaluations/11M_params/svise_duffing/default11M_params_svise_duffing.pickle")),
         ),
         Benchmark(
             name="Hopf Bifurcation",
             GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode/hopf_bifurcation")),
-            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01241704_develop/model_evaluations/11M_params/svise_hopf_bifurcation/default11M_params_svise_hopf_bifurcation.pickle")),
+            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01271243_develop/model_evaluations/11M_params/svise_hopf_bifurcation/default11M_params_svise_hopf_bifurcation.pickle")),
         ),
         Benchmark(
             name="Selkov Glycolysis",
             GroundTruth = Dataset("Ground Truth", Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode/selkov_glycolysis")),
-            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01241704_develop/model_evaluations/11M_params/svise_selkov_glycolysis/default11M_params_svise_selkov_glycolysis.pickle")),
+            FIM = Dataset("FIM", Path("evaluations/nature_datasets/01271243_develop/model_evaluations/11M_params/svise_selkov_glycolysis/default11M_params_svise_selkov_glycolysis.pickle")),
         ),
     ]
     
