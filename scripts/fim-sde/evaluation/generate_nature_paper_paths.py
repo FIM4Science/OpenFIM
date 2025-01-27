@@ -136,7 +136,7 @@ if __name__ == "__main__":
     evaluation_dir.mkdir(parents=True, exist_ok=True)
 
     # Get dataloaders inits and their display ids (for ModelEvaluation)
-    dataloader_dicts, dataloader_display_ids = get_svise_dataloaders_inits(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
+    dataloader_dicts, dataloader_display_ids = get_svise_dataloaders_inits(Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode"), batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
 
     # Get model_map to load models when they are needed
     model_map = model_map_from_dict(model_dicts)
