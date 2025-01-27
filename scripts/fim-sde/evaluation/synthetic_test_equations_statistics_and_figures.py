@@ -11,7 +11,9 @@ from dataloader_inits.synthetic_test_equations import (
     get_opper_or_wang_dataloaders_inits,
     get_svise_dataloaders_inits,
 )
-from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import get_model_dicts_600k_deg_3_drift_deg_2_diff
+from model_dicts.development_models_deg_3_drift import (
+    get_models_dict_20250116_traind_on_30k_deg_3_drift_deg_0_diffusion_50_paths_with_noise_and_mask_new_loss,
+)
 from tqdm import tqdm
 
 from fim import project_path
@@ -43,11 +45,11 @@ def evaluate_sde_model_step(model: FIMSDE, batch: dict, device, sample_paths: Op
         estimated_concepts (SDEConcepts): FIMSDE output from evaluation on batch.
         sample_paths, sample_paths_grid (Tensor): Sample paths from model.
     """
-    batch = optree.tree_map(lambda x: x.to(device), batch, namespace="fimsde")   
+    batch = optree.tree_map(lambda x: x.to(device), batch, namespace="fimsde")
 
     # get vector fields at locations
     estimated_concepts = model(batch, training=False, return_losses=False)
-    estimated_concepts = optree.tree_map(lambda x: x.to("cpu"), estimated_concepts, namespace="fimsde")      
+    estimated_concepts = optree.tree_map(lambda x: x.to("cpu"), estimated_concepts, namespace="fimsde")
     step_results = {"estimated_concepts": estimated_concepts}
 
     # optionally: get sample paths
@@ -83,6 +85,12 @@ if __name__ == "__main__":
     models_display_ids = {
         "11M_params": "11M Parameters",
     }
+    experiment_descr = "30k_deg_3_ablation_studies_different_noises_and_new_loss"
+
+    # model_dicts, models_display_ids = get_model_dicts_20241230_trained_on_30k_deg_3_drift_deg_0_diffusion_50_paths_streaming_dataloader()
+    model_dicts, models_display_ids = (
+        get_models_dict_20250116_traind_on_30k_deg_3_drift_deg_0_diffusion_50_paths_with_noise_and_mask_new_loss()
+    )
 
     # train_test_split_dir = [
     #     "/lustre/scratch/data/seifnerp_hpc-fim_data/data/processed/train/sde-drift-deg-3-diffusion-deg-0-50-paths/test/0_test_deg_2",
