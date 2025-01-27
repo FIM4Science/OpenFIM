@@ -1,5 +1,5 @@
 experiment:
-  name: 30K_deg_3_drift_ablation_noise
+  name: 30K_deg_3_drift_ablation_dropout_05
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -30,7 +30,7 @@ model:
   transformer_layer_activation: &transformer_layer_activation "gelu"
 
   # General MLP config
-  hidden_layers: &hidden_layers !!python/tuple [128, 128]
+  hidden_layers: !!python/tuple &hidden_layers [128, 128]
   dropout_rate: &dropout_rate 0.1
   hidden_act: &hidden_act
     name: &activation torch.nn.GELU
@@ -79,7 +79,6 @@ model:
       hidden_act: *hidden_act
       dropout: *dropout_rate
 
-
   # instance normalization
   states_norm:
     name: fim.models.sde.Standardization
@@ -108,12 +107,10 @@ model:
       hidden_act: *hidden_act
       dropout: *dropout_rate
 
-
   # loss
   loss_type: "rmse" #nll, rmse, nrmse
   single_learnable_loss_scale_head: true
   detach_learnable_loss_scale_heads: true
-
 
   # INFERENCE/PIPELINE ------------------------------------------------------------
   dt_pipeline: 0.1
@@ -165,19 +162,24 @@ dataset:
     diffusion_at_locations: "diffusion_at_locations.h5"
 
   data_dirs:
-    train: !!python/tuple [
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/0_train_deg_1,
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/1_train_deg_2,
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/train/2_train_deg_3, ]
-    test: !!python/tuple [
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/0_test_deg_1,
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/1_test_deg_2,
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/test/2_test_deg_3, ]
-    validation: !!python/tuple [
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/0_val_deg_1,
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/1_val_deg_2,
-     /cephfs_projects/foundation_models/data/SDE/train/20250105_sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube/validation/2_val_deg_3, ]
-
+    train:
+      !!python/tuple [
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/train/0_train_deg_1,
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/train/1_train_deg_2,
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/train/2_train_deg_3,
+      ]
+    test:
+      !!python/tuple [
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/test/0_test_deg_1,
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/test/1_test_deg_2,
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/test/2_test_deg_3,
+      ]
+    validation:
+      !!python/tuple [
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/validation/0_val_deg_1,
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/validation/1_val_deg_2,
+        /cephfs_projects/foundation_models/data/SDE/train/sde-drift-deg-3-diffusion-deg-0-50-paths-30-perc-larger-hypercube-5-mask/validation/2_val_deg_3,
+      ]
 
 trainer:
   name: Trainer

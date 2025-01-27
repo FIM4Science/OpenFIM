@@ -1,0 +1,99 @@
+# Damped Linear
+
+- Drift:
+   - Component 1:
+      f(x) = 2.2093 * Y - 0.0882 * X^2 * Y
+   - Component 2:
+      f(x) = -0.6944 * 1 - 1.8444 * X + 0.3229 * X^2 - 0.0810 * X^2 * Y
+
+- Diffusion:
+   - Component 1:
+      G(x) = 0.9931 * 1
+   - Component 2:
+      G(x) = 0.9963 * 1
+
+# Damped Cubic
+
+- Drift:
+   - Component 1:
+      f(x) = 0.2518 * Y - 1.0456 * X * Y + 1.9877 * Y^3 - 0.2799 * e^x + 0.1734 * e^xy
+   - Component 2:
+      f(x) = -0.3112 * X - 0.3738 * X^2 - 0.5216 * X * Y - 1.9242 * X^3 - 0.1223 * Y^3 + 0.2454 * e^xy
+
+- Diffusion:
+   - Component 1:
+      G(x) = 0.9840 * 1
+   - Component 2:
+      G(x) = 1.0067 * 1
+
+
+# Duffing
+- Drift:
+   - Component 1:
+      f(x) = 0.9926 * Y
+   - Component 2:
+      f(x) = 0.4837 * 1 - 6.9035 * X + 8.4916 * sin(x)
+
+- Diffusion:
+   - Component 1:
+      G(x) = 0.9818 * 1
+   - Component 2:
+      G(x) = 0.9888 * 1
+
+# Glycosis
+
+- Drift:
+   - Component 1:
+      f(x) = -0.1743 * X + 2.8584 * Y - 2.4747 * X^2 - 2.3217 * X^3 - 3.2542 * X * Y^2
+   - Component 2:
+      f(x) = -1.8500 * X^2 * Y - 1.3973 * X * Y^2 - 0.2591 * e^x
+
+- Diffusion:
+   - Component 1:
+      G(x) = 0.9947 * 1
+   - Component 2:
+      G(x) = 0.9904 * 1
+
+# Syn Drift
+
+- Drift:
+   - Component 1:
+      f(x) = -0.6749 * X^3 - 1.8417 * X * Y^2 - 3.2196 * sin(y) - 1.2852 * e^xy
+   - Component 2:
+      f(x) = -0.2203 * X^2 - 0.5146 * Y^3
+
+- Diffusion:
+   - Component 1:
+      G(x) = 0.9869 * 1
+   - Component 2:
+      G(x) = 1.0961 * 1
+
+# Wang
+
+- Drift:
+   - Component 1:
+      f(x) = -0.9641 * Y - 0.9331 * X^3 - 0.6279 * Y^3
+   - Component 2:
+      f(x) = 2.0778 * X - 0.2839 * X^2 + 0.4449 * XY - 2.0097 * X^2Y - 0.5430 * Y^3
+
+- Diffusion:
+   - Component 1:
+      G(x) = 0.9377 * 1 + 0.3580 * Y^2 + 0.0826 * e^xy
+   - Component 2:
+      G(x) = 1.0551 * 1 + 0.3645 * X^2
+
+
+# Double-wll
+
+Drift: f(x) = -2.0630*1 + 1.2557*u^2 - 1.6117*u^3
+Diffusion: g(x) = 4.0844*1 - 1.2654*u^2
+
+# Oil
+
+Drift: f(x) = -1.0432*u
+Diffusion:  g(x) = 0.9034*1 + 0.3132*u^2
+
+# Wind
+
+Drift: f(x) = -7.0411*u + 0.3712*sin(u)
+Diffusion g(x) = 2.9579*1 - 1.5283*u + 1.4682*u^2 + 0.1516*u^3 + 1.9871*sin(u) - 0.0719*exp(u)

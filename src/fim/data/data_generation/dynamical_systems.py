@@ -1,9 +1,10 @@
 import copy
 import itertools
+import re
 from abc import ABC, abstractmethod
 from functools import reduce
 from itertools import combinations
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -1085,7 +1086,7 @@ class Polynomials(DynamicalSystem):
         return poly_value
 
     @staticmethod
-    def print_polynomials(coeffs: Tensor, max_degree: int, precision: Optional[int] = 3) -> None:
+    def print_polynomials(coeffs: Tensor, max_degree: int, precision: Optional[int] = 3, for_export: bool = False) -> None | List[str]:
         """
         Print (rounded) string representation of sampled polynomials.
 
@@ -1093,11 +1094,12 @@ class Polynomials(DynamicalSystem):
             coeffs (Tensor): Sampled coefficients for polynomials. Shape: [num_realizations, state_dim, total_coeffs_count]
             max_degree (int): maximal degree of polynomial from coefficients.
             precision (int): Rounding precision.
+            for_export (bool): If True, return string representation of polynomials prepared for csv.
         """
         realization_count, state_dim = coeffs.shape[:2]
 
         # get monomial string representations with ^2, ^3 etc
-        xs = ["x_" + str(i + 1) + "^1" for i in range(state_dim)]
+        xs = ["x_" + str(i) + "^1" for i in range(state_dim)]
 
         def _combine_coordinate_strings(prev_coords: str, new_x: str):
             if prev_coords == "":
@@ -1121,9 +1123,11 @@ class Polynomials(DynamicalSystem):
         monomials_str = np.concatenate([np.array(mon) for mon in monomials_str])
 
         coeffs = np.array(coeffs)
-
+        outputs = []
         for realization in range(realization_count):
-            print("Realization: ", str(realization))
+            output = []
+            if not for_export:
+                print("Realization: ", str(realization))
             for dim in range(state_dim):
                 # print each realization and dimension in parameters separately
                 coeffs_ = coeffs[realization, dim]  # [total_coeffs_count]
@@ -1147,10 +1151,16 @@ class Polynomials(DynamicalSystem):
                 monomials_with_coeffs_str = coeffs_ + monomials_str_
                 poly_str = " ".join(monomials_with_coeffs_str)
 
-                print(poly_str)
-
-            print("\n")
-
+                if for_export:
+                    poly_str = re.sub(r"([+\-]?\d+(?:\.\d+)?)([x_])", r"\1*\2", poly_str)
+                    output.append(poly_str)
+                else:
+                    print(poly_str)
+            if for_export:
+                outputs.append(output)
+            else:
+                print("\n")
+        return outputs
     def sample_drift_params(self, num_realizations: int) -> Tensor:
         """
         Sample coefficients of (up to) degree 2 polynomials for each dimension.
