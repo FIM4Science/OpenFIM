@@ -37,6 +37,23 @@ def parse_results(file_path):
 
     return nested_dict
 
+def format_bracket_notation(mean, std):
+    if std == 0:
+        return f"${mean}$"
+    
+    # Determine the exponent of std
+    exponent = int(np.floor(np.log10(abs(std)))) if std != 0 else 0
+    # Round std to one significant digit
+    std_rounded = round(std, -exponent)
+    
+    # Round mean to the same decimal place as std
+    mean_rounded = round(mean, -exponent)
+    
+    # Get the error digit
+    error_digit = int(std_rounded / (10**exponent))
+    
+    return f"${mean_rounded}({error_digit})$"
+
 def load_folder_path_results(folder_path, num_digits=3, scaling_fact=10):
     # Find all files in folder
     file_paths = [f"{folder_path}/{file}" for file in os.listdir(folder_path) if file.endswith('.txt')]
@@ -54,16 +71,15 @@ def load_folder_path_results(folder_path, num_digits=3, scaling_fact=10):
                 if model in result[dataset]:
                     mmds.append(result[dataset][model])
             mmds = np.array(mmds)
+            mmds = np.abs(mmds)
             mmds = mmds*scaling_fact
             mean = np.mean(mmds)
-            if mean < 0:
-                mean = 0.0
             std = np.std(mmds)
             
-            # Round to three decimal places
-            mean = round(mean, num_digits)
-            std = round(std, num_digits)
-            res_str = f"${mean} \pm {std}$"
+            res_str = format_bracket_notation(mean, std)
+            # mean = round(mean, num_digits)
+            # std = round(std, num_digits)
+            # res_str = f"${mean} \pm {std}$"
             if len(mmds) < len(results):
                 res_str += "*"*(len(results) - len(mmds)) # Stars denote missing values
             mean_results[dataset][model] = res_str
@@ -71,14 +87,17 @@ def load_folder_path_results(folder_path, num_digits=3, scaling_fact=10):
 
 # Example usage
 if __name__ == "__main__":
-    folder_paths = [('evaluations/ksig/01301144/0.002','evaluations/ksig/01301522/0.002'), ('evaluations/ksig/01301145/0.01','evaluations/ksig/01301522/0.01'), ('evaluations/ksig/01301146/0.02','evaluations/ksig/01301521/0.02')]
+    # old
+    # folder_paths = [('evaluations/ksig/01301144/0.002','evaluations/ksig/01301522/0.002'), ('evaluations/ksig/01301145/0.01','evaluations/ksig/01301522/0.01'), ('evaluations/ksig/01301146/0.02','evaluations/ksig/01301521/0.02')]
+    # new
+    folder_paths = [('evaluations/ksig/01301144/0.002','evaluations/ksig/01302224/0.002'), ('evaluations/ksig/01301145/0.01','evaluations/ksig/01302225/0.01'), ('evaluations/ksig/01301146/0.02','evaluations/ksig/01302225/0.02')]
     # folder_paths = ['evaluations/ksig/01301144/0.002', 'evaluations/ksig/01301145/0.01', 'evaluations/ksig/01301146/0.02']
-    datasets = ['Double Well', 'Wang', 'Damped Linear', 'Damped Cubic', 'Duffing', 'Glycosis', 'Hopf', 'Syn Drift']
-    models = ["FIM", "BISDE", "SparseGP"]
+    datasets = ['Double Well', 'Wang', 'Damped Linear', 'Damped Cubic', 'Duffing', 'Glycosis', 'Hopf']
+    models = ["SparseGP","BISDE","FIM"]
     
     with open("evaluations/final_table.txt", "w") as f:
         f.write("\\begin{tabular}{llllllllll}\n")
-        f.write("$\\tau$ & Model & Double Well & Wang & Damped Linear & Damped Cubic & Duffing & Glycolysis & Hopf & Syn Drift\\\\\n")
+        f.write("$\\tau$ & Model & \\makecell{Double\\\\Well} & Wang & \\makecell{Damped\\\\Linear} & \\makecell{Damped\\\\Cubic} & Duffing & Glycolysis & Hopf\\\\\n")
         f.write("\hline\n")
         
         for (folder_path1, folder_path2) in folder_paths:
@@ -90,7 +109,10 @@ if __name__ == "__main__":
                 if "BISDE" in bisde_results[dataset]:
                     mean_results[dataset]["BISDE"] = bisde_results[dataset]["BISDE"]
             for model in models:
-                row = f"{tau} & {model} & "
+                row = ""
+                if model != "FIM":
+                    row = "\\rowcolor{table_baselines}"            
+                row += f"{tau} & {model} & "
                 for dataset in datasets:
                     if model in mean_results[dataset]:
                         row += f"{mean_results[dataset][model]} & "

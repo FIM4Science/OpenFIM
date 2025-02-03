@@ -67,20 +67,23 @@ def load_folder_path_results(folder_path, num_digits=3):
 
 # Example usage
 if __name__ == "__main__":
-    folder_paths = ['evaluations/mse/01301754/0.002', 'evaluations/mse/01301756/0.01', 'evaluations/mse/01301756/0.02']
-    datasets = ['Double Well', 'Wang', 'Damped Linear', 'Damped Cubic', 'Duffing', 'Glycosis', 'Hopf', 'Syn Drift']
-    models = ["FIM", "BISDE", "SparseGP"]
+    folder_paths = ['evaluations/mse/01311107/0.002', 'evaluations/mse/01311107/0.01', 'evaluations/mse/01311106/0.02']
+    datasets = ['Double Well', 'Wang', 'Damped Linear', 'Damped Cubic', 'Duffing', 'Glycosis', 'Hopf']
+    models = ["SparseGP", "BISDE", "FIM"]
     
     with open("evaluations/final_table_mse.txt", "w") as f:
         f.write("\\begin{tabular}{llllllllll}\n")
-        f.write("$\\tau$ & Model & Double Well & Wang & Damped Linear & Damped Cubic & Duffing & Glycolysis & Hopf & Syn Drift\\\\\n")
+        f.write("$\\tau$ & Model & \\makecell{Double\\\\Well} & Wang & \\makecell{Damped\\\\Linear} & \\makecell{Damped\\\\Cubic} & Duffing & Glycolysis & Hopf\\\\\n")
         f.write("\hline\n")
         
         for folder_path in folder_paths:
             tau = folder_path.split('/')[-1]
             mean_results = load_folder_path_results(folder_path)
             for model in models:
-                row = f"{tau} & {model} & "
+                row = ""
+                if model != "FIM":
+                    row = "\\rowcolor{table_baselines}"
+                row += f"{tau} & {model} & "
                 for dataset in datasets:
                     if model in mean_results[dataset]:
                         row += f"{mean_results[dataset][model]} & "
