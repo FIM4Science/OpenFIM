@@ -131,7 +131,10 @@ if not use_cuda:
 
 import ksig #Follow the instruction on https://github.com/tgcsaba/KSig to install it
 
-def get_mmd(x, y, n_levels=5):
+def numpy_hash(a):
+    return hash(a.tostring())
+
+def get_mmd(x, y, n_levels=5, kernel_cache={}):
     """
     Compute the Maximum Mean Discrepancy (MMD) between two sets of paths
     Input shapes: (n_paths, grid_size, n_dim)
@@ -142,7 +145,13 @@ def get_mmd(x, y, n_levels=5):
     static_kernel = ksig.static.kernels.RBFKernel()
     sig_kernel = ksig.kernels.SignatureKernel(n_levels, static_kernel=static_kernel)
 
-    Kxx = sig_kernel(x)
+    x_hash = numpy_hash(x)
+    
+    if x_hash in kernel_cache:
+        Kxx = kernel_cache[x_hash]
+    else:
+        Kxx = sig_kernel(x)
+        kernel_cache[x_hash] = Kxx
     Kyy = sig_kernel(y)
     Kyx = sig_kernel(y, x)
     n_paths = x.shape[0]
