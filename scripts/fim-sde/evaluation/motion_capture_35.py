@@ -395,12 +395,12 @@ if __name__ == "__main__":
     dataset_descr = "motion_capture_35"
 
     # How to name experiments
-    experiment_descr = "develop"
+    experiment_descr = "large_models_comparison"
 
     model_dicts, models_display_ids = get_model_dicts_600k_deg_3_drift_deg_2_diff()
 
     results_to_load: list[str] = [
-        "/home/seifner/repos/FIM/evaluations/motion_capture_35/01241229_develop/model_evaluations",
+        # "/home/seifner/repos/FIM/evaluations/motion_capture_35/01241229_develop/model_evaluations",
     ]
 
     num_sample_paths = 100

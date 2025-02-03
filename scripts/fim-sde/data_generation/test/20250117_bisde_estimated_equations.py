@@ -2,7 +2,6 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
-
 from fim import data_path
 from fim.data.data_generation.bisde_estimated_equations import (
     BISDEEst2DSynthetic,
@@ -17,7 +16,6 @@ from fim.data.datasets import FIMSDEDatabatch
 from fim.data_generation.sde.dynamical_systems_to_files import (
     get_data_from_dynamical_system,
     save_fimsdedatabatch_to_files,
-    split_databatch_into_paths,
 )
 
 
@@ -149,8 +147,9 @@ def get_bisde_est_facebook():
 
     integration_config = {
         "method": "EulerMaruyama",
-        "time_step": 0.002564,  # 1/390, 390 minutes per trading day?
-        "num_steps": 24960,
+        # "time_length": 0.25,  # measured in years
+        "time_step": 1 / (252 * 390),  # Minutes in trading years, per BISDE code
+        "num_steps": 24959,  # total 24960  observations, initial state is first obs
         "steps_per_dt": STEPS_PER_DT,
         "num_paths": 1,
         "num_locations": 1024,
@@ -158,8 +157,8 @@ def get_bisde_est_facebook():
     }
 
     locations_params = {
-        "type": "regular_cube",
-        "extension_perc": 0.3,
+        "type": "regular_grid",
+        "ranges": [[227.37, 304.27]],  # regular grid in data range
     }
 
     config = deepcopy(
@@ -186,8 +185,9 @@ def get_bisde_est_tesla():
 
     integration_config = {
         "method": "EulerMaruyama",
-        "time_step": 0.002564,  # 1/390, 390 minutes per trading day?
-        "num_steps": 24960,
+        # "time_length": 0.25,  # measured in years
+        "time_step": 1 / (252 * 390),  # Minutes in trading years, per BISDE code
+        "num_steps": 24959,  # total 24960  observations, initial state is first obs
         "steps_per_dt": STEPS_PER_DT,
         "num_paths": 1,
         "num_locations": 1024,
@@ -195,8 +195,8 @@ def get_bisde_est_tesla():
     }
 
     locations_params = {
-        "type": "regular_cube",
-        "extension_perc": 0.3,
+        "type": "regular_grid",
+        "ranges": [[218.17, 501.9742]],  # regular grid in data range
     }
 
     config = deepcopy(
@@ -223,8 +223,9 @@ def get_bisde_est_oil():
 
     integration_config = {
         "method": "EulerMaruyama",
-        "time_step": 1,  # ?????????????
-        "num_steps": 7922,
+        # "time_length": 0.416667,  # measured in years, 5 / 12
+        "time_step": 1,  # Price change per day, per BISDE code
+        "num_steps": 7920,  # total 7921 fluctuation observations, initial state is first obs
         "steps_per_dt": STEPS_PER_DT,
         "num_paths": 1,
         "num_locations": 1024,
@@ -232,8 +233,8 @@ def get_bisde_est_oil():
     }
 
     locations_params = {
-        "type": "regular_cube",
-        "extension_perc": 0.3,
+        "type": "regular_grid",
+        "ranges": [[-14.76, 18.56]],  # regular grid in data range
     }
 
     config = deepcopy(
@@ -260,8 +261,9 @@ def get_bisde_est_wind():
 
     integration_config = {
         "method": "EulerMaruyama",
-        "time_step": 1,  # ?????????????
-        "num_steps": 26208,
+        # "time_length": 0.5,  # measured in years
+        "time_step": 1 / 6,  # wind chang per hour, measured every 10 minutes, per BISDE code
+        "num_steps": 26201,  # total 26202 fluctuation observations, initial state is first obs
         "steps_per_dt": STEPS_PER_DT,
         "num_paths": 1,
         "num_locations": 1024,
@@ -269,8 +271,8 @@ def get_bisde_est_wind():
     }
 
     locations_params = {
-        "type": "regular_cube",
-        "extension_perc": 0.3,
+        "type": "regular_grid",
+        "ranges": [[-5.7, 7.7]],  # regular grid in data range
     }
 
     config = deepcopy(
@@ -285,45 +287,45 @@ def get_bisde_est_wind():
 
 
 if __name__ == "__main__":
-    save_dir = Path(data_path) / "processed" / "test" / "20250117_wang_estimated_equations"
+    save_dir = Path(data_path) / "processed" / "test" / "20250126_wang_estimated_equations"
     target_path_length = 128
 
-    # bisde two-dimensional synthetic model
-    print("BISDE 2D synthetic")
-    bisde_est_2D_synth, integration_config, locations_params, config = get_bisde_est_2D_synth()
-    bisde_est_2D_synth_data: FIMSDEDatabatch = get_data_from_dynamical_system(bisde_est_2D_synth, integration_config, locations_params)
-    split_bisde_est_2D_synth_data: FIMSDEDatabatch = split_databatch_into_paths(bisde_est_2D_synth_data, target_path_length)
-
-    bisde_est_2D_synth_save_dir = save_dir / "bisde_est_2D_synth_80000_points_split_128_length"
-    save_fimsdedatabatch_to_files(split_bisde_est_2D_synth_data, bisde_est_2D_synth_save_dir)
-    with open(bisde_est_2D_synth_save_dir / "config.json", "w") as f:
-        json.dump(config, f)
-
-    # bisde_double_well
-    print("BISDE Double Well")
-    bisde_est_double_well, integration_config, locations_params, config = get_bisde_est_double_well()
-    bisde_est_double_well_data: FIMSDEDatabatch = get_data_from_dynamical_system(
-        bisde_est_double_well, integration_config, locations_params
-    )
-    split_bisde_est_double_well_data: FIMSDEDatabatch = split_databatch_into_paths(bisde_est_double_well_data, target_path_length)
-
-    bisde_est_double_well_save_dir = save_dir / "bisde_est_double_well_25000_points_split_128_length"
-    save_fimsdedatabatch_to_files(split_bisde_est_double_well_data, bisde_est_double_well_save_dir)
-    with open(bisde_est_double_well_save_dir / "config.json", "w") as f:
-        json.dump(config, f)
-
-    # sindy_double_well
-    print("SINDy Double Well")
-    sindy_est_double_well, integration_config, locations_params, config = get_sindy_est_double_well()
-    sindy_est_double_well_data: FIMSDEDatabatch = get_data_from_dynamical_system(
-        sindy_est_double_well, integration_config, locations_params
-    )
-    split_sindy_est_double_well_data: FIMSDEDatabatch = split_databatch_into_paths(sindy_est_double_well_data, target_path_length)
-
-    sindy_est_double_well_save_dir = save_dir / "sindy_est_double_well_25000_points_split_128_length"
-    save_fimsdedatabatch_to_files(split_sindy_est_double_well_data, sindy_est_double_well_save_dir)
-    with open(sindy_est_double_well_save_dir / "config.json", "w") as f:
-        json.dump(config, f)
+    # # bisde two-dimensional synthetic model
+    # print("BISDE 2D synthetic")
+    # bisde_est_2D_synth, integration_config, locations_params, config = get_bisde_est_2D_synth()
+    # bisde_est_2D_synth_data: FIMSDEDatabatch = get_data_from_dynamical_system(bisde_est_2D_synth, integration_config, locations_params)
+    # split_bisde_est_2D_synth_data: FIMSDEDatabatch = split_databatch_into_paths(bisde_est_2D_synth_data, target_path_length)
+    #
+    # bisde_est_2D_synth_save_dir = save_dir / "bisde_est_2D_synth_80000_points_split_128_length"
+    # save_fimsdedatabatch_to_files(split_bisde_est_2D_synth_data, bisde_est_2D_synth_save_dir)
+    # with open(bisde_est_2D_synth_save_dir / "config.json", "w") as f:
+    #     json.dump(config, f)
+    #
+    # # bisde_double_well
+    # print("BISDE Double Well")
+    # bisde_est_double_well, integration_config, locations_params, config = get_bisde_est_double_well()
+    # bisde_est_double_well_data: FIMSDEDatabatch = get_data_from_dynamical_system(
+    #     bisde_est_double_well, integration_config, locations_params
+    # )
+    # split_bisde_est_double_well_data: FIMSDEDatabatch = split_databatch_into_paths(bisde_est_double_well_data, target_path_length)
+    #
+    # bisde_est_double_well_save_dir = save_dir / "bisde_est_double_well_25000_points_split_128_length"
+    # save_fimsdedatabatch_to_files(split_bisde_est_double_well_data, bisde_est_double_well_save_dir)
+    # with open(bisde_est_double_well_save_dir / "config.json", "w") as f:
+    #     json.dump(config, f)
+    #
+    # # sindy_double_well
+    # print("SINDy Double Well")
+    # sindy_est_double_well, integration_config, locations_params, config = get_sindy_est_double_well()
+    # sindy_est_double_well_data: FIMSDEDatabatch = get_data_from_dynamical_system(
+    #     sindy_est_double_well, integration_config, locations_params
+    # )
+    # split_sindy_est_double_well_data: FIMSDEDatabatch = split_databatch_into_paths(sindy_est_double_well_data, target_path_length)
+    #
+    # sindy_est_double_well_save_dir = save_dir / "sindy_est_double_well_25000_points_split_128_length"
+    # save_fimsdedatabatch_to_files(split_sindy_est_double_well_data, sindy_est_double_well_save_dir)
+    # with open(sindy_est_double_well_save_dir / "config.json", "w") as f:
+    #     json.dump(config, f)
 
     # bisde_facebook
     print("BISDE Facebook")

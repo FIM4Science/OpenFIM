@@ -1,5 +1,5 @@
 experiment:
-  name: 30K_deg_3_drift_ablation_train_on_kl
+  name: 30K_deg_3_drift_ablation_train_on_kl_finetune_with_corrected_kl
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -114,6 +114,7 @@ model:
   loss_type: "mse" #nll, rmse, nrmse
   single_learnable_loss_scale_head: true
   detach_learnable_loss_scale_heads: true
+  data_delta_t: 0.003906  # 10 / 128 / 20
 
 
   # INFERENCE/PIPELINE ------------------------------------------------------------
@@ -185,7 +186,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
-  epochs: &epochs 700
+  epochs: &epochs 1000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 1

@@ -1423,7 +1423,12 @@ def get_file_paths(dir_paths: list[Path], file_names: dict[str, str]) -> dict[st
 
     for dir_path in dir_paths:
         for file_key, file_name in file_names.items():
-            file_paths[file_key].append(dir_path / file_name)
+            file_path = dir_path / file_name
+
+            if not file_path.exists():  # TODO: remove this, just needs to work for now
+                file_path = dir_path / "obs_values.h5"
+
+            file_paths[file_key].append(file_path)
 
     return file_paths
 

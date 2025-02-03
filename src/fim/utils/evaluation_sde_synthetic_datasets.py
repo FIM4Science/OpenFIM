@@ -29,7 +29,7 @@ from fim.utils.plots.sde_data_exploration_plots import plot_paths_in_axis
 from fim.utils.plots.sde_estimation_plots import plot_1d_vf_real_and_estimation_axes, plot_2d_vf_real_and_estimation_axes
 
 
-def _plot_1D_synthetic_data_figure_grid(
+def plot_1D_synthetic_data_figure_grid(
     locations: Tensor,  # [B, G, D]
     ground_truth_drift: Tensor,  # [B, G, D]
     ground_truth_diffusion: Tensor,  # [B, G, D]
@@ -83,18 +83,19 @@ def _plot_1D_synthetic_data_figure_grid(
             paths_label=kwargs.get("obs_paths_label", "Observed paths"),
             initial_states_label=kwargs.get("initial_states_label", "Initial states"),
         )
-        plot_paths_in_axis(
-            axs[row, 1],
-            model_paths_times[row],
-            model_paths_values[row, ..., :1],
-            color=kwargs.get("model_paths_color", "black"),
-            paths_label=kwargs.get("model_paths_label", "Model samples"),
-        )
+        if model_paths_values is not None:
+            plot_paths_in_axis(
+                axs[row, 1],
+                model_paths_times[row],
+                model_paths_values[row, ..., :1],
+                color=kwargs.get("model_paths_color", "black"),
+                paths_label=kwargs.get("model_paths_label", "Model samples"),
+            )
 
     return fig
 
 
-def _plot_2D_synthetic_data_figure_grid(
+def plot_2D_synthetic_data_figure_grid(
     locations: Tensor,  # [B, G, D]
     ground_truth_drift: Tensor,  # [B, G, D]
     ground_truth_diffusion: Tensor,  # [B, G, D]
@@ -149,18 +150,19 @@ def _plot_2D_synthetic_data_figure_grid(
             paths_label=kwargs.get("obs_paths_label", "Observed paths"),
             initial_states_label=kwargs.get("initial_states_label", "Initial states"),
         )
-        plot_paths_in_axis(
-            axs[row, 4],
-            model_paths_times[row],
-            model_paths_values[row, ..., :2],
-            color=kwargs.get("model_paths_color", "black"),
-            paths_label=kwargs.get("model_paths_label", "Model samples"),
-        )
+        if model_paths_values is not None:
+            plot_paths_in_axis(
+                axs[row, 4],
+                model_paths_times[row],
+                model_paths_values[row, ..., :2],
+                color=kwargs.get("model_paths_color", "black"),
+                paths_label=kwargs.get("model_paths_label", "Model samples"),
+            )
 
     return fig
 
 
-def _plot_3D_synthetic_data_figure_grid(
+def plot_3D_synthetic_data_figure_grid(
     locations: Tensor,  # [B, G, D]
     ground_truth_drift: Tensor,  # [B, G, D]
     ground_truth_diffusion: Tensor,  # [B, G, D]
@@ -256,11 +258,11 @@ def synthetic_data_plots(
         if data_of_dim["locations"].shape[0] != 0:
             # plot with method for each dimension
             if dim == 1:
-                grid_plot_func = _plot_1D_synthetic_data_figure_grid
+                grid_plot_func = plot_1D_synthetic_data_figure_grid
             if dim == 2:
-                grid_plot_func = _plot_2D_synthetic_data_figure_grid
+                grid_plot_func = plot_2D_synthetic_data_figure_grid
             if dim == 3:
-                grid_plot_func = _plot_3D_synthetic_data_figure_grid
+                grid_plot_func = plot_3D_synthetic_data_figure_grid
 
             fig = grid_plot_func(
                 data_of_dim["locations"],
