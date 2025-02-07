@@ -67,28 +67,16 @@ model:
     dropout: 0
     initialization_scheme: lecun_normal
 
-  Omega_1_encoder:
-    name: torch.nn.MultiheadAttention
-    embed_dim: *process_embed_dim
-    num_heads: 1
-    batch_first: true
+  functional_attention: 
+    paths_block_attention: false
+    num_res_layers: 8
+    attention:
+      nhead: 1
+      dim_feedforward: 128
 
-  Omega_2_encoder:
-    name: fim.models.blocks.MultiHeadLearnableQueryAttention
-    n_queries: 16
-    n_heads: 1
-    embed_dim: *process_embed_dim
-
-  Omega_3_encoder:
-    name: fim.models.blocks.MultiHeadLearnableQueryAttention
-    n_queries: 16
-    n_heads: 1
-    embed_dim: *process_embed_dim
-
-  Omega_4_encoder:
-    name: fim.models.blocks.MultiHeadLearnableQueryAttention
-    n_queries: 16
-    n_heads: 1
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: [128,128]
 
   kernel_value_decoder:
     name: fim.models.blocks.base.MLP
