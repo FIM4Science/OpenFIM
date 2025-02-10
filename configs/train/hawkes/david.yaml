@@ -22,9 +22,9 @@ dataset:
       - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/val
 
   loader_kwargs:
-    batch_size: 3
+    batch_size: 16
     num_workers: 8
-    test_batch_size: 3
+    test_batch_size: 1
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"
