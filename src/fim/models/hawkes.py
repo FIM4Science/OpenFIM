@@ -201,6 +201,7 @@ class FIMHawkes(AModel):
         }
         if "base_intensities" in x and "kernel_evaluations" in x:
             out["losses"] = self.loss(
+                x["kernel_grids"],
                 predicted_kernel_values,
                 predicted_base_intensity,
                 predicted_kernel_decay,
@@ -215,7 +216,7 @@ class FIMHawkes(AModel):
     def _encode_observations(self, x: dict) -> Tensor:
         obs_grid_normalized = x["observation_grid_normalized"]
         
-        encodings_per_event_mark = self.mark_encoder(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)], device=self.device), num_classes=self.num_marks).float())
+        encodings_per_event_mark = self.mark_encoder(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float())
         B, P, L = obs_grid_normalized.shape[:3]
 
         # FIXME: Do this inside the dataloader
@@ -236,7 +237,7 @@ class FIMHawkes(AModel):
         kernel_grids = x["kernel_grids"]  # TODO: Dont work with the full grid
         (B, M, L_kernel) = kernel_grids.shape
         time_encodings = self.kernel_time_encoder(kernel_grids.reshape(B * M * L_kernel, -1))
-        encodings_per_event_mark = self.evaluation_mark_encoder(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)], device=self.device), num_classes=self.num_marks).float())
+        encodings_per_event_mark = self.evaluation_mark_encoder(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float())
         marks = torch.arange(M, device=self.device).repeat_interleave(L_kernel).repeat(B)
         mark_encodings = encodings_per_event_mark[marks]
         return torch.cat([time_encodings, mark_encodings], dim=-1).view(B, M, L_kernel, -1)
@@ -254,7 +255,7 @@ class FIMHawkes(AModel):
         Apply functional attention to obtain a static summary of the paths.
         """
         (B, M, _) = x["kernel_grids"].shape
-        learnable_queries = self.static_functional_attention_learnable_query(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)], device=self.device), num_classes=self.num_marks).float()) # [M, D]
+        learnable_queries = self.static_functional_attention_learnable_query(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float()) # [M, D]
         # Stack B learnable_queries together to reshape to [B, M, D]
         learnable_queries = learnable_queries.repeat(B, 1).view(B, M, -1)
         return self.static_functional_attention(learnable_queries, sequence_encodings)  # [B, M, D]        
@@ -280,6 +281,7 @@ class FIMHawkes(AModel):
 
     def loss(
         self,
+        kernel_grid: Tensor,
         predicted_kernel_values: Tensor,
         predicted_base_intensity: Tensor,
         predicted_kernel_decay: Tensor,
@@ -292,21 +294,18 @@ class FIMHawkes(AModel):
         assert target_kernel_values.shape == predicted_kernel_values.shape
         assert target_base_intensity.shape == predicted_base_intensity.shape
 
-        predicted_kernel_function = predicted_kernel_values * torch.exp(-predicted_kernel_decay.unsqueeze(-1))
+        predicted_kernel_function = predicted_kernel_values # * torch.exp(-predicted_kernel_decay.unsqueeze(-1) * kernel_grid)
 
         kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2))
         base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2))
-
+        
         # print("Prediction", predicted_kernel_function)
         # print("Target", target_kernel_values)
 
-        loss_1 = kernel_rmse + base_intensity_rmse
-
-        loss = loss_1
+        loss = kernel_rmse + base_intensity_rmse
 
         return {
             "loss": loss,
-            "loss_1": loss_1,
             "kernel_rmse": kernel_rmse,
             "base_intensity_rmse": base_intensity_rmse,
         }
