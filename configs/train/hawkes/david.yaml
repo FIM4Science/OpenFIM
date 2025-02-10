@@ -34,7 +34,7 @@ dataset:
       kernel_grids: "kernel_grids.pt"
     # data_limit: 10
 
-rnn_embed_dim: &rnn_embed_dim 128 # Has to be half of path_embed_dim for bidirectional LSTM
+rnn_embed_dim: &rnn_embed_dim 256
 path_embed_dim: &path_embed_dim 256
 process_embed_dim: &process_embed_dim 256
 
@@ -42,12 +42,23 @@ model:
   model_type: fimhawkes
   num_marks: &num_marks 5
 
-  time_encodings:
-    name: fim.models.blocks.positional_encodings.DeltaTimeEncoding
+  mark_encoder:
+    name: torch.nn.Linear
+    out_features: *path_embed_dim
 
-  event_type_embedding:
-    name: fim.models.blocks.IdentityBlock
-    out_features: *num_marks
+  time_encoder:
+    name: torch.nn.Linear
+    out_features: *path_embed_dim
+
+  delta_time_encoder:
+    name: torch.nn.Linear
+    out_features: *path_embed_dim
+
+  kernel_time_encoder:
+    name: torch.nn.Linear
+
+  evaluation_mark_encoder:
+    name: torch.nn.Linear
 
   ts_encoder:
     name: fim.models.blocks.RNNEncoder
@@ -56,43 +67,41 @@ model:
       name: torch.nn.LSTM
       hidden_size: *rnn_embed_dim
       batch_first: true
-      bidirectional: true
+      bidirectional: false
 
-  trunk_net:
-    name: fim.models.blocks.base.MLP
-    out_features: *path_embed_dim
-    hidden_layers: !!python/tuple [128, 128]
-    hidden_act:
-      name: torch.nn.SELU
-    dropout: 0
-    initialization_scheme: lecun_normal
-
-  functional_attention: 
+  time_dependent_functional_attention:
     paths_block_attention: false
     num_res_layers: 8
     attention:
       nhead: 1
-      dim_feedforward: 128
-
     projection:
       name: fim.models.blocks.base.MLP
-      hidden_layers: [128,128]
+      hidden_layers: !!python/tuple [128, 128]
+
+  static_functional_attention:
+    paths_block_attention: false
+    num_res_layers: 8
+    attention:
+      nhead: 1
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: !!python/tuple [128, 128]
+
+  static_functional_attention_learnable_query:
+    name: torch.nn.Linear
+    out_features: *path_embed_dim
 
   kernel_value_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [128, 128]
-    hidden_act:
-      name: torch.nn.SELU
-    dropout: 0
-    initialization_scheme: lecun_normal
 
-  kernel_parameter_decoder:
+  base_intensity_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [128, 128]
-    hidden_act:
-      name: torch.nn.SELU
-    dropout: 0
-    initialization_scheme: lecun_normal
+
+  decay_parameter_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [128, 128]
 
 trainer:
   name: Trainer
