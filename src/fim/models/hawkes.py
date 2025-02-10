@@ -11,6 +11,7 @@ from fim.models.blocks import MultiHeadLearnableQueryAttention
 from ..utils.helper import create_class_instance
 from ..utils.logging import RankLoggerAdapter
 from .blocks import AModel, ModelFactory, RNNEncoder
+from .blocks.neural_operators import AttentionOperator
 
 
 class FIMHawkesConfig(PretrainedConfig):
@@ -98,12 +99,19 @@ class FIMHawkes(AModel):
         kernel_value_decoder = copy.deepcopy(self.config.kernel_value_decoder)
         base_intensity_decoder = copy.deepcopy(self.config.base_intensity_decoder)
         decay_parameter_decoder = copy.deepcopy(self.config.decay_parameter_decoder)
-        
+           
 
+        mark_encoder["in_features"] = self.num_marks
         self.mark_encoder = create_class_instance(mark_encoder.pop("name"), mark_encoder)
+        time_encoder["in_features"] = 1
         self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
+        delta_time_encoder["in_features"] = 1
         self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
+        kernel_time_encoder["in_features"] = 1
+        kernel_time_encoder["out_features"] = self.time_encoder.out_features//2 # Since we stack time and mark encodings
         self.kernel_time_encoder = create_class_instance(kernel_time_encoder.pop("name"), kernel_time_encoder)
+        evaluation_mark_encoder["in_features"] = self.num_marks
+        evaluation_mark_encoder["out_features"] = self.mark_encoder.out_features//2
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
         
         time_point_embedd_dim = self.mark_encoder.out_features + self.time_encoder.out_features + self.delta_time_encoder.out_features
@@ -113,27 +121,26 @@ class FIMHawkes(AModel):
             ts_encoder["encoder_layer"]["input_size"] = time_point_embedd_dim
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
         
-        time_dependent_functional_attention["embed_dim"] = self.ts_encoder.out_features
-        time_dependent_functional_attention["out_features"] = self.ts_encoder.out_features
-        self.time_dependent_functional_attention = create_class_instance(time_dependent_functional_attention.pop("name"), time_dependent_functional_attention)
+        self.time_dependent_functional_attention = AttentionOperator(
+            embed_dim=self.ts_encoder.out_features, out_features=self.ts_encoder.out_features, **time_dependent_functional_attention
+        )
         
-        static_functional_attention["embed_dim"] = self.ts_encoder.out_features
-        static_functional_attention["out_features"] = self.ts_encoder.out_features
-        self.static_functional_attention = create_class_instance(static_functional_attention.pop("name"), static_functional_attention)
+        self.static_functional_attention = AttentionOperator(
+            embed_dim=self.ts_encoder.out_features, out_features=self.ts_encoder.out_features, **static_functional_attention
+        )
         
-        query_dim = self.kernel_time_encoder.out_features + self.evaluation_mark_encoder.out_features
-        static_functional_attention_learnable_query["in_features"] = query_dim
+        static_functional_attention_learnable_query["in_features"] = self.num_marks
         self.static_functional_attention_learnable_query = create_class_instance(static_functional_attention_learnable_query.pop("name"), static_functional_attention_learnable_query)
 
-        kernel_value_decoder["in_features"] = query_dim
+        kernel_value_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
         kernel_value_decoder["out_features"] = 1
         self.kernel_value_decoder = create_class_instance(kernel_value_decoder.pop("name"), kernel_value_decoder)
 
-        base_intensity_decoder["in_features"] = query_dim
+        base_intensity_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
         base_intensity_decoder["out_features"] = 1
         self.base_intensity_decoder = create_class_instance(base_intensity_decoder.pop("name"), base_intensity_decoder)
         
-        decay_parameter_decoder["in_features"] = query_dim
+        decay_parameter_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
         decay_parameter_decoder["out_features"] = 1
         self.decay_parameter_decoder = create_class_instance(decay_parameter_decoder.pop("name"), decay_parameter_decoder)
 
@@ -160,6 +167,8 @@ class FIMHawkes(AModel):
         """
         obs_grid = x["event_times"]
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
+        # Add a delta time of 0 for the first event
+        x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
         if "time_normalization_factors" not in x:
             norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid)
             x["time_normalization_factors"] = norm_constants
@@ -173,17 +182,17 @@ class FIMHawkes(AModel):
         x["kernel_evaluations"] = x["kernel_evaluations"][:, :, ::10]
         # self.logger.warning("Kernel grids and evaluations are truncated to 10!")
 
-        sequence_encodings = self.__encode_observations(x)  # [B, P, L, D]
+        sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
 
         time_dependent_encodings = self._time_dependent_encoder(x, sequence_encodings)  # [B, M, L_kernel, D]
         
         static_encodings = self._static_encoder(x, sequence_encodings)  # [B, M, D]
     
-        predicted_kernel_values = self.__kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
+        predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
 
         predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
        
-        predicted_kernel_decay = torch.exp(self.decay_parameter_decoder(static_encodings))  # [B, M]
+        predicted_kernel_decay = torch.exp(self._decay_parameter_decoder(static_encodings))  # [B, M]
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,
@@ -203,10 +212,10 @@ class FIMHawkes(AModel):
 
         return out
 
-    def __encode_observations(self, x: dict) -> Tensor:
+    def _encode_observations(self, x: dict) -> Tensor:
         obs_grid_normalized = x["observation_grid_normalized"]
         
-        encodings_per_event_mark = self.mark_encoder(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)]), num_classes=self.num_marks))
+        encodings_per_event_mark = self.mark_encoder(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)], device=self.device), num_classes=self.num_marks).float())
         B, P, L = obs_grid_normalized.shape[:3]
 
         # FIXME: Do this inside the dataloader
@@ -216,27 +225,27 @@ class FIMHawkes(AModel):
         time_enc = self.time_encoder(obs_grid_normalized)
         delta_time_enc = self.delta_time_encoder(x["delta_times"])
         # Select encoding from encodings_per_event_mark from event_types
-        state_enc = encodings_per_event_mark[x["event_types"].view(-1)].view(B, P, L, -1)
+        state_enc = encodings_per_event_mark[x["event_types"].view(-1).int()].view(B, P, L, -1)
         path = torch.cat([time_enc, delta_time_enc, state_enc], dim=-1)
         assert isinstance(self.ts_encoder, RNNEncoder)
         h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
 
         return h.view(B, P, L, -1)
 
-    def __trunk_net_encoder(self, x: dict) -> Tensor:
+    def _trunk_net_encoder(self, x: dict) -> Tensor:
         kernel_grids = x["kernel_grids"]  # TODO: Dont work with the full grid
         (B, M, L_kernel) = kernel_grids.shape
         time_encodings = self.kernel_time_encoder(kernel_grids.reshape(B * M * L_kernel, -1))
-        encodings_per_event_mark = self.evaluation_mark_encoder(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)]), num_classes=self.num_marks))
-        encodings_per_event_mark = encodings_per_event_mark.unsqueeze(0).unsqueeze(0).expand(B, M, L_kernel, -1)
-        breakpoint()
-        return torch.cat([time_encodings, encodings_per_event_mark], dim=-1)
+        encodings_per_event_mark = self.evaluation_mark_encoder(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)], device=self.device), num_classes=self.num_marks).float())
+        marks = torch.arange(M, device=self.device).repeat_interleave(L_kernel).repeat(B)
+        mark_encodings = encodings_per_event_mark[marks]
+        return torch.cat([time_encodings, mark_encodings], dim=-1).view(B, M, L_kernel, -1)
 
     def _time_dependent_encoder(self, x: dict, sequence_encodings: Tensor) -> Tensor:
         """
         Apply functional attention to obtain a time dependent summary of the paths.
         """
-        trunk_net_encodings = self.__trunk_net_encoder(x)  # [B, M, L_kernel, D]
+        trunk_net_encodings = self._trunk_net_encoder(x)  # [B, M, L_kernel, D]
         B, M, L_kernel, D = trunk_net_encodings.shape
         return self.time_dependent_functional_attention(trunk_net_encodings.view(B, M*L_kernel, -1), sequence_encodings).view(B, M, L_kernel, -1) # [B, M, L_kernel, D]
 
@@ -245,9 +254,9 @@ class FIMHawkes(AModel):
         Apply functional attention to obtain a static summary of the paths.
         """
         (B, M, _) = x["kernel_grids"].shape
-        learnable_queries = self.static_functional_attention_learnable_query(torch.tensor([i for i in range(self.num_marks)]).view(-1, 1)) # [M, D]
-        # Reshape to [B, M, D]
-        learnable_queries = learnable_queries.unsqueeze(0).expand(B, M, -1)
+        learnable_queries = self.static_functional_attention_learnable_query(torch.nn.functional.one_hot(torch.tensor([i for i in range(self.num_marks)], device=self.device), num_classes=self.num_marks).float()) # [M, D]
+        # Stack B learnable_queries together to reshape to [B, M, D]
+        learnable_queries = learnable_queries.repeat(B, 1).view(B, M, -1)
         return self.static_functional_attention(learnable_queries, sequence_encodings)  # [B, M, D]        
 
     def _kernel_value_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
@@ -279,10 +288,7 @@ class FIMHawkes(AModel):
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        B, M, L_kernel, M = predicted_kernel_values.shape
-        # Select the state to which the corresponding kernel evaluation belongs since kernel_value_decoder predicts for all states
-        idx = torch.arange(M, device=predicted_kernel_values.device).view(1, M, 1, 1)
-        predicted_kernel_values = predicted_kernel_values.gather(3, idx.repeat(B, 1, L_kernel, 1)).squeeze(-1)
+        B, M, L_kernel = predicted_kernel_values.shape
         assert target_kernel_values.shape == predicted_kernel_values.shape
         assert target_base_intensity.shape == predicted_base_intensity.shape
 
