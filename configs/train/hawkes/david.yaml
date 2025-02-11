@@ -16,10 +16,14 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/train
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
+      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_shifted_500_paths_100_events/train
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/val
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/val
+      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_shifted_500_paths_100_events/val
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
 
   loader_kwargs:
     batch_size: 16
