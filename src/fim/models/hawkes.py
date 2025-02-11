@@ -155,7 +155,7 @@ class FIMHawkes(AModel):
                 - Optional keys for loss calculation:
                     - "base_intensities": Tensor representing the ground truth base intensity.
                     - "kernel_evaluations": Tensor representing the ground truth kernel evaluation values.
-                    - "mask_seq_lengths": Tensor representing the sequence lengths (which we use for masking).
+                    - "seq_lengths": Tensor representing the sequence lengths (which we use for masking).
             schedulers (dict, optional): A dictionary of schedulers for the training process. Default is None.
             step (int, optional): The current step in the training process. Default is None.
         Returns:
@@ -165,9 +165,17 @@ class FIMHawkes(AModel):
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
         obs_grid = x["event_times"]
+        B, P, L = obs_grid.shape[:3]
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
         # Add a delta time of 0 for the first event
         x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
+        
+        # FIXME: Do this inside the dataloader
+        x["seq_lengths"] = torch.tensor([L] * B * P, device=self.device)
+        x["seq_lengths"] = x["seq_lengths"].view(B, P)
+        
+        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1) # [B, P, L, 1]
+        
         if "time_normalization_factors" not in x:
             norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid)
             x["time_normalization_factors"] = norm_constants
@@ -183,9 +191,9 @@ class FIMHawkes(AModel):
 
         sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
 
-        time_dependent_encodings = self._time_dependent_encoder(x, sequence_encodings)  # [B, M, L_kernel, D]
+        time_dependent_encodings = self._time_dependent_encoder(x, sequence_encodings, observations_padding_mask=observations_padding_mask)  # [B, M, L_kernel, D]
         
-        static_encodings = self._static_encoder(x, sequence_encodings)  # [B, M, D]
+        static_encodings = self._static_encoder(x, sequence_encodings, observations_padding_mask=observations_padding_mask)  # [B, M, D]
     
         predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
 
@@ -219,10 +227,6 @@ class FIMHawkes(AModel):
         encodings_per_event_mark = self.mark_encoder(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float())
         B, P, L = obs_grid_normalized.shape[:3]
 
-        # FIXME: Do this inside the dataloader
-        x["seq_lengths"] = torch.tensor([L] * B * P, device=self.device)
-        x["seq_lengths"] = x["seq_lengths"].view(B, P)
-
         time_enc = self.time_encoder(obs_grid_normalized)
         delta_time_enc = self.delta_time_encoder(x["delta_times"])
         # Select encoding from encodings_per_event_mark from event_types
@@ -254,15 +258,15 @@ class FIMHawkes(AModel):
         mark_encodings = encodings_per_event_mark[marks]
         return torch.cat([time_encodings, mark_encodings], dim=-1).view(B, M, L_kernel, -1)
 
-    def _time_dependent_encoder(self, x: dict, sequence_encodings: Tensor) -> Tensor:
+    def _time_dependent_encoder(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
         """
         Apply functional attention to obtain a time dependent summary of the paths.
         """
         trunk_net_encodings = self._trunk_net_encoder(x)  # [B, M, L_kernel, D]
         B, M, L_kernel, D = trunk_net_encodings.shape
-        return self.time_dependent_functional_attention(trunk_net_encodings.view(B, M*L_kernel, -1), sequence_encodings).view(B, M, L_kernel, -1) # [B, M, L_kernel, D]
+        return self.time_dependent_functional_attention(trunk_net_encodings.view(B, M*L_kernel, -1), sequence_encodings, observations_padding_mask=observations_padding_mask).view(B, M, L_kernel, -1) # [B, M, L_kernel, D]
 
-    def _static_encoder(self, x: dict, sequence_encodings: Tensor) -> Tensor:
+    def _static_encoder(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
         """
         Apply functional attention to obtain a static summary of the paths.
         """
@@ -270,7 +274,7 @@ class FIMHawkes(AModel):
         learnable_queries = self.static_functional_attention_learnable_query(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float()) # [M, D]
         # Stack B learnable_queries together to reshape to [B, M, D]
         learnable_queries = learnable_queries.repeat(B, 1).view(B, M, -1)
-        return self.static_functional_attention(learnable_queries, sequence_encodings)  # [B, M, D]        
+        return self.static_functional_attention(learnable_queries, sequence_encodings, observations_padding_mask=observations_padding_mask)  # [B, M, D]        
 
     def _kernel_value_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
         B, M, L_kernel, D_3 = time_dependent_path_summary.shape
