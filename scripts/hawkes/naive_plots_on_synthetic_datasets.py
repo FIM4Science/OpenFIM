@@ -7,8 +7,8 @@ import torch
 from fim.utils.experiment_files import ExperimentsFiles
 from fim.models.hawkes import FIMHawkes
 
-DATASET_DIR = Path("data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/test")
-EXPERIMENT_DIR = Path("results/FIM_Hawkes_1k_5_st_exp_500_paths_100_events_bigger_model-experiment-seed-10_02-10-1551")
+DATASET_DIR = Path("data/synthetic_data/hawkes/1K_5_st_hawkes_exp_squared_500_paths_100_events/test")
+EXPERIMENT_DIR = Path("results/FIM_Hawkes_1k_5_st_exp_500_paths_100_events_bigger_model-experiment-seed-10_02-10-1750")
 num_batches = 5
 
 def load_pt_in_dir(dir_path: Path):
@@ -29,8 +29,8 @@ def plot_model_predictions_and_true_values(model_predictions, data):
         if isinstance(v, torch.Tensor):
             data[k] = v.detach().cpu().numpy()
     B, M, T = model_predictions["predicted_kernel_values"].shape
-    predicted_kernel_function = model_predictions["predicted_kernel_values"] * np.exp(-model_predictions["predicted_kernel_decay"][:,:,None] * data["kernel_grids"]) # + model_predictions["predicted_base_intensity"]
-    ground_truth_kernel_function = data["kernel_evaluations"] # + data["base_intensities"]
+    predicted_kernel_function = model_predictions["predicted_kernel_values"] + model_predictions["predicted_base_intensity"][:,:,None]
+    ground_truth_kernel_function = data["kernel_evaluations"] + data["base_intensities"][:,:,None]
     # Use B as rows and M as columns
     fig, axs = plt.subplots(B, M, figsize=(10, 10))
     for b in range(B):

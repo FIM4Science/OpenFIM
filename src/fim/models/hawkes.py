@@ -120,6 +120,8 @@ class FIMHawkes(AModel):
         if ts_encoder["name"] == "fim.models.blocks.RNNEncoder":
             ts_encoder["encoder_layer"]["input_size"] = time_point_embedd_dim
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
+        psi_1_transformer_layer = ResidualEncoderLayer(d_model=config.model_embedding_size, batch_first=True, **layer_config)
+        self.psi_1 = nn.TransformerEncoder(psi_1_transformer_layer, num_layers=num_layers)
         
         self.time_dependent_functional_attention = AttentionOperator(
             embed_dim=self.ts_encoder.out_features, out_features=self.ts_encoder.out_features, **time_dependent_functional_attention
@@ -192,7 +194,8 @@ class FIMHawkes(AModel):
 
         predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
        
-        predicted_kernel_decay = torch.exp(self._decay_parameter_decoder(static_encodings))  # [B, M]
+        predicted_kernel_decay = None
+        # predicted_kernel_decay = torch.exp(self._decay_parameter_decoder(static_encodings))  # [B, M]
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,
