@@ -115,20 +115,17 @@ class FIMHawkes(AModel):
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
         
         time_point_embedd_dim = self.mark_encoder.out_features + self.time_encoder.out_features + self.delta_time_encoder.out_features
-        if "d_model" in ts_encoder["encoder_layer"]:
-            ts_encoder["encoder_layer"]["d_model"] = time_point_embedd_dim
-        if ts_encoder["name"] == "fim.models.blocks.RNNEncoder":
-            ts_encoder["encoder_layer"]["input_size"] = time_point_embedd_dim
+        self.event_embedding = nn.Linear(time_point_embedd_dim, self.delta_time_encoder.out_features) # We use three embeddings so we have to downscale
+        ts_encoder["encoder_layer"]["d_model"] = self.event_embedding.out_features
         self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
-        psi_1_transformer_layer = ResidualEncoderLayer(d_model=config.model_embedding_size, batch_first=True, **layer_config)
-        self.psi_1 = nn.TransformerEncoder(psi_1_transformer_layer, num_layers=num_layers)
+        
         
         self.time_dependent_functional_attention = AttentionOperator(
-            embed_dim=self.ts_encoder.out_features, out_features=self.ts_encoder.out_features, **time_dependent_functional_attention
+            embed_dim=self.event_embedding.out_features, out_features=self.event_embedding.out_features, **time_dependent_functional_attention
         )
         
         self.static_functional_attention = AttentionOperator(
-            embed_dim=self.ts_encoder.out_features, out_features=self.ts_encoder.out_features, **static_functional_attention
+            embed_dim=self.event_embedding.out_features, out_features=self.event_embedding.out_features, **static_functional_attention
         )
         
         static_functional_attention_learnable_query["in_features"] = self.num_marks
@@ -231,8 +228,20 @@ class FIMHawkes(AModel):
         # Select encoding from encodings_per_event_mark from event_types
         state_enc = encodings_per_event_mark[x["event_types"].view(-1).int()].view(B, P, L, -1)
         path = torch.cat([time_enc, delta_time_enc, state_enc], dim=-1)
-        assert isinstance(self.ts_encoder, RNNEncoder)
-        h = self.ts_encoder(path.view(B * P, L, -1), x["seq_lengths"].view(B * P))
+        path = self.event_embedding(path)
+        causal_mask = torch.triu(torch.ones(L, L),diagonal=1).bool().to(self.device)
+        causal_mask = causal_mask.repeat(B, P, 1, 1)
+                
+        positions = torch.arange(L, device=self.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # (1, 1, L, 1)
+
+        # Expand seq_lengths to (B, P, 1, 1) and compare with positions to create padding mask
+        padding_mask = positions >= x["seq_lengths"].unsqueeze(-1).unsqueeze(-1)  # (B, P, L, 1)
+        padding_mask = padding_mask.expand(-1, -1, -1, L)  # (B, P, L, L)
+
+        # Combine causal mask with padding mask
+        mask = causal_mask | padding_mask
+                
+        h = self.ts_encoder(path.view(B * P, L, -1), mask=mask.view(B*P, L, L), is_causal=True)
 
         return h.view(B, P, L, -1)
 
@@ -315,6 +324,11 @@ class FIMHawkes(AModel):
 
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)
+    
+    def _generate_padding_mask(self, sequence_lengths, L):
+        B, P = sequence_lengths.shape
+        mask = torch.arange(L).expand(B, P, L).to(self.device) >= sequence_lengths.unsqueeze(-1)
+        return mask
 
 
 ModelFactory.register(FIMHawkesConfig.model_type, FIMHawkes)

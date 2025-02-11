@@ -16,17 +16,17 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
+      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/train
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_shifted_500_paths_100_events/train
-      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
+      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/val
+      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/val
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_shifted_500_paths_100_events/val
-      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
+      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
 
   loader_kwargs:
-    batch_size: 16
+    batch_size: 7
     num_workers: 8
     test_batch_size: 1
   dataset_kwargs:
@@ -65,13 +65,14 @@ model:
     name: torch.nn.Linear
 
   ts_encoder:
-    name: fim.models.blocks.RNNEncoder
+    name: torch.nn.TransformerEncoder
+    num_layers: 4
 
     encoder_layer:
-      name: torch.nn.LSTM
-      hidden_size: *rnn_embed_dim
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.1
+      nhead: 4
       batch_first: true
-      bidirectional: false
 
   time_dependent_functional_attention:
     paths_block_attention: false
