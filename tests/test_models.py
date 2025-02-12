@@ -230,7 +230,7 @@ class TestFIMHawkes5ST:
 
     @pytest.fixture
     def config(self):
-        conf_path = Path("test_data/config/hawkes/mini_5_st.yaml")
+        conf_path = Path("tests/resources/config/hawkes/mini_5_st.yaml")
         train_config = load_yaml(conf_path, True)
         return train_config
 
