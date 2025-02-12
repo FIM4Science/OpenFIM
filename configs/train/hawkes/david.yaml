@@ -16,14 +16,14 @@ dataset:
   name: FIMDataLoader
   path_collections:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/train
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_shifted_500_paths_100_events/train
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/train
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1K_5_st_hawkes_exp_500_paths_100_events/val
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_shifted_500_paths_100_events/val
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/val
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/val
+      - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
 
   loader_kwargs:
     batch_size: 7
@@ -38,25 +38,22 @@ dataset:
       kernel_grids: "kernel_grids.pt"
     # data_limit: 10
 
-rnn_embed_dim: &rnn_embed_dim 256
-path_embed_dim: &path_embed_dim 256
-process_embed_dim: &process_embed_dim 256
-
 model:
   model_type: fimhawkes
   num_marks: &num_marks 5
+  hidden_dim: &hidden_dim 256
 
   mark_encoder:
     name: torch.nn.Linear
-    out_features: *path_embed_dim
+    out_features: *hidden_dim
 
   time_encoder:
     name: torch.nn.Linear
-    out_features: *path_embed_dim
+    out_features: *hidden_dim
 
   delta_time_encoder:
     name: torch.nn.Linear
-    out_features: *path_embed_dim
+    out_features: *hidden_dim
 
   kernel_time_encoder:
     name: torch.nn.Linear
@@ -94,17 +91,13 @@ model:
 
   static_functional_attention_learnable_query:
     name: torch.nn.Linear
-    out_features: *path_embed_dim
+    out_features: *hidden_dim
 
   kernel_value_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [128, 128]
 
   base_intensity_decoder:
-    name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [128, 128]
-
-  decay_parameter_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [128, 128]
 
