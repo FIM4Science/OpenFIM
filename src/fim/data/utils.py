@@ -273,6 +273,32 @@ def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int,
     return torch.tensor(path_counts)
 
 
+def sample_random_integers_from_exponential(a, b, scale=1, size=1):
+    """
+    Sample random integers between a and b from an exponential distribution.
+
+    Parameters:
+    a (int): The lower bound of the range (inclusive).
+    b (int): The upper bound of the range (inclusive).
+    scale (float): The scale parameter (1/lambda) of the exponential distribution.
+    size (int): The number of random samples to generate.
+
+    Returns:
+    numpy.ndarray: An array of random integers sampled from an exponential distribution within [a, b].
+    """
+    # Generate samples from an exponential distribution
+    samples = np.random.exponential(scale, size=size)
+    
+    # Normalize and scale samples to be within the range [a, b]
+    scaled_samples = np.interp(samples, (samples.min(), samples.max()), (a, b))
+    
+    # Round to nearest integer and clip to ensure within [a, b]
+    random_integers = np.rint(scaled_samples).astype(int)
+    random_integers = np.clip(random_integers, a, b)
+    
+    return random_integers
+
+
 def load_file(file_path):
     """
     Load a file based on its file extension.

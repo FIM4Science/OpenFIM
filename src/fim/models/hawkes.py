@@ -160,7 +160,11 @@ class FIMHawkes(AModel):
         """
         obs_grid = x["event_times"]
         B, P, L = obs_grid.shape[:3]
-        print("Number of paths: ", P)
+        print("P", P)
+        if "seq_lengths" in x:
+            print("x[seq_lengths].shape", x["seq_lengths"].shape)
+            print("x[seq_lengths]: ", x["seq_lengths"])
+
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
         # Add a delta time of 0 for the first event
         x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
