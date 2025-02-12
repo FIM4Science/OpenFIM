@@ -241,7 +241,7 @@ def repeat_for_dim(t, process_dim):
     return torch.concat([t for _ in range(process_dim)], dim=0)
 
 
-def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int, max_number_of_minibatch_sizes: int = 10) -> list:
+def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int, max_number_of_minibatch_sizes: int = 10, min_path_count: int = 1) -> list:
     """
     Calculate the path counts for minibatches.
 
@@ -250,6 +250,7 @@ def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int,
         minibatch_size (int): The size of each minibatch.
         max_path_count (int): The maximum path count.
         max_number_of_minibatch_sizes (int, optional): The maximum number of minibatches with different path sizes. Defaults to 10.
+        min_path_count (int, optional): The minimum path count. Defaults to 1.
 
     Returns:
         torch.Tensor: A tensor containing the path counts for each minibatch.
@@ -261,7 +262,7 @@ def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int,
     if num_examples % minibatch_size != 0:
         num_minibatches += 1
 
-    path_counts = list(np.arange(1, max_path_count + 1, max_path_count // max_number_of_minibatch_sizes))
+    path_counts = list(np.arange(min_path_count, max_path_count + 1, (max_path_count-min_path_count+1) // max_number_of_minibatch_sizes))
     path_counts *= num_minibatches // len(path_counts)
     if len(path_counts) == 0:
         raise ValueError("Not enough minibatches to distribute paths evenly. We have not implemented this case yet.")

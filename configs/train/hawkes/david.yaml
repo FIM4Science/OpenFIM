@@ -29,6 +29,10 @@ dataset:
     batch_size: 7
     num_workers: 8
     test_batch_size: 1
+    min_path_count: 100
+    max_path_count: 500
+    max_number_of_minibatch_sizes: 10
+    variable_num_of_paths: true
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"

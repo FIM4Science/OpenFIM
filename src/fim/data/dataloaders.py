@@ -143,6 +143,7 @@ class BaseDataLoader:
 class FIMDataLoader(BaseDataLoader):
     def __init__(self, path_collections: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
         self.max_path_count = loader_kwargs.pop("max_path_count", None)
+        self.min_path_count = loader_kwargs.pop("min_path_count", 1)
         self.max_number_of_minibatch_sizes = loader_kwargs.pop("max_number_of_minibatch_sizes", None)
         self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
         self.current_minibatch_index = 0
@@ -161,7 +162,8 @@ class FIMDataLoader(BaseDataLoader):
                     len(self.dataset[name]),
                     self.batch_size * dist.get_world_size() if is_distributed() else self.batch_size,
                     self.max_path_count,
-                    self.max_number_of_minibatch_sizes,
+                    max_number_of_minibatch_sizes=self.max_number_of_minibatch_sizes,
+                    min_path_count=self.min_path_count
                 )
                 if loader_kwargs.get("num_workers", 0) > 0:
                     self.worker_minibatch_paths = self._distribute_path_sizes(self.num_paths_for_batch, loader_kwargs["num_workers"])
