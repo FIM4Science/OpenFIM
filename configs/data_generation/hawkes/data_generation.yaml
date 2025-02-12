@@ -1,11 +1,11 @@
 process_type: &process_type "hawkes" # hawkes, mjp, etc.
-dataset_name: &dataset_name "1K_5_st_hawkes_exp_sin_500_paths_100_events"
+dataset_name: &dataset_name "10K_5_st_hawkes_exp_squared_500_paths_100_events"
 
 data_generator:
   class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesDatasetGenerator
-  num_samples_train: &num_samples_train 1_000
-  num_samples_val: &num_samples_val 100
-  num_samples_test: &num_samples_test 100
+  num_samples_train: &num_samples_train 10_000
+  num_samples_val: &num_samples_val 1_000
+  num_samples_test: &num_samples_test 1_000
   num_paths: 500
   n_events_per_path: 100
   num_procs: 16
@@ -43,18 +43,8 @@ data_generator:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
       #     low: 0.1
       #     high: 1
-      # exponential_squared:
-      #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSquaredKernelFunctionSampler
-      #   a_0_sampler:
-      #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
-      #     high: 1
-      #   a_1_sampler:
-      #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
-      #     high: 1
-      exponential_sin:
-        class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSinKernelFunctionSampler
+      exponential_squared:
+        class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSquaredKernelFunctionSampler
         a_0_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
           low: 0.1
@@ -63,10 +53,20 @@ data_generator:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
           low: 0.1
           high: 1
-        a_2_sampler:
-          class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 0.1
-          high: 1
+      # exponential_sin:
+      #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSinKernelFunctionSampler
+      #   a_0_sampler:
+      #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      #   a_1_sampler:
+      #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
+      #   a_2_sampler:
+      #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
+      #     low: 0.1
+      #     high: 1
 
 data_saver:
   class_path: fim.data_generation.data_saver.DataSaver

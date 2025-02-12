@@ -8,7 +8,7 @@ from fim.utils.experiment_files import ExperimentsFiles
 from fim.models.hawkes import FIMHawkes
 
 DATASET_DIR = Path("data/synthetic_data/hawkes/1K_5_st_hawkes_exp_sin_500_paths_100_events/test")
-EXPERIMENT_DIR = Path("results/FIM_Hawkes_1k_5_st_exp_500_paths_100_events_bigger_model-experiment-seed-10_02-10-1750")
+EXPERIMENT_DIR = Path("results/FIM_Hawkes_1k_5_st_exp_500_paths_100_events_bigger_model-experiment-seed-10_02-11-1942")
 num_batches = 5
 
 def load_pt_in_dir(dir_path: Path):
