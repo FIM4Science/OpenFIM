@@ -13,7 +13,7 @@ distributed:
   activation_chekpoint: false
 
 dataset:
-  name: FIMDataLoader
+  name: HawkesDataLoader
   path_collections:
     train: !!python/tuple
       - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
@@ -33,6 +33,9 @@ dataset:
     max_path_count: 500
     max_number_of_minibatch_sizes: 10
     variable_num_of_paths: true
+    variable_sequence_lens: true
+    min_sequence_len: 2
+    max_sequence_len: 100
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"
