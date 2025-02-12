@@ -1,4 +1,5 @@
 from multiprocessing import Pool
+import time
 
 import numpy as np
 from tqdm import tqdm
@@ -19,10 +20,18 @@ class HawkesDatasetGenerator:
         self.kernel_sampler = create_class_instance(kwargs["kernel_sampler"])
 
     def _generate_sample(self, seed=0):
-        baselines, kernel_grids, kernel_evaluations = self.kernel_sampler()
-        event_time, event_type = run_hawkes_simulation(
-            baselines, kernel_grids, kernel_evaluations, self.num_paths, self.n_events_per_path, seed=seed
-        )
+        event_time, event_type = None, None
+        failed_attempts = 0
+        while event_time is None or event_type is None:
+            baselines, kernel_grids, kernel_evaluations = self.kernel_sampler()
+            event_time, event_type = run_hawkes_simulation(
+                baselines, kernel_grids, kernel_evaluations, self.num_paths, self.n_events_per_path, seed=seed
+            )
+            if event_time is None:
+                failed_attempts += 1
+                # Change np seed based on current wallclock time
+                np.random.seed(int(time.time() * 1e6) % 2**32)
+                print(f"Simulation failed for the {failed_attempts} time.")
         return baselines, kernel_grids, kernel_evaluations, event_time, event_type
 
     def assemble(self, dtype=np.float32):
@@ -57,17 +66,6 @@ class HawkesDatasetGenerator:
         kernel_evaluation_data = np.array(kernel_evaluation_data, dtype=dtype)
         event_time_data = np.array(event_time_data, dtype=dtype)
         event_type_data = np.array(event_type_data, dtype=dtype)
-
-        # Detect invalid samples, that is, samples with no events
-        valid_samples = np.sum(event_time_data, axis=(1, 2)) != 0
-        print("Ratio of invalid samples: ", (num_samples - np.sum(valid_samples)) / num_samples)
-
-        # Remove invalid samples
-        baseline_data = baseline_data[valid_samples]
-        kernel_grid_data = kernel_grid_data[valid_samples]
-        kernel_evaluation_data = kernel_evaluation_data[valid_samples]
-        event_time_data = event_time_data[valid_samples]
-        event_type_data = event_type_data[valid_samples]
 
         # Reshape the data to match our requirements
         event_time_data = event_time_data[:, :, :, None]

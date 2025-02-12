@@ -38,7 +38,7 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
             event_times[i], event_types[i] = tick_timestamps_to_single_timeseries(hawkes.timestamps)
     except Exception as e:
         print(f"Simulation failed with error: {e}")
-        return np.zeros((num_paths, n_events_per_path)), np.zeros((num_paths, n_events_per_path))
+        return None, None
 
     return event_times, event_types
 

@@ -34,89 +34,74 @@ dataset:
       kernel_grids: "kernel_grids.pt"
     data_limit: 10
 
-rnn_embed_dim: &rnn_embed_dim 4 # Has to be half of path_embed_dim for bidirectional LSTM
-path_embed_dim: &path_embed_dim 8
-process_embed_dim: &process_embed_dim 8
-
 model:
   model_type: fimhawkes
   num_marks: &num_marks 5
+  hidden_dim: &hidden_dim 32
 
-  time_encodings:
-    name: fim.models.blocks.positional_encodings.DeltaTimeEncoding
+  mark_encoder:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
 
-  event_type_embedding:
-    name: fim.models.blocks.IdentityBlock
-    out_features: *num_marks
+  time_encoder:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
+
+  delta_time_encoder:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
+
+  kernel_time_encoder:
+    name: torch.nn.Linear
+
+  evaluation_mark_encoder:
+    name: torch.nn.Linear
 
   ts_encoder:
-    name: fim.models.blocks.RNNEncoder
+    name: torch.nn.TransformerEncoder
+    num_layers: 4
 
     encoder_layer:
-      name: torch.nn.LSTM
-      hidden_size: *rnn_embed_dim
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.1
+      nhead: 4
       batch_first: true
-      bidirectional: true
 
-  trunk_net:
-    name: fim.models.blocks.base.MLP
-    out_features: *path_embed_dim
-    hidden_layers: !!python/tuple [8, 8]
-    hidden_act:
-      name: torch.nn.SELU
-    dropout: 0
-    initialization_scheme: lecun_normal
+  time_dependent_functional_attention:
+    paths_block_attention: false
+    num_res_layers: 8
+    attention:
+      nhead: 1
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
-  Omega_1_encoder:
-    name: torch.nn.MultiheadAttention
-    embed_dim: *process_embed_dim
-    num_heads: 1
-    batch_first: true
+  static_functional_attention:
+    paths_block_attention: false
+    num_res_layers: 8
+    attention:
+      nhead: 1
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
-  Omega_2_encoder:
-    name: fim.models.blocks.MultiHeadLearnableQueryAttention
-    n_queries: 2
-    n_heads: 1
-    embed_dim: *process_embed_dim
-    kv_dim: 8
-
-  Omega_3_encoder:
-    name: fim.models.blocks.MultiHeadLearnableQueryAttention
-    n_queries: 2
-    n_heads: 1
-    embed_dim: *process_embed_dim
-    kv_dim: 8
-
-  Omega_4_encoder:
-    name: fim.models.blocks.MultiHeadLearnableQueryAttention
-    n_queries: 2
-    n_heads: 1
-    embed_dim: 8 # TODO: stop hardcoding the output dimension of Omega_2_encoder
-    kv_dim: 8
+  static_functional_attention_learnable_query:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
 
   kernel_value_decoder:
     name: fim.models.blocks.base.MLP
-    in_features: 8 # TODO: stop hardcoding the output dimension of Omega_2_encoder
-    hidden_layers: !!python/tuple [8, 8]
-    hidden_act:
-      name: torch.nn.SELU
-    dropout: 0
-    initialization_scheme: lecun_normal
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
-  kernel_parameter_decoder:
+  base_intensity_decoder:
     name: fim.models.blocks.base.MLP
-    in_features: 8 # TODO: stop hardcoding the output dimension of Omega_4_encoder
-    hidden_layers: !!python/tuple [8, 8]
-    hidden_act:
-      name: torch.nn.SELU
-    dropout: 0
-    initialization_scheme: lecun_normal
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
 trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 2
+  epochs: &epochs 5000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 4
@@ -139,9 +124,3 @@ optimizers: !!python/tuple
       name: torch.optim.AdamW
       lr: 0.0001
       weight_decay: 0.0001
-      # gradient_norm_clipping: 10
-      # schedulers: !!python/tuple
-      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
-      #     T_max: *epochs
-      #     eta_min: 0.0000001
-      #     last_epoch: -1
