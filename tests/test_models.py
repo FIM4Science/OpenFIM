@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long
 
 
+from pathlib import Path
 import pytest
 import torch
 
@@ -217,234 +218,6 @@ class TestMJP:
         assert model.state_dict().keys() == loaded_model.state_dict().keys()
 
 
-@pytest.mark.skip(reason=r"Config yaml includes paths in Windows format, using `\` instead of `/`, so the test fails.")
-class TestFIMHawkes:
-    @pytest.fixture
-    def device(self):
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            return torch.device("mps")
-        else:
-            return torch.device("cpu")
-
-    @pytest.fixture
-    def config(self):
-        conf_path = test_data_path / "config" / "hawkes" / "mini.yaml"
-        train_config = load_yaml(conf_path, True)
-        return train_config
-
-    # @pytest.fixture
-    # def config_rnn(self):
-    #     conf_path = Path("test_data/config/fimhawkes_rnn.yaml")
-    #     train_config = load_yaml(conf_path, True)
-    #     return train_config
-
-    @pytest.fixture
-    def dataloader(self, config):
-        dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-        return dataloader
-
-    @pytest.fixture
-    def model(self, config, device):
-        model_config = FIMHawkesConfig(**config.model.to_dict())
-        model = FIMHawkes(model_config)
-        return model.to(device)
-
-    # @pytest.fixture
-    # def model_rnn(self, config_rnn, device):
-    #     model_config = FIMHawkesConfig(**config_rnn.model.to_dict())
-    #     model = FIMHawkes(model_config)
-    #     return model.to(device)
-
-    def test_init(self):
-        num_marks = 1
-        config = FIMHawkesConfig(
-            num_marks=num_marks,
-            time_encodings={"name": "fim.models.blocks.positional_encodings.DeltaTimeEncoding"},
-            event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
-            ts_encoder={
-                "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
-            },
-            trunk_net={
-                "name": "fim.models.blocks.base.MLP",
-                "out_features": 8,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
-            Omega_2_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
-            },
-            Omega_3_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
-            },
-            Omega_4_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 2048,
-                "kv_dim": 8,
-            },
-            kernel_value_decoder={
-                "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            kernel_parameter_decoder={
-                "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            loss="TBD",
-        )
-        model = FIMHawkes(config)
-        assert model.num_marks == num_marks
-        assert model.ts_encoder is not None
-        assert model.kernel_value_decoder is not None
-        assert isinstance(model.Omega_1_encoder, torch.nn.MultiheadAttention)
-        assert isinstance(model.Omega_2_encoder, torch.nn.Module)
-        assert isinstance(model.Omega_3_encoder, torch.nn.Module)
-        assert isinstance(model.Omega_4_encoder, torch.nn.Module)
-
-    def test_forward(self, dataloader, model, device):
-        batch = next(iter(dataloader.train_it))
-        batch = {key: val.to(device) for key, val in batch.items()}
-        out = model(batch)
-
-        assert isinstance(out, dict)
-        assert "predicted_kernel_values" in out
-        assert "predicted_base_intensity" in out
-        assert "predicted_kernel_decay" in out
-
-        if "base_intensities" in batch and "kernel_evaluations" in batch:
-            assert "losses" in out
-            assert "loss" in out["losses"]
-            assert "kernel_rmse" in out["losses"]
-            assert "base_intensity_rmse" in out["losses"]
-
-        batch_size = batch["kernel_grids"].shape[0]
-        num_marks = batch["kernel_grids"].shape[1]
-        num_kernel_eval_points = batch["kernel_grids"].shape[2]
-        assert out["predicted_kernel_values"].shape == (batch_size, num_marks, num_kernel_eval_points, num_marks)
-        assert out["predicted_base_intensity"].shape == (batch_size, model.num_marks)
-
-    def test_init_rnn(self):
-        num_marks = 1
-        config_rnn = FIMHawkesConfig(
-            num_marks=num_marks,
-            time_encodings={"name": "fim.models.blocks.positional_encodings.DeltaTimeEncoding"},
-            event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
-            ts_encoder={
-                "name": "fim.models.blocks.base.RNNEncoder",
-                "rnn": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
-            },
-            trunk_net={
-                "name": "fim.models.blocks.base.MLP",
-                "out_features": 8,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
-            Omega_2_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
-            },
-            Omega_3_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
-            },
-            Omega_4_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 2048,
-                "kv_dim": 8,
-            },
-            kernel_value_decoder={
-                "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            kernel_parameter_decoder={
-                "name": "fim.models.blocks.base.MLP",
-                "in_features": 2048,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            loss="TBD",
-        )
-        model = FIMHawkes(config_rnn)
-        assert model.ts_encoder is not None
-        assert isinstance(model.ts_encoder.rnn, torch.nn.LSTM)
-        assert model.ts_encoder.rnn.hidden_size == 64
-        assert model.ts_encoder.rnn.bidirectional is True
-
-    # def test_forward_rnn(self, dataloader, model_rnn, device):
-    #     batch = next(iter(dataloader.train_it))
-    #     batch = {key: val.to(device) for key, val in batch.items()}
-    #     out = model_rnn(batch)
-
-    #     assert isinstance(out, dict)
-    #     assert "predicted_kernel_values" in out
-    #     assert "predicted_base_intensity" in out
-    #     assert "predicted_kernel_decay" in out
-
-    #     if "base_intensities" in batch and "kernel_evaluations" in batch:
-    #         assert "losses" in out
-    #         assert "loss" in out["losses"]
-    #         assert "kernel_rmse" in out["losses"]
-    #         assert "base_intensity_rmse" in out["losses"]
-
-    #     batch_size = batch["kernel_grids"].shape[0]
-    #     num_marks = batch["kernel_grids"].shape[1]
-    #     num_kernel_eval_points = batch["kernel_grids"].shape[2]
-    #     assert out["predicted_kernel_values"].shape == (batch_size, num_marks, num_kernel_eval_points)
-    #     assert out["predicted_base_intensity"].shape == (batch_size, num_marks)
-
-    def test_summary(self, model, dataloader):
-        batch = next(iter(dataloader.train_it))
-        x = {key: val.unsqueeze(0).to(model.device) for key, val in batch.items()}
-        print(x)
-
-    def test_save_load_model(self, model, tmp_path):
-        model.save_pretrained(tmp_path)
-
-        loaded_model = FIMHawkes.from_pretrained(tmp_path)
-        assert model.config.num_marks == loaded_model.config.num_marks
-        assert model.state_dict().keys() == loaded_model.state_dict().keys()
-
-
 class TestFIMHawkes5ST:
     @pytest.fixture
     def device(self):
@@ -457,182 +230,98 @@ class TestFIMHawkes5ST:
 
     @pytest.fixture
     def config(self):
-        conf_path = conf_path = test_data_path / "config" / "hawkes" / "mini_5_st.yaml"
+        conf_path = Path("test_data/config/hawkes/mini_5_st.yaml")
         train_config = load_yaml(conf_path, True)
         return train_config
 
     @pytest.fixture
     def dataloader(self, config):
-        dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-        return dataloader
+        return DataLoaderFactory.create(**config.dataset.to_dict())
 
     @pytest.fixture
     def model(self, config, device):
         model_config = FIMHawkesConfig(**config.model.to_dict())
-        model = FIMHawkes(model_config)
-        return model.to(device)
+        model = FIMHawkes(model_config).to(device)
+        return model
 
     def test_init(self):
         num_marks = 5
+        hidden_dim = 32
         config = FIMHawkesConfig(
             num_marks=num_marks,
-            time_encodings={"name": "fim.models.blocks.positional_encodings.DeltaTimeEncoding"},
-            event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
+            hidden_dim=hidden_dim,
+            mark_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
+            time_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
+            delta_time_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
+            kernel_time_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
+            evaluation_mark_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
             ts_encoder={
-                "name": "fim.models.blocks.RNNEncoder",
-                "encoder_layer": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
+                "name": "torch.nn.TransformerEncoder",
+                "num_layers": 4,
+                "encoder_layer": {
+                    "name": "torch.nn.TransformerEncoderLayer",
+                    "d_model": hidden_dim,
+                    "nhead": 4,
+                    "dropout": 0.1,
+                    "batch_first": True,
+                },
             },
-            trunk_net={
-                "name": "fim.models.blocks.base.MLP",
-                "out_features": 8,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
+            time_dependent_functional_attention={
+                "paths_block_attention": False,
+                "num_res_layers": 8,
+                "attention": {"nhead": 1},
+                "projection": {"name": "fim.models.blocks.base.MLP", "hidden_layers": (hidden_dim, hidden_dim)},
             },
-            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
-            Omega_2_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 2,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
+            static_functional_attention={
+                "paths_block_attention": False,
+                "num_res_layers": 8,
+                "attention": {"nhead": 1},
+                "projection": {"name": "fim.models.blocks.base.MLP", "hidden_layers": (hidden_dim, hidden_dim)},
             },
-            Omega_3_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 2,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
-            },
-            Omega_4_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 2,
-                "n_heads": 1,
-                "embed_dim": 32,
-                "kv_dim": 8,
-            },
+            static_functional_attention_learnable_query={"name": "torch.nn.Linear", "out_features": hidden_dim},
             kernel_value_decoder={
                 "name": "fim.models.blocks.base.MLP",
-                "in_features": 32,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
+                "hidden_layers": (hidden_dim, hidden_dim),
             },
-            kernel_parameter_decoder={
+            base_intensity_decoder={
                 "name": "fim.models.blocks.base.MLP",
-                "in_features": 32,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
+                "hidden_layers": (hidden_dim, hidden_dim),
             },
-            loss="TBD",
         )
         model = FIMHawkes(config)
         assert model.num_marks == num_marks
+        assert model.mark_encoder is not None
+        assert model.time_encoder is not None
+        assert model.kernel_time_encoder is not None
+        assert model.evaluation_mark_encoder is not None
         assert model.ts_encoder is not None
+        assert model.time_dependent_functional_attention is not None
+        assert model.static_functional_attention is not None
+        assert model.static_functional_attention_learnable_query is not None
         assert model.kernel_value_decoder is not None
-        assert isinstance(model.Omega_1_encoder, torch.nn.MultiheadAttention)
-        assert isinstance(model.Omega_2_encoder, torch.nn.Module)
-        assert isinstance(model.Omega_3_encoder, torch.nn.Module)
-        assert isinstance(model.Omega_4_encoder, torch.nn.Module)
+        assert model.base_intensity_decoder is not None
 
     def test_forward(self, dataloader, model, device):
         batch = next(iter(dataloader.train_it))
-        batch = {key: val.to(device) for key, val in batch.items()}
-        out = model(batch)
+        batch = {k: v.to(device) for k, v in batch.items()}
+        output = model(batch)
 
-        assert isinstance(out, dict)
-        assert "predicted_kernel_values" in out
-        assert "predicted_base_intensity" in out
-        assert "predicted_kernel_decay" in out
+        assert isinstance(output, dict)
+        assert "predicted_kernel_values" in output
+        assert "predicted_base_intensity" in output
 
         if "base_intensities" in batch and "kernel_evaluations" in batch:
-            assert "losses" in out
-            assert "loss" in out["losses"]
-            assert "kernel_rmse" in out["losses"]
-            assert "base_intensity_rmse" in out["losses"]
+            assert "losses" in output
+            assert "loss" in output["losses"]
+            assert "kernel_rmse" in output["losses"]
+            assert "base_intensity_rmse" in output["losses"]
 
-        batch_size = batch["kernel_grids"].shape[0]
-        num_marks = batch["kernel_grids"].shape[1]
-        num_kernel_eval_points = batch["kernel_grids"].shape[2]
-        assert out["predicted_kernel_values"].shape == (batch_size, num_marks, num_kernel_eval_points, num_marks)
-        assert out["predicted_base_intensity"].shape == (batch_size, model.num_marks)
-
-    def test_init_rnn(self):
-        num_marks = 5
-        config_rnn = FIMHawkesConfig(
-            num_marks=num_marks,
-            time_encodings={"name": "fim.models.blocks.positional_encodings.DeltaTimeEncoding"},
-            event_type_embedding={"name": "fim.models.blocks.IdentityBlock", "out_features": num_marks},
-            ts_encoder={
-                "name": "fim.models.blocks.RNNEncoder",
-                "encoder_layer": {"name": "torch.nn.LSTM", "hidden_size": 64, "batch_first": True, "bidirectional": True},
-            },
-            trunk_net={
-                "name": "fim.models.blocks.base.MLP",
-                "out_features": 8,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            Omega_1_encoder={"name": "torch.nn.MultiheadAttention", "embed_dim": 8, "num_heads": 1, "batch_first": True},
-            Omega_2_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
-            },
-            Omega_3_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 8,
-                "kv_dim": 8,
-            },
-            Omega_4_encoder={
-                "name": "fim.models.blocks.MultiHeadLearnableQueryAttention",
-                "n_queries": 16,
-                "n_heads": 1,
-                "embed_dim": 32,
-                "kv_dim": 8,
-            },
-            kernel_value_decoder={
-                "name": "fim.models.blocks.base.MLP",
-                "in_features": 32,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            kernel_parameter_decoder={
-                "name": "fim.models.blocks.base.MLP",
-                "in_features": 32,
-                "hidden_layers": [8, 8],
-                "hidden_act": {"name": "torch.nn.SELU"},
-                "dropout": 0,
-                "initialization_scheme": "lecun_normal",
-            },
-            loss="TBD",
-        )
-        model = FIMHawkes(config_rnn)
-        assert model.ts_encoder is not None
-        assert isinstance(model.ts_encoder.rnn, torch.nn.LSTM)
-        assert model.ts_encoder.rnn.hidden_size == 64
-        assert model.ts_encoder.rnn.bidirectional is True
-
-    def test_summary(self, model, dataloader):
-        batch = next(iter(dataloader.train_it))
-        x = {key: val.unsqueeze(0).to(model.device) for key, val in batch.items()}
-        print(x)
+        batch_size, num_marks, L_kernel = batch["kernel_grids"].shape
+        assert output["predicted_kernel_values"].shape == (batch_size, num_marks, L_kernel)
+        assert output["predicted_base_intensity"].shape == (batch_size, num_marks)
 
     def test_save_load_model(self, model, tmp_path):
         model.save_pretrained(tmp_path)
-
         loaded_model = FIMHawkes.from_pretrained(tmp_path)
         assert model.config.num_marks == loaded_model.config.num_marks
-        assert model.state_dict().keys() == loaded_model.state_dict().keys()
+        assert set(model.state_dict().keys()) == set(loaded_model.state_dict().keys())
