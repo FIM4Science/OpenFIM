@@ -160,10 +160,6 @@ class FIMHawkes(AModel):
         """
         obs_grid = x["event_times"]
         B, P, L = obs_grid.shape[:3]
-        print("P", P)
-        if "seq_lengths" in x:
-            print("x[seq_lengths].shape", x["seq_lengths"].shape)
-            print("x[seq_lengths]: ", x["seq_lengths"])
 
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
         # Add a delta time of 0 for the first event
@@ -197,6 +193,9 @@ class FIMHawkes(AModel):
         predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
 
         predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
+        
+        predicted_kernel_values /= norm_constants.view(-1, 1, 1)
+        predicted_base_intensity /= norm_constants.view(-1, 1)
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,
