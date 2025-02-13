@@ -245,10 +245,10 @@ class TestFIMHawkes5ST:
         return model
 
     def test_init(self):
-        num_marks = 5
+        max_num_marks = 5
         hidden_dim = 32
         config = FIMHawkesConfig(
-            num_marks=num_marks,
+            max_num_marks=max_num_marks,
             hidden_dim=hidden_dim,
             mark_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
             time_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
@@ -289,7 +289,7 @@ class TestFIMHawkes5ST:
             },
         )
         model = FIMHawkes(config)
-        assert model.num_marks == num_marks
+        assert model.max_num_marks == max_num_marks
         assert model.mark_encoder is not None
         assert model.time_encoder is not None
         assert model.kernel_time_encoder is not None
@@ -316,12 +316,12 @@ class TestFIMHawkes5ST:
             assert "kernel_rmse" in output["losses"]
             assert "base_intensity_rmse" in output["losses"]
 
-        batch_size, num_marks, L_kernel = batch["kernel_grids"].shape
-        assert output["predicted_kernel_values"].shape == (batch_size, num_marks, L_kernel)
-        assert output["predicted_base_intensity"].shape == (batch_size, num_marks)
+        batch_size, max_num_marks, L_kernel = batch["kernel_grids"].shape
+        assert output["predicted_kernel_values"].shape == (batch_size, max_num_marks, L_kernel)
+        assert output["predicted_base_intensity"].shape == (batch_size, max_num_marks)
 
     def test_save_load_model(self, model, tmp_path):
         model.save_pretrained(tmp_path)
         loaded_model = FIMHawkes.from_pretrained(tmp_path)
-        assert model.config.num_marks == loaded_model.config.num_marks
+        assert model.config.max_num_marks == loaded_model.config.max_num_marks
         assert set(model.state_dict().keys()) == set(loaded_model.state_dict().keys())
