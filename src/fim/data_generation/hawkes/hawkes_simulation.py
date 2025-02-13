@@ -25,6 +25,7 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
         The event types.
     """
     hawkes = SimuHawkes(baseline=baselines, max_jumps=n_events_per_path, seed=seed, verbose=False)
+    hawkes.threshold_negative_intensity(allow=True)
     for i in range(len(kernel_grids)):
         kernel = HawkesKernelTimeFunc(t_values=kernel_grids[i], y_values=kernel_evaluations[i])
         hawkes.set_kernel(i, i, kernel)
