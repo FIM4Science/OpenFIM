@@ -1,5 +1,6 @@
 experiment:
-  name: FIM_Hawkes_5_st_mixed_exp_500_paths_mixed_100_events_mixed
+  # name: FIM_Hawkes_25_st_exp_1000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_bulk_exp_1000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -19,29 +20,31 @@ dataset:
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/train
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
-      - data/synthetic_data/hawkes/1K_2_st_hawkes_exp_500_paths_100_events/train
+      - data/synthetic_data/hawkes/1K_25_st_hawkes_exp_1000_paths_100_events/train
 
     validation: !!python/tuple
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/val
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/val
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
-      - data/synthetic_data/hawkes/1K_2_st_hawkes_exp_500_paths_100_events/val
+      - data/synthetic_data/hawkes/1K_25_st_hawkes_exp_1000_paths_100_events/val
 
   loader_kwargs:
-    batch_size: 7
+    batch_size: 3
     num_workers: 8
     test_batch_size: 1
 
     variable_num_of_paths: true
-    min_path_count: 100
-    max_path_count: 500
+    min_path_count: 500
+    max_path_count: 1000
     max_number_of_minibatch_sizes: 10
 
     variable_sequence_lens: true
-    min_sequence_len: 2
+    min_sequence_len: 3
     max_sequence_len: 100
 
     num_kernel_evaluation_points: 10
+
+    is_bulk_model: &is_bulk_model true 
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"
@@ -53,7 +56,9 @@ dataset:
 
 model:
   model_type: fimhawkes
-  max_num_marks: &max_num_marks 5
+  is_bulk_model: *is_bulk_model
+
+  max_num_marks: &max_num_marks 2
   hidden_dim: &hidden_dim 256
 
   mark_encoder:

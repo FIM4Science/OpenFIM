@@ -32,9 +32,11 @@ class FIMHawkesConfig(PretrainedConfig):
         base_intensity_decoder: dict = None,
         hidden_dim: int = None,
         max_num_marks: int = 1,
+        is_bulk_model: bool = False,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
+        self.is_bulk_model = is_bulk_model
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
@@ -78,6 +80,9 @@ class FIMHawkes(AModel):
     def __init__(self, config: FIMHawkesConfig, **kwargs):
         super().__init__(config, **kwargs)
         self.max_num_marks = config.max_num_marks
+        self.is_bulk_model = config.is_bulk_model
+        if self.is_bulk_model and self.max_num_marks != 2:
+            raise NotImplementedError("Bulk model only supports 2 marks.")
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         self.__create_modules()
 
@@ -163,6 +168,18 @@ class FIMHawkes(AModel):
         
         if "seq_lengths" not in x:
             x["seq_lengths"] = torch.full((B, P), L, device=self.device)
+            
+        if self.is_bulk_model and x["kernel_grids"].shape[1] != 1:
+            if step is None:
+                # Change data by hand since the dataloader does not run in the first iteration
+                x["kernel_grids"] = x["kernel_grids"][:, :1]
+                x["event_types"] = torch.ones_like(x["event_types"]) # Set all events to the first mark because otherwise we fuck up the indexing later
+                if "base_intensities" in x:
+                    x["base_intensities"] = x["base_intensities"][:, :1]
+                if "kernel_evaluations" in x:
+                    x["kernel_evaluations"] = x["kernel_evaluations"][:, :1]
+            else:
+                raise NotImplementedError("Bulk model only supports input grids for one mark.")
 
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
         # Add a delta time of 0 for the first event
