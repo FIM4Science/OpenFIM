@@ -194,8 +194,9 @@ class FIMHawkes(AModel):
 
         predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
         
-        predicted_kernel_values /= norm_constants.view(-1, 1, 1)
-        predicted_base_intensity /= norm_constants.view(-1, 1)
+        norm_constants = norm_constants.view(B, 1, 1)
+        predicted_kernel_values = predicted_kernel_values / norm_constants
+        predicted_base_intensity = predicted_base_intensity / norm_constants.squeeze(-1)
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,
