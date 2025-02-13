@@ -251,13 +251,15 @@ class HawkesDataLoader(BaseDataLoader):
         self._init_dataloaders(self.dataset)
 
     def _get_collate_fn(self, dataset_name: str, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
-        #FIXME: THIS IS UGlY AF!!!!!
-        if self.variable_num_of_paths and dataset_name == "train":
-            custom_collate = partial(self.var_path_collate_fn, apply_default_collate=False)
-            if self.variable_sequence_lens and dataset_name == "train":
-                return partial(self.var_sequence_len_collate_fn, previous_collate_fn=custom_collate)
-            return custom_collate
-        return None
+        if not self.variable_num_of_paths or dataset_name != "train":
+            return None
+
+        collate_fn = partial(self.var_path_collate_fn, apply_default_collate=False)
+
+        if self.variable_sequence_lens:
+            collate_fn = partial(self.var_sequence_len_collate_fn, previous_collate_fn=collate_fn)
+        
+        return collate_fn
 
     def var_path_collate_fn(self, batch: List[dict], apply_default_collate=False):
         num_paths = self.__fetch_path_count_for_minibatch()
