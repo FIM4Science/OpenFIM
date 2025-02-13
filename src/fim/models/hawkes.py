@@ -157,17 +157,16 @@ class FIMHawkes(AModel):
                 - "kernel_eval_values": Tensor representing the predicted kernel evaluation values. [B, M, L_kernel]
                 - "baseline_intensity": Tensor representing the predicted baseline intensity. [B, M]
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
-        """
+        """        
         obs_grid = x["event_times"]
         B, P, L = obs_grid.shape[:3]
+        
+        if "seq_lengths" not in x:
+            x["seq_lengths"] = torch.full((B, P), L, device=self.device)
 
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
         # Add a delta time of 0 for the first event
         x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
-        
-        # FIXME: Do this inside the dataloader
-        x["seq_lengths"] = torch.tensor([L] * B * P, device=self.device)
-        x["seq_lengths"] = x["seq_lengths"].view(B, P)
         
         observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1) # [B, P, L, 1]
         
@@ -178,11 +177,6 @@ class FIMHawkes(AModel):
         else:
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
-
-        # FIXME: REMOVE THIS!
-        x["kernel_grids"] = x["kernel_grids"][:, :, ::10]
-        x["kernel_evaluations"] = x["kernel_evaluations"][:, :, ::10]
-        # self.logger.warning("Kernel grids and evaluations are truncated to 10!")
 
         sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
 
@@ -196,7 +190,7 @@ class FIMHawkes(AModel):
         
         norm_constants = norm_constants.view(B, 1, 1)
         predicted_kernel_values = predicted_kernel_values / norm_constants
-        predicted_base_intensity = predicted_base_intensity / norm_constants.squeeze(-1)
+        predicted_base_intensity = predicted_base_intensity / norm_constants.squeeze(-1)     
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,

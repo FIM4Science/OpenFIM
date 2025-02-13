@@ -226,6 +226,8 @@ class HawkesDataLoader(BaseDataLoader):
         self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
         
+        self.num_kernel_evaluation_points = loader_kwargs.pop("num_kernel_evaluation_points", None)
+        
         self.current_minibatch_index = 0
         super().__init__(dataset_kwargs, loader_kwargs)
         if self.variable_num_of_paths:
@@ -252,16 +254,22 @@ class HawkesDataLoader(BaseDataLoader):
 
     def _get_collate_fn(self, dataset_name: str, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
         if not self.variable_num_of_paths or dataset_name != "train":
-            return None
+            return default_collate  # Use the default collate function
 
-        collate_fn = partial(self.var_path_collate_fn, apply_default_collate=False)
+        def custom_collate(batch):
+            # Apply variable path collation
+            batch = self.var_path_collate_fn(batch)
 
-        if self.variable_sequence_lens:
-            collate_fn = partial(self.var_sequence_len_collate_fn, previous_collate_fn=collate_fn)
-        
-        return collate_fn
+            # Apply variable sequence length collation if needed
+            if self.variable_sequence_lens:
+                batch = self.custom_hawkes_collate_fun(batch)
 
-    def var_path_collate_fn(self, batch: List[dict], apply_default_collate=False):
+            # Finally, apply default_collate to convert the list of dicts to a dict of tensors
+            return default_collate(batch)
+
+        return custom_collate
+
+    def var_path_collate_fn(self, batch: List[dict]):
         num_paths = self.__fetch_path_count_for_minibatch()
         path_idxs = torch.randint(0, self.max_path_count, (num_paths,))
 
@@ -275,17 +283,18 @@ class HawkesDataLoader(BaseDataLoader):
             return new_item
         
         batch_data = [process_item(item) for item in batch]
-        if not apply_default_collate:
-            return batch_data
-        return default_collate(batch_data)
+        return batch_data
     
-    def var_sequence_len_collate_fn(self, batch: List[dict], previous_collate_fn=None):
+    def custom_hawkes_collate_fun(self, batch: List[dict], previous_collate_fn=None):
+        """
+        Collate function for Hawkes processes which samples variable sequence lengths and subsamples kernel grids.
+        """
         if previous_collate_fn is not None:
             batch = previous_collate_fn(batch)
         upper_bound = random.randint(self.min_sequence_len+1, self.max_sequence_len)
         lower_bound = random.randint(self.min_sequence_len, upper_bound-1)
           
-        def process_item(item):
+        def add_variable_seq_lens(item):
             new_item = {}
             for k, v in item.items():
                 if k in ["event_times", "event_types"]:
@@ -297,8 +306,26 @@ class HawkesDataLoader(BaseDataLoader):
             new_item["seq_lengths"] = seq_lens 
             return new_item
         
-        batch_data = [process_item(item) for item in batch]
-        return default_collate(batch_data)        
+        batch_data = [add_variable_seq_lens(item) for item in batch]
+        
+        def subsample_kernel_evaluation_points(item):
+            new_item = {}
+            for k, v in item.items():
+                if k == "kernel_evaluations":
+                    continue
+                if k == "kernel_grids":
+                    L_kernel = v.shape[1]
+                    selected_points = torch.randint(0, L_kernel, (self.num_kernel_evaluation_points,))
+                    new_item[k] = v[:, selected_points]
+                    new_item["kernel_evaluations"] = item["kernel_evaluations"][:, selected_points]
+                    continue
+                new_item[k] = v
+            return new_item
+        
+        if self.num_kernel_evaluation_points is not None:
+            batch_data = [subsample_kernel_evaluation_points(item) for item in batch_data]
+        return batch_data               
+            
 
     def __fetch_path_count_for_minibatch(self):
         worker_info = torch.utils.data.get_worker_info()

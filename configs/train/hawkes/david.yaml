@@ -31,13 +31,17 @@ dataset:
     batch_size: 7
     num_workers: 8
     test_batch_size: 1
+
+    variable_num_of_paths: true
     min_path_count: 100
     max_path_count: 500
     max_number_of_minibatch_sizes: 10
-    variable_num_of_paths: true
+
     variable_sequence_lens: true
     min_sequence_len: 2
     max_sequence_len: 100
+
+    num_kernel_evaluation_points: 10
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"
