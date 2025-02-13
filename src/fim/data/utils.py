@@ -241,7 +241,7 @@ def repeat_for_dim(t, process_dim):
     return torch.concat([t for _ in range(process_dim)], dim=0)
 
 
-def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int, max_number_of_minibatch_sizes: int = 10) -> list:
+def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int, max_number_of_minibatch_sizes: int = 10, min_path_count: int = 1) -> list:
     """
     Calculate the path counts for minibatches.
 
@@ -250,6 +250,7 @@ def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int,
         minibatch_size (int): The size of each minibatch.
         max_path_count (int): The maximum path count.
         max_number_of_minibatch_sizes (int, optional): The maximum number of minibatches with different path sizes. Defaults to 10.
+        min_path_count (int, optional): The minimum path count. Defaults to 1.
 
     Returns:
         torch.Tensor: A tensor containing the path counts for each minibatch.
@@ -261,7 +262,7 @@ def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int,
     if num_examples % minibatch_size != 0:
         num_minibatches += 1
 
-    path_counts = list(np.arange(1, max_path_count + 1, max_path_count // max_number_of_minibatch_sizes))
+    path_counts = list(np.arange(min_path_count, max_path_count + 1, (max_path_count-min_path_count+1) // max_number_of_minibatch_sizes))
     path_counts *= num_minibatches // len(path_counts)
     if len(path_counts) == 0:
         raise ValueError("Not enough minibatches to distribute paths evenly. We have not implemented this case yet.")
@@ -270,6 +271,32 @@ def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int,
         path_counts += [max_path_count] * (num_minibatches - len(path_counts))
 
     return torch.tensor(path_counts)
+
+
+def sample_random_integers_from_exponential(a, b, scale=1, size=1):
+    """
+    Sample random integers between a and b from an exponential distribution.
+
+    Parameters:
+    a (int): The lower bound of the range (inclusive).
+    b (int): The upper bound of the range (inclusive).
+    scale (float): The scale parameter (1/lambda) of the exponential distribution.
+    size (int): The number of random samples to generate.
+
+    Returns:
+    numpy.ndarray: An array of random integers sampled from an exponential distribution within [a, b].
+    """
+    # Generate samples from an exponential distribution
+    samples = np.random.exponential(scale, size=size)
+    
+    # Normalize and scale samples to be within the range [a, b]
+    scaled_samples = np.interp(samples, (samples.min(), samples.max()), (a, b))
+    
+    # Round to nearest integer and clip to ensure within [a, b]
+    random_integers = np.rint(scaled_samples).astype(int)
+    random_integers = np.clip(random_integers, a, b)
+    
+    return random_integers
 
 
 def load_file(file_path):

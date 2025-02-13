@@ -36,7 +36,7 @@ dataset:
 
 model:
   model_type: fimhawkes
-  num_marks: &num_marks 5
+  max_num_marks: &max_num_marks 5
   hidden_dim: &hidden_dim 32
 
   mark_encoder:

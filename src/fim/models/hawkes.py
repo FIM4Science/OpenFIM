@@ -31,10 +31,10 @@ class FIMHawkesConfig(PretrainedConfig):
         kernel_value_decoder: dict = None,
         base_intensity_decoder: dict = None,
         hidden_dim: int = None,
-        num_marks: int = 1,
+        max_num_marks: int = 1,
         **kwargs,
     ):
-        self.num_marks = num_marks
+        self.max_num_marks = max_num_marks
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
@@ -56,7 +56,7 @@ class FIMHawkes(AModel):
     FIMHawkes: A Neural Recognition Model for Zero-Shot Inference of Hawkes Processes
 
     Attributes:
-        num_marks (int): Number of marks in the Hawkes process.
+        max_num_marks (int): Maximum number of marks in the Hawkes process.
         mark_encoder (nn.Module): The mark encoder for the observed data.
         time_encoder (nn.Module): The time encoder for the observed data.
         delta_time_encoder (nn.Module): The delta time encoder.
@@ -77,7 +77,7 @@ class FIMHawkes(AModel):
 
     def __init__(self, config: FIMHawkesConfig, **kwargs):
         super().__init__(config, **kwargs)
-        self.num_marks = config.num_marks
+        self.max_num_marks = config.max_num_marks
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         self.__create_modules()
 
@@ -100,7 +100,7 @@ class FIMHawkes(AModel):
         self.hidden_dim = self.config.hidden_dim
            
 
-        mark_encoder["in_features"] = self.num_marks
+        mark_encoder["in_features"] = self.max_num_marks
         self.mark_encoder = create_class_instance(mark_encoder.pop("name"), mark_encoder)
         time_encoder["in_features"] = 1
         self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
@@ -109,7 +109,7 @@ class FIMHawkes(AModel):
         kernel_time_encoder["in_features"] = 1
         kernel_time_encoder["out_features"] = self.hidden_dim
         self.kernel_time_encoder = create_class_instance(kernel_time_encoder.pop("name"), kernel_time_encoder)
-        evaluation_mark_encoder["in_features"] = self.num_marks
+        evaluation_mark_encoder["in_features"] = self.max_num_marks
         evaluation_mark_encoder["out_features"] = self.hidden_dim
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
         
@@ -125,7 +125,7 @@ class FIMHawkes(AModel):
             embed_dim=self.hidden_dim, out_features=self.hidden_dim, **static_functional_attention
         )
         
-        static_functional_attention_learnable_query["in_features"] = self.num_marks
+        static_functional_attention_learnable_query["in_features"] = self.max_num_marks
         self.static_functional_attention_learnable_query = create_class_instance(static_functional_attention_learnable_query.pop("name"), static_functional_attention_learnable_query)
 
         kernel_value_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
@@ -157,16 +157,16 @@ class FIMHawkes(AModel):
                 - "kernel_eval_values": Tensor representing the predicted kernel evaluation values. [B, M, L_kernel]
                 - "baseline_intensity": Tensor representing the predicted baseline intensity. [B, M]
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
-        """
+        """        
         obs_grid = x["event_times"]
         B, P, L = obs_grid.shape[:3]
+        
+        if "seq_lengths" not in x:
+            x["seq_lengths"] = torch.full((B, P), L, device=self.device)
+
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
         # Add a delta time of 0 for the first event
         x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
-        
-        # FIXME: Do this inside the dataloader
-        x["seq_lengths"] = torch.tensor([L] * B * P, device=self.device)
-        x["seq_lengths"] = x["seq_lengths"].view(B, P)
         
         observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1) # [B, P, L, 1]
         
@@ -178,11 +178,6 @@ class FIMHawkes(AModel):
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
 
-        # FIXME: REMOVE THIS!
-        x["kernel_grids"] = x["kernel_grids"][:, :, ::10]
-        x["kernel_evaluations"] = x["kernel_evaluations"][:, :, ::10]
-        # self.logger.warning("Kernel grids and evaluations are truncated to 10!")
-
         sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
 
         time_dependent_encodings = self._time_dependent_encoder(x, sequence_encodings, observations_padding_mask=observations_padding_mask)  # [B, M, L_kernel, D]
@@ -192,6 +187,10 @@ class FIMHawkes(AModel):
         predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
 
         predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
+        
+        norm_constants = norm_constants.view(B, 1, 1)
+        predicted_kernel_values = predicted_kernel_values / norm_constants
+        predicted_base_intensity = predicted_base_intensity / norm_constants.squeeze(-1)     
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,
@@ -213,7 +212,7 @@ class FIMHawkes(AModel):
     def _encode_observations(self, x: dict) -> Tensor:
         obs_grid_normalized = x["observation_grid_normalized"]
         
-        encodings_per_event_mark = self.mark_encoder(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float())
+        encodings_per_event_mark = self.mark_encoder(torch.nn.functional.one_hot(torch.arange(self.max_num_marks, device=self.device), num_classes=self.max_num_marks).float())
         B, P, L = obs_grid_normalized.shape[:3]
 
         time_enc = self.time_encoder(obs_grid_normalized)
@@ -241,7 +240,7 @@ class FIMHawkes(AModel):
         kernel_grids = x["kernel_grids"]  # TODO: Dont work with the full grid
         (B, M, L_kernel) = kernel_grids.shape
         time_encodings = self.kernel_time_encoder(kernel_grids.reshape(B * M * L_kernel, -1))
-        encodings_per_event_mark = self.evaluation_mark_encoder(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float())
+        encodings_per_event_mark = self.evaluation_mark_encoder(torch.nn.functional.one_hot(torch.arange(self.max_num_marks, device=self.device), num_classes=self.max_num_marks).float())
         marks = torch.arange(M, device=self.device).repeat_interleave(L_kernel).repeat(B)
         mark_encodings = encodings_per_event_mark[marks]
         return (time_encodings + mark_encodings).view(B, M, L_kernel, -1)
@@ -259,7 +258,7 @@ class FIMHawkes(AModel):
         Apply functional attention to obtain a static summary of the paths.
         """
         (B, M, _) = x["kernel_grids"].shape
-        learnable_queries = self.static_functional_attention_learnable_query(torch.nn.functional.one_hot(torch.arange(self.num_marks, device=self.device), num_classes=self.num_marks).float()) # [M, D]
+        learnable_queries = self.static_functional_attention_learnable_query(torch.nn.functional.one_hot(torch.arange(M, device=self.device), num_classes=self.max_num_marks).float()) # [M, D]
         # Stack B learnable_queries together to reshape to [B, M, D]
         learnable_queries = learnable_queries.repeat(B, 1).view(B, M, -1)
         return self.static_functional_attention(learnable_queries, sequence_encodings, observations_padding_mask=observations_padding_mask)  # [B, M, D]        
@@ -271,12 +270,14 @@ class FIMHawkes(AModel):
         return h.view(B, M, L_kernel)
 
     def _base_intensity_decoder(self, static_path_summary: Tensor) -> Tensor:
+        B, M, D_2 = static_path_summary.shape
         h = self.base_intensity_decoder(static_path_summary)
-        return h.view(-1, self.num_marks)
+        return h.view(-1, M)
     
     def _decay_parameter_decoder(self, static_path_summary: Tensor) -> Tensor:
+        B, M, D_2 = static_path_summary.shape
         h = self.decay_parameter_decoder(static_path_summary)
-        return h.view(-1, self.num_marks)
+        return h.view(-1, M)
 
     def __normalize_obs_grid(self, obs_grid: Tensor) -> tuple[Tensor, Tensor]:
         norm_constants = obs_grid.amax(dim=[-3, -2, -1])

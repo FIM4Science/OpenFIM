@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
+import random
 from typing import List, Optional, Union
 
 import optree
@@ -33,7 +34,7 @@ from ..data.datasets import (
 )
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
-from .utils import get_path_counts
+from .utils import get_path_counts, sample_random_integers_from_exponential
 
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
@@ -143,6 +144,7 @@ class BaseDataLoader:
 class FIMDataLoader(BaseDataLoader):
     def __init__(self, path_collections: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
         self.max_path_count = loader_kwargs.pop("max_path_count", None)
+        self.min_path_count = loader_kwargs.pop("min_path_count", 1)
         self.max_number_of_minibatch_sizes = loader_kwargs.pop("max_number_of_minibatch_sizes", None)
         self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
         self.current_minibatch_index = 0
@@ -161,7 +163,8 @@ class FIMDataLoader(BaseDataLoader):
                     len(self.dataset[name]),
                     self.batch_size * dist.get_world_size() if is_distributed() else self.batch_size,
                     self.max_path_count,
-                    self.max_number_of_minibatch_sizes,
+                    max_number_of_minibatch_sizes=self.max_number_of_minibatch_sizes,
+                    min_path_count=self.min_path_count
                 )
                 if loader_kwargs.get("num_workers", 0) > 0:
                     self.worker_minibatch_paths = self._distribute_path_sizes(self.num_paths_for_batch, loader_kwargs["num_workers"])
@@ -210,6 +213,140 @@ class FIMDataLoader(BaseDataLoader):
             minibatch_sizes_per_worker[worker_id].append(size)
         return minibatch_sizes_per_worker
 
+
+# FIXME: MERGE WITH FIMDataLoader by adding key names that depend on the number of paths
+class HawkesDataLoader(BaseDataLoader):
+    def __init__(self, path_collections: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
+        self.max_path_count = loader_kwargs.pop("max_path_count", None)
+        self.min_path_count = loader_kwargs.pop("min_path_count", 1)
+        self.max_number_of_minibatch_sizes = loader_kwargs.pop("max_number_of_minibatch_sizes", None)
+        self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
+        
+        self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", False)
+        self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
+        self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
+        
+        self.num_kernel_evaluation_points = loader_kwargs.pop("num_kernel_evaluation_points", None)
+        
+        self.current_minibatch_index = 0
+        super().__init__(dataset_kwargs, loader_kwargs)
+        if self.variable_num_of_paths:
+            assert (
+                self.max_number_of_minibatch_sizes is not None
+            ), "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            assert self.max_path_count is not None, "max_path_conunt must be provided if variable_num_of_paths is True"
+
+        self.path_collections = path_collections
+        for name, paths in path_collections.items():
+            self.dataset[name] = FIMDataset(paths, **dataset_kwargs)
+            if self.variable_num_of_paths and name == "train":
+                self.num_paths_for_batch = get_path_counts(
+                    len(self.dataset[name]),
+                    self.batch_size * dist.get_world_size() if is_distributed() else self.batch_size,
+                    self.max_path_count,
+                    max_number_of_minibatch_sizes=self.max_number_of_minibatch_sizes,
+                    min_path_count=self.min_path_count
+                )
+                if loader_kwargs.get("num_workers", 0) > 0:
+                    self.worker_minibatch_paths = self._distribute_path_sizes(self.num_paths_for_batch, loader_kwargs["num_workers"])
+
+        self._init_dataloaders(self.dataset)
+
+    def _get_collate_fn(self, dataset_name: str, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
+        if not self.variable_num_of_paths or dataset_name != "train":
+            return default_collate  # Use the default collate function
+
+        def custom_collate(batch):
+            # Apply variable path collation
+            batch = self.var_path_collate_fn(batch)
+
+            # Apply variable sequence length collation if needed
+            if self.variable_sequence_lens:
+                batch = self.custom_hawkes_collate_fun(batch)
+
+            # Finally, apply default_collate to convert the list of dicts to a dict of tensors
+            return default_collate(batch)
+
+        return custom_collate
+
+    def var_path_collate_fn(self, batch: List[dict]):
+        num_paths = self.__fetch_path_count_for_minibatch()
+        path_idxs = torch.randint(0, self.max_path_count, (num_paths,))
+
+        def process_item(item):
+            new_item = {}
+            for k, v in item.items():
+                if k in ["event_times", "event_types"]:
+                    new_item[k] = v[path_idxs]
+                else:
+                    new_item[k] = v
+            return new_item
+        
+        batch_data = [process_item(item) for item in batch]
+        return batch_data
+    
+    def custom_hawkes_collate_fun(self, batch: List[dict], previous_collate_fn=None):
+        """
+        Collate function for Hawkes processes which samples variable sequence lengths and subsamples kernel grids.
+        """
+        if previous_collate_fn is not None:
+            batch = previous_collate_fn(batch)
+        upper_bound = random.randint(self.min_sequence_len+1, self.max_sequence_len)
+        lower_bound = random.randint(self.min_sequence_len, upper_bound-1)
+          
+        def add_variable_seq_lens(item):
+            new_item = {}
+            for k, v in item.items():
+                if k in ["event_times", "event_types"]:
+                    new_item[k] = v[:, :upper_bound]
+                else:
+                    new_item[k] = v
+            P = item["event_times"].shape[0]
+            seq_lens = torch.tensor(sample_random_integers_from_exponential(lower_bound, upper_bound, size=P), dtype=torch.long)   
+            new_item["seq_lengths"] = seq_lens 
+            return new_item
+        
+        batch_data = [add_variable_seq_lens(item) for item in batch]
+        
+        def subsample_kernel_evaluation_points(item):
+            new_item = {}
+            for k, v in item.items():
+                if k == "kernel_evaluations":
+                    continue
+                if k == "kernel_grids":
+                    L_kernel = v.shape[1]
+                    selected_points = torch.randint(0, L_kernel, (self.num_kernel_evaluation_points,))
+                    new_item[k] = v[:, selected_points]
+                    new_item["kernel_evaluations"] = item["kernel_evaluations"][:, selected_points]
+                    continue
+                new_item[k] = v
+            return new_item
+        
+        if self.num_kernel_evaluation_points is not None:
+            batch_data = [subsample_kernel_evaluation_points(item) for item in batch_data]
+        return batch_data               
+            
+
+    def __fetch_path_count_for_minibatch(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is not None:
+            worker_id = worker_info.id
+            worker_batches_num_paths = self.worker_minibatch_paths[worker_id]
+            num_paths = worker_batches_num_paths[self.current_minibatch_index % len(worker_batches_num_paths)]
+            self.current_minibatch_index += 1
+        else:
+            num_paths = self.num_paths_for_batch[self.current_minibatch_index]
+            self.current_minibatch_index = (self.current_minibatch_index + 1) % len(self.num_paths_for_batch)
+        return num_paths
+
+    def _distribute_path_sizes(self, minibatch_sizes: List[int], num_workers: int) -> List[List[int]]:
+        """Distribute minibatch sizes among workers."""
+        assert num_workers > 0, "Number of workers must be greater than 0"
+        minibatch_sizes_per_worker = [[] for _ in range(num_workers)]
+        for i, size in enumerate(minibatch_sizes):
+            worker_id = i % num_workers
+            minibatch_sizes_per_worker[worker_id].append(size)
+        return minibatch_sizes_per_worker
 
 class TimeSeriesDataLoaderTorch:
     """Datalaoder for time series data in torch format."""
@@ -775,5 +912,6 @@ class DataLoaderFactory:
 
 DataLoaderFactory.register("ts_torch_dataloader", TimeSeriesDataLoaderTorch)
 DataLoaderFactory.register("FIMDataLoader", FIMDataLoader)
+DataLoaderFactory.register("HawkesDataLoader", HawkesDataLoader)
 DataLoaderFactory.register("FIMSDEDataloader", FIMSDEDataloader)
 DataLoaderFactory.register("FIMSDEDataloaderIterableDataset", FIMSDEDataloaderIterableDataset)
