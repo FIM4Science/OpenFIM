@@ -24,6 +24,7 @@ data_generator:
     kernel_function_samplers:
       exponential:
         class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpKernelFunctionSampler
+        flip_sign: &flip_sign true # If true, 50% of the kernels will have a flipped sign
         a_0_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
           low: 0.1
@@ -34,6 +35,7 @@ data_generator:
           high: 1
       # exponential_shifted:
       #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpShiftedKernelFunctionSampler
+      #   flip_sign: *flip_sign # If true, 50% of the kernels will have a flipped sign
       #   a_0_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
       #     low: 0.1
@@ -48,6 +50,7 @@ data_generator:
       #     high: 1
       # exponential_squared:
       #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSquaredKernelFunctionSampler
+      #   flip_sign: *flip_sign # If true, 50% of the kernels will have a flipped sign
       #   a_0_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
       #     low: 0.1
@@ -58,6 +61,7 @@ data_generator:
       #     high: 1
       # exponential_sin:
       #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSinKernelFunctionSampler
+      #   flip_sign: *flip_sign # If true, 50% of the kernels will have a flipped sign
       #   a_0_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
       #     low: 0.1

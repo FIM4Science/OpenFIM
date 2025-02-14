@@ -11,6 +11,7 @@ class HawkesExpKernelFunctionSampler:
     def __init__(self, **kwargs) -> None:
         self.a_0_sampler = create_class_instance(kwargs["a_0_sampler"])
         self.a_1_sampler = create_class_instance(kwargs["a_1_sampler"])
+        self.flip_sign = kwargs.get("flip_sign", False)
 
     def __call__(self, grid_size, eps: float = 1e-3):
         """
@@ -27,7 +28,11 @@ class HawkesExpKernelFunctionSampler:
         a_1 = self.a_1_sampler()
         max_time = -np.log(eps / a_0) / a_1
         t_grid = np.linspace(0, max_time, grid_size)
-        return t_grid, a_0 * np.exp(-a_1 * t_grid)
+        kernel_values = a_0 * np.exp(-a_1 * t_grid)
+        if self.flip_sign:
+            if np.random.rand() < 0.5:
+                kernel_values *= -1
+        return t_grid, kernel_values
 
 
 class HawkesExpSquaredKernelFunctionSampler:
@@ -38,6 +43,7 @@ class HawkesExpSquaredKernelFunctionSampler:
     def __init__(self, **kwargs) -> None:
         self.a_0_sampler = create_class_instance(kwargs["a_0_sampler"])
         self.a_1_sampler = create_class_instance(kwargs["a_1_sampler"])
+        self.flip_sign = kwargs.get("flip_sign", False)
 
     def __call__(self, grid_size, eps: float = 1e-3):
         """
@@ -54,7 +60,11 @@ class HawkesExpSquaredKernelFunctionSampler:
         a_1 = self.a_1_sampler()
         max_time = np.sqrt(-np.log(eps / a_0) / a_1)  # Not quite correct but we want to avoid the Lambert W function
         t_grid = np.linspace(0, max_time, grid_size)
-        return t_grid, a_0 * t_grid * np.exp(-a_1 * t_grid**2)
+        kernel_values = a_0 * t_grid * np.exp(-a_1 * t_grid**2)
+        if self.flip_sign:
+            if np.random.rand() < 0.5:
+                kernel_values *= -1
+        return t_grid, kernel_values
 
 
 class HawkesExpShiftedKernelFunctionSampler:
@@ -66,6 +76,7 @@ class HawkesExpShiftedKernelFunctionSampler:
         self.a_0_sampler = create_class_instance(kwargs["a_0_sampler"])
         self.a_1_sampler = create_class_instance(kwargs["a_1_sampler"])
         self.a_2_sampler = create_class_instance(kwargs["a_2_sampler"])
+        self.flip_sign = kwargs.get("flip_sign", False)
 
     def __call__(self, grid_size, eps: float = 1e-3):
         """
@@ -83,7 +94,11 @@ class HawkesExpShiftedKernelFunctionSampler:
         a_2 = self.a_2_sampler()
         max_time = 2 * a_2**2 * np.log(a_0 / eps) + a_1
         t_grid = np.linspace(0, max_time, grid_size)
-        return t_grid, a_0 * np.exp(-(t_grid - a_1) / (2 * a_2**2))
+        kernel_values = a_0 * np.exp(-(t_grid - a_1) / (2 * a_2**2))
+        if self.flip_sign:
+            if np.random.rand() < 0.5:
+                kernel_values *= -1
+        return t_grid, kernel_values
 
 
 class HawkesExpSinKernelFunctionSampler:
@@ -95,6 +110,7 @@ class HawkesExpSinKernelFunctionSampler:
         self.a_0_sampler = create_class_instance(kwargs["a_0_sampler"])
         self.a_1_sampler = create_class_instance(kwargs["a_1_sampler"])
         self.a_2_sampler = create_class_instance(kwargs["a_2_sampler"])
+        self.flip_sign = kwargs.get("flip_sign", False)
 
     def __call__(self, grid_size, eps: float = 1e-3):
         """
@@ -112,4 +128,8 @@ class HawkesExpSinKernelFunctionSampler:
         a_2 = self.a_2_sampler()
         max_time = -np.log(eps / a_0) / a_1  # Not quite correct but the decay gets dominated by the exp term
         t_grid = np.linspace(0, max_time, grid_size)
-        return t_grid, a_0 * np.sin(a_2 * t_grid) * np.exp(-a_1 * t_grid)
+        kernel_values = a_0 * np.sin(a_2 * t_grid) * np.exp(-a_1 * t_grid)
+        if self.flip_sign:
+            if np.random.rand() < 0.5:
+                kernel_values *= -1
+        return t_grid, kernel_values
