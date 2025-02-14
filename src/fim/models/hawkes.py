@@ -168,7 +168,7 @@ class FIMHawkes(AModel):
         
         if "seq_lengths" not in x:
             x["seq_lengths"] = torch.full((B, P), L, device=self.device)
-            
+                       
         if self.is_bulk_model and x["kernel_grids"].shape[1] != 1:
             if step is None:
                 # Change data by hand since the dataloader does not run in the first iteration
@@ -315,8 +315,14 @@ class FIMHawkes(AModel):
         assert target_kernel_values.shape == predicted_kernel_function.shape
         assert target_base_intensity.shape == predicted_base_intensity.shape
 
-        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2))
-        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2))
+        # First perform the RMSE per mark
+        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2), dim=-1)
+        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2), dim=-1)
+        
+        # Then compute the mean over all marks
+        kernel_rmse = torch.mean(kernel_rmse)
+        base_intensity_rmse = torch.mean(base_intensity_rmse)
+        
 
         loss = kernel_rmse + base_intensity_rmse
 
