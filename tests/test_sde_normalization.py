@@ -5,7 +5,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from fim.data.data_generation.dynamical_systems import Degree2Polynomial, DynamicalSystem, Lorenz63System
+from fim.data_generation.sde.dynamical_systems import Degree2Polynomial, DynamicalSystem, Lorenz63System
 from fim.models.sde import DeltaLogCentering, InstanceNormalization, MinMaxNormalization, SDEConcepts, Standardization
 
 
