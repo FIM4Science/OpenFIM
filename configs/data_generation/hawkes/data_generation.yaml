@@ -1,12 +1,12 @@
 process_type: &process_type "hawkes" # hawkes, mjp, etc.
-dataset_name: &dataset_name "1K_25_st_hawkes_exp_1000_paths_100_events"
+dataset_name: &dataset_name "1k_5_st_hawkes_exp_1000_paths_100_events"
 
 data_generator:
   class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesDatasetGenerator
   # num_samples_train: &num_samples_train 10_000
   # num_samples_val: &num_samples_val 1_000
   # num_samples_test: &num_samples_test 1_000
-  num_samples_train: &num_samples_train 1_000
+  num_samples_train: &num_samples_train 1000
   num_samples_val: &num_samples_val 100
   num_samples_test: &num_samples_test 100
   num_paths: 1000
@@ -15,7 +15,7 @@ data_generator:
   num_chunks: 100 #TODO: We currently dont store the data chunk wise because the dataloader is not ready for it
   kernel_sampler:
     class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesKernelSampler
-    num_marks: 25
+    num_marks: 5
     kernel_grid_size: 100
     baseline_sampler:
       class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
@@ -24,55 +24,55 @@ data_generator:
     kernel_function_samplers:
       exponential:
         class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpKernelFunctionSampler
-        flip_sign: &flip_sign true # If true, 50% of the kernels will have a flipped sign
+        flip_sign_probability: &flip_sign_probability 0.2
         a_0_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 0.1
+          low: 0.01
           high: 1
         a_1_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 0.1
+          low: 0.01
           high: 1
       # exponential_shifted:
       #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpShiftedKernelFunctionSampler
-      #   flip_sign: *flip_sign # If true, 50% of the kernels will have a flipped sign
+      #   flip_sign_probability: *flip_sign_probability
       #   a_0_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
       #   a_1_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
       #   a_2_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
       # exponential_squared:
       #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSquaredKernelFunctionSampler
-      #   flip_sign: *flip_sign # If true, 50% of the kernels will have a flipped sign
+      #   flip_sign_probability: *flip_sign_probability
       #   a_0_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
       #   a_1_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
       # exponential_sin:
       #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSinKernelFunctionSampler
-      #   flip_sign: *flip_sign # If true, 50% of the kernels will have a flipped sign
+      #   flip_sign_probability: *flip_sign_probability
       #   a_0_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
       #   a_1_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
       #   a_2_sampler:
       #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-      #     low: 0.1
+      #     low: 0.01
       #     high: 1
 
 data_saver:
