@@ -660,7 +660,7 @@ def save_df_per_dataloader_id(metrics_df: pd.DataFrame, save_dir: Path) -> None:
     pbar.close()
 
 
-# Custom encoder to convert NumPy arrays to lists
+# Custom encoder / decoder to convert NumPy arrays  lists
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
@@ -668,6 +668,13 @@ class NumpyEncoder(json.JSONEncoder):
         elif isinstance(obj, np.generic):
             return obj.item()
         return super(NumpyEncoder, self).default(obj)
+
+
+class NumpyDecoder(json.JSONDecoder):
+    def decode(self, s: str) -> Any:
+        dict_of_lists = super().decode(s)
+        dict_of_arrays = optree.tree_map(np.array, dict_of_lists, is_leaf=lambda x: isinstance(x, list))
+        return dict_of_arrays
 
 
 def preprocess_system_data(data: dict, apply_diffusion_sqrt: bool) -> dict:

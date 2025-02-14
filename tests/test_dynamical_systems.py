@@ -3,17 +3,17 @@ import os
 import pytest
 import torch
 
-from fim.data.data_generation.dynamical_systems import DYNAMICAL_SYSTEM_TO_MODELS
-from fim.data.data_generation.dynamical_systems_sample import PathGenerator
-from fim.data.data_generation.gp_dynamical_systems import (
+from fim.data.dataloaders import FIMSDEDataloader
+from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple
+from fim.data_generation.sde.dynamical_systems import DYNAMICAL_SYSTEM_TO_MODELS
+from fim.data_generation.sde.dynamical_systems_sample import PathGenerator
+from fim.data_generation.sde.gp_dynamical_systems import (
     IntegrationConfig,
     ScaleRBF,
     SDEGPDynamicalSystem,
     SDEGPsConfig,
     define_dynamicals_models_from_yaml,
 )
-from fim.data.dataloaders import FIMSDEDataloader
-from fim.data.datasets import FIMSDEDatabatch, FIMSDEDatabatchTuple
 from fim.models.gaussian_processes.utils import define_mesh_points
 
 

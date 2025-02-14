@@ -20,7 +20,7 @@ from torch.utils.data.dataset import Dataset
 from transformers.trainer_pt_utils import IterableDatasetShard
 
 from fim.data.config_dataclasses import FIMDatasetConfig
-from fim.data.data_generation.gp_dynamical_systems import get_dynamicals_system_data_from_yaml
+from fim.data_generation.sde.gp_dynamical_systems import get_dynamicals_system_data_from_yaml
 from fim.models import FIMSDEConfig
 from fim.utils.helper import create_class_instance, verify_str_arg
 

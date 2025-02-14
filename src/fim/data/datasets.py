@@ -4,6 +4,7 @@ import math
 import operator
 import os
 import pathlib
+import random
 from collections import defaultdict, namedtuple
 from dataclasses import dataclass
 from functools import reduce
@@ -1228,6 +1229,9 @@ class HeterogeneousFIMSDEDataset(torch.utils.data.IterableDataset):
                 )
                 data_iters.append(data_iter)
 
+            # randomize order
+            random.shuffle(data_iters)
+
             # chain data iters of worker
             combined_data_iter = itertools.chain(*data_iters)
 
@@ -1381,6 +1385,9 @@ class StreamingFIMSDEDataset(torch.utils.data.IterableDataset):
                     iterator = itertools.islice(iterator, self.data_limit)
 
                 iterators.append(iterator)
+
+            # randomize order
+            random.shuffle(iterators)
 
             # chain data iters of worker
             combined_iterator = itertools.chain(*iterators)

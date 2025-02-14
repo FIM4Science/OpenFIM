@@ -5,9 +5,9 @@ import pandas as pd
 import torch
 from torch import Tensor
 
-from fim.data.data_generation.dynamical_systems import DynamicalSystem
-from fim.data.data_generation.dynamical_systems_sample import PathGenerator
 from fim.data.datasets import FIMSDEDatabatch
+from fim.data_generation.sde.dynamical_systems import DynamicalSystem
+from fim.data_generation.sde.dynamical_systems_sample import PathGenerator
 from fim.models.sde import MinMaxNormalization, SDEConcepts
 
 
