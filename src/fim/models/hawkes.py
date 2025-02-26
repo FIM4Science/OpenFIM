@@ -316,8 +316,8 @@ class FIMHawkes(AModel):
         assert target_base_intensity.shape == predicted_base_intensity.shape
 
         # First perform the RMSE per mark
-        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2), dim=-1)
-        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2), dim=-1)
+        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2, dim=-1))
+        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2, dim=-1))
         
         # Then compute the mean over all marks
         kernel_rmse = torch.mean(kernel_rmse)
