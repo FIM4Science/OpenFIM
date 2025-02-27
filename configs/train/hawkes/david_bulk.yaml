@@ -34,7 +34,7 @@ dataset:
     test_batch_size: 1
 
     variable_num_of_paths: true
-    min_path_count: 500
+    min_path_count: 100
     max_path_count: 1000
     max_number_of_minibatch_sizes: 10
 
