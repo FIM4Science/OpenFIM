@@ -164,6 +164,9 @@ class FIMHawkes(AModel):
         if "seq_lengths" not in x:
             x["seq_lengths"] = torch.full((B, P), L, device=self.device)
 
+
+        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1) # [B, P, L, 1]
+
         if self.is_bulk_model and x["kernel_grids"].shape[1] != 1:
             if step is None:
                 # Change data by hand since the dataloader does not run in the first iteration
@@ -182,15 +185,19 @@ class FIMHawkes(AModel):
         # Add a delta time of 0 for the first event
         x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
 
-        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1)  # [B, P, L, 1]
+        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1) # [B, P, L, 1]
 
         if "time_normalization_factors" not in x:
-            norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid)
+            norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid, x["seq_lengths"])
             x["time_normalization_factors"] = norm_constants
             x["observation_grid_normalized"] = obs_grid
         else:
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
+
+        x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
+        # Add a delta time of 0 for the first event
+        x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
 
         sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
 
@@ -305,8 +312,11 @@ class FIMHawkes(AModel):
         h = self.decay_parameter_decoder(static_path_summary)
         return h.view(-1, M)
 
-    def __normalize_obs_grid(self, obs_grid: Tensor) -> tuple[Tensor, Tensor]:
-        norm_constants = obs_grid.amax(dim=[-3, -2, -1])
+    def __normalize_obs_grid(self, obs_grid: Tensor, seq_lengths: Tensor) -> tuple[Tensor, Tensor]:
+        batch_indices = torch.arange(obs_grid.size(0), device=obs_grid.device).view(-1, 1).expand(-1, obs_grid.size(1))
+        path_indices = torch.arange(obs_grid.size(1), device=obs_grid.device).view(1, -1).expand(obs_grid.size(0), -1)
+        max_times = obs_grid[batch_indices, path_indices, seq_lengths-1]
+        norm_constants = max_times.amax(dim=[1,2])
         obs_grid_normalized = obs_grid / norm_constants.view(-1, 1, 1, 1)
         return norm_constants, obs_grid_normalized
 
