@@ -312,6 +312,7 @@ class FIMHawkes(AModel):
         h = self.decay_parameter_decoder(static_path_summary)
         return h.view(-1, M)
 
+
     def __normalize_obs_grid(self, obs_grid: Tensor, seq_lengths: Tensor) -> tuple[Tensor, Tensor]:
         batch_indices = torch.arange(obs_grid.size(0), device=obs_grid.device).view(-1, 1).expand(-1, obs_grid.size(1))
         path_indices = torch.arange(obs_grid.size(1), device=obs_grid.device).view(1, -1).expand(obs_grid.size(0), -1)
