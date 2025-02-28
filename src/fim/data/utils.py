@@ -306,92 +306,94 @@ def sample_random_integers_from_exponential(a, b, scale=1, size=1):
 def sample_from_gmm(a, b, size=1, seed=None):
     """
     Sample from a randomly parameterized Gaussian mixture model within range [a, b].
-    
+
     Parameters:
     a (int): The lower bound of the range (inclusive).
     b (int): The upper bound of the range (inclusive).
     size (int): The number of random samples to generate.
     seed (int, optional): Random seed for reproducibility.
-    
+
     Returns:
     numpy.ndarray: An array of random integers sampled from a GMM within [a, b].
     """
     if seed is not None:
         np.random.seed(seed)
-    
+
     # Randomly determine the number of components (1-4)
     n_components = np.random.randint(1, 5)
-    
+
     # Range width
     range_width = b - a
-    
+
     # Randomly generate weights, means, and standard deviations
     weights = np.random.dirichlet(np.ones(n_components))
-    
+
     # Determine distribution type randomly
-    dist_type = np.random.choice(['right_skewed', 'normal', 'peak', 'bimodal', 'random'])
-    
-    if dist_type == 'right_skewed':
+    dist_type = np.random.choice(["right_skewed", "normal", "peak", "bimodal", "random"])
+
+    if dist_type == "right_skewed":
         # Place the main peak closer to the lower bound
-        means = np.array([a + range_width * 0.1,  # Main peak very close to minimum
-                        a + range_width * 0.3,  # Secondary component
-                        a + range_width * 0.6])[:n_components]  # Tail component
-        
+        means = np.array(
+            [
+                a + range_width * 0.1,  # Main peak very close to minimum
+                a + range_width * 0.3,  # Secondary component
+                a + range_width * 0.6,
+            ]
+        )[:n_components]  # Tail component
+
         # Use larger standard deviations for components farther from minimum
-        stds = np.array([range_width * 0.05,  # Tight peak at beginning
-                        range_width * 0.15,  # Medium spread
-                        range_width * 0.25])[:n_components]  # Wide spread for tail
-        
+        stds = np.array(
+            [
+                range_width * 0.05,  # Tight peak at beginning
+                range_width * 0.15,  # Medium spread
+                range_width * 0.25,
+            ]
+        )[:n_components]  # Wide spread for tail
+
         # Higher weight on first component, decreasing for others
         weights = np.array([0.6, 0.3, 0.1])[:n_components]
         weights = weights / weights.sum()
-            
-    elif dist_type == 'normal':
+
+    elif dist_type == "normal":
         # Normal with potential spike
         if n_components == 1:
             means = np.array([a + range_width * 0.5])
             stds = np.array([range_width * 0.15])
         else:
-            means = np.array([a + range_width * 0.4, 
-                              a + range_width * 0.9])[:n_components]
-            stds = np.array([range_width * 0.15, 
-                             range_width * 0.03])[:n_components]
+            means = np.array([a + range_width * 0.4, a + range_width * 0.9])[:n_components]
+            stds = np.array([range_width * 0.15, range_width * 0.03])[:n_components]
             weights = np.array([0.85, 0.15])[:n_components]
             weights = weights / weights.sum()
-            
-    elif dist_type == 'peak':
+
+    elif dist_type == "peak":
         # Strong peak
         peak_location = a + np.random.uniform(0.5, 0.8) * range_width
-        means = np.array([peak_location, 
-                          a + range_width * 0.3])[:n_components]
-        stds = np.array([range_width * 0.02, 
-                         range_width * 0.1])[:n_components]
+        means = np.array([peak_location, a + range_width * 0.3])[:n_components]
+        stds = np.array([range_width * 0.02, range_width * 0.1])[:n_components]
         weights = np.array([0.7, 0.3])[:n_components]
         weights = weights / weights.sum()
-        
-    elif dist_type == 'bimodal':
-        # Bimodal 
-        means = np.array([a + range_width * 0.1, 
-                          a + range_width * 0.9])[:n_components]
-        stds = np.array([range_width * 0.05, 
-                         range_width * 0.03])[:n_components]
+
+    elif dist_type == "bimodal":
+        # Bimodal
+        means = np.array([a + range_width * 0.1, a + range_width * 0.9])[:n_components]
+        stds = np.array([range_width * 0.05, range_width * 0.03])[:n_components]
         weights = np.array([0.5, 0.5])[:n_components]
         weights = weights / weights.sum()
-        
+
     else:  # random
         # Completely random configuration
         means = np.random.uniform(a, b, n_components)
         stds = np.random.uniform(range_width * 0.02, range_width * 0.15, n_components)
-    
+
     # Choose which component to sample from
     component_indices = np.random.choice(len(weights), size=size, p=weights)
-    
+
     # Generate samples from the selected components
     samples = np.array([np.random.normal(means[i], stds[i]) for i in component_indices])
-    
+
     # Round to integers and clip to ensure values are within range
     samples = np.clip(np.round(samples), a, b).astype(int)
-    
+
     return samples
 
 

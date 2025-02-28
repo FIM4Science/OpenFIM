@@ -35,7 +35,7 @@ from ..data.datasets import (
 )
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
-from .utils import get_path_counts, sample_random_integers_from_exponential, sample_from_gmm
+from .utils import get_path_counts, sample_from_gmm, sample_random_integers_from_exponential
 
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
