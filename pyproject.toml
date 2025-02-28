@@ -35,7 +35,6 @@ dependencies = [
    "tensorboard",
    "h5py",
    "optimum",
-   "optree",
    "pyyaml",
    "jupyterlab",
    "ipywidgets",
@@ -53,6 +52,7 @@ dependencies = [
    "torchinfo",
    "ruff",
    "pytest-env",
+   "pydantic"
 ]
 
 

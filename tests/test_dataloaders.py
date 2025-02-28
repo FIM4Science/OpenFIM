@@ -324,4 +324,33 @@ class TestFimDataLoader:
         print("std: ", np.std(time_diff))
 
 
-class TestHFFIMDataLoader: ...
+class TestFIMHFDataLoader:
+    @pytest.fixture()
+    def config(self) -> dict:
+        config = {
+            "name": "FIMHFDataLoader",
+            "path": "easytpp/volcano",
+            "dataset_kwargs": {"rename_columns": {"time_since_last_event": "delta_time", "type_event": "event_type"}},
+            "loader_kwargs": {"batch_size": 4, "test_batch_size": 2, "num_workers": 0},
+        }
+        return config
+
+    def test_init_hf(self, config):
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 400
+        assert dataloader.validation_set_size == 50
+        assert dataloader.test_set_size == 181
+        assert dataloader.train_it is not None
+        assert dataloader.test_it is not None
+
+    def test_batch(self, config):
+        dataloader = DataLoaderFactory.create(**config)
+        for batch in dataloader.train_it:
+            assert batch is not None
+            assert batch["delta_time"].shape[0] == 4
+            break
+        for batch in dataloader.test_it:
+            assert batch is not None
+            assert batch["delta_time"].shape[0] == 2
+            break

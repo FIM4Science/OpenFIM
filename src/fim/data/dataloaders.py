@@ -11,7 +11,7 @@ import pandas as pd
 import torch
 import torch.distributed as dist
 import torch.utils
-from datasets import load_dataset_builder
+from datasets import get_dataset_split_names, load_dataset_builder
 from torch import Tensor
 from torch.utils.data import default_collate
 from torch.utils.data.dataloader import DataLoader
@@ -28,6 +28,7 @@ from ..data.datasets import (
     FIMSDEDatabatchTuple,
     FIMSDEDataset,
     HeterogeneousFIMSDEDataset,
+    HFDataset,
     PaddedFIMSDEDataset,
     StreamingFIMSDEDataset,
     TimeSeriesImputationDatasetTorch,
@@ -55,16 +56,19 @@ def transform_start_field_to_time_features(batch: dict, freq: str = "1M", key: s
 
 
 class BaseDataLoader:
-    def __init__(self, dataset_kwargs: dict, loader_kwargs: dict):
+    def __init__(self, dataset_kwargs: Optional[dict] = {}, loader_kwargs: Optional[dict] = {}):
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
 
-        self.batch_size = loader_kwargs.pop("batch_size")
-        self.test_batch_size = loader_kwargs.pop("test_batch_size")
+        self.batch_size = loader_kwargs.pop("batch_size", 1)
+        self.test_batch_size = loader_kwargs.pop("test_batch_size", 1)
         self.dataset_kwargs = dataset_kwargs
         self.loader_kwargs = loader_kwargs
         self.iter = {}
         self.dataset = {}
         self.samplers = {}
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(batch_size={self.batch_size}, test_batch_size={self.test_batch_size}, dataset={self.dataset}, iter={self.iter}, samplers={self.samplers})"
 
     def _init_dataloaders(self, dataset: dict[str, torch.utils.data.Dataset]):
         for n, d in dataset.items():
@@ -142,8 +146,19 @@ class BaseDataLoader:
 
 
 class FIMHFDataLoader(BaseDataLoader):
-    def __init__(self, dataset_kwargs: dict, loader_kwargs: dict):
+    def __init__(
+        self, path: Union[str, Path], conf: Optional[str] = None, dataset_kwargs: Optional[dict] = {}, loader_kwargs: Optional[dict] = {}
+    ):
         super().__init__(dataset_kwargs, loader_kwargs)
+        self.path = path
+        splits = get_dataset_split_names(path)
+        for split in splits:
+            self.dataset[split] = HFDataset(self.path, conf, split=split, **dataset_kwargs)
+
+        self._init_dataloaders(self.dataset)
+
+    def __repr__(self) -> str:
+        return super().__repr__()
 
 
 class FIMDataLoader(BaseDataLoader):
@@ -930,6 +945,7 @@ class DataLoaderFactory:
 
 DataLoaderFactory.register("ts_torch_dataloader", TimeSeriesDataLoaderTorch)
 DataLoaderFactory.register("FIMDataLoader", FIMDataLoader)
+DataLoaderFactory.register("FIMHFDataLoader", FIMHFDataLoader)
 DataLoaderFactory.register("HawkesDataLoader", HawkesDataLoader)
 DataLoaderFactory.register("FIMSDEDataloader", FIMSDEDataloader)
 DataLoaderFactory.register("FIMSDEDataloaderIterableDataset", FIMSDEDataloaderIterableDataset)
