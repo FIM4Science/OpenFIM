@@ -1,16 +1,19 @@
 import sys
-import torch
-import numpy as np
-from torch import matmul as m
-from matplotlib import pyplot as plt
-from fim.models.gaussian_processes.sdes import ConstantDiffusion, TwoDimensionalSynDrift
 from typing import List, Tuple
+
+import numpy as np
+import torch
+from matplotlib import pyplot as plt
+from torch import matmul as m
+
+from fim.models.gaussian_processes.sdes import ConstantDiffusion, TwoDimensionalSynDrift
 
 
 sys.path.insert(0, ".")
 
-from fim.models.gaussian_processes.utils import define_grid_ranges, define_mesh_points
 from gpytorch.kernels import Kernel, RBFKernel, ScaleKernel
+
+from fim.models.gaussian_processes.utils import define_grid_ranges, define_mesh_points
 
 
 class SparseGPSDE:

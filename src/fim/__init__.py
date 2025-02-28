@@ -4,6 +4,7 @@ from pathlib import Path
 
 import fim  # noqa: F401
 
+
 if sys.version_info[:2] >= (3, 8):
     from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 else:

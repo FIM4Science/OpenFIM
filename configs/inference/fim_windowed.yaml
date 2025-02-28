@@ -30,8 +30,8 @@ dataset:
   test_batch_size: 1024
   output_fields:
    !!python/tuple [
-      "fine_grid_grid", 
-      "fine_grid_concept_values", 
+      "fine_grid_grid",
+      "fine_grid_concept_values",
       "fine_grid_sample_paths",
       "coarse_grid_grid",
       "coarse_grid_noisy_sample_paths",  #  "coarse_grid_sample_paths"  or "coarse_grid_noisy_sample_paths"
@@ -42,4 +42,3 @@ dataset:
   split: "test"
   dataset_kwargs:
     debugging_data_range: null
-

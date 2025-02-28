@@ -163,12 +163,12 @@ if __name__ == "__main__":
             model_abbr = None
         # window_count = config["model"]["window_count"]
         overlap = config["model"]["overlap"]
-        output_folder_base = f"reports/FIMWindowed/SynthData_500k/{window_count}windows_{int(100*overlap)}%overlap/{model_abbr}/"
+        output_folder_base = f"reports/FIMWindowed/SynthData_500k/{window_count}windows_{int(100 * overlap)}%overlap/{model_abbr}/"
         os.makedirs(output_folder_base, exist_ok=True)
         evaluate_hyperparameter_setting(model, output_folder_base)
 
         print(f"{model_abbr}")
-        print(f'windows: {window_count} overlap: {config["model"]["overlap"]}')
+        print(f"windows: {window_count} overlap: {config['model']['overlap']}")
 
         # get_table_1(print_table=True)
         # metrics = get_overview_all_metrics(print=False)

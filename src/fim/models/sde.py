@@ -1674,9 +1674,9 @@ class FIMSDE(AModel, pl.LightningModule):
             Preprocessed inputs: obs_times, obs_values, obs_mask, locations
             Instance normalization statistics: states_norm_stats, times_norm_stats
         """
-        assert (
-            data["obs_values"].shape[-1] <= self.config.max_dimension
-        ), f"Can not process observations of dim >{self.config.max_dimension}. Got {data['obs_values'].shape[-1]}."
+        assert data["obs_values"].shape[-1] <= self.config.max_dimension, (
+            f"Can not process observations of dim >{self.config.max_dimension}. Got {data['obs_values'].shape[-1]}."
+        )
 
         obs_times, obs_values, obs_mask = self._fill_masked_values(data)
 

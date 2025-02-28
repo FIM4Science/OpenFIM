@@ -1161,6 +1161,7 @@ class Polynomials(DynamicalSystem):
             else:
                 print("\n")
         return outputs
+
     def sample_drift_params(self, num_realizations: int) -> Tensor:
         """
         Sample coefficients of (up to) degree 2 polynomials for each dimension.

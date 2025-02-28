@@ -55,7 +55,7 @@ def build_dfs(data: dict, horizon_len: int = 128, sigma: float = 0.0, mask_p: in
 
     for sample_id in range(len(data["dim"])):
         dimensions = data["dim"][sample_id]
-        mask = data[f'observation_mask_p_{str(mask_p).replace(".", "_")}'][sample_id].squeeze()
+        mask = data[f"observation_mask_p_{str(mask_p).replace('.', '_')}"][sample_id].squeeze()
         # split mask into context and horizon
         mask_context = mask[:-horizon_len]
 

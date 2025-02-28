@@ -1,8 +1,9 @@
-from typing import Optional
-from datasets import Dataset
 import math
-from itertools import pairwise
 import random
+from itertools import pairwise
+from typing import Optional
+
+from datasets import Dataset
 from tqdm import tqdm
 
 

@@ -1,5 +1,5 @@
-from multiprocessing import Pool
 import time
+from multiprocessing import Pool
 
 import numpy as np
 from tqdm import tqdm

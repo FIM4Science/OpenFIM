@@ -44,7 +44,7 @@ dataset:
 
     num_kernel_evaluation_points: 10
 
-    is_bulk_model: &is_bulk_model true 
+    is_bulk_model: &is_bulk_model true
   dataset_kwargs:
     files_to_load:
       base_intensities: "base_intensities.pt"

@@ -1,18 +1,19 @@
 import sys
-import torch
-import numpy as np
 from typing import List, Tuple
+
+import numpy as np
+import torch
 from torch import matmul as m
+
 
 sys.path.insert(0, ".")
 
 from dataclasses import dataclass
 
+from gpytorch.kernels import Kernel, PolynomialKernel, RBFKernel, ScaleKernel
+from matplotlib import pyplot as plt
 
 from fim.models.gaussian_processes.sdes import DoubleWellDrift, MaxDiffusion
-
-from gpytorch.kernels import RBFKernel, ScaleKernel, Kernel, PolynomialKernel
-from matplotlib import pyplot as plt
 
 
 @dataclass

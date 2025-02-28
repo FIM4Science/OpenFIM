@@ -1,12 +1,13 @@
 import logging
 import sys
 from pathlib import Path
+
+import click
 import matplotlib.pyplot as plt
 import torch
-import click
 
-from fim.utils.helper import load_yaml
 from fim.utils.evaluation import EvaluationFactory
+from fim.utils.helper import load_yaml
 
 
 @click.command()

@@ -3,11 +3,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import matplotlib.pyplot as plt
 import optree
-import pandas as pd
 import torch
-from torch import Tensor
+from dataloader_inits.synthetic_test_equations import get_svise_dataloaders_inits
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -20,12 +18,9 @@ from fim.utils.evaluation_sde import (
     ModelEvaluation,
     ModelMap,
     dataloader_map_from_dict,
-    get_data_from_model_evaluation,
-    load_evaluations,
     model_map_from_dict,
     save_evaluations,
 )
-from dataloader_inits.synthetic_test_equations import get_svise_dataloaders_inits
 
 
 def evaluate_model(model: AModel, dataloader: DataLoader, num_sample_paths: int, device: Optional[str] = None):
@@ -47,10 +42,10 @@ def evaluate_model(model: AModel, dataloader: DataLoader, num_sample_paths: int,
 
     grid = dataset["obs_times"]  # [..., 43, T, 1]
     initial_states = dataset["obs_values"][:, :, 0]
-    
+
     # Repeat grid and initial states for num_sample_paths on dim 1
-    grid = grid.repeat(1, num_sample_paths, 1, 1)[:,:num_sample_paths]  
-    initial_states = initial_states.repeat(1, num_sample_paths, 1)[:,:num_sample_paths]
+    grid = grid.repeat(1, num_sample_paths, 1, 1)[:, :num_sample_paths]
+    initial_states = initial_states.repeat(1, num_sample_paths, 1)[:, :num_sample_paths]
 
     sample_paths, sample_paths_grid = fimsde_sample_paths(
         model,
@@ -60,13 +55,11 @@ def evaluate_model(model: AModel, dataloader: DataLoader, num_sample_paths: int,
         num_paths=num_sample_paths,
         initial_states=initial_states,
     )  # [..., 43 * num_sample_paths, D]
-    
+
     results.update({"sample_paths": sample_paths, "sample_paths_grid": sample_paths_grid})
-    
-    
+
     return results
 
-    
 
 def run_evaluations(
     to_evaluate: list[ModelEvaluation],
@@ -107,7 +100,7 @@ def run_evaluations(
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     dataset_descr = "nature_datasets"
-    
+
     BATCH_SIZE = 128
     NUM_WORKERS = 8
 
@@ -119,7 +112,7 @@ if __name__ == "__main__":
     }
 
     models_display_ids = {
-        "11M_params": "11M Parameters", 
+        "11M_params": "11M Parameters",
     }
 
     results_to_load: list[str] = [
@@ -136,19 +129,20 @@ if __name__ == "__main__":
     evaluation_dir.mkdir(parents=True, exist_ok=True)
 
     # Get dataloaders inits and their display ids (for ModelEvaluation)
-    dataloader_dicts, dataloader_display_ids = get_svise_dataloaders_inits(Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode"), batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
+    dataloader_dicts, dataloader_display_ids = get_svise_dataloaders_inits(
+        Path("/cephfs_projects/foundation_models/data/SDE/test/20250124_svise/ode"), batch_size=BATCH_SIZE, num_workers=NUM_WORKERS
+    )
 
     # Get model_map to load models when they are needed
     model_map = model_map_from_dict(model_dicts)
     dataloader_map = dataloader_map_from_dict(dataloader_dicts)
-
 
     # Evaluate all models on all datasets
     all_evaluations: list[ModelEvaluation] = [
         ModelEvaluation(model_id, dataloader_id)
         for model_id, dataloader_id in itertools.product(model_dicts.keys(), dataloader_dicts.keys())
     ]
-    to_evaluate: list[ModelEvaluation] = [evaluation for evaluation in all_evaluations]
+    to_evaluate: list[ModelEvaluation] = list(all_evaluations)
 
     # Create, run and save EvaluationConfig
     evaluated: list[ModelEvaluation] = run_evaluations(to_evaluate, model_map, dataloader_map, num_sample_paths)

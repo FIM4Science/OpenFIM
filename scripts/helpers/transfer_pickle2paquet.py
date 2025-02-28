@@ -31,11 +31,11 @@ def read_pickle2torch(file_path: str) -> Union[torch.FloatTensor, tuple[torch.Fl
 
 def read_data(path, split):
     coarse_grid_concept_values = read_pickle2torch(path + split + "/" + "coarse_grid_concept_values.pickle")
-    fine_grid_noisy_sample_paths = read_pickle2torch(path + split + "/" "fine_grid_noisy_sample_paths.pickle")
-    coarse_grid_grid = read_pickle2torch(path + split + "/" "coarse_grid_grid.pickle")
-    coarse_grid_observation_mask = read_pickle2torch(path + split + "/" "coarse_grid_observation_mask.pickle")
-    fine_grid_grid = read_pickle2torch(path + split + "/" "fine_grid_grid.pickle")
-    coarse_grid_sample_paths = read_pickle2torch(path + split + "/" "coarse_grid_sample_paths.pickle")
+    fine_grid_noisy_sample_paths = read_pickle2torch(path + split + "/fine_grid_noisy_sample_paths.pickle")
+    coarse_grid_grid = read_pickle2torch(path + split + "/coarse_grid_grid.pickle")
+    coarse_grid_observation_mask = read_pickle2torch(path + split + "/coarse_grid_observation_mask.pickle")
+    fine_grid_grid = read_pickle2torch(path + split + "/fine_grid_grid.pickle")
+    coarse_grid_sample_paths = read_pickle2torch(path + split + "/coarse_grid_sample_paths.pickle")
 
     data = {
         "fine_grid_noisy_sample_paths": fine_grid_noisy_sample_paths,

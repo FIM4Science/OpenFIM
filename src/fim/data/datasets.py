@@ -1514,9 +1514,9 @@ def shuffle_at_dim(tree: Any, dim: int) -> Tensor:
 
     # Assert assumption of same shapes to (and including) dim
     for leaf in leafs:
-        assert (
-            leaf.shape[: dim + 1] == shape_to_dim
-        ), f"Expected {shape_to_dim}, got {torch.utils._pytree.tree_map(lambda x: x.shape[: dim + 1], tree)}"
+        assert leaf.shape[: dim + 1] == shape_to_dim, (
+            f"Expected {shape_to_dim}, got {torch.utils._pytree.tree_map(lambda x: x.shape[: dim + 1], tree)}"
+        )
 
     # squash dimensions to dim
     if dim == 0:

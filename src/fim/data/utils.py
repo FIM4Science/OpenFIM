@@ -91,9 +91,9 @@ def split_into_variable_windows(
             padding = pad_value.expand(-1, padding_size_windowing_end, -1)
             window = torch.cat([window, padding], dim=1)
 
-        assert (
-            window.size(1) == max_window_size
-        ), f"Window size ({window.size(1)}) does not match the expected size ({max_window_size}). Imputation window size: {imputation_window_size}, Fixed window size: {fixed_window_size}, Window index: {imputation_window_index}, Window count: {window_count}, Max sequence length: {max_sequence_length}, Padding value: {padding_value}, Current window index: {i}"
+        assert window.size(1) == max_window_size, (
+            f"Window size ({window.size(1)}) does not match the expected size ({max_window_size}). Imputation window size: {imputation_window_size}, Fixed window size: {fixed_window_size}, Window index: {imputation_window_index}, Window count: {window_count}, Max sequence length: {max_sequence_length}, Padding value: {padding_value}, Current window index: {i}"
+        )
         windows.append(window)
 
         # Update start index for next window
@@ -241,7 +241,9 @@ def repeat_for_dim(t, process_dim):
     return torch.concat([t for _ in range(process_dim)], dim=0)
 
 
-def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int, max_number_of_minibatch_sizes: int = 10, min_path_count: int = 1) -> list:
+def get_path_counts(
+    num_examples: int, minibatch_size: int, max_path_count: int, max_number_of_minibatch_sizes: int = 10, min_path_count: int = 1
+) -> list:
     """
     Calculate the path counts for minibatches.
 
@@ -262,7 +264,9 @@ def get_path_counts(num_examples: int, minibatch_size: int, max_path_count: int,
     if num_examples % minibatch_size != 0:
         num_minibatches += 1
 
-    path_counts = list(np.arange(min_path_count, max_path_count + 1, (max_path_count-min_path_count+1) // max_number_of_minibatch_sizes))
+    path_counts = list(
+        np.arange(min_path_count, max_path_count + 1, (max_path_count - min_path_count + 1) // max_number_of_minibatch_sizes)
+    )
     path_counts *= num_minibatches // len(path_counts)
     if len(path_counts) == 0:
         raise ValueError("Not enough minibatches to distribute paths evenly. We have not implemented this case yet.")
@@ -288,14 +292,14 @@ def sample_random_integers_from_exponential(a, b, scale=1, size=1):
     """
     # Generate samples from an exponential distribution
     samples = np.random.exponential(scale, size=size)
-    
+
     # Normalize and scale samples to be within the range [a, b]
     scaled_samples = np.interp(samples, (samples.min(), samples.max()), (a, b))
-    
+
     # Round to nearest integer and clip to ensure within [a, b]
     random_integers = np.rint(scaled_samples).astype(int)
     random_integers = np.clip(random_integers, a, b)
-    
+
     return random_integers
 
 

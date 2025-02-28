@@ -1,13 +1,14 @@
 import torch
 
+
 class KernelGridSubSampler:
     """
     Sample a random subset of points on which we evaluate the kernel function.
     """
 
     def __init__(self, **kwargs) -> None:
-        self.num_points = kwargs["num_points"] # Number of points on which we evaluate the kernel function
-        
+        self.num_points = kwargs["num_points"]  # Number of points on which we evaluate the kernel function
+
     def __call__(self, x) -> None:
         """
         Sample a mask for the kernel function evaluated on the grid x.
@@ -30,35 +31,37 @@ class KernelGridSubSampler:
         # Subsample the kernel grid and evaluations
         x["kernel_grids"] = x["kernel_grids"].gather(2, expanded_idxs)
         x["kernel_evaluations"] = x["kernel_evaluations"].gather(2, expanded_idxs)
- 
- 
+
+
 def sample_exponential_indices(size, scale, num_samples):
     """
     Sample indices from 0 to size-1 using an exponential distribution.
 
     :param size: The total number of indices (N).
-    :param scale: The scale parameter for the exponential distribution. 
+    :param scale: The scale parameter for the exponential distribution.
                   A smaller scale means a steeper distribution, leading to lower indices being more likely.
     :param num_samples: Number of indices to sample.
     :return: Tensor of sampled indices.
     """
     # Generate exponential random variables
-    exp_samples = torch.distributions.Exponential(rate=1/scale).sample((num_samples,))
-    
+    exp_samples = torch.distributions.Exponential(rate=1 / scale).sample((num_samples,))
+
     # Normalize to fit within the range of indices
     exp_samples_normalized = exp_samples / torch.max(exp_samples)
     indices = (exp_samples_normalized * (size - 1)).long()
-    
+
     return indices
-        
+
+
 class ObservationMaskSampler:
     """
     Create a mask for the observation values.
     """
+
     def __init__(self, **kwargs) -> None:
-        self.min_max_seq_len = kwargs["min_max_seq_len"] # Minimum maximum sequence length
+        self.min_max_seq_len = kwargs["min_max_seq_len"]  # Minimum maximum sequence length
         self.max_max_seq_len = kwargs["max_max_seq_len"]
-        self.scale = kwargs["scale"] # Scale parameter for the exponential distribution
+        self.scale = kwargs["scale"]  # Scale parameter for the exponential distribution
 
     def __call__(self, x) -> None:
         batch_size, num_paths, num_points, _ = x["event_times"].shape
@@ -68,9 +71,9 @@ class ObservationMaskSampler:
         for i in range(batch_size):
             min_seq_len = torch.randint(1, max_seq_len[i] // 2, (1,))
             # Sample the number of observed events
-            seq_lens = sample_exponential_indices(max_seq_len[i]-min_seq_len, self.scale, num_paths) + min_seq_len
+            seq_lens = sample_exponential_indices(max_seq_len[i] - min_seq_len, self.scale, num_paths) + min_seq_len
             for j in range(num_paths):
-                observation_masks[i, j, :seq_lens[j]] = True
+                observation_masks[i, j, : seq_lens[j]] = True
         # Move observation masks to the device
         observation_masks = observation_masks.to(x["event_times"].device)
         x["obervation_masks"] = observation_masks
