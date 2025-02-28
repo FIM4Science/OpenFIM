@@ -2,7 +2,8 @@ from copy import deepcopy
 from pathlib import Path
 
 import click
-from fim.leftovers_from_old_library import save_in_yaml, create_class_instance, load_config
+
+from fim.leftovers_from_old_library import create_class_instance, load_config, save_in_yaml
 
 
 @click.command()

@@ -21,4 +21,3 @@ export NCCL_SOCKET_IFNAME="ens"
 export FI_EFA_USE_DEVICE_RDMA=1
 workon reasoning
 srun torchrun --nproc-per-node=4 scripts/train_model.py -cc configs/train/llama2_commonsenseqa.yaml
-

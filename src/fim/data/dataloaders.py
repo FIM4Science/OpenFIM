@@ -1,10 +1,9 @@
-import copy
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-import random
 from typing import List, Optional, Union
 
 import optree
@@ -142,6 +141,11 @@ class BaseDataLoader:
         return f"{ds_info.info.description}\n{ds_info.info.features}"
 
 
+class FIMHFDataLoader(BaseDataLoader):
+    def __init__(self, dataset_kwargs: dict, loader_kwargs: dict):
+        super().__init__(dataset_kwargs, loader_kwargs)
+
+
 class FIMDataLoader(BaseDataLoader):
     def __init__(self, path_collections: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
         self.max_path_count = loader_kwargs.pop("max_path_count", None)
@@ -151,9 +155,9 @@ class FIMDataLoader(BaseDataLoader):
         self.current_minibatch_index = 0
         super().__init__(dataset_kwargs, loader_kwargs)
         if self.variable_num_of_paths:
-            assert (
-                self.max_number_of_minibatch_sizes is not None
-            ), "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            assert self.max_number_of_minibatch_sizes is not None, (
+                "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            )
             assert self.max_path_count is not None, "max_path_conunt must be provided if variable_num_of_paths is True"
 
         self.path_collections = path_collections
@@ -165,7 +169,7 @@ class FIMDataLoader(BaseDataLoader):
                     self.batch_size * dist.get_world_size() if is_distributed() else self.batch_size,
                     self.max_path_count,
                     max_number_of_minibatch_sizes=self.max_number_of_minibatch_sizes,
-                    min_path_count=self.min_path_count
+                    min_path_count=self.min_path_count,
                 )
                 if loader_kwargs.get("num_workers", 0) > 0:
                     self.worker_minibatch_paths = self._distribute_path_sizes(self.num_paths_for_batch, loader_kwargs["num_workers"])
@@ -222,21 +226,21 @@ class HawkesDataLoader(BaseDataLoader):
         self.min_path_count = loader_kwargs.pop("min_path_count", 1)
         self.max_number_of_minibatch_sizes = loader_kwargs.pop("max_number_of_minibatch_sizes", None)
         self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
-        
+
         self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", False)
         self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
-        
+
         self.num_kernel_evaluation_points = loader_kwargs.pop("num_kernel_evaluation_points", None)
-        
+
         self.is_bulk_model = loader_kwargs.pop("is_bulk_model", False)
-        
+
         self.current_minibatch_index = 0
         super().__init__(dataset_kwargs, loader_kwargs)
         if self.variable_num_of_paths:
-            assert (
-                self.max_number_of_minibatch_sizes is not None
-            ), "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            assert self.max_number_of_minibatch_sizes is not None, (
+                "max_number_of_minibatch_sizes must be provided if variable_num_of_paths is True"
+            )
             assert self.max_path_count is not None, "max_path_conunt must be provided if variable_num_of_paths is True"
 
         self.path_collections = path_collections
@@ -248,7 +252,7 @@ class HawkesDataLoader(BaseDataLoader):
                     self.batch_size * dist.get_world_size() if is_distributed() else self.batch_size,
                     self.max_path_count,
                     max_number_of_minibatch_sizes=self.max_number_of_minibatch_sizes,
-                    min_path_count=self.min_path_count
+                    min_path_count=self.min_path_count,
                 )
                 if loader_kwargs.get("num_workers", 0) > 0:
                     self.worker_minibatch_paths = self._distribute_path_sizes(self.num_paths_for_batch, loader_kwargs["num_workers"])
@@ -284,40 +288,40 @@ class HawkesDataLoader(BaseDataLoader):
                 else:
                     new_item[k] = v
             return new_item
-        
+
         batch_data = [process_item(item) for item in batch]
         return batch_data
-    
+
     def custom_hawkes_collate_fun(self, batch: List[dict], previous_collate_fn=None):
         """
         Collate function for Hawkes processes which samples variable sequence lengths and subsamples kernel grids.
         """
         if previous_collate_fn is not None:
             batch = previous_collate_fn(batch)
-        upper_bound = random.randint(self.min_sequence_len+1, self.max_sequence_len)
-        lower_bound = random.randint(self.min_sequence_len, upper_bound-1)
-          
+        upper_bound = random.randint(self.min_sequence_len + 1, self.max_sequence_len)
+        lower_bound = random.randint(self.min_sequence_len, upper_bound - 1)
+
         def add_variable_seq_lens(item):
             item["event_times"] = item["event_times"][:, :upper_bound]
             item["event_types"] = item["event_types"][:, :upper_bound]
 
             P = item["event_times"].shape[0]
-            seq_lens = torch.tensor(sample_random_integers_from_exponential(lower_bound, upper_bound, size=P), dtype=torch.long)   
-            item["seq_lengths"] = seq_lens 
+            seq_lens = torch.tensor(sample_random_integers_from_exponential(lower_bound, upper_bound, size=P), dtype=torch.long)
+            item["seq_lengths"] = seq_lens
             return item
-        
+
         batch_data = [add_variable_seq_lens(item) for item in batch]
-        
+
         def subsample_kernel_evaluation_points(item):
             L_kernel = item["kernel_grids"].shape[1]
             selected_points = torch.randint(0, L_kernel, (self.num_kernel_evaluation_points,))
             item["kernel_grids"] = item["kernel_grids"][:, selected_points]
             item["kernel_evaluations"] = item["kernel_evaluations"][:, selected_points]
             return item
-        
+
         if self.num_kernel_evaluation_points is not None:
             batch_data = [subsample_kernel_evaluation_points(item) for item in batch_data]
-            
+
         def bulk_observations(item):
             """
             Select a random mark and label these as 0 and all other marks as 1.
@@ -327,17 +331,18 @@ class HawkesDataLoader(BaseDataLoader):
             # Select a random mark
             selected_mark = int(random.choice(marks))
             # Label the selected mark as 0 and all other marks as 1
-            item["event_types"] = torch.where(item["event_types"] == selected_mark, torch.zeros_like(item["event_types"]), torch.ones_like(item["event_types"]))
+            item["event_types"] = torch.where(
+                item["event_types"] == selected_mark, torch.zeros_like(item["event_types"]), torch.ones_like(item["event_types"])
+            )
             item["kernel_grids"] = item["kernel_grids"][selected_mark][None]
             item["kernel_evaluations"] = item["kernel_evaluations"][selected_mark][None]
             item["base_intensities"] = item["base_intensities"][selected_mark][None]
             return item
-            
+
         if self.is_bulk_model:
             batch_data = [bulk_observations(item) for item in batch_data]
-            
-        return batch_data               
-            
+
+        return batch_data
 
     def __fetch_path_count_for_minibatch(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -359,6 +364,7 @@ class HawkesDataLoader(BaseDataLoader):
             worker_id = i % num_workers
             minibatch_sizes_per_worker[worker_id].append(size)
         return minibatch_sizes_per_worker
+
 
 class TimeSeriesDataLoaderTorch:
     """Datalaoder for time series data in torch format."""
@@ -567,9 +573,9 @@ class SDEDataloaderConfig:
             return None
 
         else:
-            assert isinstance(attribute_value, expected_type) or isinstance(
-                attribute_value, dict
-            ), f"Got wrong type {type(attribute_value)} for data_label {data_label} and attribute {attribute_label}."
+            assert isinstance(attribute_value, expected_type) or isinstance(attribute_value, dict), (
+                f"Got wrong type {type(attribute_value)} for data_label {data_label} and attribute {attribute_label}."
+            )
 
             # check if extracted value is dict and if key `data_label` can be extracted.
             if isinstance(attribute_value, dict) and data_label in list(attribute_value.keys()):
@@ -632,17 +638,17 @@ class FIMSDEDataloader(BaseDataLoader):
 
     def update_kwargs(self, kwargs: dict | FIMDatasetConfig | FIMSDEConfig):
         assert self.dataset["train"].max_dimension == self.dataset["test"].max_dimension == self.dataset["validation"].max_dimension
-        assert (
-            self.dataset["train"].max_time_steps == self.dataset["test"].max_time_steps == self.dataset["validation"].max_time_steps
-        ), "max_time_steps are not equal"
+        assert self.dataset["train"].max_time_steps == self.dataset["test"].max_time_steps == self.dataset["validation"].max_time_steps, (
+            "max_time_steps are not equal"
+        )
         assert (
             self.dataset["train"].max_location_size
             == self.dataset["test"].max_location_size
             == self.dataset["validation"].max_location_size
         ), "max_location_size are not equal"
-        assert (
-            self.dataset["train"].max_num_paths == self.dataset["test"].max_num_paths == self.dataset["validation"].max_num_paths
-        ), "max_num_paths are not equal"
+        assert self.dataset["train"].max_num_paths == self.dataset["test"].max_num_paths == self.dataset["validation"].max_num_paths, (
+            "max_num_paths are not equal"
+        )
 
         if isinstance(kwargs, dict):
             if "dataset" in kwargs.keys():

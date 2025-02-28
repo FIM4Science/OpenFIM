@@ -2,7 +2,6 @@ import json
 from copy import copy
 from pathlib import Path
 
-
 from fim import data_path
 from fim.data_generation.sde.preprocess_utils import save_arrays_from_dict
 from fim.utils.evaluation_sde import preprocess_gp_results, preprocess_system_data

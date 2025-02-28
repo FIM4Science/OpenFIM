@@ -99,9 +99,9 @@ class TestDatasetHelpers:
 
         for key in ["a", "b"]:
             for ind in [0, 1]:
-                assert torch.allclose(
-                    reverse_shuffled_data[key][ind], data[key][ind]
-                ), f"Got {reverse_shuffled_data} for key {key} and ind {ind}."
+                assert torch.allclose(reverse_shuffled_data[key][ind], data[key][ind]), (
+                    f"Got {reverse_shuffled_data} for key {key} and ind {ind}."
+                )
 
         # shuffle along dim 0
         arange_ = torch.arange(5)
@@ -132,9 +132,9 @@ class TestDatasetHelpers:
 
         for key in ["a", "b"]:
             for ind in [0, 1]:
-                assert torch.allclose(
-                    reverse_shuffled_data[key][ind], data[key][ind]
-                ), f"Got {reverse_shuffled_data} for key {key} and ind {ind}."
+                assert torch.allclose(reverse_shuffled_data[key][ind], data[key][ind]), (
+                    f"Got {reverse_shuffled_data} for key {key} and ind {ind}."
+                )
 
     def test_append_to_lists_in_dict(self):
         d = {

@@ -1,13 +1,15 @@
 import os
-import torch
-from matplotlib import pyplot as plt
-from torch.distributions import MultivariateNormal
-import numpy as np
-from gpytorch.kernels import Kernel
-from gpytorch import distributions as gpdst
 
 # import DiagLazyVariable, ZeroLazyVariable
 from dataclasses import dataclass
+
+import numpy as np
+import torch
+from gpytorch import distributions as gpdst
+from gpytorch.kernels import Kernel
+from matplotlib import pyplot as plt
+from torch.distributions import MultivariateNormal
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 

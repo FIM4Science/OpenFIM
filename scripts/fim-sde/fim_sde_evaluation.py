@@ -1,9 +1,10 @@
 from pathlib import Path
-from fim.models.sde import FIMSDE
+
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.models.config_dataclasses import FIMSDEConfig
-from fim.utils.experiment_files import ExperimentsFiles
+from fim.models.sde import FIMSDE
 from fim.pipelines.sde_pipelines import FIMSDEPipeline
+from fim.utils.experiment_files import ExperimentsFiles
 
 
 def test_load_model():

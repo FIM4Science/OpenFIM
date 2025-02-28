@@ -94,7 +94,7 @@ def import_module(name, package=None):
     level = 0
     if name.startswith("."):
         if not package:
-            msg = "the 'package' argument is required to perform a relative " "import for {!r}"
+            msg = "the 'package' argument is required to perform a relative import for {!r}"
             raise TypeError(msg.format(name))
         for character in name:
             if character != ".":

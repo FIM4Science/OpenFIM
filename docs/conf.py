@@ -8,8 +8,9 @@
 # serve to show the default.
 
 import os
-import sys
 import shutil
+import sys
+
 
 # -- Path setup --------------------------------------------------------------
 

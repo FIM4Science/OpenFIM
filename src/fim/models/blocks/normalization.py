@@ -4,9 +4,9 @@ from typing import Optional, Union
 import torch
 from torch import nn
 
-
 from fim.models.blocks.base import Block
 from fim.utils.helper import create_class_instance
+
 
 eps = 1e-6
 

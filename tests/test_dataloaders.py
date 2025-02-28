@@ -322,3 +322,6 @@ class TestFimDataLoader:
         print("time diffs:")
         print("mean: ", np.mean(time_diff))
         print("std: ", np.std(time_diff))
+
+
+class TestHFFIMDataLoader: ...

@@ -23,5 +23,5 @@ diffusions = polynomial_system.sample_diffusion_params(params["num_realizations"
 equations = polynomial_system.print_polynomials(diffusions, polynomial_system.max_degree_diffusion, for_export=True)
 
 with open(output_path, "w", newline="") as file:
-    writer = csv.writer(file, delimiter='\t')
+    writer = csv.writer(file, delimiter="\t")
     writer.writerows(equations)

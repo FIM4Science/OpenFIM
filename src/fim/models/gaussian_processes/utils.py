@@ -1,5 +1,5 @@
-import torch
 import numpy as np
+import torch
 
 
 def define_grid_ranges(path_realization, ignore_percentatge=0.2):

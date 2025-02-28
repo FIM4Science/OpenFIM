@@ -1,11 +1,12 @@
 import torch
-from torch import matmul as m
-from fim.models.gaussian_processes.sdes import TwoDimensionalSynDrift, ConstantDiffusion
-from fim.models.gaussian_processes.sde_sparse_gp import SparseGPSDE
 from matplotlib import pyplot as plt
+from torch import matmul as m
 from torch.autograd.functional import jacobian
-from fim.models.gaussian_processes.utils import define_grid_ranges, define_mesh_points
 from torch.distributions import MultivariateNormal, Normal
+
+from fim.models.gaussian_processes.sde_sparse_gp import SparseGPSDE
+from fim.models.gaussian_processes.sdes import ConstantDiffusion, TwoDimensionalSynDrift
+from fim.models.gaussian_processes.utils import define_grid_ranges, define_mesh_points
 
 
 def safe_inverse(matrix, epsilon=1e-6):
