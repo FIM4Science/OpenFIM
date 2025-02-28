@@ -32,7 +32,7 @@ data_generator:
         a_1_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.LogUniform
           low: 0.0001
-          high: 1.0   
+          high: 1.0
       exponential_squared:
         class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpSquaredKernelFunctionSampler
         flip_sign_probability: 0.1
@@ -49,28 +49,28 @@ data_generator:
         flip_sign_probability: 0.1
         a_0_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 0.5  
-          high: 5.0  
+          low: 0.5
+          high: 5.0
         a_1_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 0.1  
+          low: 0.1
           high: 10
         a_2_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 100  
+          low: 100
           high: 700
       power_law:
         class_path: fim.data_generation.hawkes.kernel_functions.HawkesPowerLawKernelFunctionSampler
         flip_sign_probability: 0.1
-        a_0_sampler: 
+        a_0_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.LogUniform
           low: 0.1
           high: 5.0
-        a_1_sampler: 
+        a_1_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 1 
-          high: 2 
-        c_sampler: 
+          low: 1
+          high: 2
+        c_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.LogUniform
           low: 0.0001
           high: 0.01

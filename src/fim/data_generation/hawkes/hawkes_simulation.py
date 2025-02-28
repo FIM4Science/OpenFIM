@@ -40,7 +40,7 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
     except Exception as e:
         print(f"Simulation failed with error: {e}")
         return None, None
-    
+
     # Make sure that the events always start at 0
     event_times = event_times - event_times[:, 0][:, None]
 
