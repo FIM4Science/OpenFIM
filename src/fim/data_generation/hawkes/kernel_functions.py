@@ -129,3 +129,25 @@ class HawkesExpSinKernelFunctionSampler:
         if np.random.rand() < self.flip_sign_probability:
             kernel_values *= -1
         return t_grid, kernel_values
+    
+class HawkesPowerLawKernelFunctionSampler:
+    """
+    Sample parameters for functions of the form a_0 * (t + c)^(-a_1).
+    """
+    def __init__(self, **kwargs) -> None:
+        self.a_0_sampler = create_class_instance(kwargs["a_0_sampler"])
+        self.a_1_sampler = create_class_instance(kwargs["a_1_sampler"])
+        self.c_sampler = create_class_instance(kwargs["c_sampler"])  # Small constant to avoid division by zero
+        self.flip_sign_probability = kwargs.get("flip_sign_probability", 0)
+
+    def __call__(self, grid_size, eps: float = 1e-3):
+        a_0 = self.a_0_sampler()
+        a_1 = self.a_1_sampler()
+        c = self.c_sampler()
+        # Calculate max_time where function value drops below eps
+        max_time = (a_0/eps)**(1/a_1) - c
+        t_grid = np.linspace(0, max_time, grid_size)
+        kernel_values = a_0 * (t_grid + c)**(-a_1)
+        if np.random.rand() < self.flip_sign_probability:
+            kernel_values *= -1
+        return t_grid, kernel_values
