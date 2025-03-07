@@ -54,6 +54,7 @@ dataset:
 model:
   model_type: fimhawkes
   is_bulk_model: *is_bulk_model
+  normalize_by_max_time: true # Otherwise normalize by the delta times
 
   max_num_marks: &max_num_marks 3
   hidden_dim: &hidden_dim 64
