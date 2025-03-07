@@ -27,7 +27,9 @@ class FIMHawkesConfig(PretrainedConfig):
         static_functional_attention: dict = None,
         static_functional_attention_learnable_query: dict = None,
         kernel_value_decoder: dict = None,
+        kernel_value_var_decoder: dict = None,
         base_intensity_decoder: dict = None,
+        base_intensity_var_decoder: dict = None,
         hidden_dim: int = None,
         max_num_marks: int = 1,
         is_bulk_model: bool = False,
@@ -45,7 +47,9 @@ class FIMHawkesConfig(PretrainedConfig):
         self.static_functional_attention = static_functional_attention
         self.static_functional_attention_learnable_query = static_functional_attention_learnable_query
         self.kernel_value_decoder = kernel_value_decoder
+        self.kernel_value_var_decoder = kernel_value_var_decoder
         self.base_intensity_decoder = base_intensity_decoder
+        self.base_intensity_var_decoder = base_intensity_var_decoder
         self.hidden_dim = hidden_dim
         if "model_type" in kwargs:
             del kwargs["model_type"]
@@ -68,7 +72,9 @@ class FIMHawkes(AModel):
         static_functional_attention (nn.Module): The static functional attention.
         static_functional_attention_learnable_query (nn.Module): The learnable query for static functional attention.
         kernel_value_decoder (nn.Module): The kernel value decoder.
+        kernel_value_var_decoder (nn.Module): The kernel value variance decoder.
         base_intensity_decoder (nn.Module): The base intensity decoder.
+        base_intensity_var_decoder (nn.Module): The base intensity variance decoder.
         loss: TBD
 
     """
@@ -98,7 +104,9 @@ class FIMHawkes(AModel):
         static_functional_attention = copy.deepcopy(self.config.static_functional_attention)
         static_functional_attention_learnable_query = copy.deepcopy(self.config.static_functional_attention_learnable_query)
         kernel_value_decoder = copy.deepcopy(self.config.kernel_value_decoder)
+        kernel_value_var_decoder = copy.deepcopy(self.config.kernel_value_var_decoder)
         base_intensity_decoder = copy.deepcopy(self.config.base_intensity_decoder)
+        base_intensity_var_decoder = copy.deepcopy(self.config.base_intensity_var_decoder)
         self.hidden_dim = self.config.hidden_dim
 
         mark_encoder["in_features"] = self.max_num_marks
@@ -134,9 +142,17 @@ class FIMHawkes(AModel):
         kernel_value_decoder["out_features"] = 1
         self.kernel_value_decoder = create_class_instance(kernel_value_decoder.pop("name"), kernel_value_decoder)
 
+        kernel_value_var_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
+        kernel_value_var_decoder["out_features"] = 1
+        self.kernel_value_var_decoder = create_class_instance(kernel_value_var_decoder.pop("name"), kernel_value_var_decoder)
+
         base_intensity_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
         base_intensity_decoder["out_features"] = 1
         self.base_intensity_decoder = create_class_instance(base_intensity_decoder.pop("name"), base_intensity_decoder)
+
+        base_intensity_var_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
+        base_intensity_var_decoder["out_features"] = 1
+        self.base_intensity_var_decoder = create_class_instance(base_intensity_var_decoder.pop("name"), base_intensity_var_decoder)
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         """
@@ -156,7 +172,9 @@ class FIMHawkes(AModel):
         Returns:
             dict: A dictionary containing the following keys:
                 - "kernel_eval_values": Tensor representing the predicted kernel evaluation values. [B, M, L_kernel]
+                - "kernel_eval_var_values": Tensor representing the variances of the predicted kernel values. [B, M, L_kernel]
                 - "baseline_intensity": Tensor representing the predicted baseline intensity. [B, M]
+                - "baseline_intensity_var": Tensor representing the variance of the predicted baseline intensity. [B, M]
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
         obs_grid = x["event_times"]
@@ -192,7 +210,15 @@ class FIMHawkes(AModel):
 
         predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
 
+        predicted_kernel_var_values = torch.exp(
+            self._kernel_value_var_decoder(time_dependent_encodings.clone().detach())
+        )  # [B, M, L_kernel] # Do not backpropagate through this
+
         predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
+
+        predicted_base_intensity_var = torch.exp(
+            self._base_intensity_var_decoder(static_encodings.clone().detach())
+        )  # [B, M] # Do not backpropagate through this
 
         norm_constants = norm_constants.view(B, 1, 1)
         predicted_kernel_values = predicted_kernel_values / norm_constants
@@ -200,13 +226,17 @@ class FIMHawkes(AModel):
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,
+            "predicted_kernel_var_values": predicted_kernel_var_values,
             "predicted_base_intensity": predicted_base_intensity,
+            "predicted_base_intensity_var": predicted_base_intensity_var,
         }
         if "base_intensities" in x and "kernel_evaluations" in x:
             out["losses"] = self.loss(
                 x["kernel_grids"],
                 predicted_kernel_values,
+                predicted_kernel_var_values,
                 predicted_base_intensity,
+                predicted_base_intensity_var,
                 x["kernel_evaluations"],
                 x["base_intensities"],
                 schedulers,
@@ -287,14 +317,20 @@ class FIMHawkes(AModel):
         h = self.kernel_value_decoder(time_dependent_path_summary)
         return h.view(B, M, L_kernel)
 
+    def _kernel_value_var_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
+        B, M, L_kernel, D_3 = time_dependent_path_summary.shape
+        time_dependent_path_summary = time_dependent_path_summary.view(B * M * L_kernel, D_3)
+        h = self.kernel_value_var_decoder(time_dependent_path_summary)
+        return h.view(B, M, L_kernel)
+
     def _base_intensity_decoder(self, static_path_summary: Tensor) -> Tensor:
         B, M, D_2 = static_path_summary.shape
         h = self.base_intensity_decoder(static_path_summary)
         return h.view(-1, M)
 
-    def _decay_parameter_decoder(self, static_path_summary: Tensor) -> Tensor:
+    def _base_intensity_var_decoder(self, static_path_summary: Tensor) -> Tensor:
         B, M, D_2 = static_path_summary.shape
-        h = self.decay_parameter_decoder(static_path_summary)
+        h = self.base_intensity_var_decoder(static_path_summary)
         return h.view(-1, M)
 
     def __normalize_obs_grid(self, obs_grid: Tensor, seq_lengths: Tensor) -> tuple[Tensor, Tensor]:
@@ -309,7 +345,9 @@ class FIMHawkes(AModel):
         self,
         kernel_grid: Tensor,
         predicted_kernel_function: Tensor,
+        predicted_kernel_var: Tensor,
         predicted_base_intensity: Tensor,
+        predicted_base_intensity_var: Tensor,
         target_kernel_values: Tensor,
         target_base_intensity: Tensor,
         schedulers: dict = None,
@@ -318,21 +356,18 @@ class FIMHawkes(AModel):
         B, M, L_kernel = predicted_kernel_function.shape
         assert target_kernel_values.shape == predicted_kernel_function.shape
         assert target_base_intensity.shape == predicted_base_intensity.shape
+        U = torch.log(predicted_kernel_var)
+        u = torch.log(predicted_base_intensity_var)
 
-        # First perform the RMSE per mark
-        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2, dim=-1))
-        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2, dim=-1))
+        kernel_loss = (torch.exp(-U) * (predicted_kernel_function - target_kernel_values) ** 2 + U).mean() / 2
+        base_intensity_loss = (torch.exp(-u) * (predicted_base_intensity - target_base_intensity) ** 2 + u).mean()
 
-        # Then compute the mean over all marks
-        kernel_rmse = torch.mean(kernel_rmse)
-        base_intensity_rmse = torch.mean(base_intensity_rmse)
-
-        loss = kernel_rmse + base_intensity_rmse
+        loss = kernel_loss + base_intensity_loss
 
         return {
             "loss": loss,
-            "kernel_rmse": kernel_rmse,
-            "base_intensity_rmse": base_intensity_rmse,
+            "kernel_loss": kernel_loss,
+            "base_intensity_loss": base_intensity_loss,
         }
 
     def metric(self, y: Any, y_target: Any) -> Dict:
