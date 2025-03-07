@@ -36,7 +36,7 @@ train:
     #     mean_of_std: 0.0
     #     std_of_std: 0.1
     mask_sampler_params: &mask_sampler_params
-      name: fim.samplers.mask_sampler.BernoulliMaskSampler
+      name: fim.samplers.BernoulliMaskSampler
       survival_probability: 0.95
       min_survival_count: 4
     drift_params: &drift_params

@@ -96,7 +96,7 @@ train:
     max_degree_drift: *max_degree_drift
     max_degree_diffusion: *max_degree_diffusion
     mask_sampler_params: &mask_sampler_params
-      name: fim.samplers.mask_sampler.BernoulliMaskSampler
+      name: fim.samplers.BernoulliMaskSampler
       survival_probability: 0.90
       min_survival_count: 4
     drift_params: *drift_params

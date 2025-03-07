@@ -1,5 +1,5 @@
 from .blocks import AModel
-from .hawkes import FIMHawkes, FIMHawkesConfig
+from .hawkes.hawkes import FIMHawkes, FIMHawkesConfig
 from .imputation import FIMImputation, FIMImputationWindowed
 from .mjp import FIMMJP, FIMMJPConfig
 from .ode import FIMODE, FIMODEConfig, FIMWindowed
