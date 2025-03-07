@@ -364,10 +364,20 @@ class FIMHawkes(AModel):
 
         loss = kernel_loss + base_intensity_loss
 
+        # First perform the RMSE per mark
+        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2, dim=-1))
+        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2, dim=-1))
+
+        # Then compute the mean over all marks
+        kernel_rmse = torch.mean(kernel_rmse)
+        base_intensity_rmse = torch.mean(base_intensity_rmse)
+
         return {
             "loss": loss,
             "kernel_loss": kernel_loss,
             "base_intensity_loss": base_intensity_loss,
+            "kernel_rmse": kernel_rmse,
+            "base_intensity_rmse": base_intensity_rmse,
         }
 
     def metric(self, y: Any, y_target: Any) -> Dict:
