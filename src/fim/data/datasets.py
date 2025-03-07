@@ -24,7 +24,7 @@ from fim.data.utils import load_h5
 from ..typing import Path, Paths
 from ..utils.helper import verify_str_arg
 from ..utils.logging import RankLoggerAdapter
-from .utils import load_file, split_into_variable_windows
+from .utils import clean_split_from_size_info, load_file, split_into_variable_windows
 
 
 class HFDataset(torch.utils.data.Dataset):
@@ -67,7 +67,10 @@ class HFDataset(torch.utils.data.Dataset):
         self.rename_columns = rename_columns
         self.visible_columns = output_columns
         self.logger.debug(f"Loading dataset from {path} with config {conf} and split {split}.")
-        self.split = verify_str_arg(split, arg="split", valid_values=get_dataset_split_names(path, conf, trust_remote_code=True) + [None])
+        split_clean = clean_split_from_size_info(split)
+        self.split = verify_str_arg(
+            split_clean, arg="split", valid_values=get_dataset_split_names(path, conf, trust_remote_code=True) + [None]
+        )
         self.data: DatasetDict | Dataset = load_dataset(path, conf, split=split, download_mode=download_mode, **kwargs)
         self.logger.debug(f"Dataset from {path} with config {conf} and split {split} loaded successfully.")
         self.data.set_format(type="torch")

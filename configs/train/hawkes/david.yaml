@@ -19,13 +19,14 @@ dataset:
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/train
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
-      - data/synthetic_data/hawkes/1K_25_st_hawkes_exp_1000_paths_100_events/train
+      # - data/synthetic_data/hawkes/1K_25_st_hawkes_exp_1000_paths_100_events/train
+      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/train
 
     validation: !!python/tuple
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/val
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/val
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
-      - data/synthetic_data/hawkes/1K_25_st_hawkes_exp_1000_paths_100_events/val
+      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/val
 
   loader_kwargs:
     batch_size: 3
@@ -34,15 +35,14 @@ dataset:
 
     variable_num_of_paths: true
     min_path_count: 100
-    max_path_count: 1000
-    max_number_of_minibatch_sizes: 10
+    max_path_count: 200
+    max_number_of_minibatch_sizes: 1
 
     variable_sequence_lens: true
     min_sequence_len: 10
     max_sequence_len: 250
 
     num_kernel_evaluation_points: 10
-
 
     is_bulk_model: &is_bulk_model false
   dataset_kwargs:
@@ -127,6 +127,7 @@ trainer:
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 4
+  hub_model_id: FIM4Science/fim-hawkes-small
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/

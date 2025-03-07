@@ -540,7 +540,8 @@ def load_yaml(file_path: Path, return_object: bool = False) -> Union[dict, Gener
         Union[dict, YAMLObject]: with the information in the file
     """
     with open(file_path, "r", encoding="utf-8") as file:
-        config = yaml.full_load(file)
+        yaml.SafeLoader.add_constructor("tag:yaml.org,2002:python/tuple", lambda loader, node: tuple(loader.construct_sequence(node)))
+        config = yaml.safe_load(file)
     if return_object:
         return GenericConfig(config)
     return config

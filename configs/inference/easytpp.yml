@@ -1,0 +1,41 @@
+evaluation_type: hawkes_pp
+evaluation_dir: evaluations/point-processes/
+model_id: /cephfs_projects/foundation_models/hawkes/data/models/NOT_CONVERGED_FIM_Hawkes_3_st_mixed_no_powerlaw_2000_paths_mixed_250_events_mixed-experiment-seed-10_03-02-1223/checkpoints/best-model/
+# model_id: FIM4Science/fim-hawkes-small
+
+accelerator: auto # auto, cpu, gpu, mps
+
+datasets:
+  - label: easytpp-volcano
+    dataloader:
+      name: FIMHFDataLoader
+      path: easytpp/volcano
+      split: ["train", "test"]
+      dataset_kwargs: &dataset_kwargs
+        rename_columns:
+          time_since_start: event_times
+          time_since_last_event: delta_time
+          type_event: event_types
+          seq_len: seq_lengths
+      loader_kwargs: &loader_kwargs
+        batch_size: all
+        test_batch_size: all
+        num_workers: 0
+    kernel_grids_sampler:
+      distribution_type: exponential
+      rate: 0.0001
+      sample_size: 1000
+
+  - label: easytpp-retweet
+    dataloader:
+      name: FIMHFDataLoader
+      path: easytpp/retweet
+      split: ["train[:10%]", "test"]
+      dataset_kwargs:
+        <<: *dataset_kwargs
+      loader_kwargs:
+        <<: *loader_kwargs
+    kernel_grids_sampler:
+      distribution_type: exponential
+      rate: 0.00001
+      sample_size: 1000

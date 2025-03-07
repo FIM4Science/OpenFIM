@@ -1,58 +1,109 @@
 import json
 import os
-import re
 from abc import abstractmethod
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from loguru import logger
+from pydantic import BaseModel
 from tqdm.auto import tqdm
+from transformers import AutoModel
 
-from fim.data.dataloaders import DataLoaderFactory
+from fim.trainers.utils import get_accel_type, move_batch_to_local_rank
+from fim.utils.helper import load_yaml, yaml
 
-from ..models.blocks import ModelFactory
-from .helper import export_list_of_dicts_to_jsonl, export_list_of_lists_to_csv
+from ..data.dataloaders import BaseDataLoader, DataLoaderFactory
+from ..data.datasets import HFDataset
+from ..models import AModel
+from ..samplers import sample_kernel_grid
+from .helper import export_list_of_dicts_to_jsonl
 
 
-class Evaluation(object):
-    """Base class for model evaluation.
+# TODO: this is a temporary function to load a trained model from a given model ID. Once all the models are stored as a HuggingFace model, we can remove this function.
+def load_trained_model(model_id: str) -> AModel:
+    """Load a trained model from a given model ID.
 
     Args:
-        device (str): on which the evaluation will take place
-        output_path (str | Path): path to a folder where the results will be stored
-        tokenizer_param (dict): parameters for crating a tokenizer
-        dataset_param (dict): parameters for creating a dataset
-        model_param (dict): parameters for creating a model.
+        model_id (str): The ID of the model to load.
+
+    Returns:
+        AModel: The loaded model.
     """
+    try:
+        model = AutoModel.from_pretrained(model_id)
+    except Exception as e1:
+        try:
+            model = AModel.load_model(model_id)
+        except Exception as e2:
+            raise RuntimeError(f"Failed to load model using both HuggingFace and custom method: {e1}, {e2}")
+    logger.info(f"Loaded model {model_id}")
 
-    def __init__(
-        self,
-        device: str,
-        output_path: Union[Path, str],
-        dataset_param: dict,
-        model_param: dict,
-        model_checkpoint_path: str,
-    ) -> None:
-        self.device = device
-        self.output_path = Path(output_path)
-        self.dataset_param = dataset_param
-        self.model_param = model_param
-        self.model_checkpoint_path = Path(model_checkpoint_path)
+    return model
 
+
+class EvaluationConfig(BaseModel):
+    evaluation_type: str
+    evaluation_dir: Path
+    accelerator: str = "auto"
+    model_id: str | Path
+    datasets: dict | list[dict]
+
+    @classmethod
+    def from_yaml(cls, path: Path | str) -> "EvaluationConfig":
+        try:
+            yaml.SafeLoader.add_constructor("tag:yaml.org,2002:python/tuple", lambda loader, node: tuple(loader.construct_sequence(node)))
+            config_dict = load_yaml(path)
+            evaluation_type = config_dict.get("evaluation_type")
+            if not evaluation_type:
+                raise ValueError("evaluation_type is required in the config file")
+
+            # Get the appropriate config class from the factory
+            config_class = EvaluationConfigFactory.create(evaluation_type)
+            config = config_class(**config_dict)
+            logger.info(f"Loaded config from {path}")
+            return config
+        except Exception as e:
+            logger.error(f"Error loading config file: {e}")
+            raise
+
+
+class EvaluationConfigFactory:
+    _config_classes = {}
+
+    @classmethod
+    def register(cls, evaluation_type: str, config_class: type[EvaluationConfig]):
+        """Register a new evaluation config class."""
+        cls._config_classes[evaluation_type] = config_class
+
+    @classmethod
+    def create(cls, evaluation_type: str) -> type[EvaluationConfig]:
+        """Get the appropriate config class for the given evaluation type."""
+        config_class = cls._config_classes.get(evaluation_type)
+        if not config_class:
+            raise ValueError(f"No config class registered for evaluation type: {evaluation_type}")
+        return config_class
+
+    @classmethod
+    def get_available_types(cls) -> list[str]:
+        """Get a list of all registered evaluation types."""
+        return list(cls._config_classes.keys())
+
+
+class Evaluation:
+    def __init__(self, config: EvaluationConfig) -> None:
+        self.config = config
+        if self.config.accelerator == "auto":
+            self.device = get_accel_type()
+        else:
+            self.device = self.config.accelerator
         self.predictions = []
-
-        self.dataloader = DataLoaderFactory.create(**self.dataset_param)
-
-        self.model = ModelFactory.create(**self.model_param, device_map=self.device, resume=True)
-        self.model.eval()
-        # load model checkpoint
-        checkpoint = torch.load(self.model_checkpoint_path)
-        self.model.load_state_dict(checkpoint["model_state"])
-        print("successfully loaded model checkpoint")
-        print("last epoch of model checkpoint:", checkpoint["last_epoch"])
-        self.last_epoch = checkpoint["last_epoch"]
+        self.config.evaluation_dir.mkdir(parents=True, exist_ok=True)
+        self.model = load_trained_model(self.config.model_id)
+        self.model.to(self.device, dtype=torch.bfloat16)
 
     @abstractmethod
     def evaluate(self):
@@ -88,155 +139,146 @@ class EvaluationFactory:
         else:
             raise ValueError("Invalid evaluation type")
 
-
-class QAevaluation(Evaluation):
-    """Question and answering evaluaiton."""
-
-    def __init__(
-        self,
-        device: str,
-        output_path: Union[Path, str],
-        tokenizer_param: dict,
-        dataset_param: dict,
-        model_param: dict,
-        answer_pattern: str,
-        max_new_tokens: int = 20,
-        do_sample: bool = False,
-    ) -> None:
-        super().__init__(device, output_path, tokenizer_param, dataset_param, model_param)
-        self.max_new_tokens = max_new_tokens
-        self.do_sample = do_sample
-        self.answer_pattern = re.compile(answer_pattern)
-        self.predictions = []
-
-    def evaluate(self, max_new_tokens: Optional[int] = None):
-        max_new_tokens = self.max_new_tokens if max_new_tokens is None else max_new_tokens
-        dataset = getattr(self.dataloader, self.dataset_param["split"] + "_it")
-        for x in tqdm(dataset):
-            generate_txt = self.model.generate(
-                x["input_ids"].to("cuda"),
-                x["attention_mask"],
-                max_new_tokens=max_new_tokens,
-                do_sample=self.do_sample,
-                tokenizer=self.tokenizer,
-            )
-            for _id, p in zip(x["id"], generate_txt):
-                match = self.answer_pattern.search(p)
-                if match:
-                    extracted_value = match.group(1)
-                else:
-                    extracted_value = "X"
-                self.predictions.append([_id, extracted_value.upper(), p])
-
-    def save(self):
-        self.output_path.mkdir(parents=True, exist_ok=True)
-        export_list_of_lists_to_csv(self.predictions, self.output_path / "predictions.csv")
+    @classmethod
+    def get_available_types(cls) -> list[str]:
+        """Get a list of all registered evaluation types."""
+        return list(cls.evaluation_types.keys())
 
 
-EvaluationFactory.register("qa", QAevaluation)
+class HawkesPPDatasetConfig(BaseModel):
+    label: str
+    dataloader: dict
+    kernel_grids_sampler: dict
 
 
-class QAevaluationSupervised(QAevaluation):
-    """Question and answering evaluaiton."""
-
-    def __init__(
-        self,
-        device: str,
-        output_path: Union[Path, str],
-        tokenizer_param: dict,
-        dataset_param: dict,
-        model_param: dict,
-        answer_pattern: str,
-        max_new_tokens: int = 20,
-        do_sample: bool = False,
-    ) -> None:
-        super().__init__(device, output_path, tokenizer_param, dataset_param, model_param, answer_pattern, max_new_tokens, do_sample)
-        self.targers = []
-
-    def evaluate(self, max_new_tokens: Optional[int] = None):
-        max_new_tokens = self.max_new_tokens if max_new_tokens is None else max_new_tokens
-        dataset = getattr(self.dataloader, self.dataset_param["split"] + "_it")
-        for x in tqdm(dataset):
-            generate_txt = self.model.generate(
-                x["input_ids"].to("cuda"),
-                x["attention_mask"],
-                max_new_tokens=max_new_tokens,
-                do_sample=self.do_sample,
-                tokenizer=self.tokenizer,
-            )
-            for _id, p, t in zip(x["id"], generate_txt, x["answerKey"]):
-                match = self.answer_pattern.search(p)
-                if match:
-                    extracted_value = match.group(1)
-                else:
-                    extracted_value = "X"
-                self.targers.append({"id": _id, "answerKey": t})
-                self.predictions.append([_id, extracted_value.upper(), p])
-            break
-
-    def save(self):
-        self.output_path.mkdir(parents=True, exist_ok=True)
-        export_list_of_dicts_to_jsonl(self.targers, self.output_path / "targets.jsonl")
-        export_list_of_lists_to_csv(self.predictions, self.output_path / "predictions.csv")
+class HawkesPPEvaluationConfig(EvaluationConfig):
+    evaluation_type: str = "hawkes_pp"
+    datasets: HawkesPPDatasetConfig | list[HawkesPPDatasetConfig]
 
 
-EvaluationFactory.register("qa_supervised", QAevaluationSupervised)
+EvaluationConfigFactory.register("hawkes_pp", HawkesPPEvaluationConfig)
 
 
-class MathQAevaluation(Evaluation):
-    """Math Question and Answering Evaluation."""
+class HawkesPPEvaluation(Evaluation):
+    def __init__(self, config: HawkesPPEvaluationConfig) -> None:
+        super().__init__(config)
+        self.kernels: dict[str, dict[str, torch.Tensor]] = {}
+        self.kernel_grids: dict[str, torch.Tensor] = {}
 
-    def __init__(
-        self,
-        device: str,
-        output_path: Union[Path, str],
-        tokenizer_param: dict,
-        dataset_param: dict,
-        model_param: dict,
-        answer_pattern: str,
-        max_new_tokens: int = 20,
-        do_sample: bool = False,
-    ) -> None:
-        super().__init__(device, output_path, tokenizer_param, dataset_param, model_param)
-        self.max_new_tokens = max_new_tokens
-        self.do_sample = do_sample
-        self.answer_pattern = re.compile(answer_pattern)
-        self.predictions = []
+    @torch.inference_mode()
+    def evaluate(self):
+        logger.info("Starting evaluation ...")
+        self.model.eval()
+        for dataset_eval_conf in self.config.datasets:
+            label = dataset_eval_conf.label
+            infered_kernels = []
+            dataloader = self.__load_dataset(label, dataset_eval_conf.dataloader)
+            kernel_grid = self.__sample_kernel_grids(dataset_eval_conf.kernel_grids_sampler, dataloader)
+            self.kernel_grids[label] = kernel_grid
+            for batch in tqdm(dataloader.train_it, desc=f"Evaluating {label}"):
+                with torch.amp.autocast(self.device, enabled=True, dtype=torch.bfloat16):
+                    batch["kernel_grids"] = kernel_grid
+                    batch = move_batch_to_local_rank(batch, self.device)
+                    prediction = self.model(batch)
+                    infered_kernels.append(prediction)
 
-    def evaluate(self, max_new_tokens: Optional[int] = None):
-        max_new_tokens = self.max_new_tokens if max_new_tokens is None else max_new_tokens
-        dataset = getattr(self.dataloader, self.dataset_param["split"] + "_it")
-        for x in tqdm(dataset):
-            generate_txt = self.model.generate(
-                x["input_ids"].to("cuda"),
-                x["attention_mask"],
-                max_new_tokens=max_new_tokens,
-                do_sample=self.do_sample,
-                tokenizer=self.tokenizer,
-            )
-            for p, target in zip(generate_txt, x["answerKey"]):
-                numbers = re.findall(p, self.answer_pattern)
-                if numbers:
-                    extracted_value = float(numbers[0].replace("$", "").replace(",", ""))
-                else:
-                    extracted_value = float(np.inf)
-                target = target.item()
-                self.predictions.append(
-                    {
-                        "target": target,
-                        "prediction": extracted_value,
-                        "is_correct": float(target) == extracted_value,
-                        "answer": p,
-                    }
-                )
-            break
+            self.kernels[label] = self.__concat_batches(infered_kernels)
+
+    def plot_kernel_grids_histograms(self):
+        for label, kernel_grid in self.kernel_grids.items():
+            plt.hist(kernel_grid[0, 0, :].cpu().numpy(), bins=30, edgecolor="black")
+            plt.title(f"Kernel grid histogram for {label}")
+            plt.xlabel("Time")
+            plt.ylabel("Frequency")
+            plt.savefig(Path(self.config.evaluation_dir) / label / "kernel_grid_histogram.png")
+            plt.close()
+
+    def plot_kernels(self):
+        for label, kernels in self.kernels.items():
+            kernel_values = kernels["predicted_kernel_values"][0]  # Shape: [M, L]
+            num_kernels = kernel_values.shape[0]
+
+            # Calculate grid dimensions
+            num_cols = min(3, num_kernels)  # Max 3 columns
+            num_rows = (num_kernels + num_cols - 1) // num_cols
+
+            # Create subplot grid
+            fig, axes = plt.subplots(num_rows, num_cols, figsize=(5 * num_cols, 4 * num_rows))
+            if num_kernels == 1:
+                axes = np.array([axes])
+            axes = axes.flatten()
+
+            # Plot each kernel
+            for i in range(num_kernels):
+                axes[i].plot(self.kernel_grids[label][0, 0].cpu(), kernel_values[i].cpu())
+                axes[i].set_title(f"Kernel {i + 1}")
+                axes[i].set_xlabel("Time")
+                axes[i].set_ylabel("Value")
+                axes[i].spines[["top", "right"]].set_visible(False)
+
+            # Remove empty subplots
+            for i in range(num_kernels, len(axes)):
+                fig.delaxes(axes[i])
+
+            # Save plot
+            label_dir = Path(self.config.evaluation_dir) / label
+            label_dir.mkdir(parents=True, exist_ok=True)
+            plot_path = label_dir / "kernel_values.png"
+            plt.tight_layout()
+            plt.savefig(plot_path)
+            plt.close()
+
+    def __concat_batches(self, kernel_batches: list[dict]):
+        logger.info("Concatenating batches ...")
+        concatenated_kernels = defaultdict(list)
+
+        for kernel_batch in kernel_batches:
+            for key, value in kernel_batch.items():
+                concatenated_kernels[key].append(value)
+
+        return {key: torch.cat(values) for key, values in concatenated_kernels.items()}
+
+    def __sample_kernel_grids(self, kernel_grids_sampler_conf: dict, dataloader: BaseDataLoader):
+        max_event_time = self.__get_max_event_time(dataloader.train)
+        logger.info("Sampling kernel grid ...")
+        size = (
+            1 if dataloader.batch_size == "all" else dataloader.batch_size,
+            self.model.max_num_marks,
+            kernel_grids_sampler_conf["sample_size"],
+        )
+        kernel_grid = sample_kernel_grid(**kernel_grids_sampler_conf, max_value=max_event_time, size=size)
+        kernel_grid = kernel_grid.to(self.device)
+        return kernel_grid
+
+    def __get_max_event_time(self, dataset: HFDataset):
+        logger.info("Calculating max event time ...")
+        max_event_time = max(item["event_times"][-1] for item in dataset.data)
+        logger.info(f"Max event time: {max_event_time}")
+        return max_event_time
+
+    def __load_dataset(self, label: str, dataset_conf: dict):
+        logger.info(f"Loading dataset: {label}")
+        dataloader = DataLoaderFactory.create(dataset_conf.pop("name"), **dataset_conf)
+        logger.info(f"Loaded dataset: {dataloader}")
+        return dataloader
 
     def save(self):
-        self.output_path.mkdir(parents=True, exist_ok=True)
-        export_list_of_dicts_to_jsonl(self.predictions, self.output_path / "predictions.jsonl")
+        logger.info("Saving evaluation results to JSON ...")
+        for label, kernels in self.kernels.items():
+            results = {key: [value.cpu().numpy().tolist() for value in values] for key, values in kernels.items()}
+            label_dir = Path(self.config.evaluation_dir) / label
+            label_dir.mkdir(parents=True, exist_ok=True)
+            path = label_dir / "evaluation_results.json"
+            with open(path, "w") as f:
+                json.dump(results, f)
+            logger.info(f"Evaluation results for {label} saved to {path}")
+        logger.info("Plotting kernel grids histograms ...")
+        self.plot_kernel_grids_histograms()
+        logger.info("Plotting kernels ...")
+        self.plot_kernels()
 
 
-EvaluationFactory.register("math_qa", MathQAevaluation)
+EvaluationFactory.register("hawkes_pp", HawkesPPEvaluation)
 
 
 class PatchedTimeSeriesEvaluation(Evaluation):
@@ -638,3 +680,29 @@ class TimeSeriesEvaluation(Evaluation):
 
 
 EvaluationFactory.register("ts", TimeSeriesEvaluation)
+
+
+def create_evaluation_from_config(config_path: str | Path) -> Evaluation:
+    """Create an evaluation instance from a YAML config file.
+
+    This helper function combines loading the config and creating the evaluation instance
+    into a single step. It will:
+    1. Load the config from the YAML file
+    2. Create the appropriate evaluation instance based on the config
+
+    Args:
+        config_path (str | Path): Path to the YAML config file
+
+    Returns:
+        Evaluation: An instance of the appropriate evaluation class
+
+    Raises:
+        ValueError: If the evaluation type is not registered
+        FileNotFoundError: If the config file doesn't exist
+        yaml.YAMLError: If the YAML file is invalid
+    """
+    # Load the config
+    config = EvaluationConfig.from_yaml(config_path)
+
+    # Create the evaluation instance
+    return EvaluationFactory.create(config.evaluation_type, config=config)

@@ -47,8 +47,9 @@ class FIMHawkesConfig(PretrainedConfig):
         self.kernel_value_decoder = kernel_value_decoder
         self.base_intensity_decoder = base_intensity_decoder
         self.hidden_dim = hidden_dim
-
-        super().__init__(**kwargs)
+        if "model_type" in kwargs:
+            del kwargs["model_type"]
+        super().__init__(model_type=self.model_type, **kwargs)
 
 
 class FIMHawkes(AModel):
@@ -159,32 +160,18 @@ class FIMHawkes(AModel):
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
         obs_grid = x["event_times"]
+        if obs_grid.dim() == 2:
+            obs_grid = obs_grid.unsqueeze(0).unsqueeze(-1)
+            x["event_types"] = x["event_types"].unsqueeze(0).unsqueeze(-1)
+            x["seq_lengths"] = x["seq_lengths"].unsqueeze(0)
         B, P, L = obs_grid.shape[:3]
 
         if "seq_lengths" not in x:
             x["seq_lengths"] = torch.full((B, P), L, device=self.device)
 
-        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1)  # [B, P, L, 1]
-
-        if self.is_bulk_model and x["kernel_grids"].shape[1] != 1:
-            if step is None:
-                # Change data by hand since the dataloader does not run in the first iteration
-                x["kernel_grids"] = x["kernel_grids"][:, :1]
-                x["event_types"] = torch.ones_like(
-                    x["event_types"]
-                )  # Set all events to the first mark because otherwise we fuck up the indexing later
-                if "base_intensities" in x:
-                    x["base_intensities"] = x["base_intensities"][:, :1]
-                if "kernel_evaluations" in x:
-                    x["kernel_evaluations"] = x["kernel_evaluations"][:, :1]
-            else:
-                raise NotImplementedError("Bulk model only supports input grids for one mark.")
-
         x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
         # Add a delta time of 0 for the first event
         x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
-
-        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1)  # [B, P, L, 1]
 
         if "time_normalization_factors" not in x:
             norm_constants, obs_grid = self.__normalize_obs_grid(obs_grid, x["seq_lengths"])
@@ -194,12 +181,9 @@ class FIMHawkes(AModel):
             norm_constants = x["time_normalization_factors"]
             x["observation_grid_normalized"] = obs_grid
 
-        x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
-        # Add a delta time of 0 for the first event
-        x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
-
         sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
 
+        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1)  # [B, P, L, 1]
         time_dependent_encodings = self._time_dependent_encoder(
             x, sequence_encodings, observations_padding_mask=observations_padding_mask
         )  # [B, M, L_kernel, D]
@@ -244,17 +228,19 @@ class FIMHawkes(AModel):
         # Select encoding from encodings_per_event_mark from event_types
         state_enc = encodings_per_event_mark[x["event_types"].view(-1).int()].view(B, P, L, -1)
         path = time_enc + delta_time_enc + state_enc
-        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-        causal_mask = causal_mask.repeat(B, P, 1, 1)
+        mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
+        mask = mask.repeat(B, P, 1, 1)
 
         positions = torch.arange(L, device=self.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # (1, 1, L, 1)
 
+        # if self.training:
         # Expand seq_lengths to (B, P, 1, 1) and compare with positions to create padding mask
         padding_mask = positions >= x["seq_lengths"].unsqueeze(-1).unsqueeze(-1)  # (B, P, L, 1)
         padding_mask = padding_mask.expand(-1, -1, -1, L)  # (B, P, L, L)
 
         # Combine causal mask with padding mask
-        mask = causal_mask | padding_mask
+        mask = mask | padding_mask
+        padding_mask = None
 
         h = self.ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
 

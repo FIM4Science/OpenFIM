@@ -58,18 +58,20 @@ class AModel(PreTrainedModel, ABC):
         return 0
 
     def summary(self, x: dict):
-        return torchinfo.summary(self, input_data=[x])
+        return torchinfo.summary(self, input_data=[x], mode="train")
 
     @classmethod
     def load_model(cls, model_path: Path):
         model_path = Path(model_path)
         config_path = model_path / "config.json"
+        model_config = AutoConfig.from_pretrained(config_path)
         model_weights_path = model_path / "model-checkpoint.pth"
+
         if not model_path.exists() or not config_path.exists() or not model_weights_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
         model_state = torch.load(model_path / "model-checkpoint.pth", weights_only=True)
-        model_config = cls.config_class.from_pretrained(config_path)
-        model = cls(model_config)
+        # model_config = cls.config_class.from_pretrained(config_path)
+        model = ModelFactory.create(model_config)
         model.load_state_dict(model_state)
         return model
 

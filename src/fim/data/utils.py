@@ -3,6 +3,7 @@
 import math
 import os
 import pickle
+import re
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -449,3 +450,25 @@ def save_h5(tensor, path: Path):
 
     with h5py.File(path, "w") as f:
         f.create_dataset("data", array.shape, array.dtype, array)
+
+
+def clean_split_from_size_info(split: str) -> str:
+    """
+    Cleans the split string by removing any size information enclosed in square brackets.
+
+    Args:
+        split (str): The split string to be cleaned.
+
+    Returns:
+        str: The cleaned split string without size information.
+
+    Examples:
+        >>> clean_split_from_size_info("train[1000]")
+        'train'
+        >>> clean_split_from_size_info("validation[500]")
+        'validation'
+        >>> clean_split_from_size_info("test")
+        'test'
+    """
+    split_clean = re.sub(r"\[.*$", "", split)
+    return split_clean

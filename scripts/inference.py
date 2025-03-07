@@ -3,50 +3,29 @@ import sys
 from pathlib import Path
 
 import click
-import matplotlib.pyplot as plt
 import torch
 
-from fim.utils.evaluation import EvaluationFactory
-from fim.utils.helper import load_yaml
+import fim.models  # noqa: F401
+from fim.utils.evaluation import create_evaluation_from_config
 
 
 @click.command()
-@click.option("--config", "-c", default="config.yaml", type=click.Path(exists=True, dir_okay=False), help="Path to config file.")
+@click.option(
+    "--config", "-c", "config_path", default="config.yaml", type=click.Path(exists=True, dir_okay=False), help="Path to config file."
+)
 @click.option("--quiet", "log_level", flag_value=logging.WARNING, default=True)
 @click.option("-v", "--verbose", "log_level", flag_value=logging.INFO)
 @click.option("-vv", "--very-verbose", "log_level", flag_value=logging.DEBUG)
-def main(config: Path, log_level):
-    non_click_main(config, log_level)
-
-
-def non_click_main(config: str, log_level=logging.DEBUG):
+def main(config_path: Path, log_level=logging.DEBUG):
+    torch.cuda.empty_cache()
     logging.basicConfig(
-        stream=sys.stdout,
-        level=log_level,
-        datefmt="%Y-%m-%d %H:%M",
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stdout, level=log_level, datefmt="%Y-%m-%d %H:%M", format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    config_inference = load_yaml(config)
-    config_train = load_yaml(config_inference["train_config"])
-
-    config_inference["evaluation"]["model_param"] = config_train["model"]
-    config_inference["evaluation"]["dataset_param"] = config_inference["dataset"]
-
-    torch.cuda.empty_cache()
-    torch.manual_seed(config_train["experiment"]["seed"])
-
-    evaluation = EvaluationFactory.create(**config_inference["evaluation"])
-
+    evaluation = create_evaluation_from_config(config_path)
     evaluation.evaluate()
-
-    fig, axes = evaluation.visualize()
-    plt.show()
-
     evaluation.save()
-
-    logging.info(f"Evaluation finished. Results saved at {evaluation.output_path}/predictions.jsonl.")
 
 
 if __name__ == "__main__":
-    non_click_main("/home/koerner/FIM/configs/inference/synthetic_data_evaluation.yaml")
+    main()
