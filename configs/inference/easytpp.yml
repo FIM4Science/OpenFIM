@@ -21,11 +21,15 @@ datasets:
         batch_size: all
         test_batch_size: all
         num_workers: 0
+    kernel_grids_sampler_plot: &kernel_grids_sampler_plot
+      distribution_type: exponential
+      rate: 0.1
+      sample_size: 2_500
     kernel_grids_sampler:
       distribution_type: exponential
-      rate: 0.0001
-      sample_size: 1000
-
+      rate: 0.00001
+      sample_size: 2_500
+      max_value_factor: 2
   - label: easytpp-retweet
     dataloader:
       name: FIMHFDataLoader
@@ -35,7 +39,10 @@ datasets:
         <<: *dataset_kwargs
       loader_kwargs:
         <<: *loader_kwargs
+    kernel_grids_sampler_plot:
+      <<: *kernel_grids_sampler_plot
     kernel_grids_sampler:
       distribution_type: exponential
-      rate: 0.00001
-      sample_size: 1000
+      rate: 0.00002
+      sample_size: 2_500
+      max_value_factor: 2

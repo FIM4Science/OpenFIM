@@ -6,10 +6,10 @@ import torch
 from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
-from ..utils.helper import create_class_instance
-from ..utils.logging import RankLoggerAdapter
-from .blocks import AModel, ModelFactory
-from .blocks.neural_operators import AttentionOperator
+from ...utils.helper import create_class_instance
+from ...utils.logging import RankLoggerAdapter
+from ..blocks import AModel, ModelFactory
+from ..blocks.neural_operators import AttentionOperator
 
 
 class FIMHawkesConfig(PretrainedConfig):

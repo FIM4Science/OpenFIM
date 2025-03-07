@@ -58,7 +58,7 @@ class TestHFDataset:
     def test_get_item(self):
         dataset = HFDataset(path="easytpp/volcano", split="test")
         assert dataset[0] is not None
-        assert dataset[0].keys() == {"dim_process", "seq_idx", "seq_len", "time_since_last_event", "time_since_start", "type_event"}
+        assert dataset[0].keys() == {"time_since_start", "time_since_last_event", "type_event", "seq_len", "dim_process", "seq_idx"}
 
 
 class TestFimDataset:
