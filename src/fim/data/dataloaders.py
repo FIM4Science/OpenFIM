@@ -11,10 +11,11 @@ import pandas as pd
 import torch
 import torch.distributed as dist
 import torch.utils
-from datasets import get_dataset_split_names, load_dataset_builder
+from datasets import get_dataset_split_names
 from torch import Tensor
 from torch.utils.data import default_collate
 from torch.utils.data.dataloader import DataLoader
+from torch.utils.data.dataset import Dataset
 from transformers.trainer_pt_utils import IterableDatasetShard
 
 from fim.data.config_dataclasses import FIMDatasetConfig
@@ -35,7 +36,7 @@ from ..data.datasets import (
 )
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
-from .utils import get_path_counts, sample_from_gmm, sample_random_integers_from_exponential
+from .utils import clean_split_from_size_info, get_path_counts, sample_from_gmm, sample_random_integers_from_exponential
 
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
@@ -67,25 +68,26 @@ class BaseDataLoader:
         self.dataset = {}
         self.samplers = {}
 
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(batch_size={self.batch_size}, test_batch_size={self.test_batch_size}, dataset={self.dataset}, iter={self.iter}, samplers={self.samplers})"
-
     def _init_dataloaders(self, dataset: dict[str, torch.utils.data.Dataset]):
         for n, d in dataset.items():
+            clean_split_n = clean_split_from_size_info(n)
             sampler = None
             if is_distributed():
                 sampler = DistributedSampler(d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train")
-            self.samplers[n] = sampler
+            self.samplers[clean_split_n] = sampler
             batch_size = self.batch_size
-            if n != "train":
+            if clean_split_n != "train":
                 batch_size = self.test_batch_size
-            self.iter[n] = DataLoader(
+            if batch_size == "all":
+                batch_size = len(d)
+
+            self.iter[clean_split_n] = DataLoader(
                 d,
                 drop_last=False,
                 sampler=sampler,
                 shuffle=sampler is None,
                 batch_size=batch_size,
-                collate_fn=self._get_collate_fn(n, d),
+                collate_fn=self._get_collate_fn(clean_split_n, d),
                 **self.loader_kwargs,
             )
 
@@ -140,22 +142,48 @@ class BaseDataLoader:
     def _get_collate_fn(self, dataset_name: str, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
         return None
 
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(batch_size={self.batch_size}, test_batch_size={self.test_batch_size}, dataset={self.dataset}, iter={self.iter}, samplers={self.samplers})"
+
     def __str__(self) -> str:
-        ds_info = load_dataset_builder(self.path, self.name)
-        return f"{ds_info.info.description}\n{ds_info.info.features}"
+        return self.__repr__()
 
 
 class FIMHFDataLoader(BaseDataLoader):
     def __init__(
-        self, path: Union[str, Path], conf: Optional[str] = None, dataset_kwargs: Optional[dict] = {}, loader_kwargs: Optional[dict] = {}
+        self,
+        path: Union[str, Path],
+        conf: Optional[str] = None,
+        split: Optional[str | List[str]] = None,
+        dataset_kwargs: Optional[dict] = {},
+        loader_kwargs: Optional[dict] = {},
     ):
         super().__init__(dataset_kwargs, loader_kwargs)
         self.path = path
-        splits = get_dataset_split_names(path)
+        if split is None:
+            splits = get_dataset_split_names(path)
+        elif isinstance(split, str):
+            splits = [split]
+        else:
+            splits = split
         for split in splits:
-            self.dataset[split] = HFDataset(self.path, conf, split=split, **dataset_kwargs)
+            clean_split = clean_split_from_size_info(split)
+            self.dataset[clean_split] = HFDataset(self.path, conf, split=split, **dataset_kwargs)
 
         self._init_dataloaders(self.dataset)
+
+    def _get_collate_fn(self, dataset_name: str, dataset: Dataset) -> callable:
+        return self.pad_collate_fn
+
+    def pad_collate_fn(self, batch: List[dict]):
+        max_seq_len = max([item["seq_lengths"] for item in batch]).item()
+        for item in batch:
+            for k, v in item.items():
+                if isinstance(v, Tensor) and v.dim() != 0:
+                    pad_size = max_seq_len - v.size(0)
+                    if pad_size > 0:
+                        item[k] = torch.cat([v, -torch.ones(pad_size, *v.shape[1:], dtype=v.dtype)], dim=0)
+        return default_collate(batch)
 
     def __repr__(self) -> str:
         return super().__repr__()

@@ -165,7 +165,7 @@ class TrainCheckpoint:
             self._save_best_model(epoch)
             self._update_best_model_flag(train_stats, validation_stats)
 
-    def _save_model_state(self, epoch: int, save_dir: Union[Path, str]):
+    def _save_model_state(self, epoch: int, save_dir: Union[Path, str], push_to_hub: bool = False):
         """
         Saves the model's state as part of the checkpoint.
 
@@ -176,13 +176,10 @@ class TrainCheckpoint:
         # TODO: The state of the schedulers is not saved
         train_state = save_dir / "train-state-checkpoint.pth"
         self.__logger.info("Saving Model State: %s ...", save_dir)
-        if self.is_peft:
-            model_state = self.model.save_pretrained(save_dir)
-        else:
-            model_state = self.model.state_dict()
-
-        torch.save(model_state, save_dir / "model-checkpoint.pth")
-        self.model.config.save_pretrained(save_dir)
+        self.model.save_pretrained(save_directory=save_dir)
+        if push_to_hub and self.hub_model_id:
+            self.__logger.info(f"Pushing Best Model to Huggingface Hub in Repo: {self.hub_model_id}")
+            self.model.push_to_hub(self.hub_model_id, private=True, token=os.getenv("HF_TOKEN", None))
         state = {
             "model_type": self.model.config.model_type,
             "last_epoch": epoch,
@@ -260,11 +257,9 @@ class TrainCheckpoint:
             best_model_dir = self.best_model_dir
             best_model_dir.mkdir(exist_ok=True)
             self.__logger.info("Saving Best Model ...")
-        self._save_model_state(epoch, best_model_dir)
+        self._save_model_state(epoch, best_model_dir, True)
         self._save_optimizers_state(epoch, best_model_dir)
-        if self.hub_model_id is not None:
-            self.__logger.info(f"Pushing Best Model to Huggingface Hub in Repo: {self.hub_model_id}")
-            self.model.push_to_hub(self.hub_model_id, private=True, token=os.getenv("HF_TOKEN", None))
+
         self.__logger.info("Best Model Saved!")
 
     def _update_best_model_flag(self, train_stats: dict, validation_stats: dict) -> None:

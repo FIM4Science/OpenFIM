@@ -215,8 +215,8 @@ class Trainer:
             return
 
         else:
-            x = self.dataloader.train_it.dataset[0]
-            x = {key: val.unsqueeze(0).to(self.model.device) for key, val in x.items()}
+            x = next(iter(self.dataloader.train_it))
+            x = {key: val.to(self.model.device) for key, val in x.items()}
 
         with open(model_architecture_path, "w") as f:
             f.write(str(self.model.summary(x)))

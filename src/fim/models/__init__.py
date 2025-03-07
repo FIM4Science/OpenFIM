@@ -1,3 +1,4 @@
+from .blocks import AModel
 from .hawkes import FIMHawkes, FIMHawkesConfig
 from .imputation import FIMImputation, FIMImputationWindowed
 from .mjp import FIMMJP, FIMMJPConfig
@@ -6,6 +7,7 @@ from .sde import FIMSDE, FIMSDEConfig
 
 
 __all__ = [
+    "AModel",
     "FIMImputation",
     "FIMImputationWindowed",
     "FIMODE",
