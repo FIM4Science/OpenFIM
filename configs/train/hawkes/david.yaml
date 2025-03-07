@@ -16,17 +16,14 @@ dataset:
   name: HawkesDataLoader
   path_collections:
     train: !!python/tuple
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/train
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/train
-      # - data/synthetic_data/hawkes/1K_25_st_hawkes_exp_1000_paths_100_events/train
-      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/train
+      # - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
+      # - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
+      - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
 
     validation: !!python/tuple
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/val
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/val
-      # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_squared_500_paths_100_events/val
-      - /cephfs_projects/foundation_models/hawkes/data/hawkes_test/val
+      # - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
+      # - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
+      - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
 
   loader_kwargs:
     batch_size: 3
@@ -58,8 +55,8 @@ model:
   model_type: fimhawkes
   is_bulk_model: *is_bulk_model
 
-  max_num_marks: &max_num_marks 25
-  hidden_dim: &hidden_dim 256
+  max_num_marks: &max_num_marks 3
+  hidden_dim: &hidden_dim 64
 
   mark_encoder:
     name: torch.nn.Linear
@@ -115,7 +112,15 @@ model:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
+  kernel_value_var_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
   base_intensity_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  base_intensity_var_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
