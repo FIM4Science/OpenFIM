@@ -207,25 +207,21 @@ class FIMHawkes(AModel):
 
         predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
 
-        predicted_kernel_values_var = torch.exp(
-            self._kernel_value_var_decoder(time_dependent_encodings.clone().detach())
+        log_predicted_kernel_values_var = self._kernel_value_var_decoder(
+            time_dependent_encodings.clone().detach()
         )  # [B, M, L_kernel] # Do not backpropagate through this
 
         predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
 
-        predicted_base_intensity_var = torch.exp(
-            self._base_intensity_var_decoder(static_encodings.clone().detach())
+        log_predicted_base_intensity_var = self._base_intensity_var_decoder(
+            static_encodings.clone().detach()
         )  # [B, M] # Do not backpropagate through this
-
-        # norm_constants = norm_constants.view(B, 1, 1)
-        # predicted_kernel_values = predicted_kernel_values / norm_constants
-        # predicted_base_intensity = predicted_base_intensity / norm_constants.squeeze(-1)
 
         out = {
             "predicted_kernel_values": predicted_kernel_values,
-            "predicted_kernel_values_var": predicted_kernel_values_var,
+            "log_predicted_kernel_values_var": log_predicted_kernel_values_var,
             "predicted_base_intensity": predicted_base_intensity,
-            "predicted_base_intensity_var": predicted_base_intensity_var,
+            "log_predicted_base_intensity_var": log_predicted_base_intensity_var,
         }
 
         self._denormalize_output(x, out)
@@ -233,9 +229,9 @@ class FIMHawkes(AModel):
         if "base_intensities" in x and "kernel_evaluations" in x:
             out["losses"] = self.loss(
                 predicted_kernel_values,
-                predicted_kernel_values_var,
+                log_predicted_kernel_values_var,
                 predicted_base_intensity,
-                predicted_base_intensity_var,
+                log_predicted_base_intensity_var,
                 x["kernel_evaluations"],
                 x["base_intensities"],
                 schedulers,
@@ -370,9 +366,9 @@ class FIMHawkes(AModel):
 
     def _denormalize_output(self, x: dict, out: dict):
         out["predicted_kernel_values"] = out["predicted_kernel_values"] * self.norm_constants.view(-1, 1, 1)
-        out["predicted_kernel_values_var"] = out["predicted_kernel_values_var"] * self.norm_constants.view(-1, 1, 1)
+        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] * self.norm_constants.view(-1, 1, 1)
         out["predicted_base_intensity"] = out["predicted_base_intensity"] * self.norm_constants
-        out["predicted_base_intensity_var"] = out["predicted_base_intensity_var"] * self.norm_constants
+        out["log_predicted_base_intensity_var"] = out["log_predicted_base_intensity_var"] * self.norm_constants
         x["event_times"] = x["event_times"] * self.norm_constants.view(-1, 1, 1, 1)
         x["delta_times"] = x["delta_times"] * self.norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] * self.norm_constants.view(-1, 1, 1)
@@ -380,9 +376,9 @@ class FIMHawkes(AModel):
     def loss(
         self,
         predicted_kernel_function: Tensor,
-        predicted_kernel_var: Tensor,
+        log_predicted_kernel_var: Tensor,
         predicted_base_intensity: Tensor,
-        predicted_base_intensity_var: Tensor,
+        log_predicted_base_intensity_var: Tensor,
         target_kernel_values: Tensor,
         target_base_intensity: Tensor,
         schedulers: dict = None,
@@ -391,8 +387,8 @@ class FIMHawkes(AModel):
         B, M, L_kernel = predicted_kernel_function.shape
         assert target_kernel_values.shape == predicted_kernel_function.shape
         assert target_base_intensity.shape == predicted_base_intensity.shape
-        U = torch.log(predicted_kernel_var)
-        u = torch.log(predicted_base_intensity_var)
+        U = log_predicted_kernel_var
+        u = log_predicted_base_intensity_var
 
         kernel_loss = (torch.exp(-U) * (predicted_kernel_function - target_kernel_values) ** 2 + U).mean() / 2
         base_intensity_loss = (torch.exp(-u) * (predicted_base_intensity - target_base_intensity) ** 2 + u).mean()
