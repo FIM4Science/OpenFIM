@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_25_st_exp_1000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_1-3_st_exp_1000_paths_mixed_250_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -16,13 +16,13 @@ dataset:
   name: HawkesDataLoader
   path_collections:
     train: !!python/tuple
-      # - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
-      # - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
+      - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
+      - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
       - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
 
     validation: !!python/tuple
-      # - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
-      # - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
+      - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
+      - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
       - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
 
   loader_kwargs:
@@ -32,12 +32,12 @@ dataset:
 
     variable_num_of_paths: true
     min_path_count: 100
-    max_path_count: 200
+    max_path_count: 2000
     max_number_of_minibatch_sizes: 1
 
     variable_sequence_lens: true
     min_sequence_len: 10
-    max_sequence_len: 250
+    max_sequence_len: 2000
 
     num_kernel_evaluation_points: 10
 
@@ -50,6 +50,7 @@ dataset:
       kernel_evaluations: "kernel_evaluations.pt"
       kernel_grids: "kernel_grids.pt"
     # data_limit: 10
+    field_name_for_dimension_grouping: ["base_intensities", "kernel_evaluations", "kernel_grids"]
 
 model:
   model_type: fimhawkes

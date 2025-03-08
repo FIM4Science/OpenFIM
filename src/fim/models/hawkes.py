@@ -367,8 +367,8 @@ class FIMHawkes(AModel):
     def _denormalize_output(self, x: dict, out: dict):
         out["predicted_kernel_values"] = out["predicted_kernel_values"] * self.norm_constants.view(-1, 1, 1)
         out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(self.norm_constants).view(-1, 1, 1)
-        out["predicted_base_intensity"] = out["predicted_base_intensity"] * self.norm_constants
-        out["log_predicted_base_intensity_var"] = out["log_predicted_base_intensity_var"] + torch.log(self.norm_constants)
+        out["predicted_base_intensity"] = out["predicted_base_intensity"] * self.norm_constants.view(-1, 1)
+        out["log_predicted_base_intensity_var"] = out["log_predicted_base_intensity_var"] + torch.log(self.norm_constants).view(-1, 1)
         x["event_times"] = x["event_times"] * self.norm_constants.view(-1, 1, 1, 1)
         x["delta_times"] = x["delta_times"] * self.norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] * self.norm_constants.view(-1, 1, 1)
