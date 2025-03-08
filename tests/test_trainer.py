@@ -90,7 +90,7 @@ class TestTrainMJP:
 
         trainer.train()
         assert trainer is not None
-        model = FIMMJP.load_model(results_dir / "FIM_MJP_Homogeneous_Mini/checkpoints/best-model")
+        model = FIMMJP.from_pretrained(results_dir / "FIM_MJP_Homogeneous_Mini/checkpoints/best-model")
         assert model is not None
         assert isinstance(model, FIMMJP)
 
@@ -112,6 +112,6 @@ class TestTrainSDE:
 
         trainer.train()
         assert trainer is not None
-        model = FIMSDE.load_model(results_dir / "sde/checkpoints/best-model")
+        model = FIMSDE.from_pretrained(results_dir / "sde/checkpoints/best-model")
         assert model is not None
         assert isinstance(model, FIMSDE)
