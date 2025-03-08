@@ -2,6 +2,7 @@ import functools
 import itertools
 import logging
 import os
+import random
 import threading
 from datetime import datetime
 from itertools import islice
@@ -216,6 +217,9 @@ class Trainer:
 
         else:
             x = next(iter(self.dataloader.train_it))
+            if isinstance(next(iter(x.keys())), int):  # Catch case where we use groupings
+                # Select a random value of x
+                x = x[random.choice(list(x.keys()))]
             x = {key: val.to(self.model.device) for key, val in x.items()}
 
         with open(model_architecture_path, "w") as f:

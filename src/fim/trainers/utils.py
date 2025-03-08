@@ -1,6 +1,7 @@
 import gc
 import logging
 import os
+import random
 import threading
 import time
 from collections import defaultdict
@@ -1038,6 +1039,9 @@ def move_batch_to_local_rank(batch: dict | tuple, local_rank: str) -> dict | tup
     if isinstance(batch, tuple) and hasattr(batch, "_fields"):  # Check if batch is a namedtuple
         batch = batch._replace(**{key: val.to(local_rank) for key, val in batch._asdict().items()})
     else:
+        if isinstance(next(iter(batch.keys())), int):  # Catch case where we use groupings
+            # Select a random value of batch
+            batch = batch[random.choice(list(batch.keys()))]
         for key in batch.keys():
             batch[key] = batch[key].to(local_rank)
 
