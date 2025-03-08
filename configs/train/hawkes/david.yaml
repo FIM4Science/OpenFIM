@@ -26,7 +26,7 @@ dataset:
       - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
 
   loader_kwargs:
-    batch_size: 3
+    batch_size: 6
     num_workers: 8
     test_batch_size: 1
 
@@ -37,7 +37,7 @@ dataset:
 
     variable_sequence_lens: true
     min_sequence_len: 10
-    max_sequence_len: 2000
+    max_sequence_len: 250
 
     num_kernel_evaluation_points: 10
 
