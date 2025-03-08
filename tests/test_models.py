@@ -3,8 +3,6 @@
 # pylint: disable=line-too-long
 
 
-from pathlib import Path
-
 import pytest
 import torch
 
@@ -231,7 +229,7 @@ class TestFIMHawkes5ST:
 
     @pytest.fixture
     def config(self):
-        conf_path = Path("tests/resources/config/hawkes/mini_5_st.yaml")
+        conf_path = test_data_path / "config" / "hawkes" / "mini_5_st.yaml"
         train_config = load_yaml(conf_path, True)
         return train_config
 
@@ -284,7 +282,15 @@ class TestFIMHawkes5ST:
                 "name": "fim.models.blocks.base.MLP",
                 "hidden_layers": (hidden_dim, hidden_dim),
             },
+            kernel_value_var_decoder={
+                "name": "fim.models.blocks.base.MLP",
+                "hidden_layers": (hidden_dim, hidden_dim),
+            },
             base_intensity_decoder={
+                "name": "fim.models.blocks.base.MLP",
+                "hidden_layers": (hidden_dim, hidden_dim),
+            },
+            base_intensity_var_decoder={
                 "name": "fim.models.blocks.base.MLP",
                 "hidden_layers": (hidden_dim, hidden_dim),
             },

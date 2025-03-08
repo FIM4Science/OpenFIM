@@ -93,7 +93,15 @@ model:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
+  kernel_value_var_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
   base_intensity_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  base_intensity_var_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
