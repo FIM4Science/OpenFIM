@@ -56,9 +56,9 @@ class TestHFDataset:
         assert dataset.data is not None
 
     def test_get_item(self):
-        dataset = HFDataset(path="monash_tsf", conf="nn5_daily", split="test")
+        dataset = HFDataset(path="easytpp/volcano", split="test")
         assert dataset[0] is not None
-        assert dataset[0].keys() == {"item_id", "target", "start", "feat_static_cat", "feat_dynamic_real", "seq_len"}
+        assert dataset[0].keys() == {"dim_process", "seq_idx", "seq_len", "time_since_last_event", "time_since_start", "type_event"}
 
 
 class TestFimDataset:

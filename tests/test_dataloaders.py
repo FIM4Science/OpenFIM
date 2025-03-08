@@ -330,7 +330,9 @@ class TestFIMHFDataLoader:
         config = {
             "name": "FIMHFDataLoader",
             "path": "easytpp/volcano",
-            "dataset_kwargs": {"rename_columns": {"time_since_last_event": "delta_time", "type_event": "event_type"}},
+            "dataset_kwargs": {
+                "rename_columns": {"time_since_last_event": "delta_time", "type_event": "event_type", "seq_len": "seq_lengths"}
+            },
             "loader_kwargs": {"batch_size": 4, "test_batch_size": 2, "num_workers": 0},
         }
         return config
@@ -354,3 +356,104 @@ class TestFIMHFDataLoader:
             assert batch is not None
             assert batch["delta_time"].shape[0] == 2
             break
+
+
+class TestHawkesDataLoader:
+    @pytest.fixture
+    def config(self):
+        root_path = test_data_path / "data" / "hawkes" / "1k_1_st_hawkes_mixed_no_powerlaw_300_paths_10_events"
+        config = {
+            "name": "HawkesDataLoader",
+            "path_collections": {"train": [root_path / "train"], "test": [root_path / "test"], "validation": [root_path / "val"]},
+            "loader_kwargs": {
+                "num_workers": 8,
+                "batch_size": 32,
+                "test_batch_size": 2,
+                "variable_num_of_paths": True,
+                "min_path_count": 1,
+                "max_path_count": 300,
+                "max_number_of_minibatch_sizes": 10,
+                "variable_sequence_lens": True,
+                "min_sequence_len": 5,
+                "max_sequence_len": 10,
+                "num_kernel_evaluation_points": 10,
+                "is_bulk_model": False,
+            },
+            "dataset_kwargs": {
+                "files_to_load": {
+                    "base_intensities": "base_intensities.pt",
+                    "event_times": "event_times.pt",
+                    "event_types": "event_types.pt",
+                    "kernel_evaluations": "kernel_evaluations.pt",
+                    "kernel_grids": "kernel_grids.pt",
+                },
+                "data_limit": None,
+            },
+        }
+        return config
+
+    def test_load(self, config: dict):
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 1000
+        assert dataloader.test_set_size == 100
+        batch = next(iter(dataloader.train_it))
+        assert "event_times" in batch
+        assert "event_types" in batch
+        assert "base_intensities" in batch
+        assert "kernel_evaluations" in batch
+        assert "kernel_grids" in batch
+
+    def test_variable_num_of_paths_train(self, config: dict):
+        config["loader_kwargs"]["batch_size"] = 32
+        config["loader_kwargs"]["num_workers"] = 2
+        config["dataset_kwargs"]["data_limit"] = 800
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 800
+        assert dataloader.test_set_size == 100
+        target_size = [1, 31, 61, 91, 121, 151, 181, 211, 241, 271] * 2 + [300] * 5
+        for _ in range(5):
+            for ix, batch in enumerate(islice(dataloader.train_it, 100)):
+                assert batch["event_times"].shape[1] == target_size[ix]
+
+    def test_variable_num_of_paths_test(self, config: dict):
+        config["loader_kwargs"]["max_path_count"] = 300
+        config["loader_kwargs"]["max_number_of_minibatch_sizes"] = 10
+        config["loader_kwargs"]["num_workers"] = 0
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 1000
+        assert dataloader.test_set_size == 100
+        for _ in range(2):
+            for ix, batch in enumerate(islice(dataloader.test_it, 5)):
+                assert batch["event_times"].shape[1] == 300
+
+    def test_variable_sequence_lens_train(self, config: dict):
+        config["loader_kwargs"]["min_sequence_len"] = 1
+        config["loader_kwargs"]["max_sequence_len"] = 10
+        config["loader_kwargs"]["num_workers"] = 2
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 1000
+        for batch in islice(dataloader.train_it, 100):
+            assert batch["event_times"].shape[2] <= 10 and batch["event_times"].shape[2] >= 1
+
+    def test_varible_number_of_events(self, config: dict):
+        config["path_collections"]["train"].append(
+            test_data_path / "data" / "hawkes" / "1k_3_st_hawkes_mixed_no_powerlaw_300_paths_10_events" / "train"
+        )
+        config["loader_kwargs"]["batch_size"] = 32
+        config["loader_kwargs"]["num_workers"] = 2
+        config["dataset_kwargs"]["field_name_for_dimension_grouping"] = "base_intensities"
+        dataloader = DataLoaderFactory.create(**config)
+        assert dataloader is not None
+        assert dataloader.train_set_size == 2000
+        for batch in islice(dataloader.train_it, 100):
+            assert len(batch) == 2
+            assert 1 in batch.keys()
+            assert 3 in batch.keys()
+            assert batch[1]["event_times"].shape[1] == batch[1]["event_times"].shape[1]
+            assert batch[3]["event_times"].shape[1] == batch[3]["event_times"].shape[1]
+            assert batch[1]["event_times"].shape[2] <= 10 and batch[1]["event_times"].shape[2] >= 1
+            assert batch[3]["event_times"].shape[2] <= 10 and batch[3]["event_times"].shape[2] >= 1

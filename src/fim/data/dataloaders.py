@@ -1,5 +1,6 @@
 import logging
 import random
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
@@ -302,35 +303,48 @@ class HawkesDataLoader(BaseDataLoader):
 
         self._init_dataloaders(self.dataset)
 
-    def _get_collate_fn(self, dataset_name: str, dataset: torch.utils.data.Dataset) -> Union[None, callable]:
+    def _get_collate_fn(self, dataset_name: str, dataset: FIMDataset) -> Union[None, callable]:
         if not self.variable_num_of_paths or dataset_name != "train":
-            return default_collate  # Use the default collate function
+            if dataset.is_last_dim_varying:
+                return self.__custom_var_dim_collate_fn
+            return default_collate
 
         def custom_collate(batch):
-            # Apply variable path collation
             batch = self.var_path_collate_fn(batch)
 
-            # Apply variable sequence length collation if needed
             if self.variable_sequence_lens:
                 batch = self.custom_hawkes_collate_fun(batch)
+            if dataset.is_last_dim_varying:
+                return self.__custom_var_dim_collate_fn(batch)
 
-            # Finally, apply default_collate to convert the list of dicts to a dict of tensors
             return default_collate(batch)
 
         return custom_collate
+
+    def __custom_var_dim_collate_fn(self, batch):
+        """
+        Custom collate function to group by 'dim' and collate inner dictionaries.
+        :param batch: List of dictionaries with structure {k1: v1, k2: v2, ..., '_group_dim': dim}.
+        :return: A dictionary with collated inner dictionaries and '_group_dim' key.
+        """
+        grouped = defaultdict(list)
+        for item in batch:
+            grouped[item["_group_dim"]].append(item)
+
+        for dim, inner_dict in grouped.items():
+            grouped[dim] = default_collate(inner_dict)
+
+        return grouped
 
     def var_path_collate_fn(self, batch: List[dict]):
         num_paths = self.__fetch_path_count_for_minibatch()
         path_idxs = torch.randint(0, self.max_path_count, (num_paths,))
 
         def process_item(item):
-            new_item = {}
             for k, v in item.items():
                 if k in ["event_times", "event_types"]:
-                    new_item[k] = v[path_idxs]
-                else:
-                    new_item[k] = v
-            return new_item
+                    item[k] = v[path_idxs]
+            return item
 
         batch_data = [process_item(item) for item in batch]
         return batch_data
