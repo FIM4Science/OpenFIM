@@ -189,15 +189,25 @@ class FIMDataset(torch.utils.data.Dataset):
             Returns a string representation of the FIMDataset.
     """
 
-    def __init__(self, path: Path | Paths, files_to_load: Optional[dict] = None, data_limit: Optional[int] = None):
+    def __init__(
+        self,
+        path: Path | Paths,
+        files_to_load: Optional[dict] = None,
+        data_limit: Optional[int] = None,
+        field_name_for_dimension_grouping: Optional[str] = None,
+    ):
         super().__init__()
 
         self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
         self.path: Paths = path
         self.files_to_load = files_to_load
+        self.field_name_for_dimension_grouping = field_name_for_dimension_grouping
         self.data_limit = data_limit
         self.logger.debug(f"Loading dataset from {path} with files {files_to_load}.")
+        self.__different_last_dim = False
         self.data = self.__load_data()
+        if self.__different_last_dim:
+            self.group_lengths = {group: len(next(iter(data.values()))) for group, data in self.data.items()}
         self.logger.debug(f"Dataset from {path} loaded successfully.")
 
     def __load_data(self) -> dict:
@@ -205,10 +215,47 @@ class FIMDataset(torch.utils.data.Dataset):
         files_to_load = self.__get_files()
         for file_name, file_path in files_to_load:
             data[file_name].append(load_file(file_path)[: self.data_limit])
+
+        if self.field_name_for_dimension_grouping:
+            self.__different_last_dim = self.__check_dimension_consistency(data)
+            if self.__different_last_dim:
+                grouped_data = defaultdict(lambda: defaultdict(list))
+                idx_to_dim = [v.shape[-1] for v in data[self.field_name_for_dimension_grouping]]
+                for k, v in data.items():
+                    for i, tensor in enumerate(v):
+                        grouped_data[idx_to_dim[i]][k].append(tensor)
+                return {dim: {k: torch.cat(v) for k, v in group.items()} for dim, group in grouped_data.items()}
         return {k: torch.cat(v) for k, v in data.items()}
 
+    def __check_dimension_consistency(self, data):
+        different_last_dim = False
+        base_dim = data[self.field_name_for_dimension_grouping][0].shape[-1]
+        for v in data[self.field_name_for_dimension_grouping][1:]:
+            if v.shape[-1] != base_dim:
+                different_last_dim = True
+                break
+        return different_last_dim
+
     def __getitem__(self, idx):
+        if self.__different_last_dim:
+            group_idx, group_key = self.__retrieve_group_index(idx)
+            data = {k: v[group_idx] for k, v in self.data[group_key].items()}
+            data["_group_dim"] = group_key
+            return data
+
         return {k: v[idx] for k, v in self.data.items()}
+
+    def __retrieve_group_index(self, idx):
+        group_idx = 0
+        cumulative_length = 0
+        for length in self.group_lengths.values():
+            if idx < cumulative_length + length:
+                break
+            cumulative_length += length
+            group_idx += 1
+        group_key = list(self.group_lengths.keys())[group_idx]
+        group_idx = idx - cumulative_length
+        return group_idx, group_key
 
     def __get_files(self) -> Paths:
         if self.files_to_load is not None:
@@ -216,6 +263,10 @@ class FIMDataset(torch.utils.data.Dataset):
         else:
             files_to_load = [(f.stem, f) for path in self.path for f in path.iterdir() if f.is_file()]
         return files_to_load
+
+    @property
+    def is_last_dim_varying(self):
+        return self.__different_last_dim
 
     @property
     def path(self):
@@ -233,7 +284,10 @@ class FIMDataset(torch.utils.data.Dataset):
         self._path = path
 
     def __len__(self):
-        return len(next(iter(self.data.values())))
+        if self.__different_last_dim:
+            return sum([len(next(iter(v.values()))) for v in self.data.values()])
+        else:
+            return len(next(iter(self.data.values())))
 
     def __str__(self):
         return f"FimDataset(path={self.path}, files_to_load={self.files_to_load})"

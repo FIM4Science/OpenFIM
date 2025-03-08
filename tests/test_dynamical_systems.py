@@ -177,7 +177,7 @@ class TestPathGenerator:
             },
             "initial_state": {"distribution": "normal", "mean": 0.0, "std_dev": 1.0, "survival_probability": None, "activation": None},
             "mask_sampler_params": {
-                "name": "fim.samplers.mask_sampler.BernoulliMaskSampler",
+                "name": "fim.samplers.BernoulliMaskSampler",
                 "survival_probability": 0.5,
                 "min_survival_count": 4,
             },
