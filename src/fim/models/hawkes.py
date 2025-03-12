@@ -194,7 +194,7 @@ class FIMHawkes(AModel):
         # Add a delta time of 0 for the first event
         x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
 
-        self._normalize_input_times(x)
+        norm_constants = self._normalize_input_times(x)
 
         sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
 
@@ -224,7 +224,7 @@ class FIMHawkes(AModel):
             "log_predicted_base_intensity_var": log_predicted_base_intensity_var,
         }
 
-        self._denormalize_output(x, out)
+        self._denormalize_output(x, out, norm_constants)
 
         if "base_intensities" in x and "kernel_evaluations" in x:
             out["losses"] = self.loss(
@@ -362,16 +362,16 @@ class FIMHawkes(AModel):
         x["event_times"] = x["event_times"] / norm_constants.view(-1, 1, 1, 1)
         x["delta_times"] = x["delta_times"] / norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] / norm_constants.view(-1, 1, 1)
-        self.norm_constants = norm_constants
+        return norm_constants
 
-    def _denormalize_output(self, x: dict, out: dict):
-        out["predicted_kernel_values"] = out["predicted_kernel_values"] * self.norm_constants.view(-1, 1, 1)
-        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(self.norm_constants).view(-1, 1, 1)
-        out["predicted_base_intensity"] = out["predicted_base_intensity"] * self.norm_constants.view(-1, 1)
-        out["log_predicted_base_intensity_var"] = out["log_predicted_base_intensity_var"] + torch.log(self.norm_constants).view(-1, 1)
-        x["event_times"] = x["event_times"] * self.norm_constants.view(-1, 1, 1, 1)
-        x["delta_times"] = x["delta_times"] * self.norm_constants.view(-1, 1, 1, 1)
-        x["kernel_grids"] = x["kernel_grids"] * self.norm_constants.view(-1, 1, 1)
+    def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
+        out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
+        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
+        out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
+        out["log_predicted_base_intensity_var"] = out["log_predicted_base_intensity_var"] + torch.log(norm_constants).view(-1, 1)
+        x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
+        x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
+        x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
 
     def loss(
         self,
