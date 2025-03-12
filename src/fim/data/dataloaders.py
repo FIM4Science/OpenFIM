@@ -373,7 +373,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         def subsample_kernel_evaluation_points(item):
             L_kernel = item["kernel_grids"].shape[1]
-            selected_points = torch.randint(0, L_kernel, (self.num_kernel_evaluation_points,))
+            selected_points = torch.randperm(L_kernel)[: self.num_kernel_evaluation_points]
             item["kernel_grids"] = item["kernel_grids"][:, selected_points]
             item["kernel_evaluations"] = item["kernel_evaluations"][:, selected_points]
             return item
