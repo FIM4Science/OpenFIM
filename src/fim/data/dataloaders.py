@@ -37,7 +37,7 @@ from ..data.datasets import (
 )
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
-from .utils import clean_split_from_size_info, get_path_counts, sample_from_gmm, sample_random_integers_from_exponential
+from .utils import clean_split_from_size_info, get_path_counts, sample_from_gmm
 
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
@@ -363,8 +363,6 @@ class HawkesDataLoader(BaseDataLoader):
             item["event_types"] = item["event_types"][:, :upper_bound]
 
             P = item["event_times"].shape[0]
-            seq_lens = torch.tensor(sample_random_integers_from_exponential(lower_bound, upper_bound, size=P), dtype=torch.long)
-            item["seq_lengths"] = seq_lens
             seq_lens = torch.tensor(sample_from_gmm(lower_bound, upper_bound, size=P), dtype=torch.long)
             item["seq_lengths"] = seq_lens
             return item

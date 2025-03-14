@@ -234,6 +234,7 @@ class FIMHawkes(AModel):
                 log_predicted_base_intensity_var,
                 x["kernel_evaluations"],
                 x["base_intensities"],
+                x["kernel_grids"],
                 schedulers,
                 step,
             )
@@ -251,7 +252,7 @@ class FIMHawkes(AModel):
         time_enc = self.time_encoder(obs_grid_normalized)
         delta_time_enc = self.delta_time_encoder(x["delta_times"])
         # Select encoding from encodings_per_event_mark from event_types
-        state_enc = encodings_per_event_mark[x["event_types"].view(-1).int()].view(B, P, L, -1)
+        state_enc = encodings_per_event_mark[x["event_types"].reshape(-1).int()].reshape(B, P, L, -1)
         path = time_enc + delta_time_enc + state_enc
         mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
         mask = mask.repeat(B, P, 1, 1)
@@ -381,6 +382,7 @@ class FIMHawkes(AModel):
         log_predicted_base_intensity_var: Tensor,
         target_kernel_values: Tensor,
         target_base_intensity: Tensor,
+        kernel_grids: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
@@ -402,6 +404,31 @@ class FIMHawkes(AModel):
         # Then compute the mean over all marks
         kernel_rmse = torch.mean(kernel_rmse)
         base_intensity_rmse = torch.mean(base_intensity_rmse)
+
+        # # With a 1% probability plot the kernel function and the ground truth and add the RMSE as a title to the plot
+        # if torch.rand(1) < 0.01:
+        #     import matplotlib.pyplot as plt
+        #     B, M, T = predicted_kernel_function.shape
+        #     predicted_kernel_function_np = predicted_kernel_function.clone().detach().cpu().float().numpy()
+        #     ground_truth_kernel_function_np = target_kernel_values.clone().detach().cpu().float().numpy()
+        #     # Define scaling factors
+        #     width_per_subplot = 3
+        #     height_per_subplot = 3
+        #     figsize = (width_per_subplot * M, height_per_subplot * B)
+        #     fig, axs = plt.subplots(B, M, figsize=figsize, squeeze=False)
+        #     kernel_rmse_np = torch.sqrt(torch.mean(torch.tensor((predicted_kernel_function_np - ground_truth_kernel_function_np)) ** 2, dim=-1))
+        #     kernel_rmse_np = torch.mean(kernel_rmse_np)
+        #     print("RMSE: ", kernel_rmse)
+        #     print("RMSE np: ", kernel_rmse_np)
+        #     for b in range(B):
+        #         for m in range(M):
+        #             axs[b, m].scatter(kernel_grids[b, m].clone().detach().cpu().float().numpy(), predicted_kernel_function_np[b, m], label="Model")
+        #             axs[b, m].scatter(kernel_grids[b, m].clone().detach().cpu().float().numpy(), ground_truth_kernel_function_np[b, m], label="Ground Truth")
+        #             axs[b, m].legend()
+        #             axs[b, m].tick_params(axis="both", which="major", labelsize=8)
+        #     plt.tight_layout()
+        #     plt.savefig("foo2.png", dpi=300)
+        #     plt.close()
 
         return {
             "loss": loss,
