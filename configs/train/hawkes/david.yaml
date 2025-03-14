@@ -16,24 +16,20 @@ dataset:
   name: HawkesDataLoader
   path_collections:
     train: !!python/tuple
-      # - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
-      # - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
-      - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
+      - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_2000_paths_250_events/train
 
     validation: !!python/tuple
-      # - data/synthetic_data/hawkes/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
-      # - data/synthetic_data/hawkes/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
-      - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
+      - data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_2000_paths_250_events/val
 
   loader_kwargs:
-    batch_size: 3
+    batch_size: 1
     num_workers: 8
     test_batch_size: 1
 
     variable_num_of_paths: true
     min_path_count: 100
     max_path_count: 2000
-    max_number_of_minibatch_sizes: 1
+    max_number_of_minibatch_sizes: 20
 
     variable_sequence_lens: true
     min_sequence_len: 10
@@ -134,7 +130,7 @@ trainer:
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 4
-  hub_model_id: FIM4Science/fim-hawkes-small
+  # hub_model_id: FIM4Science/fim-hawkes-small
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/

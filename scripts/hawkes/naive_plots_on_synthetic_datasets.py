@@ -7,12 +7,14 @@ from fim.models.hawkes import FIMHawkes
 from fim.utils.experiment_files import ExperimentsFiles
 
 
-DATASET_DIR = Path("data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val")
+DATASET_DIR = Path("data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_2000_paths_250_events/test")
 EXPERIMENT_DIR = Path(
-    "results/FIM_Hawkes_3_st_new_loss_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10_03-10-1304/checkpoints/best-model"
+    "results/FIM_Hawkes_3_st_new_loss_exp_2000_paths_250_events_no_mask-experiment-seed-10_03-14-0926/checkpoints/best-model"
 )
 num_samples = 5
-start_idx = 0
+start_idx = 15
+SEQ_LEN = 250
+NUM_PATHS = 2000
 
 
 def load_pt_in_dir(dir_path: Path):
@@ -68,6 +70,8 @@ if EXPERIMENT_DIR.exists():
         model = model.to("cuda")
     data = load_pt_in_dir(DATASET_DIR)
     for k, v in data.items():
-        data[k] = v[start_idx : start_idx + num_samples].to(v.device) if torch.is_tensor(v) else v[:num_samples]
+        data[k] = v[start_idx : start_idx + num_samples].to(model.device) if torch.is_tensor(v) else v[:num_samples]
+    data["event_times"] = data["event_times"][:, :NUM_PATHS, :SEQ_LEN]
+    data["event_types"] = data["event_types"][:, :NUM_PATHS, :SEQ_LEN]
     model_predictions = model(data)
     plot_model_predictions_and_true_values(model_predictions, data)
