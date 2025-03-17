@@ -280,6 +280,7 @@ class FIMDataset(torch.utils.data.Dataset):
         path = [pathlib.Path(p) for p in path]
         if not all(p.exists() for p in path):
             missing_paths = [str(p) for p in path if not p.exists()]
+            self.logger.error(f"Paths {', '.join(missing_paths)} do not exist.")
             raise AssertionError(f"Paths {', '.join(missing_paths)} do not exist.")
         self._path = path
 

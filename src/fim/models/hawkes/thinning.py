@@ -3,6 +3,7 @@ import logging
 import torch
 import torch.nn as nn
 
+from ...trainers.utils import get_accel_type
 from ...utils.logging import RankLoggerAdapter
 
 
@@ -14,7 +15,16 @@ class EventSampler(nn.Module):
     The implementation uses code from https://github.com/yangalan123/anhp-andtt/blob/master/anhp/esm/thinning.py.
     """
 
-    def __init__(self, num_sample, num_exp, over_sample_rate, num_samples_boundary, dtime_max, patience_counter, device):
+    def __init__(
+        self,
+        num_sample: int = 1,
+        num_exp: int = 500,
+        over_sample_rate: float = 5,
+        num_samples_boundary: int = 5,
+        dtime_max: float = 5,
+        patience_counter: int = 5,
+        device=None,
+    ):
         """Initialize the event sampler.
 
         Args:
@@ -33,7 +43,7 @@ class EventSampler(nn.Module):
         self.num_samples_boundary = num_samples_boundary
         self.dtime_max = dtime_max
         self.patience_counter = patience_counter
-        self.device = device
+        self.device = device if device is not None else get_accel_type()
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
     def compute_intensity_upper_bound(self, time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only):

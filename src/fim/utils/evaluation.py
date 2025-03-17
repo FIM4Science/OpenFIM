@@ -16,10 +16,8 @@ from transformers import AutoModel
 from fim.trainers.utils import get_accel_type, move_batch_to_local_rank
 from fim.utils.helper import load_yaml, yaml
 
-from ..data.dataloaders import BaseDataLoader, DataLoaderFactory
-from ..data.datasets import HFDataset
+from ..data.dataloaders import DataLoaderFactory
 from ..models import AModel
-from ..sampling.grid_samplers import sample_kernel_grid
 from .helper import export_list_of_dicts_to_jsonl
 
 
@@ -149,7 +147,6 @@ class HawkesPPDatasetConfig(BaseModel):
     label: str
     dataloader: dict
     kernel_grids_sampler: dict
-    kernel_grids_sampler_plot: dict
 
 
 class HawkesPPEvaluationConfig(EvaluationConfig):
@@ -172,46 +169,35 @@ class HawkesPPEvaluation(Evaluation):
         self.model.eval()
         for dataset_eval_conf in self.config.datasets:
             label = dataset_eval_conf.label
-            infered_kernels = []
-            infered_kernels_plot = []
             dataloader = self.__load_dataset(label, dataset_eval_conf.dataloader)
-            max_intra_event_time = self.__get_max_intra_event_time(dataloader.train)
-            self.kernel_grids[label]["plot"] = self.__sample_kernel_grids(
-                dataset_eval_conf.kernel_grids_sampler_plot, dataloader, max_intra_event_time
-            )
-            self.kernel_grids[label]["prediction"] = self.__sample_kernel_grids(
-                dataset_eval_conf.kernel_grids_sampler, dataloader, max_intra_event_time
-            )
-
-            for batch in tqdm(dataloader.train_it, desc=f"Evaluating {label}"):
-                with torch.amp.autocast(self.device, enabled=True, dtype=torch.bfloat16):
-                    logger.info("Evaluating batch for plotting ...")
-                    batch["kernel_grids"] = self.kernel_grids[label]["plot"]
-                    original_batch = batch.copy()
-                    batch = move_batch_to_local_rank(batch, self.device)
-                    prediction = self.model(batch)
-                    infered_kernels_plot.append(prediction)
+            self.__kernel_inference(dataset_eval_conf, label, dataloader)
+            predictions = []
+            for batch in tqdm(dataloader.test_it, desc=f"Evaluating {label}"):
+                with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
                     logger.info("Evaluating batch for prediction ...")
-                    original_batch["kernel_grids"] = self.kernel_grids[label]["prediction"]
-                    original_batch = move_batch_to_local_rank(original_batch, self.device)
-                    prediction = self.model(original_batch)
-                    infered_kernels.append(prediction)
+                    batch = move_batch_to_local_rank(batch, self.device)
+                    predictions = self.model.predict_one_step_at_every_event(batch)
+                    predictions.extend(predictions)
 
-            self.kernels[label]["plot"] = self.__concat_batches(infered_kernels_plot)
-            self.kernels[label]["prediction"] = self.__concat_batches(infered_kernels)
+    def __kernel_inference(self, dataset_eval_conf, label, dataloader):
+        kernel_grid, kernel_evaluaiton = self.model.kernel_inference_from_datataset(
+            dataloader.train, label, dataloader.train_it, dataset_eval_conf.kernel_grids_sampler
+        )
+        self.kernels[label] = kernel_evaluaiton
+        self.kernel_grids[label] = kernel_grid
 
-    def plot_kernel_grids_histograms(self, sample_type: str = "plot"):
+    def plot_kernel_grids_histograms(self):
         for label, kernel_grid in self.kernel_grids.items():
-            plt.hist(kernel_grid[sample_type][0, 0, :].cpu().numpy(), bins=30, edgecolor="black")
+            plt.hist(kernel_grid[0, 0, :].cpu().numpy(), bins=30, edgecolor="black")
             plt.title(f"Kernel grid histogram for {label}")
             plt.xlabel("Time")
             plt.ylabel("Frequency")
-            plt.savefig(Path(self.config.evaluation_dir) / label / f"kernel_grid_histogram_{sample_type}.png")
+            plt.savefig(Path(self.config.evaluation_dir) / label / "kernel_grid_histogram.png")
             plt.close()
 
-    def plot_kernels(self, sample_type: str = "plot"):
+    def plot_kernels(self):
         for label, kernels in self.kernels.items():
-            kernel_values = kernels[sample_type]["predicted_kernel_values"][0]  # Shape: [M, L]
+            kernel_values = kernels["predicted_kernel_values"]  # Shape: [M, L]
             num_kernels = kernel_values.shape[0]
 
             # Calculate grid dimensions
@@ -226,7 +212,7 @@ class HawkesPPEvaluation(Evaluation):
 
             # Plot each kernel
             for i in range(num_kernels):
-                axes[i].plot(self.kernel_grids[label][sample_type][0, 0].cpu(), kernel_values[i].cpu())
+                axes[i].plot(self.kernel_grids[label][0, 0].cpu(), kernel_values[i].cpu())
                 axes[i].set_title(f"Kernel {i + 1}")
                 axes[i].set_xlabel("Time")
                 axes[i].set_ylabel("Value")
@@ -239,39 +225,10 @@ class HawkesPPEvaluation(Evaluation):
             # Save plot
             label_dir = Path(self.config.evaluation_dir) / label
             label_dir.mkdir(parents=True, exist_ok=True)
-            plot_path = label_dir / f"kernel_values_{sample_type}.png"
+            plot_path = label_dir / "kernel_values.png"
             plt.tight_layout()
             plt.savefig(plot_path)
             plt.close()
-
-    def __concat_batches(self, kernel_batches: list[dict]):
-        logger.info("Concatenating batches ...")
-        concatenated_kernels = defaultdict(list)
-
-        for kernel_batch in kernel_batches:
-            for key, value in kernel_batch.items():
-                concatenated_kernels[key].append(value)
-
-        return {key: torch.cat(values) for key, values in concatenated_kernels.items()}
-
-    def __sample_kernel_grids(self, kernel_grids_sampler_conf: dict, dataloader: BaseDataLoader, max_intra_event_time: float):
-        logger.info("Sampling kernel grid ...")
-        size = (
-            1 if dataloader.batch_size == "all" else dataloader.batch_size,
-            self.model.max_num_marks,
-            kernel_grids_sampler_conf["sample_size"],
-        )
-        factor = kernel_grids_sampler_conf.get("max_value_factor", 1)
-        kernel_grid = sample_kernel_grid(**kernel_grids_sampler_conf, max_value=max_intra_event_time * factor, size=size)
-        kernel_grid = kernel_grid.to(self.device)
-        logger.info(f"Sampled kernel grid with max inter-event time: {torch.max(kernel_grid).item():,.2f}")
-        return kernel_grid
-
-    def __get_max_intra_event_time(self, dataset: HFDataset):
-        logger.info("Calculating max intra-event time ...")
-        max_intra_event_time = max(item["delta_time"][-1] for item in dataset.data)
-        logger.info(f"Max intra-event time: {max_intra_event_time:,.2f}")
-        return max_intra_event_time
 
     def __load_dataset(self, label: str, dataset_conf: dict):
         logger.info(f"Loading dataset: {label}")
@@ -282,7 +239,7 @@ class HawkesPPEvaluation(Evaluation):
     def save(self):
         logger.info("Saving evaluation results to JSON ...")
         for label, kernels in self.kernels.items():
-            results = {mode: {key: value.cpu().numpy().tolist() for key, value in mode_data.items()} for mode, mode_data in kernels.items()}
+            results = {key: value.cpu().numpy().tolist() for key, value in kernels.items()}
             label_dir = Path(self.config.evaluation_dir) / label
             label_dir.mkdir(parents=True, exist_ok=True)
             path = label_dir / "evaluation_results.json"
@@ -290,11 +247,9 @@ class HawkesPPEvaluation(Evaluation):
                 json.dump(results, f)
             logger.info(f"Evaluation results for {label} saved to {path}")
         logger.info("Plotting kernel grids histograms ...")
-        self.plot_kernel_grids_histograms(sample_type="plot")
-        self.plot_kernel_grids_histograms(sample_type="prediction")
+        self.plot_kernel_grids_histograms()
         logger.info("Plotting kernels ...")
-        self.plot_kernels(sample_type="plot")
-        self.plot_kernels(sample_type="prediction")
+        self.plot_kernels()
 
 
 EvaluationFactory.register("hawkes_pp", HawkesPPEvaluation)

@@ -21,7 +21,6 @@ def main(config_path: Path, log_level=logging.DEBUG):
     logging.basicConfig(
         stream=sys.stdout, level=log_level, datefmt="%Y-%m-%d %H:%M", format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-
     evaluation = create_evaluation_from_config(config_path)
     evaluation.evaluate()
     evaluation.save()

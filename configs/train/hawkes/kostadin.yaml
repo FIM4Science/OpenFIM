@@ -1,0 +1,174 @@
+experiment:
+  name: FIM_Hawkes_3_st_exp_1000_paths_mixed_250_events_mixed
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  seed: [10]
+  device_map: auto # auto, cuda, cpu
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+dataset:
+  name: HawkesDataLoader
+  path_collections:
+    train: !!python/tuple
+      # - /cephfs_projects/foundation_models/hawkes/data/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
+      # - /cephfs_projects/foundation_models/hawkes/data/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
+      - /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_2000_paths_250_events/train
+
+    validation: !!python/tuple
+      # - /cephfs_projects/foundation_models/hawkes/data/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
+      # - /cephfs_projects/foundation_models/hawkes/data/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val
+      - /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_2000_paths_250_events/val
+
+  loader_kwargs:
+    batch_size: 2
+    num_workers: 4
+    test_batch_size: 8
+
+    variable_num_of_paths: true
+    min_path_count: 100
+    max_path_count: 2000
+    max_number_of_minibatch_sizes: 20
+
+    variable_sequence_lens: true
+    min_sequence_len: 10
+    max_sequence_len: 250
+
+    num_kernel_evaluation_points: 10
+
+    is_bulk_model: &is_bulk_model false
+  dataset_kwargs:
+    files_to_load:
+      base_intensities: "base_intensities.pt"
+      event_times: "event_times.pt"
+      event_types: "event_types.pt"
+      kernel_evaluations: "kernel_evaluations.pt"
+      kernel_grids: "kernel_grids.pt"
+    # data_limit: 10
+    field_name_for_dimension_grouping:
+      ["base_intensities", "kernel_evaluations", "kernel_grids"]
+
+model:
+  model_type: fimhawkes
+  is_bulk_model: *is_bulk_model
+  normalize_by_max_time: true # Otherwise normalize by the delta times
+
+  max_num_marks: &max_num_marks 3
+  hidden_dim: &hidden_dim 64
+
+  mark_encoder:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
+
+  time_encoder:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
+
+  delta_time_encoder:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
+
+  kernel_time_encoder:
+    name: torch.nn.Linear
+
+  evaluation_mark_encoder:
+    name: torch.nn.Linear
+
+  ts_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 4
+
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.1
+      nhead: 4
+      batch_first: true
+
+  time_dependent_functional_attention:
+    paths_block_attention: false
+    num_res_layers: 8
+    attention:
+      nhead: 1
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  static_functional_attention:
+    paths_block_attention: false
+    num_res_layers: 8
+    attention:
+      nhead: 1
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  static_functional_attention_learnable_query:
+    name: torch.nn.Linear
+    out_features: *hidden_dim
+
+  kernel_value_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  kernel_value_var_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  base_intensity_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  base_intensity_var_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  thinning:
+    # num_seq: 10
+    num_sample: 1
+    num_exp: 500 # number of i.i.d. Exp(intensity_bound) draws at one time in thinning algorithm
+    # look_ahead_time: 10
+    patience_counter: 5 # the maximum iteration used in adaptive thinning
+    over_sample_rate: 5
+    num_samples_boundary: 5
+    dtime_max: 5
+    # num_step_gen: 10
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 5000
+  detect_anomaly: false
+  save_every: 10
+  gradient_accumulation_steps: 8
+  hub_model_id: FIM4Science/fim-hawkes-small
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      beta: 1.0
+      label: gauss_nll
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: init_cross_entropy
+      beta: 1.0
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: missing_link
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: 0.0001
+      weight_decay: 0.0001
+      # gradient_norm_clipping: 10
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      #     T_max: *epochs
+      #     eta_min: 0.0000001
+      #     last_epoch: -1
