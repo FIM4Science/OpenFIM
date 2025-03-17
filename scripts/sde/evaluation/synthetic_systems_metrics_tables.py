@@ -1,4 +1,3 @@
-import itertools
 import json
 from copy import deepcopy
 from datetime import datetime
@@ -55,21 +54,28 @@ def get_ground_truth_vector_field(all_vector_fields: list[dict], vector_field_ke
         raise ValueError(f"Found {len(vector_fields_of_system)} vector fields {vector_field_key} for system {system}")
 
 
-def get_model_data(all_model_data: list[dict], data_key: str, system: str, tau: str, experiment_num: int) -> np.ndarray:
+def get_model_data(all_model_data: list[dict], data_key: str, system: str, tau: float, noise: float, experiment_num: int) -> np.ndarray:
     """
     Extract result of one experiment from one model from a loaded json file.
     """
-    model_data_of_system = [d for d in all_model_data if (d["name"] == system) and (d["tau"] == tau)]
+    # backward compatability: if model data does not contain noise key, it has been evaluated with 0 noise
+    for i in range(len(all_model_data)):
+        model_data: dict = all_model_data[i]
+        if "noise" not in model_data:
+            model_data["noise"] = 0.0
+
+    model_data_of_system = [d for d in all_model_data if (d["name"] == system) and (d["tau"] == tau) and (d["noise"] == noise)]
 
     # should contain exactly one set of data for each system
     if len(model_data_of_system) == 1:
         return np.array(model_data_of_system[0][data_key][experiment_num])
 
     elif len(model_data_of_system) == 0:
-        raise ValueError(f"Could not find {data_key} of system {system} with tau {tau}.")
+        # raise Warning(f"Could not find {data_key} of system {system} with tau {tau} and noise {noise}.")
+        return None
 
     else:
-        raise ValueError(f"Found {len(model_data_of_system)} sets of {data_key} for system {system} with tau {tau}.")
+        raise Warning(f"Found {len(model_data_of_system)} sets of {data_key} for system {system} with tau {tau} and noise {noise}.")
 
 
 def synthetic_systems_metric_table(
@@ -91,7 +97,8 @@ def synthetic_systems_metric_table(
             "model": eval.model_id,
             "system": eval.data_id[0],
             "tau": eval.data_id[1],
-            "exp": eval.data_id[2],
+            "noise": eval.data_id[2],
+            "exp": eval.data_id[3],
             "metric_value": eval.metric_value,
         }
         for eval in all_evaluations
@@ -105,21 +112,13 @@ def synthetic_systems_metric_table(
     df["model"] = pd.Categorical(df["model"], models_order)
 
     # count number of experiments
-    df_count_exps = deepcopy(df[["system", "tau", "model", "metric_value"]])
-    df_count_exps = df_count_exps.groupby(["system", "tau", "model"]).size()
+    df_count_exps = deepcopy(df[["system", "noise", "tau", "model", "metric_value"]])
+    df_count_exps = df_count_exps.groupby(["system", "noise", "tau", "model"]).size()
     df_count_exps = df_count_exps.unstack(0)
 
     # count number of experiments_without Nans
-    df_count_non_nans = df.groupby(["system", "tau", "model"]).count().drop("exp", axis=1)
+    df_count_non_nans = df.groupby(["system", "noise", "tau", "model"]).count().drop("exp", axis=1)
     df_count_non_nans = df_count_non_nans["metric_value"].unstack(0)
-
-    # count Nans and depict them as stars
-    df_star_nans = deepcopy(df[["system", "tau", "model", "metric_value"]])
-    df_star_nans["metric_is_nan"] = np.isnan(df["metric_value"])
-    df_star_nans = df_star_nans.drop("metric_value", axis=1)
-
-    df_star_nans = df_star_nans.groupby(["system", "tau", "model"]).agg(nans_to_stars)
-    df_star_nans = df_star_nans["metric_is_nan"].unstack(0)
 
     # sometimes mmd can be negative, if the paths are really good
     if handle_negative_values == "clip":
@@ -130,39 +129,64 @@ def synthetic_systems_metric_table(
 
     # mean without Nans
     df_mean = (
-        df.groupby(["system", "tau", "model"]).agg(lambda x: str(x.dropna().mean()) if (len(x.dropna()) != 0) else "-").drop("exp", axis=1)
+        df.groupby(["system", "noise", "tau", "model"])
+        .agg(lambda x: str(x.dropna().mean()) if (len(x.dropna()) != 0) else "-")
+        .drop("exp", axis=1)
     )
     df_mean = df_mean["metric_value"].unstack(0)
 
     # std without Nans
     df_std = (
-        df.groupby(["system", "tau", "model"]).agg(lambda x: str(x.dropna().std()) if (len(x.dropna()) != 0) else "-").drop("exp", axis=1)
+        df.groupby(["system", "noise", "tau", "model"])
+        .agg(lambda x: str(x.dropna().std()) if (len(x.dropna()) != 0) else "-")
+        .drop("exp", axis=1)
     )
     df_std = df_std["metric_value"].unstack(0)
 
     # mean and std in one cell; formatted as "mean $\pm$ std"
-    df_mean_plus_std = df.groupby(["system", "tau", "model"]).agg(partial(mean_plus_std_agg, precision=precision)).drop("exp", axis=1)
+    df_mean_plus_std = (
+        df.groupby(["system", "noise", "tau", "model"]).agg(partial(mean_plus_std_agg, precision=precision)).drop("exp", axis=1)
+    )
     df_mean_plus_std = df_mean_plus_std["metric_value"].unstack(0)
 
     # mean and std in one cell; formatted with bracket notation
-    df_mean_bracket_std = df.groupby(["system", "tau", "model"]).agg(partial(mean_bracket_std_agg, precision=precision)).drop("exp", axis=1)
+    df_mean_bracket_std = (
+        df.groupby(["system", "noise", "tau", "model"]).agg(partial(mean_bracket_std_agg, precision=precision)).drop("exp", axis=1)
+    )
     df_mean_bracket_std = df_mean_bracket_std["metric_value"].unstack(0)
 
     # mean and std in one cell; formatted with bracket notation; multiply by 10 first
     df_mean_bracket_std_times_10 = deepcopy(df)
     df_mean_bracket_std_times_10["metric_value"] = df_mean_bracket_std_times_10["metric_value"] * 10
     df_mean_bracket_std_times_10 = (
-        df_mean_bracket_std_times_10.groupby(["system", "tau", "model"])
+        df_mean_bracket_std_times_10.groupby(["system", "noise", "tau", "model"])
         .agg(partial(mean_bracket_std_agg, precision=precision))
         .drop("exp", axis=1)
     )
     df_mean_bracket_std_times_10 = df_mean_bracket_std_times_10["metric_value"].unstack(0)
 
-    # add number of Nan experiments as stars to each cell
-    df_mean = df_mean + " " + df_star_nans
-    df_std = df_std + " " + df_star_nans
-    df_mean_plus_std = df_mean_plus_std + " " + df_star_nans
-    df_mean_bracket_std = df_mean_bracket_std + " " + df_star_nans
+    # drop rows with all Nans
+    df_mean = df_mean.map(lambda x: np.nan if x == "-" else x).dropna()
+    df_std = df_std.map(lambda x: np.nan if x == "-" else x).dropna()
+    df_mean_bracket_std = df_mean_bracket_std.map(lambda x: np.nan if x == "-" else x).dropna()
+    df_mean_bracket_std_times_10 = df_mean_bracket_std_times_10.map(lambda x: np.nan if x == "-" else x).dropna()
+
+    # count Nans and depict them as stars
+    df_star_nans = deepcopy(df[["system", "noise", "tau", "model", "metric_value"]])
+    df_star_nans["metric_is_nan"] = np.isnan(df["metric_value"])
+    df_star_nans = df_star_nans.drop("metric_value", axis=1)
+
+    df_star_nans = df_star_nans.groupby(["system", "noise", "tau", "model"]).agg(nans_to_stars)
+    df_star_nans = df_star_nans["metric_is_nan"].unstack(0)
+
+    # # add number of Nan experiments as stars to each cell
+    df_mean = df_mean + " " + df_star_nans[df_star_nans.index.isin(df_mean.index)]
+    df_std = df_std + " " + df_star_nans[df_star_nans.index.isin(df_std.index)]
+    df_mean_plus_std = df_mean_plus_std + " " + df_star_nans[df_star_nans.index.isin(df_mean_plus_std.index)]
+    df_mean_bracket_std = df_mean_bracket_std + " " + df_star_nans[df_star_nans.index.isin(df_mean_bracket_std.index)]
+    df_mean_bracket_std_times_10 = (
+        df_mean_bracket_std_times_10 + " " + df_star_nans[df_star_nans.index.isin(df_mean_bracket_std_times_10.index)]
+    )
 
     # reorder columns
     df_count_exps = df_count_exps[systems_order]
@@ -181,16 +205,18 @@ if __name__ == "__main__":
     dataset_descr = "synthetic_systems_metrics_tables"
 
     # How to name experiments
-    # experiment_descr = "combined_table_fim_fim_cont_bisde_sparsegp"
-    experiment_descr = "develop"
+    # experiment_descr = "combined_with_delta_tau_model"
+    experiment_descr = "inclusion_of_some_noise_values"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     data_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ksig_reference_paths.json"
+        # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ksig_reference_paths.json"
+        "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ksig_reference_paths.json"
     )
     data_vector_fields_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
+        # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
+        "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ground_truth_drift_diffusion.json"
     )
 
     models_jsons = {
@@ -212,6 +238,18 @@ if __name__ == "__main__":
         "FIM(Cont. with unary-binary)": Path(
             "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_cont_train_icml_model_with_unary_binary_data_mixed_in.json"
         ),
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_on_delta_tau_1e-1_to_1e-3_model_03-13-1415.json"
+        ),
+        "FIM(Paper)_reeval": Path(
+            "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/03241436_fim_paper_reevaluation_with_noise/model_paths.json"
+        ),
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)_reeval": Path(
+            "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/03241210_fim_delta_tau_03-13-1415_reevaluation_with_noise/model_paths.json"
+        ),
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)_reeval": Path(
+            "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/03241226_fim_delta_tau_03-18-1205_reevaluation_with_noise/model_paths.json"
+        ),
     }
     apply_sqrt_to_diffusion = [
         "BISDE",
@@ -227,6 +265,10 @@ if __name__ == "__main__":
         "BISDE(ICML Submission)",
         "FIM(Paper)",
         "FIM(Cont. with unary-binary)",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
+        "FIM(Paper)_reeval",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)_reeval",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)_reeval",
     ]
     systems_to_evaluate = [
         "Double Well",
@@ -243,13 +285,14 @@ if __name__ == "__main__":
         0.01,
         0.02,
     ]
+    noise_to_evaluate = [0.0, 0.05, 0.1]
     experiment_count = 5
     mmd_max_num_paths = 100
 
     metrics_to_evaluate = [
         "mse_drift",
         "mse_diffusion",
-        "mmd",
+        # "mmd",
     ]
 
     metric_evaluations_to_load: list[Path] = [
@@ -271,6 +314,9 @@ if __name__ == "__main__":
         Path(
             "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03141807_sparsegp_from_icml_submission/metric_evaluations_jsons"
         ),
+        Path(
+            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03162326_fim_delta_tau_1e-1_to_1e-3_03-13-1415_evaluation/metric_evaluations_jsons"
+        ),
     ]
 
     # tables config
@@ -281,6 +327,10 @@ if __name__ == "__main__":
         "BISDE(ICML Submission)",
         "FIM(Paper)",
         "FIM(Cont. with unary-binary)",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
+        "FIM(Paper)_reeval",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)_reeval",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)_reeval",
     ]
     systems_order = systems_to_evaluate
     precision = 3
@@ -303,21 +353,31 @@ if __name__ == "__main__":
         MetricEvaluation(
             model_id=model,
             model_json=models_jsons[model],
-            data_id=(system, tau, experiment_num, mmd_max_num_paths),
+            data_id=(system, tau, noise, experiment_num, mmd_max_num_paths),
             data_paths_json=data_paths_json,
             data_vector_fields_json=data_vector_fields_json,
             metric_id=metric,
             metric_value=None,  # input later
         )
-        for model, system, tau, experiment_num, metric in itertools.product(
-            models_to_evaluate, systems_to_evaluate, taus_to_evaluate, range(experiment_count), metrics_to_evaluate
-        )
+        for model in models_to_evaluate
+        for system in systems_to_evaluate
+        for tau in taus_to_evaluate
+        for noise in noise_to_evaluate
+        for experiment_num in range(experiment_count)
+        for metric in metrics_to_evaluate
     ]
 
     print("Loading saved evaluations.")
     # load saved evaluations; remove those not already contained in all_evaluations
     loaded_evaluations: list[MetricEvaluation] = load_metric_evaluations_from_dirs(metric_evaluations_to_load)
+
+    for eval in loaded_evaluations:
+        if len(eval.data_id) == 4:  # backward compatability for evaluations without noise
+            system, tau, experiment_num, mmd_max_num_paths = eval.data_id
+            eval.data_id = system, tau, 0.0, experiment_num, mmd_max_num_paths
+
     loaded_evaluations: list[MetricEvaluation] = [eval for eval in loaded_evaluations if eval in all_evaluations]
+
     to_evaluate: list[MetricEvaluation] = [eval for eval in all_evaluations if eval not in loaded_evaluations]
 
     # prepare directory to save evaluations in save
@@ -325,8 +385,8 @@ if __name__ == "__main__":
     json_save_dir.mkdir(exist_ok=True, parents=True)
 
     for eval in loaded_evaluations:
-        system, tau, exp, max_num_paths = eval.data_id
-        file_name = f"mod_{eval.model_id.replace(' ', '_')}_met_{eval.metric_id}_sys_{system}_tau_{tau}_exp_{exp}.json"
+        system, tau, noise, exp, max_num_paths = eval.data_id
+        file_name = f"mod_{eval.model_id.replace(' ', '_')}_met_{eval.metric_id}_sys_{system}_tau_{tau}_noise_{noise}_exp_{exp}.json"
         eval.to_json(json_save_dir / file_name)
 
     # compute metric for missing evaluations
@@ -336,9 +396,9 @@ if __name__ == "__main__":
     if len(to_evaluate) > 0:
         print("Loading ground-truth and model data.")
 
-        data_paths: dict = json.load(open(data_paths_json, "r"))
-        data_vector_fields: dict = json.load(open(data_vector_fields_json, "r"))
-        models_data: dict = {model_name: json.load(open(model_json, "r")) for model_name, model_json in models_jsons.items()}
+        data_paths: list[dict] = json.load(open(data_paths_json, "r"))
+        data_vector_fields: list[dict] = json.load(open(data_vector_fields_json, "r"))
+        models_data: list[dict] = {model_name: json.load(open(model_json, "r")) for model_name, model_json in models_jsons.items()}
 
         print(f"Data paths keys: {[d['name'] for d in data_paths]}")
         print(f"Data vector fields keys: {[d['name'] for d in data_vector_fields]}")
@@ -347,59 +407,67 @@ if __name__ == "__main__":
             print(f"Model: {model_name}, Systems: {[system['name'] for system in model_systems]}")
 
         for eval in (pbar := tqdm(to_evaluate, leave=False)):
-            system, tau, exp, mmd_max_num_paths = eval.data_id
-            pbar.set_description(f"Processing metric={eval.metric_id}, model={eval.model_id}, {system=}, {tau=}, {exp=}.")
+            system, tau, noise, exp, mmd_max_num_paths = eval.data_id
+            pbar.set_description(f"Processing metric={eval.metric_id}, model={eval.model_id}, {system=}, {tau=}, {noise=}, {exp=}.")
 
             start_time = datetime.now()
 
             if eval.metric_id == "mmd":
                 ground_truth_paths: np.ndarray = get_ground_truth_system_paths(data_paths, system, exp)[:mmd_max_num_paths]
-                model_paths: np.ndarray = get_model_data(models_data[eval.model_id], "synthetic_paths", system, tau, exp)[
+                model_paths: np.ndarray = get_model_data(models_data[eval.model_id], "synthetic_paths", system, tau, noise, exp)[
                     :mmd_max_num_paths
                 ]
 
-                if not np.isnan(model_paths).any():
-                    eval.metric_value = compute_mmd(ground_truth_paths, model_paths, kernel_cache=mmd_ground_truth_cache)
+                if model_paths is None or np.isnan(model_paths).any():
+                    eval.metric_value = np.nan
 
                 else:
-                    eval.metric_value = np.nan
+                    eval.metric_value = compute_mmd(ground_truth_paths, model_paths, kernel_cache=mmd_ground_truth_cache)
 
             elif eval.metric_id in ["mse_drift", "mse_diffusion"]:
                 vector_field_key = "drift_at_locations" if eval.metric_id == "mse_drift" else "diffusion_at_locations"
                 ground_truth_vf: np.ndarray = get_ground_truth_vector_field(data_vector_fields, vector_field_key, system, exp)
-                model_vf: np.ndarray = get_model_data(models_data[eval.model_id], vector_field_key, system, tau, exp)
+                model_vf: np.ndarray = get_model_data(models_data[eval.model_id], vector_field_key, system, tau, noise, exp)
 
-                # adjust for different convention of comparison models
-                if vector_field_key == "diffusion_at_location" and eval.model_id in apply_sqrt_to_diffusion:
-                    model_vf = np.sqrt(np.clip(model_vf, a_min=0.0, a_max=np.inf))
+                if model_vf is None:
+                    eval.metric_value = np.nan
 
-                if ground_truth_vf.shape != model_vf.shape:
-                    raise ValueError(
-                        f"Ground-Truth vf {ground_truth_vf.shape} and estimation {model_vf.shape} must have same shape. Evaluation {eval}."
-                    )
+                else:
+                    # adjust for different convention of comparison models
+                    if vector_field_key == "diffusion_at_location" and eval.model_id in apply_sqrt_to_diffusion:
+                        model_vf = np.sqrt(np.clip(model_vf, a_min=0.0, a_max=np.inf))
 
-                eval.metric_value = ((ground_truth_vf - model_vf) ** 2).mean().item()
+                    if ground_truth_vf.shape != model_vf.shape:
+                        raise ValueError(
+                            f"Ground-Truth vf {ground_truth_vf.shape} and estimation {model_vf.shape} must have same shape. Evaluation {eval}."
+                        )
+
+                    eval.metric_value = ((ground_truth_vf - model_vf) ** 2).mean().item()
 
             elif eval.metric_id == "mse_drift_and_diffusion_average":
                 ground_truth_drift: np.ndarray = get_ground_truth_vector_field(data_vector_fields, "drift_at_locations", system, exp)
-                model_drift: np.ndarray = get_model_data(models_data[eval.model_id], "drift_at_locations", system, tau, exp)
+                model_drift: np.ndarray = get_model_data(models_data[eval.model_id], "drift_at_locations", system, tau, noise, exp)
 
                 ground_truth_diff: np.ndarray = get_ground_truth_vector_field(data_vector_fields, "diffusion_at_locations", system, exp)
-                model_diff: np.ndarray = get_model_data(models_data[eval.model_id], "diffusion_at_locations", system, tau, exp)
+                model_diff: np.ndarray = get_model_data(models_data[eval.model_id], "diffusion_at_locations", system, tau, noise, exp)
 
-                # adjust for different convention of comparison models
-                if eval.model_id in apply_sqrt_to_diffusion:
-                    model_diff = np.sqrt(np.clip(model_diff, a_min=0.0, a_max=np.inf))
+                if model_drift is None or model_diff is None:
+                    eval.metric_value = np.nan
 
-                if (ground_truth_drift.shape != model_drift.shape) or (ground_truth_diff.shape != model_diff.shape):
-                    raise ValueError(
-                        f"Vector fields must have same shape, got: {ground_truth_drift.shape}, {model_drift.shape}, {ground_truth_diff.shape}, {model_diff.shape}."
-                    )
+                else:
+                    # adjust for different convention of comparison models
+                    if eval.model_id in apply_sqrt_to_diffusion:
+                        model_diff = np.sqrt(np.clip(model_diff, a_min=0.0, a_max=np.inf))
 
-                mse_drift = ((ground_truth_drift - model_drift) ** 2).mean().item()
-                mse_diff = ((ground_truth_diff - model_diff) ** 2).mean().item()
+                    if (ground_truth_drift.shape != model_drift.shape) or (ground_truth_diff.shape != model_diff.shape):
+                        raise ValueError(
+                            f"Vector fields must have same shape, got: {ground_truth_drift.shape}, {model_drift.shape}, {ground_truth_diff.shape}, {model_diff.shape}."
+                        )
 
-                eval.metric_value = (1 / 2) * (mse_drift + mse_diff)
+                    mse_drift = ((ground_truth_drift - model_drift) ** 2).mean().item()
+                    mse_diff = ((ground_truth_diff - model_diff) ** 2).mean().item()
+
+                    eval.metric_value = (1 / 2) * (mse_drift + mse_diff)
 
             else:
                 valid_metric_ids = ["mmd", "mse_drift", "mse_diffusion", "mse_drift_and_diffusion_average"]
@@ -435,7 +503,7 @@ if __name__ == "__main__":
             metric_save_dir: Path = evaluation_dir / subdir_name
             metric_save_dir.mkdir(exist_ok=True, parents=True)
 
-            save_table(df_count_exps, metric_save_dir, "count_experiments")
+            # save_table(df_count_exps, metric_save_dir, "count_experiments")
             save_table(df_count_non_nans, metric_save_dir, "count_non_nans")
             save_table(df_mean, metric_save_dir, "mean")
             save_table(df_std, metric_save_dir, "std")

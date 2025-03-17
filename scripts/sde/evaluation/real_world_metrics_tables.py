@@ -135,7 +135,10 @@ if __name__ == "__main__":
     models_jsons = {
         "FIM(Paper)": Path("/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/model_paths.json"),
         "FIM(Cont. with unary-binary)": Path(
-            "/cephfs/users/seifner/repos/FIM/evaluations/oil_wind_tsla_fb_model_evaluation/03102335_model_cont_train_on_unary_binary_trees_with_polynomials_mixed_in/data_jsons/model_paths.json"
+            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_real_world_oil_wind_mmd_tables/03102335_model_cont_train_on_unary_binary_trees_with_polynomials_mixed_in/data_jsons/model_paths.json"
+        ),
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)": Path(
+            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_real_world_oil_wind_mmd_tables/03171207_model_trained_on_delta_tau_1e-1_to_1e-3_03-13-1415/data_jsons/model_paths.json"
         ),
         "BISDE": Path(
             "/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/bisde_inferred_vector_fields_and_paths.json"
@@ -148,6 +151,7 @@ if __name__ == "__main__":
     models_to_evaluate = [
         "FIM(Paper)",
         "FIM(Cont. with unary-binary)",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
         "BISDE",
         "BISDE(ICML Submission)",
     ]
@@ -167,6 +171,7 @@ if __name__ == "__main__":
     models_order = [
         "BISDE",
         "BISDE(ICML Submission)",
+        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
         "FIM(Paper)",
         "FIM(Cont. with unary-binary)",
     ]

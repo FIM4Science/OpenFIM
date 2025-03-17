@@ -633,7 +633,7 @@ if __name__ == "__main__":
     dataset_descr = "motion_capture_43"
 
     # How to name experiments
-    experiment_descr = "model_cont_train_on_unary_binary_trees"
+    experiment_descr = "model_trained_on_delta_tau_1e-1_to_1e-3_1.3M_steps"
 
     model_dicts, models_display_ids = get_model_dicts_600k_post_submission_models()
 
