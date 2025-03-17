@@ -191,7 +191,7 @@ class FIMHFDataLoader(BaseDataLoader):
 
 
 class FIMDataLoader(BaseDataLoader):
-    def __init__(self, path_collections: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
+    def __init__(self, path: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
         self.max_path_count = loader_kwargs.pop("max_path_count", None)
         self.min_path_count = loader_kwargs.pop("min_path_count", 1)
         self.max_number_of_minibatch_sizes = loader_kwargs.pop("max_number_of_minibatch_sizes", None)
@@ -204,8 +204,8 @@ class FIMDataLoader(BaseDataLoader):
             )
             assert self.max_path_count is not None, "max_path_conunt must be provided if variable_num_of_paths is True"
 
-        self.path_collections = path_collections
-        for name, paths in path_collections.items():
+        self.path_collections = path
+        for name, paths in path.items():
             self.dataset[name] = FIMDataset(paths, **dataset_kwargs)
             if self.variable_num_of_paths and name == "train":
                 self.num_paths_for_batch = get_path_counts(

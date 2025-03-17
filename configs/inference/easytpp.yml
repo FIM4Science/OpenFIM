@@ -1,48 +1,84 @@
 evaluation_type: hawkes_pp
 evaluation_dir: evaluations/point-processes/
-model_id: /cephfs_projects/foundation_models/hawkes/data/models/NOT_CONVERGED_FIM_Hawkes_3_st_mixed_no_powerlaw_2000_paths_mixed_250_events_mixed-experiment-seed-10_03-02-1223/checkpoints/best-model/
-# model_id: FIM4Science/fim-hawkes-small
+# model_id: /home/cvejoski/Projects/FoundationModels/FIM/results/FIM_Hawkes_1-3_st_exp_1000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-10-1402/checkpoints/best-model
+model_id: /cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model
+# model_id: FIM4Science/fim-hawkes-small-test
 
 accelerator: auto # auto, cpu, gpu, mps
 
+# thinning:
+#   # num_seq: 10
+#   num_sample: 1
+#   num_exp: 500 # number of i.i.d. Exp(intensity_bound) draws at one time in thinning algorithm
+#   # look_ahead_time: 10
+#   patience_counter: 5 # the maximum iteration used in adaptive thinning
+#   over_sample_rate: 5
+#   num_samples_boundary: 5
+#   dtime_max: 5
+#   # num_step_gen: 10
+
 datasets:
+  # - label: synthetic
+  #   dataloader:
+  #     name: FIMDataLoader
+  #     path:
+  #       {
+  #         train: /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_2000_paths_250_events_old/val,
+  #         test: /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_2000_paths_250_events_old/test,
+  #       }
+  #     dataset_kwargs: &dataset_kwargs
+  #       files_to_load:
+  #         base_intensities: "base_intensities.pt"
+  #         event_times: "event_times.pt"
+  #         event_types: "event_types.pt"
+  #         kernel_evaluations: "kernel_evaluations.pt"
+  #         kernel_grids: "kernel_grids.pt"
+  #     loader_kwargs: &loader_kwargs
+  #       batch_size: all
+  #       test_batch_size: all
+  #       num_workers: 4
+  #   kernel_grids_sampler:
+  #     distribution_type: exponential
+  #     rate: 0.00005
+  #     sample_size: 1_000
+  #     max_value_factor: 5
+  #     num_marks: 1
   - label: easytpp-volcano
     dataloader:
       name: FIMHFDataLoader
       path: easytpp/volcano
-      split: ["train", "test"]
-      dataset_kwargs: &dataset_kwargs
+      # path: /home/cvejoski/.cache/huggingface/datasets/easytpp___volcano/default/0.0.0/bff8dc1fc888e85fd2e5288199c4c9b1d9b4e5d7
+      split: ["train", "test[:10]"]
+      dataset_kwargs:
         rename_columns:
           time_since_start: event_times
-          time_since_last_event: delta_time
+          time_since_last_event: delta_times
           type_event: event_types
           seq_len: seq_lengths
-      loader_kwargs: &loader_kwargs
+      loader_kwargs:
         batch_size: all
         test_batch_size: all
-        num_workers: 0
-    kernel_grids_sampler_plot: &kernel_grids_sampler_plot
-      distribution_type: exponential
-      rate: 0.1
-      sample_size: 2_500
+        num_workers: 4
     kernel_grids_sampler:
       distribution_type: exponential
-      rate: 0.00001
-      sample_size: 2_500
-      max_value_factor: 2
-  - label: easytpp-retweet
-    dataloader:
-      name: FIMHFDataLoader
-      path: easytpp/retweet
-      split: ["train[:10%]", "test"]
-      dataset_kwargs:
-        <<: *dataset_kwargs
-      loader_kwargs:
-        <<: *loader_kwargs
-    kernel_grids_sampler_plot:
-      <<: *kernel_grids_sampler_plot
-    kernel_grids_sampler:
-      distribution_type: exponential
-      rate: 0.00002
-      sample_size: 2_500
-      max_value_factor: 2
+      rate: 0.00005
+      sample_size: 1_000
+      max_value_factor: 5
+      num_marks: 1
+  # - label: easytpp-retweet
+  #   dataloader:
+  #     name: FIMHFDataLoader
+  #     path: easytpp/retweet
+  #     split: ["train", "test"]
+  #     dataset_kwargs:
+  #       <<: *dataset_kwargs
+  #     loader_kwargs:
+  #       batch_size: 2000
+  #       test_batch_size: all
+  #       num_workers: 0
+  #   kernel_grids_sampler:
+  #     distribution_type: exponential
+  #     rate: 0.00002
+  #     sample_size: 2_000
+  #     max_value_factor: 1
+  #     num_marks: 3

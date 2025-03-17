@@ -20,8 +20,8 @@ def sample_exponential_within_range(rate: float, max_value: float, size: tuple) 
 
     # Clip the samples to ensure they are within [0, max_value]
     samples = torch.clamp(samples, max=max_value)
-
-    return torch.sort(samples)[0]
+    zeros = torch.zeros((*samples.shape[:-1], 1), device=samples.device, dtype=samples.dtype)
+    return torch.sort(torch.cat((zeros, samples), dim=-1))[0]
 
 
 def sample_exponential_indices(size: int, scale: float, num_samples: int) -> Tensor:

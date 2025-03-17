@@ -1,15 +1,24 @@
 import copy
 import logging
-from typing import Any, Dict
+from collections import defaultdict
+from typing import Any, Dict, Iterable
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
+from torch.utils.data import Dataset
+from tqdm import tqdm
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
+from fim.trainers.utils import move_batch_to_local_rank
+
+from ...sampling.grid_samplers import sample_kernel_grid
+from ...utils.grid_interpolator import GridInterpolator
 from ...utils.helper import create_class_instance
 from ...utils.logging import RankLoggerAdapter
 from ..blocks import AModel, ModelFactory
 from ..blocks.neural_operators import AttentionOperator
+from .thinning import EventSampler
 
 
 class FIMHawkesConfig(PretrainedConfig):
@@ -34,6 +43,7 @@ class FIMHawkesConfig(PretrainedConfig):
         max_num_marks: int = 1,
         is_bulk_model: bool = False,
         normalize_by_max_time: bool = True,
+        thinning: dict = None,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
@@ -53,6 +63,7 @@ class FIMHawkesConfig(PretrainedConfig):
         self.base_intensity_decoder = base_intensity_decoder
         self.base_intensity_var_decoder = base_intensity_var_decoder
         self.hidden_dim = hidden_dim
+        self.thinning = thinning
         if "model_type" in kwargs:
             del kwargs["model_type"]
         super().__init__(model_type=self.model_type, **kwargs)
@@ -156,6 +167,12 @@ class FIMHawkes(AModel):
         base_intensity_var_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
         base_intensity_var_decoder["out_features"] = 1
         self.base_intensity_var_decoder = create_class_instance(base_intensity_var_decoder.pop("name"), base_intensity_var_decoder)
+        if self.config.thinning is not None:
+            self.event_sampler = EventSampler(**self.config.thinning)
+        else:
+            self.event_sampler = EventSampler(num_sample=1, num_exp=500, over_sample_rate=5, num_samples_boundary=5, dtime_max=5)
+        self.kernels_values: dict[str, Tensor] | None = None
+        self.kernel_grids: Tensor | None = None
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         """
@@ -182,7 +199,9 @@ class FIMHawkes(AModel):
         """
         obs_grid = x["event_times"]
         if obs_grid.dim() == 2:
+            # for datasets that have only one process and many paths (e.g. easytpp)
             obs_grid = obs_grid.unsqueeze(0).unsqueeze(-1)
+            x["event_times"] = obs_grid
             x["event_types"] = x["event_types"].unsqueeze(0).unsqueeze(-1)
             x["seq_lengths"] = x["seq_lengths"].unsqueeze(0)
         B, P, L = obs_grid.shape[:3]
@@ -449,10 +468,163 @@ class FIMHawkes(AModel):
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)
 
+    def kernel_inference_from_datataset(
+        self,
+        dataset: Dataset,
+        dataset_name: str,
+        dataloader: Iterable[dict],
+        kernel_grids_sampler_conf: dict,
+    ) -> dict[str, Tensor]:
+        """
+        Inference the kernel values at the sampled times.
+        """
+        max_intra_event_time = self.__get_max_intra_event_time(dataset)
+        self.kernel_grids = self.__sample_kernel_grids(kernel_grids_sampler_conf, max_intra_event_time)
+        infered_kernels = []
+        for batch in tqdm(dataloader, desc=f"Evaluating {dataset_name}"):
+            with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
+                self.logger.info("Evaluating batch for prediction ...")
+                batch["kernel_grids"] = self.kernel_grids
+                batch = move_batch_to_local_rank(batch, self.device)
+                prediction = self.forward(batch)
+                infered_kernels.append(prediction)
+        self.kernels_values = self.__average_over_batches(infered_kernels)
+        return self.kernel_grids, self.kernels_values
+
+    def __average_over_batches(self, kernel_batches: list[dict]) -> dict[str, Tensor]:
+        self.logger.info("Averaging over batches ...")
+        averaged_kernels = defaultdict(list)
+
+        for kernel_batch in kernel_batches:
+            for key, value in kernel_batch.items():
+                averaged_kernels[key].append(value)
+
+        return {key: torch.concat(values).mean(dim=0) for key, values in averaged_kernels.items()}
+
+    def __sample_kernel_grids(self, kernel_grids_sampler_conf: dict, max_intra_event_time: float) -> Tensor:
+        self.logger.info("Sampling kernel grid ...")
+        size = (1, 1, kernel_grids_sampler_conf["sample_size"] - 1)
+        factor = kernel_grids_sampler_conf.get("max_value_factor", 1)
+        kernel_grid = sample_kernel_grid(**kernel_grids_sampler_conf, max_value=max_intra_event_time * factor, size=size)
+        kernel_grid = kernel_grid.repeat(1, kernel_grids_sampler_conf["num_marks"], 1)
+        kernel_grid = kernel_grid.to(self.device)
+        self.logger.info(f"Sampled kernel grid with max inter-event time: {torch.max(kernel_grid).item():,.2f}")
+        return kernel_grid
+
+    def __get_max_intra_event_time(self, dataset: Dataset):
+        self.logger.info("Calculating max intra-event time ...")
+        max_intra_event_time = max(item["delta_times"][-1] for item in dataset.data)
+        self.logger.info(f"Max intra-event time: {max_intra_event_time:,.2f}")
+        return max_intra_event_time
+
     def _generate_padding_mask(self, sequence_lengths, L):
         B, P = sequence_lengths.shape
         mask = torch.arange(L).expand(B, P, L).to(self.device) >= sequence_lengths.unsqueeze(-1)
         return mask
+
+    def predict_one_step_at_every_event(self, batch: dict):
+        """One-step prediction for every event in the sequence.
+
+        Code taken from https://github.com/ant-research/EasyTemporalPointProcess/blob/main/easy_tpp/model/torch_model/torch_basemodel.py
+        Args:
+            batch (dict): A dictionary containing the following keys:
+                - "event_times": Tensor representing the event times. [B, L]
+                - "delta_times": Tensor representing the delta times. [B, L]
+                - "event_types": Tensor representing the event types. [B, L]
+                - "seq_lengths": Tensor representing the sequence lengths (which we use for masking). [B]
+
+        Returns:
+            tuple: tensors of dtime and type prediction, [batch_size, seq_len].
+        """
+        time_seq = batch["event_times"]
+        time_delta_seq = batch["delta_times"]
+        event_seq = batch["event_types"]
+
+        # remove the last event, as the prediction based on the last event has no label
+        # note: the first dts is 0
+        # [batch_size, seq_len]
+        time_seq, time_delta_seq, event_seq = time_seq[:, :-1], time_delta_seq[:, :-1], event_seq[:, :-1]
+
+        # [batch_size, seq_len]
+        dtime_boundary = torch.max(time_delta_seq * self.event_sampler.dtime_max, time_delta_seq + self.event_sampler.dtime_max)
+
+        # [batch_size, seq_len, num_sample]
+        accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
+            time_seq, time_delta_seq, event_seq, dtime_boundary, self.compute_intensities_at_sample_times, compute_last_step_only=False
+        )  # make it explicit
+
+        # We should condition on each accepted time to sample event mark, but not conditioned on the expected event time.
+        # 1. Use all accepted_dtimes to get intensity.
+        # [batch_size, seq_len, num_sample, num_marks]
+        intensities_at_times = self.compute_intensities_at_sample_times(time_seq, time_delta_seq, event_seq, accepted_dtimes)
+
+        # 2. Normalize the intensity over last dim and then compute the weighted sum over the `num_sample` dimension.
+        # Each of the last dimension is a categorical distribution over all marks.
+        # [batch_size, seq_len, num_sample, num_marks]
+        intensities_normalized = intensities_at_times / intensities_at_times.sum(dim=-1, keepdim=True)
+
+        # 3. Compute weighted sum of distributions and then take argmax.
+        # [batch_size, seq_len, num_marks]
+        intensities_weighted = torch.einsum("...s,...sm->...m", weights, intensities_normalized)
+
+        # [batch_size, seq_len]
+        types_pred = torch.argmax(intensities_weighted, dim=-1)
+
+        # [batch_size, seq_len]
+        dtimes_pred = torch.sum(accepted_dtimes * weights, dim=-1)  # compute the expected next event time
+        return dtimes_pred, types_pred
+
+    def get_intentsity(self, sample_dtimes: Tensor, kernels_and_base_intensities: dict[str, Tensor] = None):
+        """Compute the intensity at sampled times.
+
+        Args:
+            sample_dtimes (tensor): [batch_size, seq_len, num_sample], sampled inter-event timestamps.
+            kernels_and_base_intensities (dict): A dictionary containing the following keys:
+                - "kernel_grids": Tensor representing the kernel grids. [B, M, L]
+                - "predicted_kernel_values": Tensor representing the kernel values. [B, M, L]
+                - "predicted_base_intensity": Tensor representing the base intensity. [B, M]
+        Returns:
+            tensor: [batch_size, num_times, num_mc_sample, num_event_types],
+                    intensity at each timestamp for each event type.
+        """
+        if kernels_and_base_intensities is not None:
+            kernel_grids = kernels_and_base_intensities["kernel_grids"]
+            kernel_values = kernels_and_base_intensities["predicted_kernel_values"]
+            base_intensities = kernels_and_base_intensities["predicted_base_intensity"]
+        else:
+            kernel_grids = self.kernel_grids
+            kernel_values = self.kernels_values["predicted_kernel_values"]
+            base_intensities = self.kernels_values["predicted_base_intensity"]
+
+        interpolator = GridInterpolator(kernel_grids, kernel_values, mode="interpolate")
+        sample_dtimes = torch.abs(sample_dtimes)  # this is becase we have negative values because of the padding with '-1'
+        kernel_evaluations = interpolator(sample_dtimes)
+        kernel_deltas = kernel_evaluations.cumsum(dim=-1)
+        intensities = F.softplus(kernel_deltas + base_intensities.reshape(1, -1, 1, 1))
+        intensities = intensities.permute(0, 2, 3, 1)
+        return intensities
+
+    def compute_intensities_at_sample_times(self, time_seqs, time_delta_seqs, type_seqs, sample_dtimes, **kwargs):
+        """Compute the intensity at sampled times, not only event times.
+
+        Args:
+            time_seq (tensor): [B, P, L], times seqs.
+            time_delta_seq (tensor): [B, P, L], time delta seqs.
+            event_seq (tensor): [B, P, L], event type seqs.
+            sample_dtimes (tensor): [B, P, N], sampled inter-event timestamps.
+
+        Returns:
+            tensor: [batch_size, num_times, num_mc_sample, num_event_types],
+                    intensity at each timestamp for each event type.
+        """
+
+        compute_last_step_only = kwargs.get("compute_last_step_only", False)
+
+        if compute_last_step_only:
+            sampled_intensities = self.get_intentsity(sample_dtimes)  # TODO: slice the input to compute only for the last step
+        else:
+            sampled_intensities = self.get_intentsity(sample_dtimes)
+        return sampled_intensities
 
 
 ModelFactory.register(FIMHawkesConfig.model_type, FIMHawkes)
