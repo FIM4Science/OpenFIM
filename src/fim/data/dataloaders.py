@@ -37,7 +37,7 @@ from ..data.datasets import (
 )
 from ..trainers.utils import is_distributed
 from ..utils.logging import RankLoggerAdapter
-from .utils import clean_split_from_size_info, get_path_counts, sample_from_gmm, sample_random_integers_from_exponential
+from .utils import clean_split_from_size_info, get_path_counts, sample_from_gmm
 
 
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
@@ -363,8 +363,6 @@ class HawkesDataLoader(BaseDataLoader):
             item["event_types"] = item["event_types"][:, :upper_bound]
 
             P = item["event_times"].shape[0]
-            seq_lens = torch.tensor(sample_random_integers_from_exponential(lower_bound, upper_bound, size=P), dtype=torch.long)
-            item["seq_lengths"] = seq_lens
             seq_lens = torch.tensor(sample_from_gmm(lower_bound, upper_bound, size=P), dtype=torch.long)
             item["seq_lengths"] = seq_lens
             return item
@@ -373,7 +371,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         def subsample_kernel_evaluation_points(item):
             L_kernel = item["kernel_grids"].shape[1]
-            selected_points = torch.randint(0, L_kernel, (self.num_kernel_evaluation_points,))
+            selected_points = torch.randperm(L_kernel)[: self.num_kernel_evaluation_points]
             item["kernel_grids"] = item["kernel_grids"][:, selected_points]
             item["kernel_evaluations"] = item["kernel_evaluations"][:, selected_points]
             return item

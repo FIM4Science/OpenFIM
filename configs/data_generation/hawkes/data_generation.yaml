@@ -1,11 +1,11 @@
 process_type: &process_type "hawkes" # hawkes, mjp, etc.
-dataset_name: &dataset_name "10k_5_st_hawkes_mixed_2000_paths_250_events"
+dataset_name: &dataset_name "2k_3_st_hawkes_mixed_2000_paths_250_events"
 
 data_generator:
   class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesDatasetGenerator
-  num_samples_train: &num_samples_train 10_000
-  num_samples_val: &num_samples_val 1_000
-  num_samples_test: &num_samples_test 1_000
+  num_samples_train: &num_samples_train 2_000
+  num_samples_val: &num_samples_val 200
+  num_samples_test: &num_samples_test 200
   # num_samples_train: &num_samples_train 1000
   # num_samples_val: &num_samples_val 100
   # num_samples_test: &num_samples_test 100
@@ -15,7 +15,7 @@ data_generator:
   num_chunks: 100 #TODO: We currently dont store the data chunk wise because the dataloader is not ready for it
   kernel_sampler:
     class_path: fim.data_generation.hawkes.synthetic_dataset_generation.HawkesKernelSampler
-    num_marks: 5
+    num_marks: 3
     kernel_grid_size: 100
     baseline_sampler:
       class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
@@ -57,23 +57,23 @@ data_generator:
           high: 10
         a_2_sampler:
           class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 100
-          high: 700
-      power_law:
-        class_path: fim.data_generation.hawkes.kernel_functions.HawkesPowerLawKernelFunctionSampler
-        flip_sign_probability: 0.1
-        a_0_sampler:
-          class_path: fim.data_generation.hawkes.sampling_distributions.LogUniform
-          low: 0.1
-          high: 5.0
-        a_1_sampler:
-          class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
-          low: 1
-          high: 2
-        c_sampler:
-          class_path: fim.data_generation.hawkes.sampling_distributions.LogUniform
-          low: 0.0001
-          high: 0.01
+          low: 0
+          high: 1
+      # power_law:
+      #   class_path: fim.data_generation.hawkes.kernel_functions.HawkesPowerLawKernelFunctionSampler
+      #   flip_sign_probability: 0.1
+      #   a_0_sampler:
+      #     class_path: fim.data_generation.hawkes.sampling_distributions.LogUniform
+      #     low: 0.1
+      #     high: 5.0
+      #   a_1_sampler:
+      #     class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
+      #     low: 1
+      #     high: 2
+      #   c_sampler:
+      #     class_path: fim.data_generation.hawkes.sampling_distributions.LogUniform
+      #     low: 0.0001
+      #     high: 0.01
 
 data_saver:
   class_path: fim.data_generation.data_saver.DataSaver
