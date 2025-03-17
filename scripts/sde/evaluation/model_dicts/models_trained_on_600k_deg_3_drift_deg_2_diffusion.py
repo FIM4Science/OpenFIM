@@ -23,16 +23,20 @@ def get_model_dicts_600k_deg_3_drift_deg_2_diff() -> tuple[dict, dict, str]:
 def get_model_dicts_600k_post_submission_models() -> tuple[dict, dict, str]:
     """ """
     model_dicts = {
-        "20M_params_trained_even_longer": "/cephfs_projects/foundation_models/models/FIMSDE/20M_parameter_model_for_icml_submission/checkpoints",
-        # "20M_params_trained_even_longer": "/home/seifner/repos/FIM/saved_results/20250124_20M_params_trained_on_600k_deg_3/600k_drift_deg_3_diff_deg_2_mse_no_div_by_diff_softplus_2_layer_enc_8_layer_dec_continued_01-25-1301_trained_even_longer/checkpoints",
+        # "20M_params_trained_even_longer": "/cephfs_projects/foundation_models/models/FIMSDE/20M_parameter_model_for_icml_submission/checkpoints",
+        "20M_params_trained_even_longer": "/home/seifner/repos/FIM/saved_results/20250124_20M_params_trained_on_600k_deg_3/600k_drift_deg_3_diff_deg_2_mse_no_div_by_diff_softplus_2_layer_enc_8_layer_dec_continued_01-25-1301_trained_even_longer/checkpoints",
         # "20M_params_cont_train_unary_binary": "/home/seifner/repos/FIM/saved_results/20250124_20M_params_trained_on_600k_deg_3/600k_drift_deg_3_diff_deg_2_mse_no_div_by_diff_softplus_2_layer_enc_8_layer_dec_continued_more_data_NOT_USED_IN_PAPER_01-29-2111/checkpoints",
-        "20M_params_paper_model_cont_training_unary_binary": "/cephfs_projects/foundation_models/models/FIMSDE/600k_drift_deg_3_diff_deg_2_cont_icml_submission_model_with_unary_binary_data/checkpoints",
+        # "20M_params_paper_model_cont_training_unary_binary": "/cephfs_projects/foundation_models/models/FIMSDE/600k_drift_deg_3_diff_deg_2_cont_icml_submission_model_with_unary_binary_data/checkpoints",
+        # "20M_params_trained_delta_tau_1e-1_to-1e-3": "/cephfs_projects/foundation_models/models/FIMSDE/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-13-1415/checkpoints",
+        # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-18-1205)": "/cephfs/users/seifner/repos/FIM/saved_results/20250124_20M_params_trained_on_600k_deg_3/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-18-1205/checkpoints",
     }
     models_display_ids = {
-        "20M_params_trained_even_longer": "20M Paramters trained even longer (Paper)",
-        # "20M_params_trained_even_longer": "20M Params, Paper Model",
+        # "20M_params_trained_even_longer": "20M Paramters trained even longer (Paper)",
+        "20M_params_trained_even_longer": "20M Params, Paper Model",
         # "20M_params_cont_train_unary_binary": "20M Params, cont. train on unary-binary trees",
-        "20M_params_paper_model_cont_training_unary_binary": "20M Paras, cont. train mixed polynomials and unary-binary",
+        # "20M_params_paper_model_cont_training_unary_binary": "20M Paras, cont. train mixed polynomials and unary-binary",
+        # "20M_params_trained_delta_tau_1e-1_to-1e-3": "20M Params, trained on delta tau from 1e-1 to 1e-3",
+        # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-18-1205)": "20M Params, trained on delta tau from 1e-1 to 1e-3 (checkpoint checkpoint 03-18-1205)",
     }
 
     return model_dicts, models_display_ids

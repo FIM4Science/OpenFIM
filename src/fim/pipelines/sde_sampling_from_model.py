@@ -63,7 +63,7 @@ def fimsde_euler_maruyama(
 
     # expand initial states to expected model input dimensions
     if D < model.config.max_dimension:
-        initial_states = torch.nn.functional.pad(initial_states, (0, model.config.max_dimension - initial_states.size(-1)))
+        initial_states = torch.nn.functional.pad(initial_states, (0, model.config.max_dimension - initial_states.shape[-1]))
 
     assert initial_time.shape == (B, I, 1), f"Expected {(B, I, 1)}, Got {initial_time.shape}."
 
