@@ -228,10 +228,10 @@ class FIMHawkes(AModel):
 
         if "base_intensities" in x and "kernel_evaluations" in x:
             out["losses"] = self.loss(
-                predicted_kernel_values,
-                log_predicted_kernel_values_var,
-                predicted_base_intensity,
-                log_predicted_base_intensity_var,
+                out["predicted_kernel_values"],
+                out["log_predicted_kernel_values_var"],
+                out["predicted_base_intensity"],
+                out["log_predicted_base_intensity_var"],
                 x["kernel_evaluations"],
                 x["base_intensities"],
                 x["kernel_grids"],
