@@ -7,9 +7,10 @@ from fim.models.hawkes import FIMHawkes
 from fim.utils.experiment_files import ExperimentsFiles
 
 
-DATASET_DIR = Path("data/synthetic_data/hawkes/2k_3_st_hawkes_mixed_2000_paths_250_events/test")
+DATASET_DIR = Path("data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/test")
 EXPERIMENT_DIR = Path(
-    "results/FIM_Hawkes_3_st_new_loss_exp_2000_paths_250_events_no_mask-experiment-seed-10_03-14-0926/checkpoints/best-model"
+    # "results/FIM_Hawkes_1-3_st_new_loss_delta_t_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-19-1037/checkpoints/best-model"
+    "results/results/FIM_Hawkes_3_st_new_loss_delta_t_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-20-1003/checkpoints/best-model"
 )
 num_samples = 5
 start_idx = 15
