@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_1-3_st_exp_2000_paths_mixed_250_events_mixed
+  name: FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -55,7 +55,7 @@ dataset:
 model:
   model_type: fimhawkes
   is_bulk_model: *is_bulk_model
-  normalize_by_max_time: true # Otherwise normalize by the delta times
+  normalize_by_max_time: false # Otherwise normalize by the delta times
 
   max_num_marks: &max_num_marks 3
   hidden_dim: &hidden_dim 64
