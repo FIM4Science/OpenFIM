@@ -10,10 +10,10 @@ from fim.utils.experiment_files import ExperimentsFiles
 DATASET_DIR = Path("data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/test")
 EXPERIMENT_DIR = Path(
     # "results/FIM_Hawkes_1-3_st_new_loss_delta_t_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-19-1037/checkpoints/best-model"
-    "results/results/FIM_Hawkes_3_st_new_loss_delta_t_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-20-1003/checkpoints/best-model"
+    "results/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model"
 )
-num_samples = 5
-start_idx = 15
+num_samples = 10
+start_idx = 0
 SEQ_LEN = 250
 NUM_PATHS = 2000
 
@@ -37,8 +37,8 @@ def plot_model_predictions_and_true_values(model_predictions, data):
         if isinstance(v, torch.Tensor):
             data[k] = v.detach().cpu().numpy()
     B, M, T = model_predictions["predicted_kernel_values"].shape
-    predicted_kernel_function = model_predictions["predicted_kernel_values"]  # + model_predictions["predicted_base_intensity"][:, :, None]
-    ground_truth_kernel_function = data["kernel_evaluations"]  # + data["base_intensities"][:, :, None]
+    predicted_kernel_function = model_predictions["predicted_kernel_values"] + model_predictions["predicted_base_intensity"][:, :, None]
+    ground_truth_kernel_function = data["kernel_evaluations"] + data["base_intensities"][:, :, None]
 
     # Define scaling factors
     width_per_subplot = 3  # Adjust as needed
@@ -53,6 +53,12 @@ def plot_model_predictions_and_true_values(model_predictions, data):
         for m in range(M):
             axs[b, m].plot(data["kernel_grids"][b, m], predicted_kernel_function[b, m], label="Model")
             axs[b, m].plot(data["kernel_grids"][b, m], ground_truth_kernel_function[b, m], label="Ground Truth")
+            # Also plot the base intensities as -- lines
+            axs[b, m].axhline(data["base_intensities"][b, m], color="black", linestyle="--", label="Base Intensity")
+            # Also predicted base intensity
+            axs[b, m].axhline(
+                model_predictions["predicted_base_intensity"][b, m], color="red", linestyle="--", label="Predicted Base Intensity"
+            )
             axs[b, m].legend()
             axs[b, m].tick_params(axis="both", which="major", labelsize=8)  # Optional: adjust tick label size
 
