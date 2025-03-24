@@ -21,8 +21,7 @@ def get_30k_100_paths_half_noisy(project_path: Path, data_path: Path):
 def get_deg_4_drift_30k_100_paths_half_noisy(project_path: Path, data_path: Path):
     yaml_path = project_path / Path("configs/data_generation/sde/20250314_30k_drift_deg_4_diffusion_deg_2_100_paths_half_with_noise.yaml")
     save_dir = data_path / Path("30k_polynomials_drift_deg_4_diffusion_deg_2_100_paths_half_with_noise")
-    # labels_to_use = ["train", "test", "validation"]
-    labels_to_use = ["train"]
+    labels_to_use = ["train", "test", "validation"]
     return yaml_path, labels_to_use, save_dir
 
 

@@ -1,5 +1,5 @@
 experiment:
-  name: 600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer
+  name: 600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu

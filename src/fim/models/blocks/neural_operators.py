@@ -367,7 +367,7 @@ class LinearAttention(Block):
         attn_output = (1 / norm_coeff) * q_ @ kv  # [B, num_heads, Tq, head_dim]
         attn_output = attn_output.transpose(1, 2).reshape(B, Tq, self.embed_dim)  # [B, Tq, embed_dim]
 
-        return self.out_proj(attn_output)
+        return self.out_proj(attn_output), None  # same signature as nn.MultiheadAttention, returning None as attention output weights
 
 
 class ResidualEncoderLayer(Block):

@@ -165,11 +165,11 @@ def synthetic_systems_metric_table(
     )
     df_mean_bracket_std_times_10 = df_mean_bracket_std_times_10["metric_value"].unstack(0)
 
-    # drop rows with all Nans
-    df_mean = df_mean.map(lambda x: np.nan if x == "-" else x).dropna()
-    df_std = df_std.map(lambda x: np.nan if x == "-" else x).dropna()
-    df_mean_bracket_std = df_mean_bracket_std.map(lambda x: np.nan if x == "-" else x).dropna()
-    df_mean_bracket_std_times_10 = df_mean_bracket_std_times_10.map(lambda x: np.nan if x == "-" else x).dropna()
+    # # drop rows with all Nans
+    # df_mean = df_mean.map(lambda x: np.nan if x == "-" else x).dropna()
+    # df_std = df_std.map(lambda x: np.nan if x == "-" else x).dropna()
+    # df_mean_bracket_std = df_mean_bracket_std.map(lambda x: np.nan if x == "-" else x).dropna()
+    # df_mean_bracket_std_times_10 = df_mean_bracket_std_times_10.map(lambda x: np.nan if x == "-" else x).dropna()
 
     # count Nans and depict them as stars
     df_star_nans = deepcopy(df[["system", "noise", "tau", "model", "metric_value"]])
@@ -205,70 +205,84 @@ if __name__ == "__main__":
     dataset_descr = "synthetic_systems_metrics_tables"
 
     # How to name experiments
-    # experiment_descr = "combined_with_delta_tau_model"
-    experiment_descr = "inclusion_of_some_noise_values"
+    # experiment_descr = "fim_fixed_linear_attn_04-28-0941"
+    experiment_descr = "ablation_30k_train_size"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     data_paths_json = Path(
         # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ksig_reference_paths.json"
-        "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ksig_reference_paths.json"
+        # "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ksig_reference_paths.json"
     )
     data_vector_fields_json = Path(
         # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
-        "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ground_truth_drift_diffusion.json"
+        # "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ground_truth_drift_diffusion.json"
+        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
     )
 
     models_jsons = {
-        "SparseGP": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/opper_sparse_gp_evaluations_at_locations_paths_coarse_synth_data.json",
-        ),
-        "SparseGP(ICML Submission)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/table_sanity_check_data/sparse_gp_sparse_observations_many_paths.json"
-        ),
-        "BISDE": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/bisde_experiments_friday_full.json"
-        ),
-        "BISDE(ICML Submission)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/table_sanity_check_data/bisde_experiments_friday_full.json"
-        ),
-        "FIM(Paper)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json"
-        ),
-        "FIM(Cont. with unary-binary)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_cont_train_icml_model_with_unary_binary_data_mixed_in.json"
-        ),
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_on_delta_tau_1e-1_to_1e-3_model_03-13-1415.json"
-        ),
-        "FIM(Paper)_reeval": Path(
-            "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/03241436_fim_paper_reevaluation_with_noise/model_paths.json"
-        ),
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)_reeval": Path(
-            "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/03241210_fim_delta_tau_03-13-1415_reevaluation_with_noise/model_paths.json"
-        ),
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)_reeval": Path(
-            "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/03241226_fim_delta_tau_03-18-1205_reevaluation_with_noise/model_paths.json"
+        #### "SparseGP": Path(
+        ####     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/opper_sparse_gp_evaluations_at_locations_paths_coarse_synth_data.json",
+        #### ),
+        # "SparseGP(ICML Submission)": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/table_sanity_check_data/sparse_gp_sparse_observations_many_paths.json"
+        # ),
+        #### "BISDE": Path(
+        ####     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/bisde_experiments_friday_full.json"
+        #### ),
+        # "BISDE(ICML Submission)": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/table_sanity_check_data/bisde_experiments_friday_full.json"
+        # ),
+        # "BISDE(Reevaluation, April 25)": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/model_jsons/20250409_bisde_model_results_with_noise/20250411_bisde_results_all_systems_with_noise.json"
+        # ),
+        # "FIM(Paper)": Path(
+        #     # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json" (use updated version with noise )
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03292252_fim_icml_paper/model_paths.json"
+        # ),
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)": Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03292330_delta_tau_checkpoint_03-13-1415/model_paths.json"
+        # ),
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)": Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03292346_delta_tau_checkpoint_03-18-1205/model_paths.json"
+        # ),
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)": Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03300002_delta_tau_checkpoint_03-23-1747/model_paths.json"
+        # ),
+        # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021110_fim_fixed_linear_attn_delta_tau_04-28-0941/model_paths.json"
+        # ),
+        # "Ablation: 30k, degree 4 drift, 500k steps": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021706_ablation_30k_deg_4_drift_500k_steps/model_paths.json"
+        # ),
+        "Ablation: 30k train size, 5M parameters, 500k steps": Path(
+            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021712_ablation_30k_train_size_500k_steps/model_paths.json"
         ),
     }
     apply_sqrt_to_diffusion = [
         "BISDE",
         "BISDE(ICML Submission)",
+        "BISDE(Reevaluation, April 25)",
         "SparseGP",
         "SparseGP(ICML Submission)",
     ]
 
     models_to_evaluate = [
-        "SparseGP",
-        "SparseGP(ICML Submission)",
-        "BISDE",
-        "BISDE(ICML Submission)",
-        "FIM(Paper)",
-        "FIM(Cont. with unary-binary)",
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
-        "FIM(Paper)_reeval",
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)_reeval",
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)_reeval",
+        #### "SparseGP",
+        # "SparseGP(ICML Submission)",
+        #### "BISDE",
+        # "BISDE(ICML Submission)",
+        # "BISDE(Reevaluation, April 25)",
+        # "FIM(Paper)",
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)",
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)",
+        # "Ablation: 30k, degree 4 drift, 500k steps",
+        "Ablation: 30k train size, 5M parameters, 500k steps",
+        # "Ablation: 100k train size, 10M parameters, 500k steps",
+        # "Ablation: 600k train size, 20M parameters, 500k steps",
+        # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)",
     ]
     systems_to_evaluate = [
         "Double Well",
@@ -284,53 +298,85 @@ if __name__ == "__main__":
         0.002,
         0.01,
         0.02,
+        0.2,
     ]
-    noise_to_evaluate = [0.0, 0.05, 0.1]
+    noise_to_evaluate = [
+        0.0,
+        0.05,
+        0.1,
+    ]
     experiment_count = 5
     mmd_max_num_paths = 100
+
+    only_use_loaded_evaluations = False
 
     metrics_to_evaluate = [
         "mse_drift",
         "mse_diffusion",
-        # "mmd",
+        "mmd",
     ]
 
     metric_evaluations_to_load: list[Path] = [
-        Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100928_sparsegp_evaluation/metric_evaluations_jsons"
-        ),
-        Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100931_bisde_evaluation/metric_evaluations_jsons"
-        ),
-        Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100934_fim_paper_model_evaluation/metric_evaluations_jsons"
-        ),
-        Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100939_fim_paper_model_cont_unary_binary_evaluation/metric_evaluations_jsons"
-        ),
-        Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03141800_bisde_from_icml_submission/metric_evaluations_jsons"
-        ),
-        Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03141807_sparsegp_from_icml_submission/metric_evaluations_jsons"
-        ),
-        Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03162326_fim_delta_tau_1e-1_to_1e-3_03-13-1415_evaluation/metric_evaluations_jsons"
-        ),
+        #### Path(
+        ####     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100928_sparsegp_evaluation/metric_evaluations_jsons"
+        #### ),
+        #### Path(
+        ####     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100931_bisde_evaluation/metric_evaluations_jsons"
+        #### ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100934_fim_paper_model_evaluation/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03141800_bisde_from_icml_submission/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03141807_sparsegp_from_icml_submission/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03162326_fim_delta_tau_1e-1_to_1e-3_03-13-1415_evaluation/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/evaluations/synthetic_systems_metrics_tables/03301651_fim_icml_paper/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/evaluations/synthetic_systems_metrics_tables/03301704_fim_delta_tau_03-13-1415/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/evaluations/synthetic_systems_metrics_tables/03301713_fim_delta_tau_03-23-1747_clean/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04070948_fim_icml_paper/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04071007_fim_delta_tau_03-13-1415/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04071010_fim_delta_tau_03-18-1205/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04071014_fim_delta_tau_03-23-1747/metric_evaluations_jsons"
+        # ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04121226_bisde_reevaluation_april_25/metric_evaluations_jsons"
+        # ),
     ]
 
     # tables config
     models_order = [
-        "SparseGP",
-        "SparseGP(ICML Submission)",
-        "BISDE",
-        "BISDE(ICML Submission)",
-        "FIM(Paper)",
-        "FIM(Cont. with unary-binary)",
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
-        "FIM(Paper)_reeval",
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)_reeval",
-        "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)_reeval",
+        #### "SparseGP",
+        # "SparseGP(ICML Submission)",
+        #### "BISDE",
+        # "BISDE(ICML Submission)",
+        # "BISDE(Reevaluation, April 25)",
+        # "FIM(Paper)",
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)",
+        # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)",
+        # "Ablation: 30k, degree 4 drift, 500k steps",
+        "Ablation: 30k train size, 5M parameters, 500k steps",
+        # "Ablation: 100k train size, 10M parameters, 500k steps",
+        # "Ablation: 600k train size, 20M parameters, 500k steps",
+        # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)",
     ]
     systems_order = systems_to_evaluate
     precision = 3
@@ -378,7 +424,11 @@ if __name__ == "__main__":
 
     loaded_evaluations: list[MetricEvaluation] = [eval for eval in loaded_evaluations if eval in all_evaluations]
 
-    to_evaluate: list[MetricEvaluation] = [eval for eval in all_evaluations if eval not in loaded_evaluations]
+    if only_use_loaded_evaluations is False:
+        to_evaluate: list[MetricEvaluation] = [eval for eval in all_evaluations if eval not in loaded_evaluations]
+
+    else:
+        to_evaluate: list[MetricEvaluation] = []
 
     # prepare directory to save evaluations in save
     json_save_dir: Path = evaluation_dir / "metric_evaluations_jsons"

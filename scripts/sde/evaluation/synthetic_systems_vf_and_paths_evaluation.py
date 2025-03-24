@@ -9,7 +9,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optree
 import torch
-from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import get_model_dicts_600k_post_submission_models
+from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
+    get_model_dicts_ablation_models,
+)
 from tqdm import tqdm
 
 from fim import project_path
@@ -169,19 +171,20 @@ if __name__ == "__main__":
     dataset_descr = "synthetic_systems_vf_and_paths_evaluation"
 
     # How to name experiments
-    experiment_descr = "fim_paper_reevaluation_with_noise"
-    # experiment_descr = "fim_delta_tau_03-13-1415_reevaluation_with_noise"
+    # experiment_descr = "fim_fixed_linear_attn_delta_tau_04-28-0941"
+    experiment_descr = "ablation_600k_train_size_500k_steps"
 
-    model_dicts, models_display_ids = get_model_dicts_600k_post_submission_models()
+    # model_dicts, models_display_ids = get_model_dicts_600k_post_submission_models()
+    # model_dicts, models_display_ids = get_model_dicts_600k_fixed_linear_attn()
+    model_dicts, models_display_ids = get_model_dicts_ablation_models()
 
     results_to_load: list[str] = [
-        # "/home/seifner/repos/FIM/evaluations/data_density_ablation_study/01291612_data_for_table/model_evaluations"
+        # "/home/seifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/model_evaluations/20M_params_trained_even_longer"
     ]
 
     # systems in table of paper
     path_to_inference_data_json = Path(
-        # "/cephfs/users/seifner/repos/FIM/data/processed/test/20250320_synthetic_systems_data_as_jsons/systems_observations_and_locations.json"
-        "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_observations_and_locations.json"
+        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_observations_and_locations.json"
     )
 
     systems_to_load: list[str] = [
@@ -195,14 +198,14 @@ if __name__ == "__main__":
         "Syn Drift",
     ]
 
-    taus = [0.002, 0.01, 0.02]
+    taus = [0.002, 0.01, 0.02, 0.2]
     noises = [0.0, 0.05, 0.1]
     sample_paths = True
     sample_paths_count = 100
     dt = 0.002
     sample_path_steps = 500
 
-    save_reference_data = True
+    save_model_data = True
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
     # Save dir setup: project_path / evaluations / synthetic_datasets / time_stamp + _ + experiment_descr
@@ -223,6 +226,12 @@ if __name__ == "__main__":
     # Load previous evaluations that don't need to be evaluated anymore
     loaded_evaluations: list[ModelEvaluation] = load_evaluations(results_to_load)
 
+    ######################################################################
+    for eval in loaded_evaluations:  # backward compatability for evaluations without noise
+        system, stride, mmd_max_num_paths = eval.dataloader_id
+        eval.dataloader_id = (system.replace("_", " "), stride * 0.002, 0.0)
+    ######################################################################
+
     # Evaluate all models on all datasets
     all_evaluations: list[ModelEvaluation] = [
         ModelEvaluation(model_id, dataloader_id) for model_id, dataloader_id in itertools.product(model_dicts.keys(), datasets.keys())
@@ -233,6 +242,11 @@ if __name__ == "__main__":
     evaluated: list[ModelEvaluation] = run_evaluations(
         to_evaluate, model_map, datasets, sample_paths, sample_paths_count, dt, sample_path_steps
     )
+
+    # remove loaded evaluations not needed
+    loaded_evaluations = [
+        eval for eval in loaded_evaluations if (eval.model_id, eval.dataloader_id) in itertools.product(model_dicts.keys(), datasets.keys())
+    ]
 
     # Add loaded evaluations
     all_evaluations: list[ModelEvaluation] = loaded_evaluations + evaluated
@@ -259,7 +273,7 @@ if __name__ == "__main__":
     pprint(optree.tree_map(lambda x: x.shape if isinstance(x, torch.Tensor) else x, model_outputs))
 
     # save ground-truth drift and diffusion values
-    if save_reference_data is True:
+    if save_model_data is True:
         assert len(model_dicts) == 1, "Only works for a single model right now"
 
         def _check_finite(x):
