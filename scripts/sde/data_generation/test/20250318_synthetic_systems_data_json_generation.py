@@ -133,8 +133,7 @@ def get_system_data(all_systems_data: list[dict], system: str, tau: float, noise
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     save_data_dir: Path = Path("/cephfs/users/seifner/repos/FIM/data/processed/test/")
-    # subdir_label: str = "synthetic_systems_data_as_jsons"
-    subdir_label: str = "synthetic_systems_data_as_jsons_develop"
+    subdir_label: str = "synthetic_systems_data_as_jsons"
 
     # systems in table of paper
     path_to_data = Path(
@@ -154,7 +153,7 @@ if __name__ == "__main__":
         "Syn_Drift",
     ]
 
-    subsampling_strides = [1, 5, 10]
+    subsampling_strides = [1, 5, 10, 100]
     noises = [0.0, 0.05, 0.1]
     target_length = 5000
     sample_paths_count = 100
@@ -249,6 +248,25 @@ if __name__ == "__main__":
         if isinstance(x, torch.Tensor):
             assert torch.torch.isfinite(x).all().item()
 
+    # save data in jsons
+    optree.tree_map(_check_finite, (reference_datasets, inference_datasets), namespace="fimsde")
+
+    reference_datasets, inference_datasets, ground_truth_drift_diffusion = optree.tree_map(
+        lambda x: x.detach().to("cpu").numpy() if isinstance(x, torch.Tensor) else x,
+        (reference_datasets, inference_datasets, ground_truth_drift_diffusion),
+    )
+
+    for data, filename in zip(
+        [reference_datasets, inference_datasets, ground_truth_drift_diffusion],
+        ["systems_ksig_reference_paths.json", "systems_observations_and_locations.json", "systems_ground_truth_drift_diffusion.json"],
+    ):
+        # Convert to JSON
+        json_data = json.dumps(data, cls=NumpyEncoder)
+
+        file: Path = save_data_dir / filename
+        with open(file, "w") as file:
+            file.write(json_data)
+
     # create plot with all noise levels
     exp = 0
     linewidth = 0.25
@@ -287,22 +305,3 @@ if __name__ == "__main__":
 
     axs[0, 0].legend()
     save_fig(fig, save_data_dir, "noise_comparison")
-
-    # save data in jsons
-    optree.tree_map(_check_finite, (reference_datasets, inference_datasets), namespace="fimsde")
-
-    reference_datasets, inference_datasets, ground_truth_drift_diffusion = optree.tree_map(
-        lambda x: x.detach().to("cpu").numpy() if isinstance(x, torch.Tensor) else x,
-        (reference_datasets, inference_datasets, ground_truth_drift_diffusion),
-    )
-
-    for data, filename in zip(
-        [reference_datasets, inference_datasets, ground_truth_drift_diffusion],
-        ["systems_ksig_reference_paths.json", "systems_observations_and_locations.json", "systems_ground_truth_drift_diffusion.json"],
-    ):
-        # Convert to JSON
-        json_data = json.dumps(data, cls=NumpyEncoder)
-
-        file: Path = save_data_dir / filename
-        with open(file, "w") as file:
-            file.write(json_data)

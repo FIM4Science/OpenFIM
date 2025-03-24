@@ -8,7 +8,9 @@ import matplotlib.ticker as plticker
 import optree
 import pandas as pd
 import torch
-from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import get_model_dicts_600k_post_submission_models
+from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
+    get_model_dicts_ablation_models,
+)
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -633,9 +635,9 @@ if __name__ == "__main__":
     dataset_descr = "motion_capture_43"
 
     # How to name experiments
-    experiment_descr = "model_trained_on_delta_tau_1e-1_to_1e-3_1.3M_steps"
+    experiment_descr = "fim_paper_delta_tau_and_ablations_without_fixed_attention"
 
-    model_dicts, models_display_ids = get_model_dicts_600k_post_submission_models()
+    model_dicts, models_display_ids = get_model_dicts_ablation_models()
 
     results_to_load: list[str] = [
         # "/home/seifner/repos/FIM/evaluations/motion_capture/01281819_develop_vector_field_figure/model_evaluations",
