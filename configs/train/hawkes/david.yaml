@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed
+  name: FIM_Hawkes_1-3_st_norm_test_mixed_larger_scale_2000_paths_mixed_250_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -16,17 +16,19 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/train
-      - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/train
-      - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/train
+      # - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/train
+      # - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/train
+      # - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/train
+      - results/FIM_Hawkes_1-3_st_norm_test_mixed_larger_scale_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-24-1653/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/val
-      - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/val
-      - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/val
+      # - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/val
+      # - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/val
+      # - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/val
+      - results/FIM_Hawkes_1-3_st_norm_test_mixed_larger_scale_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-24-1653/val
 
   loader_kwargs:
-    batch_size: 2
+    batch_size: 1
     num_workers: 8
     test_batch_size: 1
 
@@ -153,7 +155,7 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.0001
+      lr: 0.00005
       weight_decay: 0.0001
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple

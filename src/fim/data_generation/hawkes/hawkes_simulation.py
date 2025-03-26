@@ -2,7 +2,7 @@ import numpy as np
 from tick.hawkes import HawkesKernelTimeFunc, SimuHawkes
 
 
-def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths, n_events_per_path, seed=0):
+def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths, n_events_per_path, track_intensity, seed=0):
     """
     Run a Hawkes simulation with the given kernels.
 
@@ -17,6 +17,8 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
         The number of paths to simulate.
     n_events_per_path: int
         The number of events per path.
+    track_intensity: bool
+        Whether to track the intensity.
 
     Returns:
     event_times: np.array [num_paths, n_events_per_path]
@@ -30,21 +32,30 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
         kernel = HawkesKernelTimeFunc(t_values=kernel_grids[i], y_values=kernel_evaluations[i])
         hawkes.set_kernel(i, i, kernel)
 
+    if track_intensity:
+        smallest_kernel_timescale = np.min([kernel_grids[i][-1] for i in range(len(kernel_grids))])
+        hawkes.track_intensity(intensity_track_step=smallest_kernel_timescale / 10)
+
     event_times = np.zeros((num_paths, n_events_per_path))
     event_types = np.zeros((num_paths, n_events_per_path))
+    intensities = []
+    intensity_times = []
     try:
         for i in range(num_paths):
             hawkes.reset()
             hawkes.simulate()
             event_times[i], event_types[i] = tick_timestamps_to_single_timeseries(hawkes.timestamps)
+            if track_intensity:
+                intensities.append(hawkes.tracked_intensity)
+                intensity_times.append(hawkes.intensity_tracked_times)
     except Exception as e:
         print(f"Simulation failed with error: {e}")
-        return None, None
+        return None, None, None, None
 
     # Make sure that the events always start at 0
     event_times = event_times - event_times[:, 0][:, None]
 
-    return event_times, event_types
+    return event_times, event_types, intensity_times, intensities
 
 
 def tick_timestamps_to_single_timeseries(tick_timestamps):

@@ -375,9 +375,9 @@ class FIMHawkes(AModel):
         return norm_constants
 
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
-        # out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
-        # out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
-        # out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
+        out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
+        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
+        out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
         x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
         x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
