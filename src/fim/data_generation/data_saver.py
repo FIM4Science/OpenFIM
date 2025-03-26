@@ -34,7 +34,8 @@ class DataSaver:
         """
         # Make sure that all the values have the right number of samples
         for v in data.values():
-            assert v.shape[0] == self.num_samples_train + self.num_samples_val + self.num_samples_test
+            if isinstance(v, torch.Tensor):
+                assert v.shape[0] == self.num_samples_train + self.num_samples_val + self.num_samples_test
 
         for k, v in data.items():
             if self.num_samples_train > 0:
@@ -66,5 +67,4 @@ class DataSaver:
         """
         Save the data in torch format.
         """
-        torch_data = torch.tensor(data)
-        torch.save(torch_data, path / (name + ".pt"))
+        torch.save(data, path / (name + ".pt"))

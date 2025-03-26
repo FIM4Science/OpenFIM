@@ -7,12 +7,14 @@ from fim.models.hawkes import FIMHawkes
 from fim.utils.experiment_files import ExperimentsFiles
 
 
-DATASET_DIR = Path("/cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train")
+# DATASET_DIR = Path("data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/test")
+DATASET_DIR = Path("data/synthetic_data/hawkes/1k_3_st_hawkes_mixed_larger_scale_2000_paths_250_events/test")
 EXPERIMENT_DIR = Path(
-    "/cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model"
+    "results/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model"
+    # "results/FIM_Hawkes_1-3_st_norm_test_mixed_larger_scale_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-24-1653/checkpoints/best-model"
 )
-num_samples = 2
-start_idx = 1550
+num_samples = 5
+start_idx = 0
 SEQ_LEN = 250
 NUM_PATHS = 1950
 

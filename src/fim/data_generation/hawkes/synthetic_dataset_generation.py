@@ -17,6 +17,7 @@ class HawkesDatasetGenerator:
         self.n_events_per_path = kwargs["n_events_per_path"]
         self.num_procs = kwargs["num_procs"]
         self.num_chunks = kwargs["num_chunks"]
+        self.track_intensity = kwargs.get("track_intensity", False)
         self.kernel_sampler = create_class_instance(kwargs["kernel_sampler"])
 
     def _generate_sample(self, seed=0):
@@ -24,15 +25,15 @@ class HawkesDatasetGenerator:
         failed_attempts = 0
         while event_time is None or event_type is None:
             baselines, kernel_grids, kernel_evaluations = self.kernel_sampler()
-            event_time, event_type = run_hawkes_simulation(
-                baselines, kernel_grids, kernel_evaluations, self.num_paths, self.n_events_per_path, seed=seed
+            event_time, event_type, intensitity_time, intensity = run_hawkes_simulation(
+                baselines, kernel_grids, kernel_evaluations, self.num_paths, self.n_events_per_path, self.track_intensity, seed=seed
             )
             if event_time is None:
                 failed_attempts += 1
                 # Change np seed based on current wallclock time
                 np.random.seed(int(time.time() * 1e6) % 2**32)
                 print(f"Simulation failed for the {failed_attempts} time.")
-        return baselines, kernel_grids, kernel_evaluations, event_time, event_type
+        return baselines, kernel_grids, kernel_evaluations, event_time, event_type, intensitity_time, intensity
 
     def assemble(self, dtype=np.float32):
         num_samples = self.num_samples_train + self.num_samples_val + self.num_samples_test
@@ -42,6 +43,8 @@ class HawkesDatasetGenerator:
         kernel_evaluation_data = []
         event_time_data = []
         event_type_data = []
+        intensity_time_data = []
+        intensity_data = []
 
         num_chunks = min(self.num_chunks, num_samples)
         samples_per_chunk = num_samples // num_chunks
@@ -53,13 +56,15 @@ class HawkesDatasetGenerator:
 
         with Pool(self.num_procs) as pool:
             for result in tqdm(pool.imap(self._generate_chunk, chunks), total=len(chunks)):
-                baselines, kernel_grids, kernel_evaluations, event_time, event_type = result
+                baselines, kernel_grids, kernel_evaluations, event_time, event_type, intensitity_times, intensities = result
 
                 baseline_data.extend(baselines)
                 kernel_grid_data.extend(kernel_grids)
                 kernel_evaluation_data.extend(kernel_evaluations)
                 event_time_data.extend(event_time)
                 event_type_data.extend(event_type)
+                intensity_time_data.extend(intensitity_times)
+                intensity_data.extend(intensities)
 
         baseline_data = np.array(baseline_data, dtype=dtype)
         kernel_grid_data = np.array(kernel_grid_data, dtype=dtype)
@@ -77,6 +82,8 @@ class HawkesDatasetGenerator:
             "kernel_evaluations": kernel_evaluation_data,  # [B, M, L_kernel]
             "event_times": event_time_data,  # [B, P, L, 1]
             "event_types": event_type_data,  # [B, P, L, 1]
+            "intensity_times": intensity_time_data,
+            "intensities": intensity_data,
         }
         return res
 
@@ -86,17 +93,23 @@ class HawkesDatasetGenerator:
         kernel_evaluations = []
         event_times = []
         event_types = []
+        intensitity_times = []
+        intensities = []
 
         for sample_idx in chunk_range:
             np.random.seed(sample_idx)  # TODO: Check if we can make this faster
-            baseline, kernel_grid, kernel_evaluation, event_time, event_type = self._generate_sample(seed=sample_idx)
+            baseline, kernel_grid, kernel_evaluation, event_time, event_type, intensitity_time, intensity = self._generate_sample(
+                seed=sample_idx
+            )
             baselines.append(baseline)
             kernel_grids.append(kernel_grid)
             kernel_evaluations.append(kernel_evaluation)
             event_times.append(event_time)
             event_types.append(event_type)
+            intensitity_times.append(intensitity_time)
+            intensities.append(intensity)
 
-        return baselines, kernel_grids, kernel_evaluations, event_times, event_types
+        return baselines, kernel_grids, kernel_evaluations, event_times, event_types, intensitity_times, intensities
 
 
 class HawkesKernelSampler:
