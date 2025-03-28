@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from tick.hawkes import HawkesKernelTimeFunc, SimuHawkes
 
 
@@ -46,8 +47,11 @@ def run_hawkes_simulation(baselines, kernel_grids, kernel_evaluations, num_paths
             hawkes.simulate()
             event_times[i], event_types[i] = tick_timestamps_to_single_timeseries(hawkes.timestamps)
             if track_intensity:
-                intensities.append(hawkes.tracked_intensity)
-                intensity_times.append(hawkes.intensity_tracked_times)
+                tracked_intensity = torch.tensor(hawkes.tracked_intensity)
+                tracked_intensity_times = torch.tensor(hawkes.intensity_tracked_times)
+                tracked_intensity_times = tracked_intensity_times - tracked_intensity_times[0]
+                intensities.append(tracked_intensity)
+                intensity_times.append(tracked_intensity_times)
     except Exception as e:
         print(f"Simulation failed with error: {e}")
         return None, None, None, None

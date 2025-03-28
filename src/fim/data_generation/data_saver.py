@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import h5py
+import numpy as np
 import torch
 
 
@@ -67,4 +68,6 @@ class DataSaver:
         """
         Save the data in torch format.
         """
+        if isinstance(data, np.ndarray):
+            data = torch.tensor(data)
         torch.save(data, path / (name + ".pt"))
