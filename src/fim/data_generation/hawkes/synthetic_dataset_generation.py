@@ -82,9 +82,11 @@ class HawkesDatasetGenerator:
             "kernel_evaluations": kernel_evaluation_data,  # [B, M, L_kernel]
             "event_times": event_time_data,  # [B, P, L, 1]
             "event_types": event_type_data,  # [B, P, L, 1]
-            "intensity_times": intensity_time_data,
-            "intensities": intensity_data,
         }
+        if self.track_intensity:
+            res["intensity_times"] = intensity_time_data
+            res["intensities"] = intensity_data
+
         return res
 
     def _generate_chunk(self, chunk_range):
