@@ -15,6 +15,9 @@ from ..blocks.neural_operators import AttentionOperator
 from .thinning import EventSampler
 
 
+ARTIFICIAL_NORM_FACTOR = 1000
+
+
 class FIMHawkesConfig(PretrainedConfig):
     model_type = "fimhawkes"
 
@@ -371,12 +374,12 @@ class FIMHawkes(AModel):
         if "base_intensities" in x:
             x["base_intensities"] = x["base_intensities"] / norm_constants.view(-1, 1)
             x["base_intensities"] = (
-                x["base_intensities"] * 100
+                x["base_intensities"] * ARTIFICIAL_NORM_FACTOR
             )  # We are testing if the model is less likely to predict constant values then
         if "kernel_evaluations" in x:
             x["kernel_evaluations"] = x["kernel_evaluations"] / norm_constants.view(-1, 1, 1)
             x["kernel_evaluations"] = (
-                x["kernel_evaluations"] * 100
+                x["kernel_evaluations"] * ARTIFICIAL_NORM_FACTOR
             )  # We are testing if the model is less likely to predict constant values then
         return norm_constants
 
@@ -384,22 +387,24 @@ class FIMHawkes(AModel):
         out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
         out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
         out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
-        # Rescale by the artifical 100 factor
-        out["predicted_base_intensity"] = out["predicted_base_intensity"] / 100
-        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - 4.605170185988092
-        out["predicted_kernel_values"] = out["predicted_kernel_values"] / 100
+        # Rescale by the artifical ARTIFICIAL_NORM_FACTOR factor
+        out["predicted_base_intensity"] = out["predicted_base_intensity"] / ARTIFICIAL_NORM_FACTOR
+        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - torch.log(
+            torch.tensor(ARTIFICIAL_NORM_FACTOR).to(self.device)
+        )
+        out["predicted_kernel_values"] = out["predicted_kernel_values"] / ARTIFICIAL_NORM_FACTOR
         x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
         x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
         if "base_intensities" in x:
             x["base_intensities"] = x["base_intensities"] * norm_constants.view(-1, 1)
             x["base_intensities"] = (
-                x["base_intensities"] / 100
+                x["base_intensities"] / ARTIFICIAL_NORM_FACTOR
             )  # We are testing if the model is less likely to predict constant values then
         if "kernel_evaluations" in x:
             x["kernel_evaluations"] = x["kernel_evaluations"] * norm_constants.view(-1, 1, 1)
             x["kernel_evaluations"] = (
-                x["kernel_evaluations"] / 100
+                x["kernel_evaluations"] / ARTIFICIAL_NORM_FACTOR
             )  # We are testing if the model is less likely to predict constant values then
 
     def loss(
