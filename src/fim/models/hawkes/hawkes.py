@@ -230,8 +230,6 @@ class FIMHawkes(AModel):
             "predicted_base_intensity": predicted_base_intensity,
         }
 
-        self._denormalize_output(x, out, norm_constants)
-
         if "base_intensities" in x and "kernel_evaluations" in x:
             out["losses"] = self.loss(
                 out["predicted_kernel_values"],
@@ -243,6 +241,8 @@ class FIMHawkes(AModel):
                 schedulers,
                 step,
             )
+
+        self._denormalize_output(x, out, norm_constants)
 
         return out
 
@@ -370,21 +370,37 @@ class FIMHawkes(AModel):
         x["kernel_grids"] = x["kernel_grids"] / norm_constants.view(-1, 1, 1)
         if "base_intensities" in x:
             x["base_intensities"] = x["base_intensities"] / norm_constants.view(-1, 1)
+            x["base_intensities"] = (
+                x["base_intensities"] * 100
+            )  # We are testing if the model is less likely to predict constant values then
         if "kernel_evaluations" in x:
             x["kernel_evaluations"] = x["kernel_evaluations"] / norm_constants.view(-1, 1, 1)
+            x["kernel_evaluations"] = (
+                x["kernel_evaluations"] * 100
+            )  # We are testing if the model is less likely to predict constant values then
         return norm_constants
 
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
         out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
         out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
         out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
+        # Rescale by the artifical 100 factor
+        out["predicted_base_intensity"] = out["predicted_base_intensity"] / 100
+        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - 4.605170185988092
+        out["predicted_kernel_values"] = out["predicted_kernel_values"] / 100
         x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
         x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
         if "base_intensities" in x:
             x["base_intensities"] = x["base_intensities"] * norm_constants.view(-1, 1)
+            x["base_intensities"] = (
+                x["base_intensities"] / 100
+            )  # We are testing if the model is less likely to predict constant values then
         if "kernel_evaluations" in x:
             x["kernel_evaluations"] = x["kernel_evaluations"] * norm_constants.view(-1, 1, 1)
+            x["kernel_evaluations"] = (
+                x["kernel_evaluations"] / 100
+            )  # We are testing if the model is less likely to predict constant values then
 
     def loss(
         self,
