@@ -180,7 +180,7 @@ class FIMHFDataLoader(BaseDataLoader):
         max_seq_len = max([item["seq_lengths"] for item in batch]).item()
         for item in batch:
             for k, v in item.items():
-                if isinstance(v, Tensor) and v.dim() != 0:
+                if isinstance(v, Tensor) and v.dim() != 0 and "target" not in k:
                     pad_size = max_seq_len - v.size(0)
                     if pad_size > 0:
                         item[k] = torch.cat([v, -torch.ones(pad_size, *v.shape[1:], dtype=v.dtype)], dim=0)

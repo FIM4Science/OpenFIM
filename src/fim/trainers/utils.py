@@ -1025,7 +1025,7 @@ def get_accel_type() -> str:
         return "cpu"
 
 
-def move_batch_to_local_rank(batch: dict | tuple, local_rank: str) -> dict | tuple:
+def move_batch_to_local_rank(batch: dict | tuple, local_rank: str, ignore_keys: Optional[List[str]] = None) -> dict | tuple:
     """
     Move batch to local device.
 
@@ -1037,12 +1037,14 @@ def move_batch_to_local_rank(batch: dict | tuple, local_rank: str) -> dict | tup
         batch (dict | tuple): Batch on device specified by `local_rank`.
     """
     if isinstance(batch, tuple) and hasattr(batch, "_fields"):  # Check if batch is a namedtuple
-        batch = batch._replace(**{key: val.to(local_rank) for key, val in batch._asdict().items()})
+        batch = batch._replace(**{key: val.to(local_rank) if key not in ignore_keys else val for key, val in batch._asdict().items()})
     else:
         if isinstance(next(iter(batch.keys())), int):  # Catch case where we use groupings
             # Select a random value of batch
             batch = batch[random.choice(list(batch.keys()))]
         for key in batch.keys():
+            if ignore_keys and key in ignore_keys:
+                continue
             batch[key] = batch[key].to(local_rank)
 
     return batch

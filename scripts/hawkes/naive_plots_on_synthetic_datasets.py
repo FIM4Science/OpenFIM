@@ -7,14 +7,14 @@ from fim.models.hawkes import FIMHawkes
 from fim.utils.experiment_files import ExperimentsFiles
 
 
-DATASET_DIR = Path("/cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/test")
+DATASET_DIR = Path("/cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train")
 EXPERIMENT_DIR = Path(
     "/cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model"
 )
-num_samples = 3
-start_idx = 15
+num_samples = 2
+start_idx = 1550
 SEQ_LEN = 250
-NUM_PATHS = 2000
+NUM_PATHS = 1950
 
 
 def load_pt_in_dir(dir_path: Path):
@@ -72,8 +72,8 @@ if EXPERIMENT_DIR.exists():
     model = FIMHawkes.from_pretrained(EXPERIMENT_DIR)
     model.eval()
     # Move model to GPU if available
-    if torch.cuda.is_available():
-        model = model.to("cuda")
+    # if torch.cuda.is_available():
+    #     model = model.to("cuda")
     data = load_pt_in_dir(DATASET_DIR)
     for k, v in data.items():
         data[k] = v[start_idx : start_idx + num_samples].to(model.device) if torch.is_tensor(v) else v[:num_samples]

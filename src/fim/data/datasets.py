@@ -57,6 +57,7 @@ class HFDataset(torch.utils.data.Dataset):
         download_mode: Optional[DownloadMode | str] = None,
         rename_columns: Optional[dict[str, str]] = None,
         output_columns: Optional[List[str]] = None,
+        batch_columns: Optional[List[str]] = None,
         **kwargs,
     ):
         super().__init__()
@@ -74,6 +75,7 @@ class HFDataset(torch.utils.data.Dataset):
         self.data: DatasetDict | Dataset = load_dataset(path, conf, split=split, download_mode=download_mode, **kwargs)
         self.logger.debug(f"Dataset from {path} with config {conf} and split {split} loaded successfully.")
         self.data.set_format(type="torch")
+        self.batch_columns = batch_columns
         if rename_columns:
             self.data = self.data.rename_columns(rename_columns)
         if output_columns:
@@ -81,6 +83,8 @@ class HFDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         out = self.data[idx]
+        if self.batch_columns:
+            out = {k: v for k, v in out.items() if k in self.batch_columns}
         return out
 
     def map(self, function, **kwargs):

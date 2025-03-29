@@ -1,5 +1,4 @@
 import logging
-import sys
 from pathlib import Path
 
 import click
@@ -7,6 +6,11 @@ import torch
 
 import fim.models  # noqa: F401
 from fim.utils.evaluation import create_evaluation_from_config
+from fim.utils.logging import RankLoggerAdapter, setup_logging
+
+
+setup_logging()
+logger = RankLoggerAdapter(logging.getLogger(__name__))
 
 
 @click.command()
@@ -18,9 +22,7 @@ from fim.utils.evaluation import create_evaluation_from_config
 @click.option("-vv", "--very-verbose", "log_level", flag_value=logging.DEBUG)
 def main(config_path: Path, log_level=logging.DEBUG):
     torch.cuda.empty_cache()
-    logging.basicConfig(
-        stream=sys.stdout, level=log_level, datefmt="%Y-%m-%d %H:%M", format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+
     evaluation = create_evaluation_from_config(config_path)
     evaluation.evaluate()
     evaluation.save()
