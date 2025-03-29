@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from abc import abstractmethod
 from collections import defaultdict
@@ -10,6 +11,8 @@ import numpy as np
 import torch
 from loguru import logger
 from pydantic import BaseModel
+from torch import Tensor
+from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 from transformers import AutoModel
 
@@ -18,6 +21,8 @@ from fim.utils.helper import load_yaml, yaml
 
 from ..data.dataloaders import DataLoaderFactory
 from ..models import AModel
+from ..sampling.grid_samplers import sample_kernel_grid
+from ..utils.logging import RankLoggerAdapter
 from .helper import export_list_of_dicts_to_jsonl
 
 
@@ -161,37 +166,95 @@ class HawkesPPEvaluation(Evaluation):
     def __init__(self, config: HawkesPPEvaluationConfig) -> None:
         super().__init__(config)
         self.kernels: dict[str, dict[str, torch.Tensor]] = defaultdict(dict)
-        self.kernel_grids: dict[str, dict[str, torch.Tensor]] = defaultdict(dict)
+        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
     @torch.inference_mode()
     def evaluate(self):
         logger.info("Starting evaluation...")
-        self.model.eval()
         for dataset_eval_conf in self.config.datasets:
             label = dataset_eval_conf.label
             dataloader = self.__load_dataset(label, dataset_eval_conf.dataloader)
-            self.__kernel_inference(dataset_eval_conf, label, dataloader)
-            predictions = []
-            for batch in tqdm(dataloader.test_it, desc=f"Evaluating {label}"):
-                with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
-                    logger.info("Evaluating batch for prediction ...")
-                    batch = move_batch_to_local_rank(batch, self.device)
-                    predictions = self.model.predict_one_step_at_every_event(batch)
-                    predictions.extend(predictions)
+            self.kernels[label] = self.__kernel_inference(dataset_eval_conf, label, dataloader)
+            # predictions = []
+            # for batch in tqdm(dataloader.test_it, desc=f"Evaluating {label}"):
+            #     with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
+            #         logger.info("Evaluating batch for prediction ...")
+            #         batch = move_batch_to_local_rank(batch, self.device)
+            #         predictions = self.model.predict_one_step_at_every_event(batch)
+            #         predictions.extend(predictions)
 
     def __kernel_inference(self, dataset_eval_conf, label, dataloader):
-        kernel_grid, kernel_evaluaiton = self.model.kernel_inference_from_datataset(
-            dataloader.train, label, dataloader.train_it, dataset_eval_conf.kernel_grids_sampler
-        )
-        self.kernels[label] = kernel_evaluaiton
-        self.kernel_grids[label] = kernel_grid
+        max_intra_event_time = self.__get_max_intra_event_time(dataloader.train)
+        sampled_kernel_grids = self.__sample_kernel_grids(dataset_eval_conf.kernel_grids_sampler, max_intra_event_time)
+        infered_kernels = []
+        for batch in tqdm(dataloader.train_it, desc=f"Evaluating {label}"):
+            with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
+                self.logger.info("Evaluating batch for prediction ...")
+                batch["kernel_grids"] = sampled_kernel_grids
+                batch = move_batch_to_local_rank(batch, self.device, ignore_keys=["seq_idx"])
+                prediction = self.model(batch)
+                infered_kernels.append(prediction)
+
+        out = self.__average_over_batches(infered_kernels)
+        out["sampled_kernel_grids"] = sampled_kernel_grids.cpu().float()[0]
+        out["target_kernel_grids"] = dataloader.train.data[0]["target_kernel_grids"]
+        out["target_base_intensity"] = dataloader.train.data[0]["target_base_intensities"]
+        out["target_kernel_values"] = dataloader.train.data[0]["target_kernel_evaluations"]
+        return out
+
+    def __average_over_batches(self, kernel_batches: list[dict]) -> dict[str, Tensor]:
+        self.logger.info("Averaging over batches ...")
+        averaged_kernels = defaultdict(list)
+
+        for kernel_batch in kernel_batches:
+            for key, value in kernel_batch.items():
+                averaged_kernels[key].append(value)
+
+        return {key: torch.concat(values).mean(dim=0).float().cpu() for key, values in averaged_kernels.items()}
+
+    def __sample_kernel_grids(self, kernel_grids_sampler_conf: dict, max_intra_event_time: float) -> Tensor:
+        self.logger.info("Sampling kernel grid ...")
+        size = (1, kernel_grids_sampler_conf["num_marks"], kernel_grids_sampler_conf["sample_size"] - 1)
+        factor = kernel_grids_sampler_conf.get("max_value_factor", 1)
+        kernel_grid = sample_kernel_grid(**kernel_grids_sampler_conf, max_value=max_intra_event_time * factor, size=size)
+
+        kernel_grid = kernel_grid.to(self.device)
+        self.logger.info(f"Sampled kernel grid with max inter-event time: {torch.max(kernel_grid).item():,.2f}")
+        return kernel_grid
+
+    def __get_max_intra_event_time(self, dataset: Dataset):
+        self.logger.info("Calculating max intra-event time ...")
+        if isinstance(dataset.data[0]["delta_times"], torch.Tensor):
+            max_intra_event_time = torch.max(dataset.data["delta_times"])
+        else:
+            max_intra_event_time = max([item["delta_times"][-1] for item in dataset.data])
+        self.logger.info(f"Max intra-event time: {max_intra_event_time.item():,.2f}")
+        return max_intra_event_time
+
+    def _generate_padding_mask(self, sequence_lengths, L):
+        B, P = sequence_lengths.shape
+        mask = torch.arange(L).expand(B, P, L).to(self.device) >= sequence_lengths.unsqueeze(-1)
+        return mask
 
     def plot_kernel_grids_histograms(self):
-        for label, kernel_grid in self.kernel_grids.items():
-            plt.hist(kernel_grid[0, 0, :].cpu().numpy(), bins=30, edgecolor="black")
-            plt.title(f"Kernel grid histogram for {label}")
-            plt.xlabel("Time")
-            plt.ylabel("Frequency")
+        for label, kernels in self.kernels.items():
+            num_marks = kernels["sampled_kernel_grids"].shape[0]
+            fig, axes = plt.subplots(num_marks, 2, figsize=(12, 6 * num_marks))
+            axes = axes.flatten()
+            for mark in range(num_marks):
+                # Plot sampled kernel grids for each mark
+                axes[mark].hist(kernels["sampled_kernel_grids"][mark, :].numpy(), bins=100, edgecolor="black", color="tab:blue")
+                axes[mark].set_title(f"Sampled Kernel Grids for {label} - Mark {mark + 1}")
+                axes[mark].set_xlabel("Time")
+                axes[mark].set_ylabel("Frequency")
+
+                # Plot target kernel grids for each mark
+                axes[mark + 1].hist(kernels["target_kernel_grids"][mark, :].numpy(), bins=100, edgecolor="black", color="tab:orange")
+                axes[mark + 1].set_title(f"Target Kernel Grids for {label} - Mark {mark + 1}")
+                axes[mark + 1].set_xlabel("Time")
+                axes[mark + 1].set_ylabel("Frequency")
+
+            plt.tight_layout()
             plt.savefig(Path(self.config.evaluation_dir) / label / "kernel_grid_histogram.png")
             plt.close()
 
@@ -212,7 +275,10 @@ class HawkesPPEvaluation(Evaluation):
 
             # Plot each kernel
             for i in range(num_kernels):
-                axes[i].plot(self.kernel_grids[label][0, 0].cpu(), kernel_values[i].cpu())
+                axes[i].plot(self.kernels[label]["sampled_kernel_grids"][i], kernel_values[i], color="tab:blue")
+                axes[i].plot(
+                    self.kernels[label]["target_kernel_grids"][i], self.kernels[label]["target_kernel_values"][i], color="tab:orange"
+                )
                 axes[i].set_title(f"Kernel {i + 1}")
                 axes[i].set_xlabel("Time")
                 axes[i].set_ylabel("Value")
@@ -239,7 +305,7 @@ class HawkesPPEvaluation(Evaluation):
     def save(self):
         logger.info("Saving evaluation results to JSON ...")
         for label, kernels in self.kernels.items():
-            results = {key: value.cpu().numpy().tolist() for key, value in kernels.items()}
+            results = {key: value.float().numpy().tolist() for key, value in kernels.items()}
             label_dir = Path(self.config.evaluation_dir) / label
             label_dir.mkdir(parents=True, exist_ok=True)
             path = label_dir / "evaluation_results.json"

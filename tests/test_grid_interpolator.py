@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from fim.utils.grid_interpolator import GridInterpolator
+from fim.utils.interpolator import KernelInterpolator
 
 
 @pytest.fixture
@@ -9,8 +9,7 @@ def batch_grid():
     """Create a grid with batch dimensions for testing."""
     grid_points = torch.tensor(
         [[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]
-    ).reshape(1, 3, 7)
-    # Create values with shape [2, 3, 5] where last dim corresponds to grid points
+    ).reshape(3, 7)
     values = torch.tensor(
         [[0.0, 1.0, 4.0, 9.0, 16.0, 25.0, 36.0], [0.0, 1.0, 4.0, 9.0, 16.0, 25.0, 36.0], [0.0, 1.0, 8.0, 27.0, 64.0, 125.0, 216.0]]
     )
@@ -20,7 +19,8 @@ def batch_grid():
 def test_interpolate_mode(batch_grid):
     """Test exact matches with batched values."""
     grid_points, values = batch_grid
-    interpolator = GridInterpolator(grid_points, values, mode="interpolate")
+    print(grid_points.shape, values.shape)
+    interpolator = KernelInterpolator(grid_points, values, mode="interpolate")
 
     # Mix of exact and non-exact query points
     query_points = torch.tensor(
@@ -85,7 +85,7 @@ def test_interpolate_mode(batch_grid):
 def test_nearest_mode(batch_grid):
     """Test nearest matches with batched values."""
     grid_points, values = batch_grid
-    interpolator = GridInterpolator(grid_points, values, mode="nearest")
+    interpolator = KernelInterpolator(grid_points, values, mode="nearest")
 
     # Mix of exact and non-exact query points
     query_points = torch.tensor(

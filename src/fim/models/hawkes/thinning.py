@@ -96,7 +96,7 @@ class EventSampler(nn.Module):
 
         # For fast approximation, we reuse the rnd for all samples
         # [batch_size, seq_len, num_exp]
-        exp_numbers = torch.empty(size=[batch_size, seq_len, self.num_exp], dtype=torch.float32, device=self.device)
+        exp_numbers = torch.empty(size=[batch_size, seq_len, self.num_exp], dtype=sample_rate.dtype, device=self.device)
 
         # [batch_size, seq_len, num_exp]
         # exp_numbers.exponential_(1.0)

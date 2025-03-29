@@ -6,79 +6,126 @@ model_id: /cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1-3_s
 
 accelerator: auto # auto, cpu, gpu, mps
 
-# thinning:
-#   # num_seq: 10
-#   num_sample: 1
-#   num_exp: 500 # number of i.i.d. Exp(intensity_bound) draws at one time in thinning algorithm
-#   # look_ahead_time: 10
-#   patience_counter: 5 # the maximum iteration used in adaptive thinning
-#   over_sample_rate: 5
-#   num_samples_boundary: 5
-#   dtime_max: 5
-#   # num_step_gen: 10
-
 datasets:
   # - label: synthetic
   #   dataloader:
   #     name: FIMDataLoader
   #     path:
   #       {
-  #         train: /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_2000_paths_250_events_old/val,
-  #         test: /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_2000_paths_250_events_old/test,
+  #         train: /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/test,
+  #         test: /cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/test,
   #       }
-  #     dataset_kwargs: &dataset_kwargs
+  #     dataset_kwargs:
   #       files_to_load:
   #         base_intensities: "base_intensities.pt"
   #         event_times: "event_times.pt"
   #         event_types: "event_types.pt"
+  #         delta_times: "delta_times.pt"
   #         kernel_evaluations: "kernel_evaluations.pt"
   #         kernel_grids: "kernel_grids.pt"
-  #     loader_kwargs: &loader_kwargs
+  #       data_limit: 1
+  #     loader_kwargs:
   #       batch_size: all
   #       test_batch_size: all
-  #       num_workers: 4
+  #       num_workers: 0
   #   kernel_grids_sampler:
   #     distribution_type: exponential
-  #     rate: 0.00005
-  #     sample_size: 1_000
+  #     rate: 0.1
+  #     sample_size: 100
   #     max_value_factor: 5
-  #     num_marks: 1
-  - label: easytpp-volcano
-    dataloader:
-      name: FIMHFDataLoader
-      path: easytpp/volcano
-      # path: /home/cvejoski/.cache/huggingface/datasets/easytpp___volcano/default/0.0.0/bff8dc1fc888e85fd2e5288199c4c9b1d9b4e5d7
-      split: ["train", "test[:10]"]
-      dataset_kwargs:
-        rename_columns:
-          time_since_start: event_times
-          time_since_last_event: delta_times
-          type_event: event_types
-          seq_len: seq_lengths
-      loader_kwargs:
-        batch_size: all
-        test_batch_size: all
-        num_workers: 4
-    kernel_grids_sampler:
-      distribution_type: exponential
-      rate: 0.00005
-      sample_size: 1_000
-      max_value_factor: 5
-      num_marks: 1
+  #     num_marks: 3
   # - label: easytpp-retweet
   #   dataloader:
   #     name: FIMHFDataLoader
   #     path: easytpp/retweet
   #     split: ["train", "test"]
   #     dataset_kwargs:
-  #       <<: *dataset_kwargs
+  #       rename_columns:
+  #         time_since_start: event_times
+  #         time_since_last_event: delta_times
+  #         type_event: event_types
+  #         seq_len: seq_lengths
   #     loader_kwargs:
   #       batch_size: 2000
-  #       test_batch_size: all
+  #       test_batch_size: 8
+  #       num_workers: 4
+  #   kernel_grids_sampler:
+  #     distribution_type: exponential
+  #     rate: 0.000002
+  #     sample_size: 2_000
+  #     max_value_factor: 2
+  #     num_marks: 3
+  # - label: easytpp-volcano
+  #   dataloader:
+  #     name: FIMHFDataLoader
+  #     path: easytpp/volcano
+  #     split: ["train", "test"]
+  #     dataset_kwargs:
+  #       rename_columns:
+  #         time_since_start: event_times
+  #         time_since_last_event: delta_times
+  #         type_event: event_types
+  #         seq_len: seq_lengths
+  #     loader_kwargs:
+  #       batch_size: all
+  #       test_batch_size: 8
+  #       num_workers: 4
+  #   kernel_grids_sampler:
+  #     distribution_type: exponential
+  #     rate: 0.00005
+  #     sample_size: 1_000
+  #     max_value_factor: 5
+  # num_marks: 1
+  - label: synthetic_train_8
+    dataloader:
+      name: FIMHFDataLoader
+      path: FIM4Science/hawkes-synthetic-short-scale-single-process
+      conf: train_process_8
+      split: ["train", "test"]
+      dataset_kwargs:
+        rename_columns:
+          time_since_start: event_times
+          time_since_last_event: delta_times
+          type_event: event_types
+          seq_len: seq_lengths
+        batch_columns:
+          - event_times
+          - delta_times
+          - event_types
+          - seq_lengths
+          - seq_idx
+      loader_kwargs:
+        batch_size: all
+        test_batch_size: 8
+        num_workers: 0
+    kernel_grids_sampler:
+      distribution_type: exponential
+      rate: 0.05
+      sample_size: 2_000
+      max_value_factor: 1_000
+      num_marks: 1
+
+  # - label: synthetic_train_426
+  #   dataloader:
+  #     name: FIMHFDataLoader
+  #     path: /cephfs_projects/foundation_models/hawkes/data/single_process_mixed_no_powerlaw/train_process_426_marks_3
+  #     split: ["train", "test"]
+  #     dataset_kwargs:
+  #       rename_columns:
+  #         time_since_start: event_times
+  #         time_since_last_event: delta_times
+  #         type_event: event_types
+  #         seq_len: seq_lengths
+  #         base_intensities: target_base_intensities
+  #         kernel_evaluations: target_kernel_evaluations
+  #         kernel_grids: target_kernel_grids
+  #     loader_kwargs:
+  #       batch_size: all
+  #       test_batch_size: 8
   #       num_workers: 0
   #   kernel_grids_sampler:
   #     distribution_type: exponential
-  #     rate: 0.00002
-  #     sample_size: 2_000
-  #     max_value_factor: 1
+  #     rate: 0.003
+  #     sample_size: 3_000
+  #     max_value_factor: 100000
   #     num_marks: 3
