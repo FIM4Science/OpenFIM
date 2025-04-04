@@ -175,13 +175,13 @@ class HawkesPPEvaluation(Evaluation):
             label = dataset_eval_conf.label
             dataloader = self.__load_dataset(label, dataset_eval_conf.dataloader)
             self.kernels[label] = self.__kernel_inference(dataset_eval_conf, label, dataloader)
-            # predictions = []
+            # intensities = []
             # for batch in tqdm(dataloader.test_it, desc=f"Evaluating {label}"):
             #     with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
             #         logger.info("Evaluating batch for prediction ...")
             #         batch = move_batch_to_local_rank(batch, self.device)
-            #         predictions = self.model.predict_one_step_at_every_event(batch)
-            #         predictions.extend(predictions)
+            # #         predictions = self.model.predict_one_step_at_every_event(batch)
+            # #         predictions.extend(predictions)
 
     def __kernel_inference(self, dataset_eval_conf, label, dataloader):
         max_intra_event_time = self.__get_max_intra_event_time(dataloader.train)

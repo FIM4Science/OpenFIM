@@ -104,6 +104,8 @@ class KernelInterpolator:
                 self.logger.error(
                     f"Query points are out of bounds of the grid points. The kernel values for these points will be set to {self.out_of_bounds_value}."
                 )
+                # Set out-of-bounds query points to out_of_bounds_value
+
             # Find indices of grid points that bracket each query point
             indices = self._search_sorted(self.grid_points, query_points)
             indices = torch.clamp(indices, 1, self.grid_points.shape[-1] - 1)
@@ -127,7 +129,10 @@ class KernelInterpolator:
             interpolated_values = y0 + weights * (y1 - y0)
             # Perform linear interpolation
             result[~exact_match_mask] = interpolated_values[~exact_match_mask]
-
+        out_of_bounds_mask = (query_points < self.grid_points[:, 0].reshape(1, -1, 1, 1)) | (
+            query_points > self.grid_points[:, -1].reshape(1, -1, 1, 1)
+        )
+        result[out_of_bounds_mask] = self.out_of_bounds_value
         return result
 
         # # Handle interpolation for non-exact matches
