@@ -1,9 +1,8 @@
 import copy
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
@@ -522,45 +521,38 @@ class FIMHawkes(AModel):
             "accepted_dtimes": accepted_dtimes,
         }
 
-    def get_intentsity(
-        self,
+    @staticmethod
+    def intentsity(
         t: Tensor,
         time_seqs: Tensor,
-        time_delta_seqs: Tensor,
-        type_seqs: Tensor,
-        kernels_and_base_intensities: Optional[dict[str, Tensor]] = None,
+        kernel: KernelInterpolator,
+        base_intensity: Tensor,
     ):
-        """Compute the intensity at sampled times.
+        """
+        Calculate the intensity function at time t given the history of events.
 
         Args:
-            t (tensor): [batch_size, seq_len, num_sample], sampled inter-event timestamps.
-            time_seqs (tensor): [batch_size, seq_len], times seqs.
-            time_delta_seqs (tensor): [batch_size, seq_len], time delta seqs.
-            type_seqs (tensor): [batch_size, seq_len], event type seqs.
-            kernels_and_base_intensities (dict): A dictionary containing the following keys:
-                - "kernel_grids": Tensor representing the kernel grids. [B, M, L]
-                - "predicted_kernel_values": Tensor representing the kernel values. [B, M, L]
-                - "predicted_base_intensity": Tensor representing the base intensity. [B, M]
-        Returns:
-            tensor: [batch_size, num_times, num_mc_sample, num_event_types],
-                    intensity at each timestamp for each event type.
-        """
-        if kernels_and_base_intensities is None:
-            kernel_grids = self.kernel_grids
-            kernel_values = self.kernels_values["predicted_kernel_values"]
-            base_intensities = self.kernels_values["predicted_base_intensity"]
-        else:
-            kernel_grids = kernels_and_base_intensities["kernel_grids"]
-            kernel_values = kernels_and_base_intensities["predicted_kernel_values"]
-            base_intensities = kernels_and_base_intensities["predicted_base_intensity"]
+            t (Tensor): The time at which to compute the intensity. Shape: [B, L, N].
+            time_seqs (Tensor): The sequence of event times. Shape: [B, L, 1].
+            kernel (KernelInterpolator): The kernel function to use for computing the intensity.
+            base_intensity (Tensor): The base intensity of the process. Shape: [M].
 
-        interpolator = KernelInterpolator(kernel_grids, kernel_values, mode="interpolate")
-        sample_dtimes = torch.abs(t)  # this is becase we have negative values because of the padding with '-1'
-        kernel_evaluations = interpolator(sample_dtimes)
-        kernel_deltas = kernel_evaluations.cumsum(dim=-2)  # FIXME: this is not correct, we should cumsum over the sequence length
-        intensities = F.relu(kernel_deltas + base_intensities.reshape(1, -1, 1, 1))
-        intensities = intensities.permute(0, 2, 3, 1)
-        return intensities
+        Note:
+            B is the number of processes, L is the number of events, N is the number of samples, M is the number of differentmarks.
+
+        Returns:
+            Tensor: The intensity at time t. Shape: [B, L, N, M].
+        """
+        dtime_sample = t.unsqueeze(-2) - time_seqs.unsqueeze(1).unsqueeze(-1)
+        mask = (dtime_sample >= 0).float()
+        dtime_sample = dtime_sample * mask
+        B, S, L, N = dtime_sample.shape
+        kernel_evaluations = kernel(dtime_sample.reshape(B, S, L * N))
+        kernel_evaluations = kernel_evaluations.reshape(B, -1, S, L, N) * mask.reshape(B, -1, S, L, N)
+        # [batch_size, num_marks, seq_len, num_samples]
+        intensities = base_intensity + kernel_evaluations.sum(dim=-2)
+        # [batch_size, seq_len, num_samples, num_marks]
+        return torch.nn.functional.relu(intensities).permute(0, 2, 3, 1)
 
     def compute_intensities_at_sample_times(self, time_seqs, time_delta_seqs, type_seqs, sample_dtimes, **kwargs):
         """Compute the intensity at sampled times, not only event times.
@@ -579,11 +571,10 @@ class FIMHawkes(AModel):
         compute_last_step_only = kwargs.get("compute_last_step_only", False)
 
         if compute_last_step_only:
-            sampled_intensities = self.get_intentsity(
-                time_seqs, time_delta_seqs, type_seqs, sample_dtimes
-            )  # TODO: slice the input to compute only for the last step
+            # TODO: slice the input to compute only for the last step
+            sampled_intensities = self.intentsity(time_seqs, time_delta_seqs, type_seqs, sample_dtimes)
         else:
-            sampled_intensities = self.get_intentsity(time_seqs, time_delta_seqs, type_seqs, sample_dtimes)
+            sampled_intensities = self.intentsity(time_seqs, time_delta_seqs, type_seqs, sample_dtimes)
         return sampled_intensities
 
 

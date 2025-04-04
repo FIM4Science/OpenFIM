@@ -55,16 +55,13 @@ class EventSampler(nn.Module):
         """Compute the upper bound of intensity at each event timestamp.
 
         Args:
-            time_seq (tensor): [batch_size, seq_len], timestamp seqs.
             time_delta_seq (tensor): [batch_size, seq_len], time delta seqs.
-            event_seq (tensor): [batch_size, seq_len], event type seqs.
             intensity_fn (fn): a function that computes the intensity.
             compute_last_step_only (bool): wheter to compute the last time step pnly.
 
         Returns:
             tensor: [batch_size, seq_len]
         """
-        batch_size, seq_len = time_seq.size()
 
         # [1, 1, num_samples_boundary]
         time_for_bound_sampled = torch.linspace(start=0.0, end=1.0, steps=self.num_samples_boundary, device=self.device)[None, None, :]
@@ -73,9 +70,7 @@ class EventSampler(nn.Module):
         dtime_for_bound_sampled = time_delta_seq[:, :, None] * time_for_bound_sampled
 
         # [batch_size, seq_len, num_samples_boundary, event_num]
-        intensities_for_bound = intensity_fn(
-            time_seq, time_delta_seq, event_seq, dtime_for_bound_sampled, max_steps=seq_len, compute_last_step_only=compute_last_step_only
-        )
+        intensities_for_bound = intensity_fn(dtime_for_bound_sampled.cumsum(dim=-2))
 
         # [batch_size, seq_len]
         bounds = intensities_for_bound.sum(dim=-1).max(dim=-1)[0] * self.over_sample_rate
@@ -169,7 +164,7 @@ class EventSampler(nn.Module):
 
         return result
 
-    def draw_next_time_one_step(self, time_seq, time_delta_seq, event_seq, dtime_boundary, intensity_fn, compute_last_step_only=False):
+    def draw_next_time_one_step(self, time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only=False):
         """Compute next event time based on Thinning algorithm.
 
         Args:
@@ -195,12 +190,12 @@ class EventSampler(nn.Module):
         # [batch_size, seq_len, num_exp]
         exp_numbers = self.sample_exp_distribution(intensity_upper_bound)
         exp_numbers = torch.cumsum(exp_numbers, dim=-1)
-
+        # Shift exp_numbers to the left along dimension 1 and add 0 at the end
+        # exp_numbers = torch.cat((exp_numbers[:, 1:, :], torch.zeros_like(exp_numbers[:, :1, :])), dim=1)
+        exp_numbers = time_seq[:, :, None] + exp_numbers
         # 3. compute intensity at sampled times from exp distribution
         # [batch_size, seq_len, num_exp, event_num]
-        intensities_at_sampled_times = intensity_fn(
-            time_seq, time_delta_seq, event_seq, exp_numbers, max_steps=time_seq.size(1), compute_last_step_only=compute_last_step_only
-        )
+        intensities_at_sampled_times = intensity_fn(exp_numbers)
 
         # [batch_size, seq_len, num_exp]
         total_intensities = intensities_at_sampled_times.sum(dim=-1)
