@@ -1,9 +1,8 @@
 evaluation_type: hawkes_pp
-evaluation_dir: evaluations/point-processes/
+evaluation_dir: evaluations/point-processes/short_scale
 # model_id: /home/cvejoski/Projects/FoundationModels/FIM/results/FIM_Hawkes_1-3_st_exp_1000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-10-1402/checkpoints/best-model
-model_id: /cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model
-# model_id: FIM4Science/fim-hawkes-small-test
-
+model_id: /cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1st_exp_artificial_larger_scale_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-28-1727-mine/checkpoints/best-model
+# model_id: /cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1st_exp_artificial_larger_scale_2000_paths_mixed_250_events_mixed_rmse-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_04-01-1614/checkpoints/best-model/
 accelerator: auto # auto, cpu, gpu, mps
 
 datasets:
@@ -77,6 +76,7 @@ datasets:
   #     max_value_factor: 5
   # num_marks: 1
   - label: synthetic_train_8
+    load_if_exists: true
     dataloader:
       name: FIMHFDataLoader
       path: FIM4Science/hawkes-synthetic-short-scale-single-process
@@ -96,36 +96,40 @@ datasets:
           - seq_idx
       loader_kwargs:
         batch_size: all
-        test_batch_size: 8
+        test_batch_size: 1
         num_workers: 0
     kernel_grids_sampler:
       distribution_type: exponential
       rate: 0.05
-      sample_size: 2_000
+      sample_size: 200
       max_value_factor: 1_000
       num_marks: 1
-
-  # - label: synthetic_train_426
-  #   dataloader:
-  #     name: FIMHFDataLoader
-  #     path: /cephfs_projects/foundation_models/hawkes/data/single_process_mixed_no_powerlaw/train_process_426_marks_3
-  #     split: ["train", "test"]
-  #     dataset_kwargs:
-  #       rename_columns:
-  #         time_since_start: event_times
-  #         time_since_last_event: delta_times
-  #         type_event: event_types
-  #         seq_len: seq_lengths
-  #         base_intensities: target_base_intensities
-  #         kernel_evaluations: target_kernel_evaluations
-  #         kernel_grids: target_kernel_grids
-  #     loader_kwargs:
-  #       batch_size: all
-  #       test_batch_size: 8
-  #       num_workers: 0
-  #   kernel_grids_sampler:
-  #     distribution_type: exponential
-  #     rate: 0.003
-  #     sample_size: 3_000
-  #     max_value_factor: 100000
-  #     num_marks: 3
+  - label: synthetic_train_0
+    load_if_exists: true
+    dataloader:
+      name: FIMHFDataLoader
+      path: FIM4Science/hawkes-synthetic-short-scale-single-process
+      conf: train_process_0
+      split: ["train", "test"]
+      dataset_kwargs:
+        rename_columns:
+          time_since_start: event_times
+          time_since_last_event: delta_times
+          type_event: event_types
+          seq_len: seq_lengths
+        batch_columns:
+          - event_times
+          - delta_times
+          - event_types
+          - seq_lengths
+          - seq_idx
+      loader_kwargs:
+        batch_size: all
+        test_batch_size: 1
+        num_workers: 0
+    kernel_grids_sampler:
+      distribution_type: exponential
+      rate: 0.01
+      sample_size: 200
+      max_value_factor: 1_000
+      num_marks: 1

@@ -127,7 +127,7 @@ distributed:
 ```yaml
 dataset:
   name: FIMDataLoader
-  path_collections:
+  path:
     train: !!python/tuple
       - /path/to/train/data1
       - /path/to/train/data2
@@ -155,7 +155,7 @@ dataset:
 ```
 
 - `name`: The name of the data loader.
-- `path_collections`: Paths to the training and validation data.
+- `path`: Paths to the training and validation data.
 - `loader_kwargs`: Additional arguments for the data loader, such as batch size, number of workers, etc.
 - `dataset_kwargs`: Additional arguments for the dataset, such as files to load and data limit.
 

@@ -1,6 +1,7 @@
 import copy
 import logging
-from typing import Any, Dict
+from functools import partial
+from typing import Any, Callable, Dict
 
 import torch
 from torch import Tensor
@@ -464,7 +465,7 @@ class FIMHawkes(AModel):
         mask = torch.arange(L).expand(B, P, L).to(self.device) >= sequence_lengths.unsqueeze(-1)
         return mask
 
-    def predict_one_step_at_every_event(self, batch: dict):
+    def predict_one_step_at_every_event(self, batch: dict, intensity_fn: Callable):
         """One-step prediction for every event in the sequence.
 
         Code taken from https://github.com/ant-research/EasyTemporalPointProcess/blob/main/easy_tpp/model/torch_model/torch_basemodel.py
@@ -488,17 +489,17 @@ class FIMHawkes(AModel):
         time_seq, time_delta_seq, event_seq = time_seq[:, :-1], time_delta_seq[:, :-1], event_seq[:, :-1]
 
         # [batch_size, seq_len]
-        dtime_boundary = torch.max(time_delta_seq * self.event_sampler.dtime_max, time_delta_seq + self.event_sampler.dtime_max)
+        # dtime_boundary = torch.max(time_delta_seq * self.event_sampler.dtime_max, time_delta_seq + self.event_sampler.dtime_max)
 
         # [batch_size, seq_len, num_sample]
         accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
-            time_seq, time_delta_seq, event_seq, dtime_boundary, self.compute_intensities_at_sample_times, compute_last_step_only=False
-        )  # make it explicit
+            time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only=False
+        )
 
         # We should condition on each accepted time to sample event mark, but not conditioned on the expected event time.
         # 1. Use all accepted_dtimes to get intensity.
         # [batch_size, seq_len, num_sample, num_marks]
-        intensities_at_times = self.compute_intensities_at_sample_times(time_seq, time_delta_seq, event_seq, accepted_dtimes)
+        intensities_at_times = intensity_fn(accepted_dtimes, time_seq)
 
         # 2. Normalize the intensity over last dim and then compute the weighted sum over the `num_sample` dimension.
         # Each of the last dimension is a categorical distribution over all marks.
@@ -515,10 +516,10 @@ class FIMHawkes(AModel):
         # [batch_size, seq_len]
         dtimes_pred = torch.sum(accepted_dtimes * weights, dim=-1)  # compute the expected next event time
         return {
-            "dtimes_pred": dtimes_pred,
-            "types_pred": types_pred,
-            "intensities_at_times": intensities_at_times,
-            "accepted_dtimes": accepted_dtimes,
+            "predicted_event_times": dtimes_pred,
+            "predicted_event_types": types_pred,
+            "predicted_intensities": intensities_at_times,
+            "predicted_dtimes": accepted_dtimes,
         }
 
     @staticmethod
@@ -554,7 +555,9 @@ class FIMHawkes(AModel):
         # [batch_size, seq_len, num_samples, num_marks]
         return torch.nn.functional.relu(intensities).permute(0, 2, 3, 1)
 
-    def compute_intensities_at_sample_times(self, time_seqs, time_delta_seqs, type_seqs, sample_dtimes, **kwargs):
+    def compute_intensities_at_sample_times(
+        self, sample_dtimes, time_seqs, kernel_interpolator: KernelInterpolator, base_intensity: Tensor
+    ):
         """Compute the intensity at sampled times, not only event times.
 
         Args:
@@ -567,15 +570,8 @@ class FIMHawkes(AModel):
             tensor: [batch_size, num_times, num_mc_sample, num_event_types],
                     intensity at each timestamp for each event type.
         """
-
-        compute_last_step_only = kwargs.get("compute_last_step_only", False)
-
-        if compute_last_step_only:
-            # TODO: slice the input to compute only for the last step
-            sampled_intensities = self.intentsity(time_seqs, time_delta_seqs, type_seqs, sample_dtimes)
-        else:
-            sampled_intensities = self.intentsity(time_seqs, time_delta_seqs, type_seqs, sample_dtimes)
-        return sampled_intensities
+        intensity_fn = partial(FIMHawkes.intentsity, kernel=kernel_interpolator, base_intensity=base_intensity)
+        return intensity_fn(sample_dtimes, time_seqs)
 
 
 ModelFactory.register(FIMHawkesConfig.model_type, FIMHawkes)

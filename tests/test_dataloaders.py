@@ -96,7 +96,7 @@ class TestFimDataLoader:
         )
         config = {
             "name": "FIMDataLoader",
-            "path_collections": {"train": [root_path / "train"] * 2, "test": [root_path / "test"]},
+            "path": {"train": [root_path / "train"] * 2, "test": [root_path / "test"]},
             "loader_kwargs": {"num_workers": 16, "batch_size": 1, "test_batch_size": 2},
             # "split": "train"
             "dataset_kwargs": {
@@ -361,10 +361,10 @@ class TestFIMHFDataLoader:
 class TestHawkesDataLoader:
     @pytest.fixture
     def config(self):
-        root_path = test_data_path / "data" / "hawkes" / "1k_1_st_hawkes_mixed_no_powerlaw_300_paths_10_events"
+        root_path = test_data_path / "data" / "hawkes" / "1k_3_st_hawkes_mixed_no_powerlaw_300_paths_10_events"
         config = {
             "name": "HawkesDataLoader",
-            "path_collections": {"train": [root_path / "train"], "test": [root_path / "test"], "validation": [root_path / "val"]},
+            "path": {"train": [root_path / "train"], "test": [root_path / "test"], "validation": [root_path / "val"]},
             "loader_kwargs": {
                 "num_workers": 8,
                 "batch_size": 32,
@@ -396,7 +396,7 @@ class TestHawkesDataLoader:
         dataloader = DataLoaderFactory.create(**config)
         assert dataloader is not None
         assert dataloader.train_set_size == 1000
-        assert dataloader.test_set_size == 100
+        assert dataloader.test_set_size == 200
         batch = next(iter(dataloader.train_it))
         assert "event_times" in batch
         assert "event_types" in batch
@@ -411,7 +411,7 @@ class TestHawkesDataLoader:
         dataloader = DataLoaderFactory.create(**config)
         assert dataloader is not None
         assert dataloader.train_set_size == 800
-        assert dataloader.test_set_size == 100
+        assert dataloader.test_set_size == 200
         target_size = [1, 31, 61, 91, 121, 151, 181, 211, 241, 271] * 2 + [300] * 5
         for _ in range(5):
             for ix, batch in enumerate(islice(dataloader.train_it, 100)):
@@ -424,7 +424,7 @@ class TestHawkesDataLoader:
         dataloader = DataLoaderFactory.create(**config)
         assert dataloader is not None
         assert dataloader.train_set_size == 1000
-        assert dataloader.test_set_size == 100
+        assert dataloader.test_set_size == 200
         for _ in range(2):
             for ix, batch in enumerate(islice(dataloader.test_it, 5)):
                 assert batch["event_times"].shape[1] == 300
@@ -439,8 +439,9 @@ class TestHawkesDataLoader:
         for batch in islice(dataloader.train_it, 100):
             assert batch["event_times"].shape[2] <= 10 and batch["event_times"].shape[2] >= 1
 
+    @pytest.mark.skip("Skip until we have a proper dataset")
     def test_varible_number_of_events(self, config: dict):
-        config["path_collections"]["train"].append(
+        config["path"]["train"].append(
             test_data_path / "data" / "hawkes" / "1k_3_st_hawkes_mixed_no_powerlaw_300_paths_10_events" / "train"
         )
         config["loader_kwargs"]["batch_size"] = 32

@@ -1,16 +1,17 @@
 from pathlib import Path
 
 import torch
+from loguru import logger
 
 
-PATH = "/cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train/"
+PATH = "/cephfs_projects/foundation_models/hawkes/data/2k_3_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/val/"
 
-OUT_PATH = "/home/cvejoski/Projects/FoundationModels/FIM/data/interim/hawkes/1k_3_st_hawkes_mixed_no_powerlaw_300_paths_10_events/train"
+OUT_PATH = "/home/cvejoski/Projects/FoundationModels/FIM/data/interim/hawkes/1k_3_st_hawkes_mixed_no_powerlaw_300_paths_10_events/val"
 OUT_PATH = Path(OUT_PATH)
 OUT_PATH.mkdir(parents=True, exist_ok=True)
 for file in Path(PATH).rglob("*.pt"):
     with open(file, "rb") as f:
-        print(file)
+        logger.info(f"Loading {file.stem} from {PATH}")
         # data = pickle.load(f)
         data = torch.load(f)
         B = 1000  # Set the limit for the first dimension
@@ -26,6 +27,7 @@ for file in Path(PATH).rglob("*.pt"):
         # limited_data = torch.from_dlpack(asdlpack(limited_data))
         # for k, v in limited_data.items():
         #     print(k, v.shape)
+        logger.info(f"Saving {file.stem} to {OUT_PATH}")
         torch.save(limited_data, str(OUT_PATH) + "/" + file.stem + ".pt")
-        # with open(str(OUT_PATH) + "/" + file.name, "wb") as f_out:
-        # pickle.dump(limited_data, f_out)
+        # with open(str(OUT_PATH) + "/" + file.stem + ".pkl", "wb") as f_out:
+        #     pickle.dump(limited_data, f_out)

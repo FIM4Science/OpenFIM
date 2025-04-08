@@ -14,7 +14,7 @@ distributed:
 
 dataset:
   name: FIMDataLoader
-  path_collections:
+  path:
     train: !!python/tuple
       - tests/resources/data/hawkes/10_5_st_hawkes_exp_500_paths_100_events/train
 

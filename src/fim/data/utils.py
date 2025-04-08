@@ -415,8 +415,8 @@ def load_file(file_path):
     match file_type:
         case ".pickle" | ".pkl":  # TODO: we have to convert the loaded data object to torch.tensor
             return pickle.load(open(file_path, "rb"))
-        case ".pt":
-            return torch.load(file_path, weights_only=True)
+        case ".pt" | ".pt.gz" | ".ckpt" | ".pth":
+            return torch.load(file_path, weights_only=True, map_location="cpu")
         case ".h5":
             return load_h5(file_path)
         case _:

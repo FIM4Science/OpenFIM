@@ -101,7 +101,7 @@ class KernelInterpolator:
             if (query_points < self.grid_points[:, 0].reshape(1, -1, 1, 1)).any() or (
                 query_points > self.grid_points[:, -1].reshape(1, -1, 1, 1)
             ).any():
-                self.logger.error(
+                self.logger.warning(
                     f"Query points are out of bounds of the grid points. The kernel values for these points will be set to {self.out_of_bounds_value}."
                 )
                 # Set out-of-bounds query points to out_of_bounds_value
@@ -134,39 +134,6 @@ class KernelInterpolator:
         )
         result[out_of_bounds_mask] = self.out_of_bounds_value
         return result
-
-        # # Handle interpolation for non-exact matches
-        # for k in range(result.shape[1]):
-        #     if not exact_match_mask[:, k].all():
-        #         # Check for out-of-bounds query points
-        #         qp = query_points[:, k, ~exact_match_mask[:, k]]
-        #         grid_points = self.grid_points[0, 0]
-        #         if (qp < grid_points[0]).any() or (qp > grid_points[-1]).any():
-        #             self.logger.error(
-        #                 f"Query points are out of bounds of the grid points. The kernel values for these points will be set to {self.out_of_bounds_value}."
-        #             )
-
-        #         # Find indices of grid points that bracket each query point
-        #         indices = self._search_sorted(grid_points, qp)
-        #         indices = torch.clamp(indices, 1, len(grid_points) - 1)
-
-        #         # Get the grid points and values that bracket each query point
-        #         x0 = grid_points[indices - 1]
-        #         x1 = grid_points[indices]
-        #         ix_values = torch.nonzero(~exact_match_mask[:, k], as_tuple=True)[0]
-        #         y0 = self.values[ix_values, indices - 1]
-        #         y1 = self.values[ix_values, indices]
-
-        #         # Compute interpolation weights
-        #         weights = (qp - x0) / (x1 - x0)
-
-        #         # Calculate the interpolations
-        #         interpolated_values = y0 + weights * (y1 - y0)
-
-        #         # Perform linear interpolation
-        #         result[:, k, ~exact_match_mask[:, k]] = torch.clamp(interpolated_values, min=0)
-
-        # return result
 
     def _nearest(self, query_points: torch.Tensor) -> torch.Tensor:
         """Find the value of the closest grid point."""
