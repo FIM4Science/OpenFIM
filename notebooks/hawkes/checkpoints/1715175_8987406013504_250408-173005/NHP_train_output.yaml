@@ -1,7 +1,7 @@
 data_config:
-  train_dir: easytpp/taxi
-  valid_dir: easytpp/taxi
-  test_dir: easytpp/taxi
+  train_dir: /cephfs/users/berghaus/.cache/huggingface/hub/datasets--FIM4Science--easytpp-synthetic-1d/snapshots/6495d88677bff1642ecf11a17ce91fe42099ff99/train.json
+  valid_dir: /cephfs/users/berghaus/.cache/huggingface/hub/datasets--FIM4Science--easytpp-synthetic-1d/snapshots/6495d88677bff1642ecf11a17ce91fe42099ff99/val.json
+  test_dir: /cephfs/users/berghaus/.cache/huggingface/hub/datasets--FIM4Science--easytpp-synthetic-1d/snapshots/6495d88677bff1642ecf11a17ce91fe42099ff99/test.json
   data_format: json
   data_specs:
     num_event_types: 10
@@ -14,17 +14,17 @@ data_config:
 base_config:
   stage: train
   backend: torch
-  dataset_id: taxi
+  dataset_id: easytpp
   runner_id: std_tpp
   model_id: NHP
   base_dir: ./checkpoints/
   specs:
-    log_folder: ./checkpoints/1635152_8350213133376_250408-160149
-    saved_model_dir: ./checkpoints/1635152_8350213133376_250408-160149/models/saved_model
-    saved_log_dir: ./checkpoints/1635152_8350213133376_250408-160149/log
-    output_config_dir: ./checkpoints/1635152_8350213133376_250408-160149/NHP_train_output.yaml
-    tfb_train_dir: ./checkpoints/1635152_8350213133376_250408-160149/tfb_train
-    tfb_valid_dir: ./checkpoints/1635152_8350213133376_250408-160149/tfb_valid
+    log_folder: ./checkpoints/1715175_8987406013504_250408-173005
+    saved_model_dir: ./checkpoints/1715175_8987406013504_250408-173005/models/saved_model
+    saved_log_dir: ./checkpoints/1715175_8987406013504_250408-173005/log
+    output_config_dir: ./checkpoints/1715175_8987406013504_250408-173005/NHP_train_output.yaml
+    tfb_train_dir: ./checkpoints/1715175_8987406013504_250408-173005/tfb_train
+    tfb_valid_dir: ./checkpoints/1715175_8987406013504_250408-173005/tfb_valid
 model_config:
   rnn_type: LSTM
   hidden_size: 32

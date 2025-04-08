@@ -1,2 +1,0 @@
-2025-04-08 16:01:49,121 - base_runner.py[pid:1635152;line:176:save_log] - INFO: Save the log to ./checkpoints/1635152_8350213133376_250408-160149/log
-2025-04-08 16:01:52,783 - tpp_runner.py[pid:1635152;line:60:_init_model] - INFO: Num of model parameters 15252
