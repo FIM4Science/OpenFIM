@@ -7,7 +7,7 @@ from loguru import logger
 from tqdm import tqdm
 
 
-SOURCE_SPLIT = "test"
+SOURCE_SPLIT = "val"
 PATH = "/cephfs_projects/foundation_models/hawkes/data/1D_easytpp/" + SOURCE_SPLIT
 
 OUT_PATH = "/cephfs_projects/foundation_models/hawkes/data/"
@@ -82,7 +82,7 @@ for i, process_idx in tqdm(enumerate(idx), total=len(idx), desc="Processing proc
         test_data["kernel_grids"] = test_data["kernel_grids"].unsqueeze(0).repeat(NUM_OF_PATHS_FOR_TEST, 1, 1)
         test_data["base_intensities"] = test_data["base_intensities"].unsqueeze(0).repeat(NUM_OF_PATHS_FOR_TEST, 1)
         test_data["event_times"] = test_data["event_times"].squeeze(-1)
-        test_data["event_types"] = test_data["event_types"].squeeze(-1)
+        test_data["event_types"] = test_data["event_types"].squeeze(-1).int()
         test_data["seq_idx"] = torch.arange(NUM_OF_PATHS_FOR_TEST).int()
 
     # Rename keys to match EasyTPP format
@@ -92,7 +92,10 @@ for i, process_idx in tqdm(enumerate(idx), total=len(idx), desc="Processing proc
     logger.info(f"Exporting process {process_idx}")
 
     try:
-        dataset = load_dataset("FIM4Science/easytpp-synthetic-1d")
+        dataset = load_dataset(
+            "FIM4Science/easytpp-synthetic-1d",
+            download_mode="force_redownload",
+        )
     except Exception:
         dataset = DatasetDict()
 
