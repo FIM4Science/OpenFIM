@@ -154,6 +154,7 @@ class EvaluationFactory:
 class HawkesPPDatasetConfig(BaseModel):
     label: str
     dataloader: dict
+    plot_kwargs: Optional[dict] = {}
     kernel_grids_sampler: dict
     load_if_exists: Optional[bool] = False
 
@@ -384,6 +385,10 @@ class HawkesPPEvaluation(Evaluation):
 
     def plot_intensities(self):
         for label, res in self.res.items():
+            dataset_eval_conf = self.config.get_by_label(label)
+            plot_kwargs = dataset_eval_conf.plot_kwargs
+            if plot_kwargs is None:
+                plot_kwargs = {}
             predictions = res["one_step_ahead_predictions"]
             predicted_dtimes = predictions["predicted_dtimes"]
             target_event_times = predictions["target_event_times"]
@@ -392,48 +397,49 @@ class HawkesPPEvaluation(Evaluation):
             target_intensity_times = predictions["target_intensity_times"]
             sampled_intensities = predictions["predicted_sampled_intensities"]
             sampled_intensity_times = predictions["predicted_sampled_intensity_times"]
-            seq_idx = predictions["seq_idx"]
+            num_paths = plot_kwargs.get("number_of_paths", 50)
+            seq_idx = predictions["seq_idx"][:num_paths]
+            num_times = intensities_at_times.shape[-2]
+            num_marks = intensities_at_times.shape[-1]
             fig, axes = plt.subplots(
-                intensities_at_times.shape[0],
-                intensities_at_times.shape[-1],
-                figsize=(10 * intensities_at_times.shape[-1], 6 * intensities_at_times.shape[0]),
+                num_paths,
+                num_marks,
+                figsize=(10 * num_marks, 6 * num_paths),
             )
             axes = axes.flatten()
             for i in np.argsort(seq_idx):  # batch
-                for j in range(intensities_at_times.shape[-1]):  # marks
-                    for k in range(intensities_at_times.shape[-2]):  # times
-                        axes[i * intensities_at_times.shape[-1] + j].plot(
+                for j in range(num_marks):  # marks
+                    for k in range(num_times):  # times
+                        axes[i * num_marks + j].plot(
                             sampled_intensity_times[i],
                             sampled_intensities[i, :, k, j],
                             label="Sampled Intensity",
                             color="tab:blue",
                         )
-                        axes[i * intensities_at_times.shape[-1] + j].plot(
+                        axes[i * num_marks + j].plot(
                             target_intensity_times[i],
                             target_intensities[i][j],
                             linestyle="--",
                             color="tab:orange",
                             label="Target Intensity",
                         )
-                        axes[i * intensities_at_times.shape[-1] + j].eventplot(
+                        axes[i * num_marks + j].eventplot(
                             target_event_times[i],
                             linelengths=0.15,
                             colors="tab:orange",
                             lineoffsets=-0.1,
                             label="True events",
                         )
-                        axes[i * intensities_at_times.shape[-1] + j].eventplot(
+                        axes[i * num_marks + j].eventplot(
                             predicted_dtimes[i, :, k],
                             linelengths=0.15,
                             colors="tab:blue",
                             lineoffsets=-0.4 * (k + 1),
                             label="Sampled events",
                         )
-                        axes[i * intensities_at_times.shape[-1] + j].set_xlim(0, sampled_intensity_times[i].max())
-                        axes[i * intensities_at_times.shape[-1] + j].set_title(
-                            f"Intensity for {label} - Mark {j + 1} - Sample {seq_idx[i]}"
-                        )
-                        axes[i * intensities_at_times.shape[-1] + j].legend()
+                        axes[i * num_marks + j].set_xlim(0, sampled_intensity_times[i].max())
+                        axes[i * num_marks + j].set_title(f"Intensity for {label} - Mark {j + 1} - Sample {seq_idx[i]}")
+                        axes[i * num_marks + j].legend()
             plt.tight_layout()
             label_dir = Path(self.config.evaluation_dir) / label
             label_dir.mkdir(parents=True, exist_ok=True)
