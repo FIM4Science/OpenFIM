@@ -67,7 +67,7 @@ class FIMDatasetConfig:
     max_number_of_grid_per_batch: int = 1024
 
     data_in_files: DataInFiles = field(default_factory=DataInFiles)
-    dataset_path_collections: DatasetPathCollections = field(default_factory=DatasetPathCollections)
+    dataset_path: DatasetPathCollections = field(default_factory=DatasetPathCollections)
 
     plot_paths_count: int = 100
     tensorboard_figure_data: str = "test"
@@ -81,8 +81,8 @@ class FIMDatasetConfig:
     def __post_init__(self):
         if isinstance(self.data_in_files, dict):
             self.data_in_files = DataInFiles.from_dict(self.data_in_files)
-        if isinstance(self.dataset_path_collections, dict):
-            self.dataset_path_collections = DatasetPathCollections.from_dict(self.dataset_path_collections)
+        if isinstance(self.dataset_path, dict):
+            self.dataset_path = DatasetPathCollections.from_dict(self.dataset_path)
 
         self.dynamical_systems_hyperparameters_file = os.path.join(project_path, self.dynamical_systems_hyperparameters_file)
 

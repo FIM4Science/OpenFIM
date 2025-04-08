@@ -15,7 +15,7 @@ def test_datasets():
     parameters_yaml = os.path.join(project_path, "configs", "train", "fim-sde", "fim-train-patrick.yaml")
     config = load_yaml(parameters_yaml, return_object=True)
     config_data: FIMDatasetConfig = FIMDatasetConfig(**config.dataset.to_dict())
-    train_dataset = FIMSDEDataset(config_data, config_data.dataset_path_collections.train)
+    train_dataset = FIMSDEDataset(config_data, config_data.dataset_path.train)
     dataloader = DataLoader(train_dataset, batch_size=5)
     databatch: FIMSDEDatabatchTuple = next(dataloader.__iter__())
     print(databatch.diffusion_at_locations.shape)

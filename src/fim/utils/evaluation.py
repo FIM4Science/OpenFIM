@@ -3,6 +3,7 @@ import logging
 import os
 from abc import abstractmethod
 from collections import defaultdict
+from functools import partial
 from pathlib import Path
 from typing import Optional, Union
 
@@ -16,8 +17,10 @@ from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 from transformers import AutoModel
 
+from fim.models.hawkes.hawkes import FIMHawkes
 from fim.trainers.utils import get_accel_type, move_batch_to_local_rank
 from fim.utils.helper import load_yaml, yaml
+from fim.utils.interpolator import KernelInterpolator
 
 from ..data.dataloaders import DataLoaderFactory
 from ..models import AModel
@@ -103,7 +106,7 @@ class Evaluation:
             self.device = get_accel_type()
         else:
             self.device = self.config.accelerator
-        self.predictions = []
+
         self.config.evaluation_dir.mkdir(parents=True, exist_ok=True)
         self.model = load_trained_model(self.config.model_id)
         self.model.to(self.device, dtype=torch.bfloat16)
@@ -152,11 +155,18 @@ class HawkesPPDatasetConfig(BaseModel):
     label: str
     dataloader: dict
     kernel_grids_sampler: dict
+    load_if_exists: Optional[bool] = False
 
 
 class HawkesPPEvaluationConfig(EvaluationConfig):
     evaluation_type: str = "hawkes_pp"
     datasets: HawkesPPDatasetConfig | list[HawkesPPDatasetConfig]
+
+    def get_by_label(self, label: str) -> HawkesPPDatasetConfig:
+        for dataset_eval_conf in self.datasets:
+            if dataset_eval_conf.label == label:
+                return dataset_eval_conf
+        raise ValueError(f"Dataset with label {label} not found")
 
 
 EvaluationConfigFactory.register("hawkes_pp", HawkesPPEvaluationConfig)
@@ -165,23 +175,82 @@ EvaluationConfigFactory.register("hawkes_pp", HawkesPPEvaluationConfig)
 class HawkesPPEvaluation(Evaluation):
     def __init__(self, config: HawkesPPEvaluationConfig) -> None:
         super().__init__(config)
-        self.kernels: dict[str, dict[str, torch.Tensor]] = defaultdict(dict)
+        self.res: dict[str, dict[str, np.ndarray]] = defaultdict(dict)
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
     @torch.inference_mode()
     def evaluate(self):
         logger.info("Starting evaluation...")
+
         for dataset_eval_conf in self.config.datasets:
             label = dataset_eval_conf.label
+            if (self.config.evaluation_dir / label / "evaluation_results.json").exists() and dataset_eval_conf.load_if_exists:
+                self.logger.info(f"Evaluation results for {label} already exist. Skipping evaluation...")
+                self.res[label] = json.load(open(self.config.evaluation_dir / label / "evaluation_results.json"))
+                for key, value in self.res[label].items():
+                    if isinstance(value, dict):
+                        for k, v in value.items():
+                            if isinstance(v, list):
+                                if k not in ["target_intensities", "target_intensity_times"]:
+                                    self.res[label][key][k] = np.array(v)
+                                else:
+                                    self.res[label][key][k] = [np.array(i) for i in v]
+                continue
             dataloader = self.__load_dataset(label, dataset_eval_conf.dataloader)
-            self.kernels[label] = self.__kernel_inference(dataset_eval_conf, label, dataloader)
-            # intensities = []
-            # for batch in tqdm(dataloader.test_it, desc=f"Evaluating {label}"):
-            #     with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
-            #         logger.info("Evaluating batch for prediction ...")
-            #         batch = move_batch_to_local_rank(batch, self.device)
-            # #         predictions = self.model.predict_one_step_at_every_event(batch)
-            # #         predictions.extend(predictions)
+            self.res[label]["kernel_inference"] = self.__kernel_inference(dataset_eval_conf, label, dataloader)
+            self.res[label]["one_step_ahead_predictions"] = self.__one_step_ahead_pred(label, dataloader)
+
+    def __one_step_ahead_pred(self, label, dataloader):
+        kernel = KernelInterpolator(
+            torch.from_numpy(self.res[label]["kernel_inference"]["sampled_kernel_grids"]).to(self.device),
+            torch.from_numpy(self.res[label]["kernel_inference"]["predicted_kernel_values"]).to(self.device),
+        )
+        # kernel = KernelInterpolator(
+        #     torch.from_numpy(self.res[label]["kernel_inference"]["target_kernel_grids"]).to(self.device),
+        #     torch.from_numpy(self.res[label]["kernel_inference"]["target_kernel_values"]).to(self.device),
+        # )
+        intensity_fn = partial(
+            FIMHawkes.intentsity,
+            kernel=kernel,
+            base_intensity=torch.from_numpy(self.res[label]["kernel_inference"]["target_base_intensity"]).to(self.device),
+        )
+        predictions = []
+        for batch in tqdm(dataloader.test_it, desc=f"Evaluating {label}"):
+            with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
+                logger.info("Evaluating batch for prediction ...")
+                batch = move_batch_to_local_rank(
+                    batch, self.device, ignore_keys=["seq_idx", "target_intensities", "target_intensity_times"]
+                )
+                batch["delta_times"] = batch["delta_times"].squeeze(-1)
+                t_values = torch.stack(
+                    [torch.linspace(0, batch["event_times"][i, -1], 1000, device=self.device) for i in range(batch["delta_times"].shape[0])]
+                )
+                intensity = intensity_fn(t_values.unsqueeze(-1), batch["event_times"].to(self.device))
+                prediction = self.model.predict_one_step_at_every_event(batch, intensity_fn)
+                target_intensities = dataloader.test.data[batch["seq_idx"]]["target_intensities"]
+                target_intensity_times = dataloader.test.data[batch["seq_idx"]]["target_intensity_times"]
+                if isinstance(target_intensities, torch.Tensor):
+                    target_intensities = [target_intensities[0]]
+                if isinstance(target_intensity_times, torch.Tensor):
+                    target_intensity_times = [target_intensity_times[0]]
+                prediction["predicted_sampled_intensities"] = intensity
+                prediction["predicted_sampled_intensity_times"] = t_values
+                prediction["target_intensities"] = target_intensities
+                prediction["target_intensity_times"] = target_intensity_times
+                prediction["target_event_times"] = batch["event_times"]
+                prediction["seq_idx"] = batch["seq_idx"]
+                predictions.append(prediction)
+        out = {
+            key: torch.concat([prediction[key].cpu().float() for prediction in predictions]).numpy()
+            for key in predictions[0].keys()
+            if key not in ["target_intensities", "target_intensity_times"]
+        }
+        for key in ["target_intensities", "target_intensity_times"]:
+            tmp = []
+            for prediction in predictions:
+                tmp.extend([p.numpy() for p in prediction[key]])
+            out[key] = tmp
+        return out
 
     def __kernel_inference(self, dataset_eval_conf, label, dataloader):
         max_intra_event_time = self.__get_max_intra_event_time(dataloader.train)
@@ -194,12 +263,17 @@ class HawkesPPEvaluation(Evaluation):
                 batch = move_batch_to_local_rank(batch, self.device, ignore_keys=["seq_idx"])
                 prediction = self.model(batch)
                 infered_kernels.append(prediction)
+        with torch.amp.autocast(str(self.device), enabled=True, dtype=torch.bfloat16):
+            B = batch["kernel_grids"].shape[0]
+            batch["kernel_grids"] = dataloader.train.data[0]["target_kernel_grids"].to(self.device).repeat(B, 1, 1)
+            prediction = self.model(batch)
 
         out = self.__average_over_batches(infered_kernels)
-        out["sampled_kernel_grids"] = sampled_kernel_grids.cpu().float()[0]
-        out["target_kernel_grids"] = dataloader.train.data[0]["target_kernel_grids"]
-        out["target_base_intensity"] = dataloader.train.data[0]["target_base_intensities"]
-        out["target_kernel_values"] = dataloader.train.data[0]["target_kernel_evaluations"]
+        out["sampled_kernel_grids"] = sampled_kernel_grids.cpu().float()[0].numpy()
+        out["target_kernel_grids"] = dataloader.train.data[0]["target_kernel_grids"].numpy()
+        out["target_base_intensity"] = dataloader.train.data[0]["target_base_intensities"].numpy()
+        out["target_kernel_values"] = dataloader.train.data[0]["target_kernel_evaluations"].numpy()
+        out["predicted_kernel_values_on_target_grids"] = prediction["predicted_kernel_values"].cpu().float().numpy()
         return out
 
     def __average_over_batches(self, kernel_batches: list[dict]) -> dict[str, Tensor]:
@@ -210,7 +284,7 @@ class HawkesPPEvaluation(Evaluation):
             for key, value in kernel_batch.items():
                 averaged_kernels[key].append(value)
 
-        return {key: torch.concat(values).mean(dim=0).float().cpu() for key, values in averaged_kernels.items()}
+        return {key: torch.concat(values).mean(dim=0).float().cpu().numpy() for key, values in averaged_kernels.items()}
 
     def __sample_kernel_grids(self, kernel_grids_sampler_conf: dict, max_intra_event_time: float) -> Tensor:
         self.logger.info("Sampling kernel grid ...")
@@ -237,19 +311,21 @@ class HawkesPPEvaluation(Evaluation):
         return mask
 
     def plot_kernel_grids_histograms(self):
-        for label, kernels in self.kernels.items():
-            num_marks = kernels["sampled_kernel_grids"].shape[0]
+        for label, res in self.res.items():
+            num_marks = res["kernel_inference"]["sampled_kernel_grids"].shape[0]
             fig, axes = plt.subplots(num_marks, 2, figsize=(12, 6 * num_marks))
             axes = axes.flatten()
             for mark in range(num_marks):
                 # Plot sampled kernel grids for each mark
-                axes[mark].hist(kernels["sampled_kernel_grids"][mark, :].numpy(), bins=100, edgecolor="black", color="tab:blue")
+                axes[mark].hist(res["kernel_inference"]["sampled_kernel_grids"][mark, :], bins=100, edgecolor="black", color="tab:blue")
                 axes[mark].set_title(f"Sampled Kernel Grids for {label} - Mark {mark + 1}")
                 axes[mark].set_xlabel("Time")
                 axes[mark].set_ylabel("Frequency")
 
                 # Plot target kernel grids for each mark
-                axes[mark + 1].hist(kernels["target_kernel_grids"][mark, :].numpy(), bins=100, edgecolor="black", color="tab:orange")
+                axes[mark + 1].hist(
+                    res["kernel_inference"]["target_kernel_grids"][mark, :], bins=100, edgecolor="black", color="tab:orange"
+                )
                 axes[mark + 1].set_title(f"Target Kernel Grids for {label} - Mark {mark + 1}")
                 axes[mark + 1].set_xlabel("Time")
                 axes[mark + 1].set_ylabel("Frequency")
@@ -259,8 +335,8 @@ class HawkesPPEvaluation(Evaluation):
             plt.close()
 
     def plot_kernels(self):
-        for label, kernels in self.kernels.items():
-            kernel_values = kernels["predicted_kernel_values"]  # Shape: [M, L]
+        for label, res in self.res.items():
+            kernel_values = res["kernel_inference"]["predicted_kernel_values"]  # Shape: [M, L]
             num_kernels = kernel_values.shape[0]
 
             # Calculate grid dimensions
@@ -275,14 +351,24 @@ class HawkesPPEvaluation(Evaluation):
 
             # Plot each kernel
             for i in range(num_kernels):
-                axes[i].plot(self.kernels[label]["sampled_kernel_grids"][i], kernel_values[i], color="tab:blue")
+                base_intensity = res["kernel_inference"]["predicted_base_intensity"][i]
+                target_base_intensity = res["kernel_inference"]["target_base_intensity"][i]
+                kernel_total = kernel_values[i] + base_intensity
+                axes[i].plot(res["kernel_inference"]["sampled_kernel_grids"][i], kernel_total, color="tab:blue", label="Predicted")
                 axes[i].plot(
-                    self.kernels[label]["target_kernel_grids"][i], self.kernels[label]["target_kernel_values"][i], color="tab:orange"
+                    res["kernel_inference"]["target_kernel_grids"][i],
+                    res["kernel_inference"]["target_kernel_values"][i] + target_base_intensity,
+                    color="tab:orange",
+                    label="Target",
                 )
+                axes[i].axhline(base_intensity, color="tab:blue", label="Predicted Base Intensity", linestyle="--")
+                axes[i].axhline(target_base_intensity, color="tab:orange", label="Target Base Intensity", linestyle="--")
                 axes[i].set_title(f"Kernel {i + 1}")
+                axes[i].set_xlim(0, res["kernel_inference"]["target_kernel_grids"][i].max() * 1.1)
                 axes[i].set_xlabel("Time")
                 axes[i].set_ylabel("Value")
                 axes[i].spines[["top", "right"]].set_visible(False)
+            plt.legend()
 
             # Remove empty subplots
             for i in range(num_kernels, len(axes)):
@@ -296,26 +382,129 @@ class HawkesPPEvaluation(Evaluation):
             plt.savefig(plot_path)
             plt.close()
 
+    def plot_intensities(self):
+        for label, res in self.res.items():
+            predictions = res["one_step_ahead_predictions"]
+            predicted_dtimes = predictions["predicted_dtimes"]
+            target_event_times = predictions["target_event_times"]
+            intensities_at_times = predictions["predicted_intensities"]
+            target_intensities = predictions["target_intensities"]
+            target_intensity_times = predictions["target_intensity_times"]
+            sampled_intensities = predictions["predicted_sampled_intensities"]
+            sampled_intensity_times = predictions["predicted_sampled_intensity_times"]
+            seq_idx = predictions["seq_idx"]
+            fig, axes = plt.subplots(
+                intensities_at_times.shape[0],
+                intensities_at_times.shape[-1],
+                figsize=(10 * intensities_at_times.shape[-1], 6 * intensities_at_times.shape[0]),
+            )
+            axes = axes.flatten()
+            for i in np.argsort(seq_idx):  # batch
+                for j in range(intensities_at_times.shape[-1]):  # marks
+                    for k in range(intensities_at_times.shape[-2]):  # times
+                        axes[i * intensities_at_times.shape[-1] + j].plot(
+                            sampled_intensity_times[i],
+                            sampled_intensities[i, :, k, j],
+                            label="Sampled Intensity",
+                            color="tab:blue",
+                        )
+                        axes[i * intensities_at_times.shape[-1] + j].plot(
+                            target_intensity_times[i],
+                            target_intensities[i][j],
+                            linestyle="--",
+                            color="tab:orange",
+                            label="Target Intensity",
+                        )
+                        axes[i * intensities_at_times.shape[-1] + j].eventplot(
+                            target_event_times[i],
+                            linelengths=0.15,
+                            colors="tab:orange",
+                            lineoffsets=-0.1,
+                            label="True events",
+                        )
+                        axes[i * intensities_at_times.shape[-1] + j].eventplot(
+                            predicted_dtimes[i, :, k],
+                            linelengths=0.15,
+                            colors="tab:blue",
+                            lineoffsets=-0.4 * (k + 1),
+                            label="Sampled events",
+                        )
+                        axes[i * intensities_at_times.shape[-1] + j].set_xlim(0, sampled_intensity_times[i].max())
+                        axes[i * intensities_at_times.shape[-1] + j].set_title(
+                            f"Intensity for {label} - Mark {j + 1} - Sample {seq_idx[i]}"
+                        )
+                        axes[i * intensities_at_times.shape[-1] + j].legend()
+            plt.tight_layout()
+            label_dir = Path(self.config.evaluation_dir) / label
+            label_dir.mkdir(parents=True, exist_ok=True)
+            plot_path = label_dir / "intensities.png"
+            plt.savefig(plot_path)
+            plt.close()
+
+    def calculate_metrics(self):
+        metrics = {}
+        for label, res in self.res.items():
+            predictions = res["one_step_ahead_predictions"]
+            predicted_event_times = predictions["predicted_event_times"]
+            target_event_times = predictions["target_event_times"]
+
+            target_base_intensity = res["kernel_inference"]["target_base_intensity"]
+            predicted_base_intensity = res["kernel_inference"]["predicted_base_intensity"]
+            rmse_base_intensity = np.sqrt(np.mean((predicted_base_intensity - target_base_intensity) ** 2))
+            rmse_event_times = np.sqrt(np.mean((predicted_event_times - target_event_times[:, 1:]) ** 2))
+            rmse_kernel_values = np.sqrt(
+                np.mean(
+                    (res["kernel_inference"]["predicted_kernel_values_on_target_grids"] - res["kernel_inference"]["target_kernel_values"])
+                    ** 2
+                )
+            )
+            self.logger.info(f"RMSE event times for {label}: {rmse_event_times}")
+            self.logger.info(f"RMSE base intensity for {label}: {rmse_base_intensity}")
+            self.logger.info(f"RMSE kernel values for {label}: {rmse_kernel_values}")
+            metrics[label] = {
+                "rmse_event_times": rmse_event_times.item(),
+                "rmse_base_intensity": rmse_base_intensity.item(),
+                "rmse_kernel_values": rmse_kernel_values.item(),
+            }
+        return metrics
+
     def __load_dataset(self, label: str, dataset_conf: dict):
         logger.info(f"Loading dataset: {label}")
         dataloader = DataLoaderFactory.create(dataset_conf.pop("name"), **dataset_conf)
         logger.info(f"Loaded dataset: {dataloader}")
         return dataloader
 
-    def save(self):
-        logger.info("Saving evaluation results to JSON ...")
-        for label, kernels in self.kernels.items():
-            results = {key: value.float().numpy().tolist() for key, value in kernels.items()}
+    def save_inference_results(self, metrics: dict):
+        for label, res in self.res.items():
+            dataset_eval_conf = self.config.get_by_label(label)
+            if (self.config.evaluation_dir / label / "evaluation_results.json").exists() and dataset_eval_conf.load_if_exists:
+                logger.info(f"Evaluation results for {label} already exist. Skipping ...")
+                continue
+            results = {
+                key: {k: v.tolist() if isinstance(v, np.ndarray) else [vv.tolist() for vv in v] for k, v in value.items()}
+                for key, value in res.items()
+            }
+
             label_dir = Path(self.config.evaluation_dir) / label
             label_dir.mkdir(parents=True, exist_ok=True)
             path = label_dir / "evaluation_results.json"
             with open(path, "w") as f:
                 json.dump(results, f)
+            with open(label_dir / "metrics.json", "w") as f:
+                json.dump(metrics[label], f)
             logger.info(f"Evaluation results for {label} saved to {path}")
+
+    def save(self):
+        logger.info("Calculating metrics ...")
+        metrics = self.calculate_metrics()
+        logger.info("Saving evaluation results to JSON ...")
+        self.save_inference_results(metrics)
         logger.info("Plotting kernel grids histograms ...")
         self.plot_kernel_grids_histograms()
         logger.info("Plotting kernels ...")
         self.plot_kernels()
+        logger.info("Plotting intensities ...")
+        self.plot_intensities()
 
 
 EvaluationFactory.register("hawkes_pp", HawkesPPEvaluation)

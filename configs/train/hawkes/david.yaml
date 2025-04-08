@@ -14,7 +14,7 @@ distributed:
 
 dataset:
   name: HawkesDataLoader
-  path_collections:
+  path:
     train: !!python/tuple
       - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/train
       - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/train
@@ -50,7 +50,8 @@ dataset:
       kernel_evaluations: "kernel_evaluations.pt"
       kernel_grids: "kernel_grids.pt"
     # data_limit: 10
-    field_name_for_dimension_grouping: ["base_intensities", "kernel_evaluations", "kernel_grids"]
+    field_name_for_dimension_grouping:
+      ["base_intensities", "kernel_evaluations", "kernel_grids"]
 
 model:
   model_type: fimhawkes

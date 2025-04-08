@@ -14,7 +14,7 @@ distributed:
 
 dataset:
   name: FIMDataLoader
-  path_collections:
+  path:
     train: !!python/tuple
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
       - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train

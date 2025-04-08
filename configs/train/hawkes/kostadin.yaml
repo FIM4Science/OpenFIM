@@ -14,7 +14,7 @@ distributed:
 
 dataset:
   name: HawkesDataLoader
-  path_collections:
+  path:
     train: !!python/tuple
       # - /cephfs_projects/foundation_models/hawkes/data/2k_1_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train
       # - /cephfs_projects/foundation_models/hawkes/data/2k_2_st_hawkes_mixed_no_powerlaw_2000_paths_250_events/train

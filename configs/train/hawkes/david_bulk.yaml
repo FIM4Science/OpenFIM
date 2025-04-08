@@ -15,7 +15,7 @@ distributed:
 
 dataset:
   name: HawkesDataLoader
-  path_collections:
+  path:
     train: !!python/tuple
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_500_paths_100_events/train
       # - data/synthetic_data/hawkes/10K_5_st_hawkes_exp_sin_500_paths_100_events/train

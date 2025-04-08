@@ -86,7 +86,7 @@ model:
 #     drift_at_locations: "drift_functions_at_hypercube.h5"
 #     diffusion_at_locations: "scaled_diffusion_functions_at_hypercube.h5"
 #
-#   dataset_path_collections: &dataset_path_collections
+#   dataset_path: &dataset_path
 #     train:
 #       - processed\state_sde\linear\dim-1\1
 #       - processed\state_sde\linear\dim-2\1
