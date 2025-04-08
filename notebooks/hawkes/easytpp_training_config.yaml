@@ -2,14 +2,17 @@
 pipeline_config_id: runner_config
 
 data:
-    taxi:
+    easytpp:
         data_format: json
+        train_dir: /cephfs/users/berghaus/.cache/huggingface/hub/datasets--FIM4Science--easytpp-synthetic-1d/snapshots/6495d88677bff1642ecf11a17ce91fe42099ff99/train.json
+        valid_dir: /cephfs/users/berghaus/.cache/huggingface/hub/datasets--FIM4Science--easytpp-synthetic-1d/snapshots/6495d88677bff1642ecf11a17ce91fe42099ff99/val.json
+        test_dir: /cephfs/users/berghaus/.cache/huggingface/hub/datasets--FIM4Science--easytpp-synthetic-1d/snapshots/6495d88677bff1642ecf11a17ce91fe42099ff99/test.json
         # train_dir: FIM4Science/easytpp-synthetic-1d
         # valid_dir: FIM4Science/easytpp-synthetic-1d
         # test_dir: FIM4Science/easytpp-synthetic-1d
-        train_dir: easytpp/taxi
-        valid_dir: easytpp/taxi
-        test_dir: easytpp/taxi
+        # train_dir: easytpp/taxi
+        # valid_dir: easytpp/taxi
+        # test_dir: easytpp/taxi
         data_specs:
           num_event_types: 10
           pad_token_id: 10
@@ -20,7 +23,7 @@ NHP_train:
   base_config:
     stage: train
     backend: torch
-    dataset_id: taxi
+    dataset_id: easytpp
     runner_id: std_tpp
     model_id: NHP # model name
     base_dir: './checkpoints/'
