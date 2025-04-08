@@ -7,20 +7,22 @@ from loguru import logger
 from tqdm import tqdm
 
 
-SOURCE_SPLIT = "train"
+SOURCE_SPLIT = "test"
 PATH = "/cephfs_projects/foundation_models/hawkes/data/1D_easytpp/" + SOURCE_SPLIT
 
 OUT_PATH = "/cephfs_projects/foundation_models/hawkes/data/"
 OUT_PATH = Path(OUT_PATH)
 OUT_PATH.mkdir(parents=True, exist_ok=True)
 NUM_PROCESSES = 1
-NUM_PATHS_FOR_INFERENCE = 1200
+
 TOTAL_NUM_PATHS = 1200
-NUM_OF_PATHS_FOR_TEST = TOTAL_NUM_PATHS - NUM_PATHS_FOR_INFERENCE
 if SOURCE_SPLIT == "train":
+    NUM_PATHS_FOR_INFERENCE = 1200
     TOTAL_NUM_PROCESSES = 1
 else:
     TOTAL_NUM_PROCESSES = 1
+    NUM_PATHS_FOR_INFERENCE = 0
+NUM_OF_PATHS_FOR_TEST = TOTAL_NUM_PATHS - NUM_PATHS_FOR_INFERENCE
 idx = list(range(NUM_PROCESSES))
 data = {}
 for file in Path(PATH).rglob("*.pt"):
@@ -95,8 +97,8 @@ for i, process_idx in tqdm(enumerate(idx), total=len(idx), desc="Processing proc
         dataset = DatasetDict()
 
     if NUM_OF_PATHS_FOR_TEST != 0:
-        test_dataset = Dataset.from_dict(test_data, split="test")
-        dataset["test"] = test_dataset
+        test_dataset = Dataset.from_dict(test_data, split=SOURCE_SPLIT)
+        dataset[SOURCE_SPLIT] = test_dataset
     if NUM_PATHS_FOR_INFERENCE != 0:
         train_dataset = Dataset.from_dict(train_data, split="train")
         dataset["train"] = train_dataset

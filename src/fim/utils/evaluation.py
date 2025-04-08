@@ -354,11 +354,11 @@ class HawkesPPEvaluation(Evaluation):
             for i in range(num_kernels):
                 base_intensity = res["kernel_inference"]["predicted_base_intensity"][i]
                 target_base_intensity = res["kernel_inference"]["target_base_intensity"][i]
-                kernel_total = kernel_values[i] + base_intensity
-                axes[i].plot(res["kernel_inference"]["sampled_kernel_grids"][i], kernel_total, color="tab:blue", label="Predicted")
+                # kernel_total = kernel_values[i] + base_intensity
+                axes[i].plot(res["kernel_inference"]["sampled_kernel_grids"][i], kernel_values[i], color="tab:blue", label="Predicted")
                 axes[i].plot(
                     res["kernel_inference"]["target_kernel_grids"][i],
-                    res["kernel_inference"]["target_kernel_values"][i] + target_base_intensity,
+                    res["kernel_inference"]["target_kernel_values"][i],
                     color="tab:orange",
                     label="Target",
                 )
