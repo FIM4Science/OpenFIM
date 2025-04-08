@@ -75,6 +75,37 @@ datasets:
   #     sample_size: 1_000
   #     max_value_factor: 5
   # num_marks: 1
+  - label: easytpp-synthetic-1d
+    load_if_exists: true
+    plot_kwargs:
+      plot_intensity:
+        number_of_paths: 50
+    dataloader:
+      name: FIMHFDataLoader
+      path: FIM4Science/easytpp-synthetic-1d
+      split: ["train", "test"]
+      dataset_kwargs:
+        rename_columns:
+          time_since_start: event_times
+          time_since_last_event: delta_times
+          type_event: event_types
+          seq_len: seq_lengths
+        batch_columns:
+          - event_times
+          - delta_times
+          - event_types
+          - seq_lengths
+          - seq_idx
+      loader_kwargs:
+        batch_size: all
+        test_batch_size: 1
+        num_workers: 0
+    kernel_grids_sampler:
+      distribution_type: exponential
+      rate: 0.05
+      sample_size: 200
+      max_value_factor: 1_000
+      num_marks: 1
   - label: synthetic_train_8
     load_if_exists: true
     dataloader:
