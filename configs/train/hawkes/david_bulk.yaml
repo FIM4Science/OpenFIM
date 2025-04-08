@@ -60,6 +60,7 @@ model:
 
   max_num_marks: &max_num_marks 2
   hidden_dim: &hidden_dim 256
+  ARTIFICIAL_NORM_FACTOR: 1000
 
   mark_encoder:
     name: torch.nn.Linear

@@ -8,10 +8,10 @@ from fim.utils.experiment_files import ExperimentsFiles
 
 
 # DATASET_DIR = Path("data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/test")
-DATASET_DIR = Path("data/synthetic_data/hawkes/1k_3_st_hawkes_mixed_larger_scale_2000_paths_250_events/test")
+DATASET_DIR = Path("/cephfs_projects/foundation_models/hawkes/data/1D_easytpp/train")
 EXPERIMENT_DIR = Path(
     # "results/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model"
-    "results/FIM_Hawkes_1-3_st_norm_test_mixed_larger_scale_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-24-1653/checkpoints/best-model"
+    "/cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1st_exp_artificial_larger_scale_2000_paths_mixed_250_events_mixed_rmse-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_04-01-1614/checkpoints/best-model"
 )
 num_samples = 5
 start_idx = 0
@@ -38,8 +38,8 @@ def plot_model_predictions_and_true_values(model_predictions, data):
         if isinstance(v, torch.Tensor):
             data[k] = v.detach().cpu().numpy()
     B, M, T = model_predictions["predicted_kernel_values"].shape
-    predicted_kernel_function = model_predictions["predicted_kernel_values"] + model_predictions["predicted_base_intensity"][:, :, None]
-    ground_truth_kernel_function = data["kernel_evaluations"] + data["base_intensities"][:, :, None]
+    predicted_kernel_function = model_predictions["predicted_kernel_values"]  # + model_predictions["predicted_base_intensity"][:, :, None]
+    ground_truth_kernel_function = data["kernel_evaluations"]  # + data["base_intensities"][:, :, None]
 
     # Define scaling factors
     width_per_subplot = 3  # Adjust as needed

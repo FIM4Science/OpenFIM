@@ -38,6 +38,7 @@ model:
   model_type: fimhawkes
   max_num_marks: &max_num_marks 5
   hidden_dim: &hidden_dim 32
+  ARTIFICIAL_NORM_FACTOR: 1000
 
   mark_encoder:
     name: torch.nn.Linear
