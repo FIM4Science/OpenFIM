@@ -336,74 +336,86 @@ class FIMHawkes(AModel):
         return h.view(-1, M)
 
     def _normalize_input_times(self, x: dict) -> dict:
-        batch_indices = (
-            torch.arange(x["event_times"].size(0), device=x["event_times"].device).view(-1, 1).expand(-1, x["event_times"].size(1))
-        )
-        path_indices = (
-            torch.arange(x["event_times"].size(1), device=x["event_times"].device).view(1, -1).expand(x["event_times"].size(0), -1)
-        )
-        if self.normalize_by_max_time:
-            max_times = x["event_times"][batch_indices, path_indices, x["seq_lengths"] - 1]
-            norm_constants = max_times.amax(dim=[1, 2])
-        else:
-            masked_delta_times = x["delta_times"].clone()
-            B, P, L, _ = masked_delta_times.shape
+        # batch_indices = (
+        #     torch.arange(x["event_times"].size(0), device=x["event_times"].device).view(-1, 1).expand(-1, x["event_times"].size(1))
+        # )
+        # path_indices = (
+        #     torch.arange(x["event_times"].size(1), device=x["event_times"].device).view(1, -1).expand(x["event_times"].size(0), -1)
+        # )
+        # if self.normalize_by_max_time:
+        #     max_times = x["event_times"][batch_indices, path_indices, x["seq_lengths"] - 1]
+        #     norm_constants = max_times.amax(dim=[1, 2])
+        # else:
+        #     masked_delta_times = x["delta_times"].clone()
+        #     B, P, L, _ = masked_delta_times.shape
 
-            # Remove last dimension if it's size 1
-            masked_delta_times = masked_delta_times.squeeze(-1)  # Now shape is (B, P, L)
+        #     # Remove last dimension if it's size 1
+        #     masked_delta_times = masked_delta_times.squeeze(-1)  # Now shape is (B, P, L)
 
-            # Create positions tensor
-            positions = torch.arange(L).view(1, 1, L).to(masked_delta_times.device)  # Shape: (1, 1, L)
+        #     # Create positions tensor
+        #     positions = torch.arange(L).view(1, 1, L).to(masked_delta_times.device)  # Shape: (1, 1, L)
 
-            # Expand seq_lengths to match dimensions
-            seq_lengths_expanded = x["seq_lengths"].unsqueeze(2)  # Shape: (B, P, 1)
+        #     # Expand seq_lengths to match dimensions
+        #     seq_lengths_expanded = x["seq_lengths"].unsqueeze(2)  # Shape: (B, P, 1)
 
-            # Create mask for invalid positions
-            mask = positions >= seq_lengths_expanded  # Shape: (B, P, L)
+        #     # Create mask for invalid positions
+        #     mask = positions >= seq_lengths_expanded  # Shape: (B, P, L)
 
-            # Apply mask to set invalid positions to -inf
-            masked_delta_times[mask] = float("-inf")
+        #     # Apply mask to set invalid positions to -inf
+        #     masked_delta_times[mask] = float("-inf")
 
-            # Compute the maximum over the sequence length dimension
-            norm_constants = masked_delta_times.amax(dim=[1, 2])
-        x["event_times"] = x["event_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["delta_times"] = x["delta_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["kernel_grids"] = x["kernel_grids"] / norm_constants.view(-1, 1, 1)
+        #     # Compute the maximum over the sequence length dimension
+        #     norm_constants = masked_delta_times.amax(dim=[1, 2])
+        # x["event_times"] = x["event_times"] / norm_constants.view(-1, 1, 1, 1)
+        # x["delta_times"] = x["delta_times"] / norm_constants.view(-1, 1, 1, 1)
+        # x["kernel_grids"] = x["kernel_grids"] / norm_constants.view(-1, 1, 1)
+        # if "base_intensities" in x:
+        #     x["base_intensities"] = x["base_intensities"] / norm_constants.view(-1, 1)
+        #     x["base_intensities"] = (
+        #         x["base_intensities"] * self.ARTIFICIAL_NORM_FACTOR
+        #     )  # We are testing if the model is less likely to predict constant values then
+        # if "kernel_evaluations" in x:
+        #     x["kernel_evaluations"] = x["kernel_evaluations"] / norm_constants.view(-1, 1, 1)
+        #     x["kernel_evaluations"] = (
+        #         x["kernel_evaluations"] * self.ARTIFICIAL_NORM_FACTOR
+        #     )  # We are testing if the model is less likely to predict constant values then
+
+        # This is just for testing, remove this
+        norm_constants = None
         if "base_intensities" in x:
-            x["base_intensities"] = x["base_intensities"] / norm_constants.view(-1, 1)
-            x["base_intensities"] = (
-                x["base_intensities"] * self.ARTIFICIAL_NORM_FACTOR
-            )  # We are testing if the model is less likely to predict constant values then
-        if "kernel_evaluations" in x:
-            x["kernel_evaluations"] = x["kernel_evaluations"] / norm_constants.view(-1, 1, 1)
-            x["kernel_evaluations"] = (
-                x["kernel_evaluations"] * self.ARTIFICIAL_NORM_FACTOR
-            )  # We are testing if the model is less likely to predict constant values then
+            x["base_intensities"] * self.ARTIFICIAL_NORM_FACTOR
+            x["kernel_evaluations"] * self.ARTIFICIAL_NORM_FACTOR
+
         return norm_constants
 
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
-        out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
-        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
-        out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
-        # Rescale by the artifical ARTIFICIAL_NORM_FACTOR factor
-        out["predicted_base_intensity"] = out["predicted_base_intensity"] / self.ARTIFICIAL_NORM_FACTOR
-        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - torch.log(
-            torch.tensor(self.ARTIFICIAL_NORM_FACTOR).to(self.device)
-        )
-        out["predicted_kernel_values"] = out["predicted_kernel_values"] / self.ARTIFICIAL_NORM_FACTOR
-        x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
+        # out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
+        # out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
+        # out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
+        # # Rescale by the artifical ARTIFICIAL_NORM_FACTOR factor
+        # out["predicted_base_intensity"] = out["predicted_base_intensity"] / self.ARTIFICIAL_NORM_FACTOR
+        # out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - torch.log(
+        #     torch.tensor(self.ARTIFICIAL_NORM_FACTOR).to(self.device)
+        # )
+        # out["predicted_kernel_values"] = out["predicted_kernel_values"] / self.ARTIFICIAL_NORM_FACTOR
+        # x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
+        # x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
+        # x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
+        # if "base_intensities" in x:
+        #     x["base_intensities"] = x["base_intensities"] * norm_constants.view(-1, 1)
+        #     x["base_intensities"] = (
+        #         x["base_intensities"] / self.ARTIFICIAL_NORM_FACTOR
+        #     )  # We are testing if the model is less likely to predict constant values then
+        # if "kernel_evaluations" in x:
+        #     x["kernel_evaluations"] = x["kernel_evaluations"] * norm_constants.view(-1, 1, 1)
+        #     x["kernel_evaluations"] = (
+        #         x["kernel_evaluations"] / self.ARTIFICIAL_NORM_FACTOR
+        #     )  # We are testing if the model is less likely to predict constant values then
+
+        # This is just for testing, remove this
         if "base_intensities" in x:
-            x["base_intensities"] = x["base_intensities"] * norm_constants.view(-1, 1)
-            x["base_intensities"] = (
-                x["base_intensities"] / self.ARTIFICIAL_NORM_FACTOR
-            )  # We are testing if the model is less likely to predict constant values then
-        if "kernel_evaluations" in x:
-            x["kernel_evaluations"] = x["kernel_evaluations"] * norm_constants.view(-1, 1, 1)
-            x["kernel_evaluations"] = (
-                x["kernel_evaluations"] / self.ARTIFICIAL_NORM_FACTOR
-            )  # We are testing if the model is less likely to predict constant values then
+            x["base_intensities"] / self.ARTIFICIAL_NORM_FACTOR
+            x["kernel_evaluations"] / self.ARTIFICIAL_NORM_FACTOR
 
     def loss(
         self,
@@ -432,7 +444,8 @@ class FIMHawkes(AModel):
         kernel_loss = (torch.exp(-U) * (predicted_kernel_function - target_kernel_values) ** 2 + U).mean() / 2
         base_intensity_loss = base_intensity_rmse**2
 
-        loss = kernel_loss + base_intensity_loss
+        # loss = kernel_loss + base_intensity_loss
+        loss = kernel_rmse + base_intensity_rmse
 
         # With a 1% probability plot the kernel function and the ground truth and add the RMSE as a title to the plot
         if torch.rand(1) < 0.01:

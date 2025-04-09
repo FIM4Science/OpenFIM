@@ -25,9 +25,12 @@ hawkes.set_kernel(0, 0, kernel)
 
 hawkes.simulate()
 
-em = HawkesEM(4, kernel_size=16, n_threads=8, verbose=False, tol=1e-3)
-em.fit(hawkes.timestamps)
+model = HawkesEM(4, kernel_size=16, n_threads=8, verbose=False, tol=1e-3)
+model.fit(hawkes.timestamps)
+# model = HawkesExpKern(decays=1.0)
+# model.fit(hawkes.timestamps)
+print("Model Baseline:", model.baseline)
 
-fig = plot_hawkes_kernels(em, hawkes=hawkes, show=False)
+fig = plot_hawkes_kernels(model, hawkes=hawkes, show=False)
 
 plt.savefig("tick_1Deasytpp.png")

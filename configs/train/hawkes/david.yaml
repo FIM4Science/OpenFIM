@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_1st_exp_artificial_larger_scale_2000_paths_mixed_250_events_mixed
+  name: FIM_Hawkes_1st_exp_rmse_no_norm_2000_paths_mixed_250_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
