@@ -383,8 +383,8 @@ class FIMHawkes(AModel):
         # This is just for testing, remove this
         norm_constants = None
         if "base_intensities" in x:
-            x["base_intensities"] * self.ARTIFICIAL_NORM_FACTOR
-            x["kernel_evaluations"] * self.ARTIFICIAL_NORM_FACTOR
+            x["base_intensities"] = x["base_intensities"] * self.ARTIFICIAL_NORM_FACTOR
+            x["kernel_evaluations"] = x["kernel_evaluations"] * self.ARTIFICIAL_NORM_FACTOR
 
         return norm_constants
 
@@ -414,8 +414,8 @@ class FIMHawkes(AModel):
 
         # This is just for testing, remove this
         if "base_intensities" in x:
-            x["base_intensities"] / self.ARTIFICIAL_NORM_FACTOR
-            x["kernel_evaluations"] / self.ARTIFICIAL_NORM_FACTOR
+            x["base_intensities"] = x["base_intensities"] / self.ARTIFICIAL_NORM_FACTOR
+            x["kernel_evaluations"] = x["kernel_evaluations"] / self.ARTIFICIAL_NORM_FACTOR
 
     def loss(
         self,

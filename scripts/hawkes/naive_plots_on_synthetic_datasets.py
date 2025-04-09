@@ -11,7 +11,7 @@ from fim.utils.experiment_files import ExperimentsFiles
 DATASET_DIR = Path("/cephfs_projects/foundation_models/hawkes/data/1D_easytpp/train")
 EXPERIMENT_DIR = Path(
     # "results/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model"
-    "/cephfs_projects/foundation_models/hawkes/data/models/FIM_Hawkes_1st_exp_artificial_larger_scale_2000_paths_mixed_250_events_mixed_rmse-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_04-01-1614/checkpoints/best-model"
+    "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM_Hawkes_1st_exp_rmse_no_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_04-09-1514/checkpoints/best-model"
 )
 num_samples = 5
 start_idx = 0
