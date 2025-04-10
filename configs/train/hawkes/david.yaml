@@ -58,11 +58,12 @@ dataset:
 model:
   model_type: fimhawkes
   is_bulk_model: *is_bulk_model
-  normalize_by_max_time: false # Otherwise normalize by the delta times
+  normalize_times: false
+  normalize_by_max_time: true # Otherwise normalize by the delta times
 
   max_num_marks: &max_num_marks 1
   hidden_dim: &hidden_dim 64
-  ARTIFICIAL_NORM_FACTOR: 10
+  loss_scaling_factor: 10 # The loss values are scaled by this factor to avoid numerical issues
 
   mark_encoder:
     name: torch.nn.Linear
