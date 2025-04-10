@@ -416,6 +416,8 @@ class FIMHawkes(AModel):
         if "base_intensities" in x:
             x["base_intensities"] = x["base_intensities"] / self.ARTIFICIAL_NORM_FACTOR
             x["kernel_evaluations"] = x["kernel_evaluations"] / self.ARTIFICIAL_NORM_FACTOR
+            out["predicted_base_intensity"] = out["predicted_base_intensity"] / self.ARTIFICIAL_NORM_FACTOR
+            out["predicted_kernel_values"] = out["predicted_kernel_values"] / self.ARTIFICIAL_NORM_FACTOR
 
     def loss(
         self,

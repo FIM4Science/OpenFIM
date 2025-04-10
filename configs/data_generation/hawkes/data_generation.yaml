@@ -22,7 +22,7 @@ data_generator:
     baseline_sampler:
       class_path: fim.data_generation.hawkes.sampling_distributions.Uniform
       low: 0.01
-      high: 0.1
+      high: 0.3
     kernel_function_samplers:
       exponential:
         class_path: fim.data_generation.hawkes.kernel_functions.HawkesExpKernelFunctionSampler
