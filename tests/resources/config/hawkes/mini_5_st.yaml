@@ -38,7 +38,10 @@ model:
   model_type: fimhawkes
   max_num_marks: &max_num_marks 5
   hidden_dim: &hidden_dim 32
+  normalize_times: false
+  normalize_by_max_time: true # Otherwise normalize by the delta times
 
+  loss_scaling_factor: 10 # The loss values are scaled by this factor to avoid numerical issues
   mark_encoder:
     name: torch.nn.Linear
     out_features: *hidden_dim
