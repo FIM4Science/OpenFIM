@@ -37,8 +37,12 @@ dataset:
 model:
   model_type: fimhawkes
   max_num_marks: &max_num_marks 5
+  normalize_times: false
+  normalize_by_max_time: true # Otherwise normalize by the delta times
+
   hidden_dim: &hidden_dim 32
   ARTIFICIAL_NORM_FACTOR: 1000
+  loss_scaling_factor: 10 # The loss values are scaled by this factor to avoid numerical issues
 
   mark_encoder:
     name: torch.nn.Linear
@@ -94,7 +98,15 @@ model:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
+  kernel_value_var_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
   base_intensity_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  base_intensity_var_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 

@@ -248,7 +248,10 @@ class TestFIMHawkes5ST:
         hidden_dim = 32
         config = FIMHawkesConfig(
             max_num_marks=max_num_marks,
+            loss_scaling_factor=10,
             hidden_dim=hidden_dim,
+            normalize_times=False,
+            normalize_by_max_time=True,
             mark_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
             time_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
             delta_time_encoder={"name": "torch.nn.Linear", "out_features": hidden_dim},
