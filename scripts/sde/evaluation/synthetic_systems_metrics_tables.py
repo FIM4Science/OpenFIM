@@ -23,6 +23,13 @@ from tqdm import tqdm
 def get_ground_truth_system_paths(all_paths: list[dict], system: str, experiment_num: int) -> np.ndarray:
     """
     Extract paths from one experiment of ground-truth system data, loaded from json file.
+
+    Args:
+        all_paths (list[dict]): List all datasets, including all experiments, tau, noise.
+        system, experiment_num: Identifying information for paths to extract from all_paths.
+
+    Returns:
+        paths_of_dataset (dict): Unique element in all_paths with identifier (dataset, split, total_splits).
     """
     paths_of_system = [d for d in all_paths if d["name"] == system]
 
@@ -40,6 +47,13 @@ def get_ground_truth_system_paths(all_paths: list[dict], system: str, experiment
 def get_ground_truth_vector_field(all_vector_fields: list[dict], vector_field_key: str, system: str, experiment_num: int) -> np.ndarray:
     """
     Extract vector field from one experiment of ground-truth system data, loaded from json file.
+
+    Args:
+        all_vector_fields (list[dict]): List all vector fields.
+        system, experiment_num: Identifying information for vector fields to extract.
+
+    Returns:
+        paths_of_dataset (dict): Unique element in all_vector_fields with identifier (dataset, split, total_splits).
     """
     vector_fields_of_system = [d for d in all_vector_fields if d["name"] == system]
 
@@ -57,6 +71,14 @@ def get_ground_truth_vector_field(all_vector_fields: list[dict], vector_field_ke
 def get_model_data(all_model_data: list[dict], data_key: str, system: str, tau: float, noise: float, experiment_num: int) -> np.ndarray:
     """
     Extract result of one experiment from one model from a loaded json file.
+
+    Args:
+        all_model_data (list[dict]): Results of one model on all datasets.
+        data_key (str): Dict key of result to extract.
+        system, tau, noise, experiment_num: Identifying information for result to extract from all_model_data.
+
+    Returns:
+        model_paths_value (np.ndarray): Extracted model result.
     """
     # backward compatability: if model data does not contain noise key, it has been evaluated with 0 noise
     for i in range(len(all_model_data)):
@@ -88,6 +110,19 @@ def synthetic_systems_metric_table(
 ):
     """
     Turn all results of one metric into pandas dataframes, depicting them as mean, standard deviation, mean + std and mean(std).
+
+    Args:
+        all_evaluations (list[MetricEvaluation]): Results from all models on all datasets and all splits.
+        metric (str): Metric to create tables for.
+        models_order (list[str]): Specify order of rows the models appear in.
+        datasets_order (list[str]): Specify order of columns the datasets appear in.
+        precision (int): Rounding precision (used only in some tables).
+        handle_negative_values (Optional[str] = "clip"): Sometimes mmd can be negative, if the paths are really good.
+
+    Returns:
+        Dataframes with metric, averaged over some splits, with different formatting:
+        mean, std, mean + std, mean(std)
+        Also a table that counts (non) NaN splits.
     """
     assert handle_negative_values in [None, "clip", "abs"]
 
@@ -205,8 +240,9 @@ if __name__ == "__main__":
     dataset_descr = "synthetic_systems_metrics_tables"
 
     # How to name experiments
-    # experiment_descr = "fim_fixed_linear_attn_04-28-0941"
-    experiment_descr = "ablation_30k_train_size"
+    experiment_descr = "fim_fixed_linear_attn_and_softmax_05-03-2033"
+    # experiment_descr = "ablation_600k_train_size"
+    # experiment_descr = "sparse_gp_mai_20250505_reevaluation_with_noise"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
@@ -253,12 +289,24 @@ if __name__ == "__main__":
         # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)": Path(
         #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021110_fim_fixed_linear_attn_delta_tau_04-28-0941/model_paths.json"
         # ),
+        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": Path(
+            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05062310_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-03-2033/model_paths.json"
+        ),
         # "Ablation: 30k, degree 4 drift, 500k steps": Path(
         #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021706_ablation_30k_deg_4_drift_500k_steps/model_paths.json"
         # ),
-        "Ablation: 30k train size, 5M parameters, 500k steps": Path(
-            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021712_ablation_30k_train_size_500k_steps/model_paths.json"
-        ),
+        # "Ablation: 30k train size, 5M parameters, 500k steps": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021712_ablation_30k_train_size_500k_steps/model_paths.json"
+        # ),
+        # "Ablation: 100k train size, 10M parameters, 500k steps": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021720_ablation_100k_train_size_500k_steps/model_paths.json"
+        # ),
+        # "Ablation: 600k train size, 20M parameters, 500k steps": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021730_ablation_600k_train_size_500k_steps/model_paths.json"
+        # ),
+        # "SparseGP(Reevaluation, May 5th 25)": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
+        # ),
     }
     apply_sqrt_to_diffusion = [
         "BISDE",
@@ -266,6 +314,7 @@ if __name__ == "__main__":
         "BISDE(Reevaluation, April 25)",
         "SparseGP",
         "SparseGP(ICML Submission)",
+        "SparseGP(Reevaluation, May 5th 25)",
     ]
 
     models_to_evaluate = [
@@ -279,10 +328,12 @@ if __name__ == "__main__":
         # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)",
         # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)",
         # "Ablation: 30k, degree 4 drift, 500k steps",
-        "Ablation: 30k train size, 5M parameters, 500k steps",
+        # "Ablation: 30k train size, 5M parameters, 500k steps",
         # "Ablation: 100k train size, 10M parameters, 500k steps",
         # "Ablation: 600k train size, 20M parameters, 500k steps",
         # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)",
+        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)"
+        # "SparseGP(Reevaluation, May 5th 25)",
     ]
     systems_to_evaluate = [
         "Double Well",
@@ -296,7 +347,7 @@ if __name__ == "__main__":
 
     taus_to_evaluate = [
         0.002,
-        0.01,
+        # 0.01,
         0.02,
         0.2,
     ]
@@ -372,11 +423,13 @@ if __name__ == "__main__":
         # "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
         # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)",
         # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)",
+        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)"
         # "Ablation: 30k, degree 4 drift, 500k steps",
-        "Ablation: 30k train size, 5M parameters, 500k steps",
+        # "Ablation: 30k train size, 5M parameters, 500k steps",
         # "Ablation: 100k train size, 10M parameters, 500k steps",
-        # "Ablation: 600k train size, 20M parameters, 500k steps",
+        "Ablation: 600k train size, 20M parameters, 500k steps",
         # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)",
+        # "SparseGP(Reevaluation, May 5th 25)",
     ]
     systems_order = systems_to_evaluate
     precision = 3

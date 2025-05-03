@@ -148,6 +148,9 @@ def compute_mmd(x, y, n_levels=5, kernel_cache={}):
     Compute the Maximum Mean Discrepancy (MMD) between two sets of paths
     Input shapes: (n_paths, grid_size, n_dim)
     """
+
+    assert x.shape == y.shape
+
     if not use_cuda and isinstance(x, torch.Tensor):
         x = x.cpu().numpy()
         y = y.cpu().numpy()
