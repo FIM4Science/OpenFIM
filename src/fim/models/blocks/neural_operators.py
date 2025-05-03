@@ -345,7 +345,7 @@ class LinearAttention(Block):
 
         if self.feature_map == "softmax":
             q_ = q.softmax(dim=-1, dtype=torch.float32)
-            k_ = k.softmax(dim=-1, dtype=torch.float32)
+            k_ = k.softmax(dim=-2, dtype=torch.float32)
 
         else:  # elu
             q_ = torch.nn.functional.elu(q) + 1
@@ -357,7 +357,7 @@ class LinearAttention(Block):
             norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)  # [B, num_heads, Tq, 1]
 
         else:
-            norm_coeff = 1
+            norm_coeff = q_.shape[-1] ** (0.5)
 
         # context
         kv = k_.transpose(-2, -1) @ v  # [B, num_heads, head_dim, head_dim]

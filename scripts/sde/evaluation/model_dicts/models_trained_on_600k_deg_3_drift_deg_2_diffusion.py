@@ -85,10 +85,14 @@ def get_model_dicts_ablation_models() -> tuple[dict, dict, str]:
 def get_model_dicts_600k_fixed_linear_attn() -> tuple[dict, dict, str]:
     """ """
     model_dicts = {
-        "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "/home/seifner/repos/FIM/saved_results/20250430_20M_params_trained_on_600k_deg_3_with_delta_tau_fixed_linear_attn/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn_04-28-0941/checkpoints/",
+        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "/home/seifner/repos/FIM/saved_results/20250430_20M_params_trained_on_600k_deg_3_with_delta_tau_fixed_linear_attn/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn_04-28-0941/checkpoints/",
+        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 05-01-1207)": "/home/seifner/repos/FIM/saved_results/20250430_20M_params_trained_on_600k_deg_3_with_delta_tau_fixed_linear_attn/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn_05-01-1207/checkpoints/",
+        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": "/home/seifner/repos/FIM/saved_results/20250430_20M_params_trained_on_600k_deg_3_with_delta_tau_fixed_linear_attn/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-03-2033/checkpoints/",
     }
     models_display_ids = {
-        "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn (checkpoint 04-28-0941)",
+        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn (checkpoint 04-28-0941)",
+        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 05-01-1207)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn (checkpoint 05-01-1207)",
+        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn and softmax (checkpoint 05-03-2033)",
     }
 
     return model_dicts, models_display_ids

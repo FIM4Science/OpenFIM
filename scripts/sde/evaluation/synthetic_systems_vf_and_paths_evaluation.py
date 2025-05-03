@@ -10,7 +10,7 @@ import numpy as np
 import optree
 import torch
 from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
-    get_model_dicts_ablation_models,
+    get_model_dicts_600k_fixed_linear_attn,
 )
 from tqdm import tqdm
 
@@ -171,12 +171,12 @@ if __name__ == "__main__":
     dataset_descr = "synthetic_systems_vf_and_paths_evaluation"
 
     # How to name experiments
-    # experiment_descr = "fim_fixed_linear_attn_delta_tau_04-28-0941"
-    experiment_descr = "ablation_600k_train_size_500k_steps"
+    experiment_descr = "fim_fixed_linear_attn_fixed_softmax_delta_tau_05-03-2033"
+    # experiment_descr = "ablation_600k_train_size_500k_steps"
 
     # model_dicts, models_display_ids = get_model_dicts_600k_post_submission_models()
-    # model_dicts, models_display_ids = get_model_dicts_600k_fixed_linear_attn()
-    model_dicts, models_display_ids = get_model_dicts_ablation_models()
+    model_dicts, models_display_ids = get_model_dicts_600k_fixed_linear_attn()
+    # model_dicts, models_display_ids = get_model_dicts_ablation_models()
 
     results_to_load: list[str] = [
         # "/home/seifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/model_evaluations/20M_params_trained_even_longer"
