@@ -122,12 +122,17 @@ class Trainer:
         self.gradient_accumulation_steps: int = self.config.trainer.gradient_accumulation_steps
         self.best_metric: str = self.config.trainer.best_metric
         self.precision = self.config.trainer.precision
-        self._use_mixeprecision = self.precision is not None  # and not self.is_distributed
-        self._auto_cast_type = torch.float16
-        if is_bfloat_supported() and self._use_mixeprecision:
-            if self.rank == 0:
-                self.logger.warning("MIXED_PRECISION: There is bfloat16 support on your system. bfloat16 will be used instead of float16!")
-            self._auto_cast_type = torch.bfloat16
+        self._use_mixeprecision = (self.precision is not None) and (self.precision != "fp32_policy")
+        if self._use_mixeprecision:
+            self._auto_cast_type = torch.float16
+            if is_bfloat_supported():
+                if self.rank == 0:
+                    self.logger.warning(
+                        "MIXED_PRECISION: There is bfloat16 support on your system. bfloat16 will be used instead of float16!"
+                    )
+                self._auto_cast_type = torch.bfloat16
+        else:
+            self._auto_cast_type = torch.float32
         self.grad_scaler = None
         if self._use_mixeprecision and not self.is_distributed:
             self.grad_scaler = torch.amp.GradScaler(self.accel_type)
@@ -380,7 +385,7 @@ class Trainer:
     def _model_update_step(self, step: int, loss: torch.Tensor):
         lrs = {}
         update_gradients = ((step + 1) % self.gradient_accumulation_steps == 0) or ((step + 1) == self.dataloader.n_train_batches)
-        if self.precision:
+        if self._use_mixeprecision:
             self.grad_scaler.scale(loss).backward()
             if update_gradients:
                 for opt_name, optimizer in self.optimizers.items():
@@ -436,7 +441,7 @@ class Trainer:
         batch = move_batch_to_local_rank(batch, self.local_rank)
         with torch.amp.autocast(
             self.accel_type,
-            enabled=self._use_mixeprecision and self.is_accelerator,
+            enabled=True,  # self._use_mixeprecision and self.is_accelerator,
             dtype=self._auto_cast_type,
         ):
             stats = self.model(batch)
