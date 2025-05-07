@@ -839,8 +839,9 @@ class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):
 
     def __init__(
         self,
-        data_dirs: Path | Paths,
         batch_size: int,
+        data: Optional[dict] = None,
+        data_dirs: Optional[Path | Paths] = None,
         files_to_load: Optional[dict] = None,
         data_limit: Optional[int] = None,
         max_dim: Optional[int] = None,
@@ -861,26 +862,32 @@ class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):
         self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_dim_keys
         self.dim_mask_key = dim_mask_key
 
-        # paths to data and loading / padding config
-        self.data_dirs = data_dirs  # one or multiple paths to directories containing files_to_load
-        self.files_to_load = files_to_load  # maps keys to filenames (in path)
-        self.data_limit = data_limit  # number of equations (first dim)  to load from each file
-        self.max_dim = max_dim
-
         # shuffle data per iter setup
         self.shuffle_locations = shuffle_locations
         self.shuffle_paths = shuffle_paths
         self.shuffle_elements = shuffle_elements
 
-        # prepare all paths to load under each
-        self.all_file_paths: dict[str, list[Path]] = get_file_paths(self.data_dirs, self.files_to_load)
-
-        self.load_data_at_init = load_data_at_init
-        if self.load_data_at_init is True:
-            self.data: dict[str, Tensor] = self.__load_data(self.all_file_paths)
+        if data is not None:
+            # loaded data is passed directly as dict
+            self.data = data
+            self.load_data_at_init = False
 
         else:
-            self.data = None
+            # paths to data and loading / padding config
+            self.data_dirs = data_dirs  # one or multiple paths to directories containing files_to_load
+            self.files_to_load = files_to_load  # maps keys to filenames (in path)
+            self.data_limit = data_limit  # number of equations (first dim)  to load from each file
+            self.max_dim = max_dim
+
+            # prepare all paths to load under each
+            self.all_file_paths: dict[str, list[Path]] = get_file_paths(self.data_dirs, self.files_to_load)
+
+            self.load_data_at_init = load_data_at_init
+            if self.load_data_at_init is True:
+                self.data: dict[str, Tensor] = self.__load_data(self.all_file_paths)
+
+            else:
+                self.data = None
 
         self.batch_size: int = batch_size
         self.num_batches: int = None
@@ -902,7 +909,7 @@ class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):
         assert "obs_times" in data.keys()
         assert "obs_values" in data.keys()
 
-        if "obs_mask" not in data.keys():
+        if data.get("obs_mask") is None:
             data["obs_mask"] = torch.utils._pytree.tree_map(torch.ones_like, data["obs_times"])
 
         # padding observations (shape [B, paths, seq_len, X]) to largest sequence length
@@ -1114,7 +1121,7 @@ class HeterogeneousFIMSDEDataset(torch.utils.data.IterableDataset):
         assert "obs_times" in data.keys()
         assert "obs_values" in data.keys()
 
-        if "obs_mask" not in data.keys():
+        if data.get("obs_mask") is None:
             data["obs_mask"] = torch.utils._pytree.tree_map(torch.ones_like, data["obs_times"])
 
         if "locations" in data.keys():
@@ -1302,7 +1309,7 @@ class StreamingFIMSDEDataset(torch.utils.data.IterableDataset):
         assert "obs_times" in data.keys()
         assert "obs_values" in data.keys()
 
-        if "obs_mask" not in data.keys():
+        if data.get("obs_mask") is None:
             data["obs_mask"] = torch.utils._pytree.tree_map(torch.ones_like, data["obs_times"])
 
         if "locations" in data.keys():
@@ -1409,8 +1416,8 @@ def h5_files_dict_iterator(files_dict: dict, batch_size: int, process_batch: Opt
 
     else:
         # open all required files
-        files_streams = torch.utils._pytree.tree_map(lambda path: h5py.File(path, "r"), files_dict)
-        files_data = torch.utils._pytree.tree_map(lambda stream: stream["data"], files_streams)
+        files_streams = torch.utils._pytree.tree_map(lambda path: h5py.File(path, "r") if path.exists() else None, files_dict)
+        files_data = torch.utils._pytree.tree_map(lambda stream: stream["data"] if stream is not None else None, files_streams)
 
         # iterate through data consecutive
         num_elements = files_data["obs_values"].shape[0]
@@ -1422,20 +1429,20 @@ def h5_files_dict_iterator(files_dict: dict, batch_size: int, process_batch: Opt
             batch_end = min(batch_end, num_elements)
 
             # get data of batch from file
-            batch = torch.utils._pytree.tree_map(lambda f: f[batch_start:batch_end], files_data)
-            batch = torch.utils._pytree.tree_map(torch.from_numpy, batch)
+            batch = torch.utils._pytree.tree_map(lambda f: f[batch_start:batch_end] if f is not None else None, files_data)
+            batch = torch.utils._pytree.tree_map(lambda x: torch.from_numpy(x) if x is not None else None, batch)
 
             # Optional pre-processing and shuffle
             if process_batch is not None:
                 batch = process_batch(batch)
 
-            yield torch.utils._pytree.tree_map(lambda x: x.contiguous(), batch)
+            yield torch.utils._pytree.tree_map(lambda x: x.contiguous() if x is not None else None, batch)
 
             batch_start = batch_end
             batch_end = batch_end + batch_size
 
         # close all files
-        torch.utils._pytree.tree_map(lambda stream: stream.close(), files_streams)
+        torch.utils._pytree.tree_map(lambda stream: stream.close() if stream is not None else None, files_streams)
 
 
 def tensor_dict_iterator(data_dict: dict, batch_size: int, process_data: Optional[callable], process_batch: Optional[callable]):
@@ -1455,7 +1462,7 @@ def tensor_dict_iterator(data_dict: dict, batch_size: int, process_data: Optiona
         if process_data is not None:
             data_dict = process_data(data_dict)
 
-        num_elements = data_dict["obs_values"].size(0)
+        num_elements = data_dict["obs_values"].shape[0]
 
         batch_start = 0
         batch_end = batch_size
@@ -1503,7 +1510,7 @@ def get_file_paths(dir_paths: list[Path], file_names: dict[str, str]) -> dict[st
         for file_key, file_name in file_names.items():
             file_path = dir_path / file_name
 
-            if not file_path.exists():  # TODO: remove this, just needs to work for now
+            if not file_path.exists() and "values" in file_path.__str__():  # TODO: remove this, just needs to work for now
                 file_path = dir_path / "obs_values.h5"
 
             file_paths[file_key].append(file_path)

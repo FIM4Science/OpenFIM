@@ -1,5 +1,6 @@
+
 experiment:
-  name: 600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer
+  name: 600k_poly_and_unary_binary_tree_data_continue_fim_05-06-2300
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -132,7 +133,7 @@ dataset:
     test: HeterogeneousFIMSDEDataset
 
   batch_size:
-    train: &train_batch_size 16
+    train: &train_batch_size 32
     validation: *train_batch_size
     test: 128
 
@@ -298,8 +299,27 @@ dataset:
 
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/train/25k_train_dim_3_clean_chunk_5/delta_tau_1e-1_100_paths_length_128_num_realiz_8333,
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/train/25k_train_dim_3_clean_chunk_5/delta_tau_1e-2_25_paths_length_512_num_realiz_8333,
-      /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/train/25k_train_dim_3_clean_chunk_5/delta_tau_1e-3_12_paths_length_1024_num_realiz_8333, ]
+      /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/train/25k_train_dim_3_clean_chunk_5/delta_tau_1e-3_12_paths_length_1024_num_realiz_8333,
 
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/1,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/2,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/3,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/4,
+
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/1,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/2,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/3,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/4,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/5,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/6,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/7,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/8,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/9,
+
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/1,
+      /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/2,
+
+    ]
     test: !!python/tuple [
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/test/10k_test_dim_2_clean_chunk_0/delta_tau_1e-1_100_paths_length_128_num_realiz_3333,
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/test/10k_test_dim_2_clean_chunk_0/delta_tau_1e-2_25_paths_length_512_num_realiz_3333,
@@ -348,6 +368,13 @@ dataset:
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/test/5k_test_dim_3_drop_20_perc_chunk_0/delta_tau_1e-1_100_paths_length_128_num_realiz_1666,
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/test/5k_test_dim_3_drop_20_perc_chunk_0/delta_tau_1e-2_25_paths_length_512_num_realiz_1666,
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/test/5k_test_dim_3_drop_20_perc_chunk_0/delta_tau_1e-3_12_paths_length_1024_num_realiz_1666,
+
+
+
+       # /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/2,
+       # /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/8,
+       # /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/2,
+       #
        ]
 
     validation: !!python/tuple [
@@ -398,6 +425,12 @@ dataset:
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/validation/5k_validation_dim_3_drop_20_perc_chunk_0/delta_tau_1e-1_100_paths_length_128_num_realiz_1666,
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/validation/5k_validation_dim_3_drop_20_perc_chunk_0/delta_tau_1e-2_25_paths_length_512_num_realiz_1666,
       /raid/seifner/sde_train_data/20250309_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3/validation/5k_validation_dim_3_drop_20_perc_chunk_0/delta_tau_1e-3_12_paths_length_1024_num_realiz_1666,
+
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-1/4,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/8,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-2/9,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/1,
+       /cephfs_projects/foundation_models/data/SDE/train/20250129-sde-nonlinear-drift-poly-diffusion-100-paths/dim-3/2,
        ]
 
 
@@ -449,7 +482,7 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: &lr_rate 1.0e-5
+      lr: &lr_rate 3.0e-5
       weight_decay: 1.0e-4
       gradient_norm_clipping: 1
       # schedulers: !!python/tuple

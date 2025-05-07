@@ -257,7 +257,7 @@ class TrainCheckpoint:
             best_model_dir = self.best_model_dir
             best_model_dir.mkdir(exist_ok=True)
             self.__logger.info("Saving Best Model ...")
-        self._save_model_state(epoch, best_model_dir)
+        self._save_model_state(epoch, best_model_dir, True)
         self._save_optimizers_state(epoch, best_model_dir)
 
         self.__logger.info("Best Model Saved!")

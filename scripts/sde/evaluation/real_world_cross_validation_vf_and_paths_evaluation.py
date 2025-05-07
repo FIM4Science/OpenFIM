@@ -9,7 +9,7 @@ import numpy as np
 import optree
 import torch
 from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
-    get_model_dicts_600k_fixed_linear_attn,
+    get_model_dicts_search_good_checkpoint,
 )
 from tqdm import tqdm
 
@@ -62,6 +62,7 @@ def get_real_world_data(all_data: list[dict], dataset: str, split: int, expected
             # FIM can be evaluated with (potentially) two paths, before and after the reference split
             "obs_times": data["obs_times_separate"],
             "obs_values": data["obs_values_separate"],
+            "obs_mask": data["obs_mask_separate"],
             "locations": data["locations"],
             "initial_states": data["initial_states"],
         }
@@ -187,9 +188,10 @@ if __name__ == "__main__":
     dataset_descr = "real_world_cross_validation_vf_and_paths_evaluation"
 
     # How to name experiments
-    experiment_descr = "develop"
+    # experiment_descr = "fim_fixed_attn_fixed_softmax_05-06-2300"
+    experiment_descr = "fim_fixed_softmax_05-03-2033_epoch_138"
 
-    model_dicts, models_display_ids = get_model_dicts_600k_fixed_linear_attn()
+    model_dicts, models_display_ids = get_model_dicts_search_good_checkpoint()
 
     results_to_load: list[str] = [
         # "/home/seifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/model_evaluations/20M_params_trained_even_longer"

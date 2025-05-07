@@ -5,12 +5,11 @@ from pathlib import Path
 from pprint import pprint
 from typing import Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import optree
 import torch
 from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
-    get_model_dicts_600k_fixed_linear_attn,
+    get_model_dicts_search_good_checkpoint,
 )
 from tqdm import tqdm
 
@@ -24,9 +23,7 @@ from fim.utils.evaluation_sde import (
     load_evaluations,
     model_map_from_dict,
     save_evaluations,
-    save_fig,
 )
-from fim.utils.evaluation_sde_synthetic_datasets import plot_1D_synthetic_data_figure_grid, plot_2D_synthetic_data_figure_grid
 
 
 def get_system_data(all_systems_data: list[dict], system: str, tau: float, noise: float) -> dict:
@@ -171,12 +168,11 @@ if __name__ == "__main__":
     dataset_descr = "synthetic_systems_vf_and_paths_evaluation"
 
     # How to name experiments
-    experiment_descr = "fim_fixed_linear_attn_fixed_softmax_delta_tau_05-03-2033"
-    # experiment_descr = "ablation_600k_train_size_500k_steps"
+    # experiment_descr = "fim_fixed_linear_attn_fixed_softmax_delta_tau_05-06-2300"
+    # experiment_descr = "fim_fixed_linear_attn_fixed_softmax_delta_tau_05-06-2300"
+    experiment_descr = "fim_fixed_softmax_dim_05-03-2033_epoch_139"
 
-    # model_dicts, models_display_ids = get_model_dicts_600k_post_submission_models()
-    model_dicts, models_display_ids = get_model_dicts_600k_fixed_linear_attn()
-    # model_dicts, models_display_ids = get_model_dicts_ablation_models()
+    model_dicts, models_display_ids = get_model_dicts_search_good_checkpoint()
 
     results_to_load: list[str] = [
         # "/home/seifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/model_evaluations/20M_params_trained_even_longer"
@@ -263,7 +259,7 @@ if __name__ == "__main__":
                 "name": name,
                 "tau": tau,
                 "noise": noise,
-                "synthetic_paths": model_evaluation.results["sample_paths"],
+                "synthetic_paths": model_evaluation.results.get("sample_paths"),
                 "drift_at_locations": model_evaluation.results["estimated_concepts"].drift,
                 "diffusion_at_locations": model_evaluation.results["estimated_concepts"].diffusion,
             }
@@ -294,48 +290,48 @@ if __name__ == "__main__":
         with open(file, "w") as file:
             file.write(json_data)
 
-    # Figures with subplot grid containing results from multiple equations per dataset
-    if sample_paths is True:
-        for model_evaluation in (pbar := tqdm(all_evaluations, total=len(all_evaluations), leave=False)):
-            pbar.set_description(
-                f"Saving figure grids for model {model_evaluation.model_id} and dataloader {model_evaluation.dataloader_id}."
-            )
-
-            dataset: dict = datasets[model_evaluation.dataloader_id]
-            dim = dataset["initial_states"].shape[-1]
-
-            if dim == 1:
-                grid_plot_func = plot_1D_synthetic_data_figure_grid
-            if dim == 2:
-                grid_plot_func = plot_2D_synthetic_data_figure_grid
-
-            fig = grid_plot_func(
-                dataset["locations"],
-                dataset["drift_at_locations"],
-                dataset["diffusion_at_locations"],
-                model_evaluation.results["estimated_concepts"].drift,
-                model_evaluation.results["estimated_concepts"].diffusion,
-                dataset["obs_times"],
-                dataset["obs_values"],
-                dataset["obs_mask"].bool(),
-                model_evaluation.results.get("sample_paths_grid"),
-                model_evaluation.results.get("sample_paths"),
-            )
-
-            # save
-            save_dir: Path = (
-                evaluation_dir
-                / "figure_grid"
-                / model_evaluation.dataloader_id[0]
-                / ("length_" + str(model_evaluation.dataloader_id[2]))
-                / ("stride_" + str(model_evaluation.dataloader_id[1]))
-            )
-            save_dir.mkdir(parents=True, exist_ok=True)
-            file_name = (
-                f"data_{model_evaluation.dataloader_id[0]}_stride_{model_evaluation.dataloader_id[1]}_model_{model_evaluation.model_id}"
-            )
-            save_fig(fig, save_dir, file_name)
-
-            plt.close(fig)
-
-        pbar.close()
+    # # Figures with subplot grid containing results from multiple equations per dataset
+    # if sample_paths is True:
+    #     for model_evaluation in (pbar := tqdm(all_evaluations, total=len(all_evaluations), leave=False)):
+    #         pbar.set_description(
+    #             f"Saving figure grids for model {model_evaluation.model_id} and dataloader {model_evaluation.dataloader_id}."
+    #         )
+    #
+    #         dataset: dict = datasets[model_evaluation.dataloader_id]
+    #         dim = dataset["initial_states"].shape[-1]
+    #
+    #         if dim == 1:
+    #             grid_plot_func = plot_1D_synthetic_data_figure_grid
+    #         if dim == 2:
+    #             grid_plot_func = plot_2D_synthetic_data_figure_grid
+    #
+    #         fig = grid_plot_func(
+    #             dataset["locations"],
+    #             dataset["drift_at_locations"],
+    #             dataset["diffusion_at_locations"],
+    #             model_evaluation.results["estimated_concepts"].drift,
+    #             model_evaluation.results["estimated_concepts"].diffusion,
+    #             dataset["obs_times"],
+    #             dataset["obs_values"],
+    #             dataset["obs_mask"].bool(),
+    #             model_evaluation.results.get("sample_paths_grid"),
+    #             model_evaluation.results.get("sample_paths"),
+    #         )
+    #
+    #         # save
+    #         save_dir: Path = (
+    #             evaluation_dir
+    #             / "figure_grid"
+    #             / model_evaluation.dataloader_id[0]
+    #             / ("length_" + str(model_evaluation.dataloader_id[2]))
+    #             / ("stride_" + str(model_evaluation.dataloader_id[1]))
+    #         )
+    #         save_dir.mkdir(parents=True, exist_ok=True)
+    #         file_name = (
+    #             f"data_{model_evaluation.dataloader_id[0]}_stride_{model_evaluation.dataloader_id[1]}_model_{model_evaluation.model_id}"
+    #         )
+    #         save_fig(fig, save_dir, file_name)
+    #
+    #         plt.close(fig)
+    #
+    #     pbar.close()

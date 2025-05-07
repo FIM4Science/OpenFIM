@@ -12,33 +12,89 @@ from fim import project_path
 from fim.utils.evaluation_sde import save_fig
 
 
+def _load_from_json(path_to_json: Path, system_name: str, tau: float, noise: float, exp: int, apply_sqrt_to_diffusion: bool):
+    all_results: list[dict] = json.load(open(path_to_json))
+
+    results_with_system = [result for result in all_results if result["name"] == system_name]
+    results_with_tau = [result for result in results_with_system if result["tau"] == tau]
+    results_with_noise = [result for result in results_with_tau if result["noise"] == noise]
+
+    assert len(results_with_noise) == 1, f"Got {len(results_with_noise)}."
+
+    all_exp_results = results_with_noise[0]
+    all_exp_results.pop("name", None)
+    all_exp_results.pop("tau", None)
+    all_exp_results.pop("noise", None)
+    all_exp_results.pop("equations", None)  # BISDE results has extra key
+
+    all_exp_results = {k: np.array(v) for k, v in all_exp_results.items()}
+
+    all_exp_results = optree.tree_map(lambda x: x[exp], all_exp_results)
+
+    if apply_sqrt_to_diffusion is True:
+        all_exp_results["diffusion_at_locations"] = np.sqrt(np.clip(all_exp_results["diffusion_at_locations"], a_min=0, a_max=np.inf))
+
+    return all_exp_results
+
+
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     global_description = "paper_figure_double_well_2D_synth"
 
-    current_description = "develop"
+    # current_description = "neurips_search_for_decent_results_tau_0_002_noise_0_exp_4"
+    current_description = "found_tau_0_002_noise_0_results_for_all_models"
 
     # data and results to load
+    # ## ICML
+    # path_to_data_json = Path(
+    #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
+    # )
+    # path_to_gp_json = Path(
+    #     "/home/seifner/repos/FIM/data/raw/SDE_opper_gp_on_coarse_synthetic_data_results/opper_sparse_gp_evaluations_at_locations_paths_coarse_synth_data.json"
+    # )
+    # path_to_wang_bisde_json = Path("/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_new.json")
+    # path_to_double_well_bisde_json = Path(
+    #     "/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_friday_full.json"
+    # )
+    # path_to_fimsde_json = Path(
+    #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json"
+    # )
+
     path_to_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
+        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
     )
     path_to_gp_json = Path(
-        "/home/seifner/repos/FIM/data/raw/SDE_opper_gp_on_coarse_synthetic_data_results/opper_sparse_gp_evaluations_at_locations_paths_coarse_synth_data.json"
+        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
     )
-    path_to_wang_bisde_json = Path("/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_new.json")
-    path_to_double_well_bisde_json = Path(
-        "/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_friday_full.json"
+    path_to_bisde_json = Path(
+        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250510_bisde_results_with_noise/20250510_bisde_results_with_multiple_diffusion_summands_no_diffusion_clipping/20250510_bisde_results_no_diffusion_clipping.json"
     )
     path_to_fimsde_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json"
+        "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
     )
 
     # results to plot
     systems_to_plot = ["Wang", "Double Well"]
+    noise = 0.0
 
-    select_gp_results = {"Double Well": {"tau": 0.002, "exp": 1}, "Wang": {"tau": 0.002, "exp": 0}}  # DW: 1 is ok, Wang: 0 is ok
-    select_bisde_results = {"Double Well": {"tau": 0.002, "exp": 2}, "Wang": {"tau": 0.002, "exp": 3}}  # DW: 1  is ok, Wang:  3 is ok,
-    select_fimsde_results = {"Double Well": {"tau": 0.02, "exp": 4}, "Wang": {"tau": 0.02, "exp": 1}}
+    select_gp_results = {
+        # "Double Well": {"tau": 0.002, "noise": noise, "exp": 1},
+        # "Wang": {"tau": 0.002, "noise": noise, "exp": 0},
+        "Double Well": {"tau": 0.002, "noise": noise, "exp": 0},  # good: 0, 1
+        "Wang": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
+    }  # DW: 1 is ok, Wang: 0 is ok
+    select_bisde_results = {
+        # "Double Well": {"tau": 0.002, "noise": noise, "exp": 2},
+        # "Wang": {"tau": 0.002, "noise": noise, "exp": 3},
+        "Double Well": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1, 4
+        "Wang": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
+    }  # DW: 1  is ok, Wang:  3 is ok,
+    select_fimsde_results = {
+        # "Double Well": {"tau": 0.002, "noise": noise, "exp": 4},
+        # "Wang": {"tau": 0.002, "noise": noise, "exp": 1},
+        "Double Well": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
+        "Wang": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
+    }
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
     # Save dir setup: project_path / evaluations / synthetic_datasets / time_stamp + _ + experiment_descr
@@ -55,31 +111,14 @@ if __name__ == "__main__":
     # data is the same in all experiments
     # keys: obs_times, obs_values, locations, drift_at_locations, diffusion_at_locations per system
 
-    def _load_from_json(path_to_json: Path, system_name: str, tau: float, exp: int, apply_sqrt_to_diffusion: bool):
-        all_results: list[dict] = json.load(open(path_to_json))
-
-        results_with_system = [result for result in all_results if result["name"] == system_name]
-        results_with_tau = [result for result in results_with_system if result["tau"] == tau]
-
-        all_exp_results = results_with_tau[0]
-        all_exp_results.pop("name", None)
-        all_exp_results.pop("tau", None)
-
-        all_exp_results = {k: np.array(v) for k, v in all_exp_results.items()}
-        all_exp_results = optree.tree_map(lambda x: x[exp], all_exp_results)
-
-        if apply_sqrt_to_diffusion is True:
-            all_exp_results["diffusion_at_locations"] = np.sqrt(np.clip(all_exp_results["diffusion_at_locations"], a_min=0, a_max=np.inf))
-        return all_exp_results
-
     gp_results = {
         "Wang": _load_from_json(path_to_gp_json, "Wang", **select_gp_results["Wang"], apply_sqrt_to_diffusion=True),
         "Double Well": _load_from_json(path_to_gp_json, "Double Well", **select_gp_results["Double Well"], apply_sqrt_to_diffusion=True),
     }
     bisde_results = {
-        "Wang": _load_from_json(path_to_wang_bisde_json, "Wang", **select_bisde_results["Wang"], apply_sqrt_to_diffusion=True),
+        "Wang": _load_from_json(path_to_bisde_json, "Wang", **select_bisde_results["Wang"], apply_sqrt_to_diffusion=True),
         "Double Well": _load_from_json(
-            path_to_double_well_bisde_json, "Double Well", **select_bisde_results["Double Well"], apply_sqrt_to_diffusion=True
+            path_to_bisde_json, "Double Well", **select_bisde_results["Double Well"], apply_sqrt_to_diffusion=True
         ),  # this needs to change
     }
     fimsde_results = {
@@ -96,7 +135,7 @@ if __name__ == "__main__":
     # configure axes general
     for ax in axs:
         [x.set_linewidth(0.3) for x in ax.spines.values()]
-        ax.tick_params(axis="both", direction="out", labelsize=5, width=0.5, length=2)
+        ax.tick_params(axis="both", direction="out", labelsize=5, width=0.5, length=2, pad=0.8)
 
     # configure double well
     axs[0].xaxis.set_major_locator(plticker.MultipleLocator(base=1))
