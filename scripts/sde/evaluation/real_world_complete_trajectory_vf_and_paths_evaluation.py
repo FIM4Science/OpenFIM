@@ -54,7 +54,7 @@ if __name__ == "__main__":
     dataset_descr = "real_world_complete_trajectory_vf_and_paths_evaluation"
 
     # How to name experiments
-    experiment_descr = "develop"
+    experiment_descr = "fim_fixed_attn_fixed_softmax_05-06-2300"
 
     model_dicts, models_display_ids = get_model_dicts_600k_fixed_linear_attn()
 

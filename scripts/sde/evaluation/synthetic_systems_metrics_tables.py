@@ -235,62 +235,67 @@ def synthetic_systems_metric_table(
     return df_count_exps, df_count_non_nans, df_mean, df_std, df_mean_plus_std, df_mean_bracket_std_times_10, df_mean_bracket_std
 
 
+def mse(target: np.ndarray, prediction: np.ndarray) -> float:
+    """
+    MSE
+
+    target: [B, L, D]
+    prediction: [B, L, D]
+    """
+    assert target.shape == prediction.shape
+
+    return ((target - prediction) ** 2).mean().item()
+
+
+def nmse(target: np.ndarray, prediction: np.ndarray, cutoff: float = 0.0) -> float:
+    """
+    Normalized MSE by target norm, when target norm is above cutoff.
+
+    target: [B, L, D]
+    prediction: [B, L, D]
+    """
+    assert target.shape == prediction.shape
+
+    error_norm = ((target - prediction) ** 2).mean(axis=-1)
+    target_norm = (target**2).mean(axis=-1)
+
+    nmse = np.where(target_norm > cutoff, error_norm / target_norm, np.nan)
+
+    return np.nanmean(nmse).item()
+
+
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     dataset_descr = "synthetic_systems_metrics_tables"
 
     # How to name experiments
-    experiment_descr = "fim_fixed_linear_attn_and_softmax_05-03-2033"
-    # experiment_descr = "ablation_600k_train_size"
-    # experiment_descr = "sparse_gp_mai_20250505_reevaluation_with_noise"
+    # experiment_descr = "fim_fixed_attn_fixed_softmax_05-06-2300"
+    # experiment_descr = "fim_vs_bisde_vs_sparsegp"
+    # experiment_descr = "fim_with_ablations_vs_bisde_vs_sparsegp"
+    # experiment_descr = "ablation_600k_train_size_500k_steps_using_ICML_model_no_delta_tau"
+    # experiment_descr = "fim_fixed_softmax_dim_05-03-2033_epoch_139"
+    # experiment_descr = "ablations_training_epochs_of_single_model"
+    # experiment_descr = "comparing_checkpoints_of_fim_fixed_linear_attn_and_fixed_softmax_dim"
+    experiment_descr = "neurips_table_1_fim_sparsegp_bisde"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     data_paths_json = Path(
-        # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ksig_reference_paths.json"
-        # "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ksig_reference_paths.json"
         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ksig_reference_paths.json"
     )
     data_vector_fields_json = Path(
-        # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
-        # "/home/seifner/repos/FIM/data/processed/test/20250324_synthetic_systems_data_as_jsons_develop/systems_ground_truth_drift_diffusion.json"
         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
     )
 
     models_jsons = {
-        #### "SparseGP": Path(
-        ####     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/opper_sparse_gp_evaluations_at_locations_paths_coarse_synth_data.json",
-        #### ),
-        # "SparseGP(ICML Submission)": Path(
-        #     "/cephfs_projects/foundation_models/data/SDE/table_sanity_check_data/sparse_gp_sparse_observations_many_paths.json"
+        # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05062310_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-03-2033/model_paths.json"
         # ),
-        #### "BISDE": Path(
-        ####     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/bisde_experiments_friday_full.json"
-        #### ),
-        # "BISDE(ICML Submission)": Path(
-        #     "/cephfs_projects/foundation_models/data/SDE/table_sanity_check_data/bisde_experiments_friday_full.json"
+        # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05092348_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-06-2300/model_paths.json"
         # ),
-        # "BISDE(Reevaluation, April 25)": Path(
-        #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/model_jsons/20250409_bisde_model_results_with_noise/20250411_bisde_results_all_systems_with_noise.json"
-        # ),
-        # "FIM(Paper)": Path(
-        #     # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json" (use updated version with noise )
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03292252_fim_icml_paper/model_paths.json"
-        # ),
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)": Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03292330_delta_tau_checkpoint_03-13-1415/model_paths.json"
-        # ),
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)": Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03292346_delta_tau_checkpoint_03-18-1205/model_paths.json"
-        # ),
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)": Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/03300002_delta_tau_checkpoint_03-23-1747/model_paths.json"
-        # ),
-        # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021110_fim_fixed_linear_attn_delta_tau_04-28-0941/model_paths.json"
-        # ),
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": Path(
-            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05062310_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-03-2033/model_paths.json"
+        "SparseGP(Reevaluation, May 5th 25)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
         ),
         # "Ablation: 30k, degree 4 drift, 500k steps": Path(
         #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021706_ablation_30k_deg_4_drift_500k_steps/model_paths.json"
@@ -301,40 +306,59 @@ if __name__ == "__main__":
         # "Ablation: 100k train size, 10M parameters, 500k steps": Path(
         #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021720_ablation_100k_train_size_500k_steps/model_paths.json"
         # ),
-        # "Ablation: 600k train size, 20M parameters, 500k steps": Path(
+        # "Ablation: 600k train size, 20M parameters, 500k steps": Path(  # DO NOT USE; TRAIN DATA WAS DELTA TAU (should be named "FIM (fixed linear Attn.) (04-28-0941) Epoch 70")
         #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021730_ablation_600k_train_size_500k_steps/model_paths.json"
         # ),
-        # "SparseGP(Reevaluation, May 5th 25)": Path(
-        #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
+        # "Ablation: 600k train size, 20M parameters, 500k steps (ICML model, no delta tau, epoch 70)": Path(
+        #     "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/05131859_ablation_600k_train_size_500k_steps_using_ICML_model_no_delta_tau/model_paths.json",
         # ),
+        "BISDE(Reevaluation, May 10th 25) (no diffusion clipping)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250510_bisde_results_with_noise/20250510_bisde_results_with_multiple_diffusion_summands_no_diffusion_clipping/20250510_bisde_results_no_diffusion_clipping.json"
+        ),
+        # "BISDE(Reevaluation, May 11th 25) (with diffusion clipping)": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250510_bisde_results_with_noise/20250511_bisde_results_with_multiple_diffusion_summands_with_diffusion_clipping/20250511_bisde_results_with_diffusion_clipping.json"
+        # ),
+        # "FIM (fixed linear Attn.) (04-28-0941) Epoch 125": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141243_fim_fixed_linear_attn_04-28-0941_epoch_125/model_paths.json"
+        # ),
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 40": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141331_fim_fixed_softmax_dim_05-03-2033_epoch_040/model_paths.json"
+        # ),
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 70": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141352_fim_fixed_softmax_dim_05-03-2033_epoch_070/model_paths.json"
+        # ),
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 100": Path(
+        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141418_fim_fixed_softmax_dim_05-03-2033_epoch_100/model_paths.json"
+        # ),
+        "FIM (fixed Softmax dim.) (05-03-2033) Epoch 139": Path(
+            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
+        ),
     }
     apply_sqrt_to_diffusion = [
         "BISDE",
-        "BISDE(ICML Submission)",
-        "BISDE(Reevaluation, April 25)",
-        "SparseGP",
-        "SparseGP(ICML Submission)",
+        "BISDE(Reevaluation, May 10th 25) (no diffusion clipping)",
+        "BISDE(Reevaluation, May 11th 25) (with diffusion clipping)",
         "SparseGP(Reevaluation, May 5th 25)",
     ]
 
     models_to_evaluate = [
-        #### "SparseGP",
-        # "SparseGP(ICML Submission)",
-        #### "BISDE",
-        # "BISDE(ICML Submission)",
-        # "BISDE(Reevaluation, April 25)",
-        # "FIM(Paper)",
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)",
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)",
+        # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)",
+        # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)",
+        "SparseGP(Reevaluation, May 5th 25)",
         # "Ablation: 30k, degree 4 drift, 500k steps",
         # "Ablation: 30k train size, 5M parameters, 500k steps",
         # "Ablation: 100k train size, 10M parameters, 500k steps",
-        # "Ablation: 600k train size, 20M parameters, 500k steps",
-        # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)"
-        # "SparseGP(Reevaluation, May 5th 25)",
+        # "Ablation: 600k train size, 20M parameters, 500k steps",  # DO NOT USE THIS, WAS TRAINED ON DELTA TAU DATA (should be named "FIM (fixed linear Attn.) (04-28-0941) Epoch 70")
+        # "Ablation: 600k train size, 20M parameters, 500k steps (ICML model, no delta tau, epoch 70)",
+        "BISDE(Reevaluation, May 10th 25) (no diffusion clipping)",
+        # "BISDE(Reevaluation, May 11th 25) (with diffusion clipping)",
+        # "FIM (fixed linear Attn.) (04-28-0941) Epoch 125",
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 40",
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 70",
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 100",
+        "FIM (fixed Softmax dim.) (05-03-2033) Epoch 139",
     ]
+
     systems_to_evaluate = [
         "Double Well",
         "Wang",
@@ -349,87 +373,96 @@ if __name__ == "__main__":
         0.002,
         # 0.01,
         0.02,
-        0.2,
+        # 0.2,
     ]
     noise_to_evaluate = [
         0.0,
         0.05,
-        0.1,
+        # 0.1,
     ]
     experiment_count = 5
     mmd_max_num_paths = 100
 
-    only_use_loaded_evaluations = False
+    only_use_loaded_evaluations = True
 
     metrics_to_evaluate = [
+        "nmse_drift",
+        "nmse_diffusion",
+        "nmse_drift_and_diffusion_average",
         "mse_drift",
         "mse_diffusion",
+        "mse_drift_and_diffusion_average",
+        "nmse_above_1e-6_drift",
+        "nmse_above_1e-6_diffusion",
+        "nmse_above_1e-6_drift_and_diffusion_average",
         "mmd",
     ]
 
     metric_evaluations_to_load: list[Path] = [
-        #### Path(
-        ####     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100928_sparsegp_evaluation/metric_evaluations_jsons"
-        #### ),
-        #### Path(
-        ####     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100931_bisde_evaluation/metric_evaluations_jsons"
-        #### ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03100934_fim_paper_model_evaluation/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05091823_fim_fixed_attn_fixed_softmax_05-03-2033/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03141800_bisde_from_icml_submission/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05100018_fim_fixed_attn_fixed_softmax_05-06-2300/metric_evaluations_jsons"
+        # ),
+        Path(
+            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05110044_bisde_reevaluation_may_10th_25_no_diffusion_clipping/metric_evaluations_jsons"
+        ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05112004_bisde_reevaluation_may_11th_25_with_diffusion_clipping/metric_evaluations_jsons"
+        # ),
+        Path(
+            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05091855_sparsegp_reevaluation_may_5th/metric_evaluations_jsons"
+        ),
+        # Path(
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05122300_ablation_degree_4/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03141807_sparsegp_from_icml_submission/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05091903_ablation_train_size_30k/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_synthetic_systems_metrics_tables/03162326_fim_delta_tau_1e-1_to_1e-3_03-13-1415_evaluation/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05110804_ablation_train_size_100k/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/evaluations/synthetic_systems_metrics_tables/03301651_fim_icml_paper/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05110806_ablation_train_size_600k/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/evaluations/synthetic_systems_metrics_tables/03301704_fim_delta_tau_03-13-1415/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05131923_ablation_600k_train_size_500k_steps_using_ICML_model_no_delta_tau/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/evaluations/synthetic_systems_metrics_tables/03301713_fim_delta_tau_03-23-1747_clean/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141535_fim_fixed_linear_attn_04-28-0941_epoch_125/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04070948_fim_icml_paper/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141538_fim_fixed_softmax_dim_05-03-2033_epoch_40/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04071007_fim_delta_tau_03-13-1415/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141540_fim_fixed_softmax_dim_05-03-2033_epoch_70/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04071010_fim_delta_tau_03-18-1205/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141547_fim_fixed_softmax_dim_05-03-2033_epoch_100/metric_evaluations_jsons"
         # ),
-        # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04071014_fim_delta_tau_03-23-1747/metric_evaluations_jsons"
-        # ),
-        # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/04121226_bisde_reevaluation_april_25/metric_evaluations_jsons"
-        # ),
+        Path(
+            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141550_fim_fixed_softmax_dim_05-03-2033_epoch_139/metric_evaluations_jsons"
+        ),
     ]
 
     # tables config
     models_order = [
-        #### "SparseGP",
-        # "SparseGP(ICML Submission)",
-        #### "BISDE",
-        # "BISDE(ICML Submission)",
-        # "BISDE(Reevaluation, April 25)",
-        # "FIM(Paper)",
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)",
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-18-1205)",
-        # "FIM(Delta Tau 1e-1 to 1e-3. 03-23-1747)",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)"
+        # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)",
+        # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)",
         # "Ablation: 30k, degree 4 drift, 500k steps",
         # "Ablation: 30k train size, 5M parameters, 500k steps",
         # "Ablation: 100k train size, 10M parameters, 500k steps",
-        "Ablation: 600k train size, 20M parameters, 500k steps",
-        # "FIM(Delta Tau, Fixed Linear Attn. 04-28-0941)",
-        # "SparseGP(Reevaluation, May 5th 25)",
+        # "Ablation: 600k train size, 20M parameters, 500k steps",  # DO NOT USE THIS, (should be named "FIM (fixed linear Attn.) (04-28-0941) Epoch 70")
+        # "Ablation: 600k train size, 20M parameters, 500k steps (ICML model, no delta tau, epoch 70)",
+        "BISDE(Reevaluation, May 10th 25) (no diffusion clipping)",
+        # "BISDE(Reevaluation, May 11th 25) (with diffusion clipping)",
+        "SparseGP(Reevaluation, May 5th 25)",
+        # "FIM (fixed linear Attn.) (04-28-0941) Epoch 125",
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 40",
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 70",
+        # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 100",
+        "FIM (fixed Softmax dim.) (05-03-2033) Epoch 139",
     ]
     systems_order = systems_to_evaluate
     precision = 3
@@ -527,53 +560,83 @@ if __name__ == "__main__":
                 else:
                     eval.metric_value = compute_mmd(ground_truth_paths, model_paths, kernel_cache=mmd_ground_truth_cache)
 
-            elif eval.metric_id in ["mse_drift", "mse_diffusion"]:
-                vector_field_key = "drift_at_locations" if eval.metric_id == "mse_drift" else "diffusion_at_locations"
-                ground_truth_vf: np.ndarray = get_ground_truth_vector_field(data_vector_fields, vector_field_key, system, exp)
-                model_vf: np.ndarray = get_model_data(models_data[eval.model_id], vector_field_key, system, tau, noise, exp)
-
-                if model_vf is None:
-                    eval.metric_value = np.nan
-
-                else:
-                    # adjust for different convention of comparison models
-                    if vector_field_key == "diffusion_at_location" and eval.model_id in apply_sqrt_to_diffusion:
-                        model_vf = np.sqrt(np.clip(model_vf, a_min=0.0, a_max=np.inf))
-
-                    if ground_truth_vf.shape != model_vf.shape:
-                        raise ValueError(
-                            f"Ground-Truth vf {ground_truth_vf.shape} and estimation {model_vf.shape} must have same shape. Evaluation {eval}."
-                        )
-
-                    eval.metric_value = ((ground_truth_vf - model_vf) ** 2).mean().item()
-
-            elif eval.metric_id == "mse_drift_and_diffusion_average":
+            elif eval.metric_id in [
+                "mse_drift",
+                "mse_diffusion",
+                "nmse_drift",
+                "nmse_diffusion",
+                "nmse_above_1e-6_drift",
+                "nmse_above_1e-6_diffusion",
+                "mse_drift_and_diffusion_average",
+                "nmse_drift_and_diffusion_average",
+                "nmse_above_1e-6_drift_and_diffusion_average",
+            ]:
                 ground_truth_drift: np.ndarray = get_ground_truth_vector_field(data_vector_fields, "drift_at_locations", system, exp)
                 model_drift: np.ndarray = get_model_data(models_data[eval.model_id], "drift_at_locations", system, tau, noise, exp)
 
                 ground_truth_diff: np.ndarray = get_ground_truth_vector_field(data_vector_fields, "diffusion_at_locations", system, exp)
                 model_diff: np.ndarray = get_model_data(models_data[eval.model_id], "diffusion_at_locations", system, tau, noise, exp)
 
-                if model_drift is None or model_diff is None:
-                    eval.metric_value = np.nan
+                if ground_truth_diff.shape != model_diff.shape:
+                    raise ValueError(
+                        f"Ground-Truth vf {ground_truth_diff.shape} and estimation {model_diff.shape} must have same shape. Evaluation {eval}."
+                    )
 
-                else:
-                    # adjust for different convention of comparison models
-                    if eval.model_id in apply_sqrt_to_diffusion:
-                        model_diff = np.sqrt(np.clip(model_diff, a_min=0.0, a_max=np.inf))
+                if ground_truth_drift.shape != model_drift.shape:
+                    raise ValueError(
+                        f"Ground-Truth vf {ground_truth_drift.shape} and estimation {model_drift.shape} must have same shape. Evaluation {eval}."
+                    )
 
-                    if (ground_truth_drift.shape != model_drift.shape) or (ground_truth_diff.shape != model_diff.shape):
-                        raise ValueError(
-                            f"Vector fields must have same shape, got: {ground_truth_drift.shape}, {model_drift.shape}, {ground_truth_diff.shape}, {model_diff.shape}."
-                        )
+                # adjust for different convention of comparison models
+                if eval.model_id in apply_sqrt_to_diffusion:
+                    model_diff = np.sqrt(np.clip(model_diff, a_min=0.0, a_max=np.inf))
 
-                    mse_drift = ((ground_truth_drift - model_drift) ** 2).mean().item()
-                    mse_diff = ((ground_truth_diff - model_diff) ** 2).mean().item()
+                if eval.metric_id == "mse_drift":
+                    eval.metric_value = mse(ground_truth_drift, model_drift)
 
+                elif eval.metric_id == "mse_diffusion":
+                    eval.metric_value = mse(ground_truth_diff, model_diff)
+
+                elif eval.metric_id == "nmse_drift":
+                    eval.metric_value = nmse(ground_truth_drift, model_drift)
+
+                elif eval.metric_id == "nmse_diffusion":
+                    eval.metric_value = nmse(ground_truth_diff, model_diff)
+
+                elif eval.metric_id == "nmse_above_1e-6_drift":
+                    eval.metric_value = nmse(ground_truth_drift, model_drift, cutoff=1e-6)
+
+                elif eval.metric_id == "nmse_above_1e-6_diffusion":
+                    eval.metric_value = nmse(ground_truth_diff, model_diff, cutoff=1e-6)
+
+                elif eval.metric_id == "mse_drift_and_diffusion_average":
+                    mse_drift = mse(ground_truth_drift, model_drift)
+                    mse_diff = mse(ground_truth_diff, model_diff)
                     eval.metric_value = (1 / 2) * (mse_drift + mse_diff)
 
+                elif eval.metric_id == "nmse_drift_and_diffusion_average":
+                    nmse_drift = nmse(ground_truth_drift, model_drift)
+                    nmse_diff = nmse(ground_truth_diff, model_diff)
+                    eval.metric_value = (1 / 2) * (nmse_drift + nmse_diff)
+
+                elif eval.metric_id == "nmse_above_1e-6_drift_and_diffusion_average":
+                    nmse_drift = nmse(ground_truth_drift, model_drift, cutoff=1.0e-6)
+                    nmse_diff = nmse(ground_truth_diff, model_diff, cutoff=1.0e-6)
+                    eval.metric_value = (1 / 2) * (nmse_drift + nmse_diff)
+
             else:
-                valid_metric_ids = ["mmd", "mse_drift", "mse_diffusion", "mse_drift_and_diffusion_average"]
+                valid_metric_ids = [
+                    "nmse_drift",
+                    "nmse_diffusion",
+                    "nmse_drift_and_diffusion_average",
+                    "mse_drift",
+                    "mse_diffusion",
+                    "mse_drift_and_diffusion_average",
+                    "nmse_above_1e-6_drift",
+                    "nmse_above_1e-6_diffusion",
+                    "nmse_above_1e-6_drift_and_diffusion_average",
+                    "mmd",
+                ]
                 raise ValueError(f"Valid metrics are {str(valid_metric_ids)}, got {eval.metric_id} from requested evaluation {eval}.")
 
             # record computation time
@@ -585,7 +648,7 @@ if __name__ == "__main__":
             )
 
             # save results as json
-            file_name = f"mod_{eval.model_id.replace(' ', '_')}_met_{eval.metric_id}_sys_{system}_tau_{tau}_exp_{exp}.json"
+            file_name = f"mod_{eval.model_id.replace(' ', '_')}_met_{eval.metric_id}_sys_{system}_tau_{tau}_noise_{noise}_exp_{exp}.json"
             eval.to_json(json_save_dir / file_name)
 
             all_evaluations.append(eval)

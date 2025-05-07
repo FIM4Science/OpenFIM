@@ -8,9 +8,6 @@ import matplotlib.ticker as plticker
 import optree
 import pandas as pd
 import torch
-from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
-    get_model_dicts_ablation_models,
-)
 from torch import Tensor
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -635,12 +632,92 @@ if __name__ == "__main__":
     dataset_descr = "motion_capture_43"
 
     # How to name experiments
-    experiment_descr = "fim_paper_delta_tau_and_ablations_without_fixed_attention"
+    # experiment_descr = "fim_paper_delta_tau_and_ablations_without_fixed_attention"
+    experiment_descr = "compare_finetune_to_models_only_trained_on_mocap"
 
-    model_dicts, models_display_ids = get_model_dicts_ablation_models()
+    # model_dicts, models_display_ids = get_model_dicts_ablation_models()
+    model_dicts = {
+        "only_trained_on_mocap_05-08-1440_checkpoint_10": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/train_only_on_mocap_one_step_ahead_05-08-1440/checkpoints/",
+            "checkpoint_name": "epoch-10",
+        },
+        "only_trained_on_mocap_05-08-1440_checkpoint_100": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/train_only_on_mocap_one_step_ahead_05-08-1440/checkpoints/",
+            "checkpoint_name": "epoch-100",
+        },
+        "only_trained_on_mocap_05-08-1440_checkpoint_1000": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/train_only_on_mocap_one_step_ahead_05-08-1440/checkpoints/",
+            "checkpoint_name": "epoch-1000",
+        },
+        "only_trained_on_mocap_05-08-1440_checkpoint_2000": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/train_only_on_mocap_one_step_ahead_05-08-1440/checkpoints/",
+            "checkpoint_name": "epoch-1000",
+        },
+        "only_trained_on_mocap_05-08-1440_checkpoint_5000": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/train_only_on_mocap_one_step_ahead_05-08-1440/checkpoints/",
+            "checkpoint_name": "epoch-5000",
+        },
+        "only_trained_on_mocap_05-08-1440_checkpoint_9999": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/train_only_on_mocap_one_step_ahead_05-08-1440/checkpoints/",
+            "checkpoint_name": "epoch-9999",
+        },
+        "only_trained_on_mocap_05-08-1440_checkpoint_best": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/train_only_on_mocap_one_step_ahead_05-08-1440/checkpoints/",
+            "checkpoint_name": "best-model",
+        },
+        "big_model_finetuned_checkpoint_1": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_05-08-2307/checkpoints/",
+            "checkpoint_name": "epoch-117",
+        },
+        "big_model_finetuned_checkpoint_10": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_05-08-2307/checkpoints/",
+            "checkpoint_name": "epoch-127",
+        },
+        "big_model_finetuned_checkpoint_100": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_05-08-2307/checkpoints/",
+            "checkpoint_name": "epoch-217",
+        },
+        "big_model_finetuned_checkpoint_1000": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_05-08-2307/checkpoints/",
+            "checkpoint_name": "epoch-1000",
+        },
+        "big_model_finetuned_on_nmse_checkpoint_1": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_on_normalied_mse_05-09-0021/checkpoints/",
+            "checkpoint_name": "epoch-118",
+        },
+        "big_model_finetuned_on_nmse_checkpoint_10": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_on_normalied_mse_05-09-0021/checkpoints/",
+            "checkpoint_name": "epoch-128",
+        },
+        "big_model_finetuned_on_nmse_checkpoint_100": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_on_normalied_mse_05-09-0021/checkpoints/",
+            "checkpoint_name": "epoch-218",
+        },
+        "big_model_finetuned_on_nmse_checkpoint_1000": {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/results/finetune_real_model_on_normalied_mse_05-09-0021/checkpoints/",
+            "checkpoint_name": "epoch-1000",
+        },
+    }
 
+    models_display_ids = {
+        "only_trained_on_mocap_05-08-1440_checkpoint_10": "Only trained on Mocap, Ckp. 10",
+        "only_trained_on_mocap_05-08-1440_checkpoint_100": "Only trained on Mocap, Ckp. 100",
+        "only_trained_on_mocap_05-08-1440_checkpoint_1000": "Only trained on Mocap, Ckp. 1000",
+        "only_trained_on_mocap_05-08-1440_checkpoint_2000": "Only trained on Mocap, Ckp. 2000",
+        "only_trained_on_mocap_05-08-1440_checkpoint_5000": "Only trained on Mocap, Ckp. 5000",
+        "only_trained_on_mocap_05-08-1440_checkpoint_9999": "Only trained on Mocap, Ckp. 9999",
+        "only_trained_on_mocap_05-08-1440_checkpoint_best": "Only trained on Mocap, Ckp. best model",
+        "big_model_finetuned_checkpoint_1": "Finetuned Big Model (MSE), Ckp. 1",
+        "big_model_finetuned_checkpoint_10": "Finetuned Big Model (MSE), Ckp. 10",
+        "big_model_finetuned_checkpoint_100": "Finetuned Big Model (MSE), Ckp. 100",
+        "big_model_finetuned_checkpoint_1000": "Finetuned Big Model (MSE), Ckp. 1000",
+        "big_model_finetuned_on_nmse_checkpoint_1": "Finetuned Big Model (Norm. MSE), Ckp. 1",
+        "big_model_finetuned_on_nmse_checkpoint_10": "Finetuned Big Model (Norm. MSE), Ckp. 10",
+        "big_model_finetuned_on_nmse_checkpoint_100": "Finetuned Big Model (Norm. MSE), Ckp. 100",
+        "big_model_finetuned_on_nmse_checkpoint_1000": "Finetuned Big Model (Norm. MSE), Ckp. 1000",
+    }
     results_to_load: list[str] = [
-        # "/home/seifner/repos/FIM/evaluations/motion_capture/01281819_develop_vector_field_figure/model_evaluations",
+        "/home/seifner/repos/FIM/evaluations/motion_capture_43/05082330_models_only_trained_on_mocap/model_evaluations",
     ]
 
     num_sample_paths = 50

@@ -31,7 +31,7 @@ def get_model_results_on_dataset(models_results: dict[list], dataset: str, apply
         results["diffusion_at_locations"] = np.array(results["diffusion_at_locations"])
 
         if model_label in apply_sqrt_to_diffusion:
-            results["diffusion_at_locations"] = np.sqrt(results["diffusion_at_locations"])
+            results["diffusion_at_locations"] = np.sqrt(np.max(results["diffusion_at_locations"]))
 
         # reverse log-transform
         if results.get("transform") == "log":
@@ -94,6 +94,8 @@ def get_sample_paths_figure(
     assert obs_times.shape == ref_obs_values.shape
     assert obs_times.ndim == 4
 
+    _, P, T, _ = obs_times.shape
+
     P = ref_obs_values.shape[1]
 
     for p in range(P):
@@ -103,9 +105,17 @@ def get_sample_paths_figure(
         color = models_color[label]
         synthetic_paths = result.get("synthetic_paths")  # [1, P, T, 1]
 
-        assert obs_times.shape == synthetic_paths.shape
+        obs_times = obs_times.squeeze()
 
-        ax.plot(obs_times[:, p].squeeze(), synthetic_paths[:, p].squeeze(), label=label, color=color, linewidth=linewidth)
+        synthetic_paths = synthetic_paths[..., :T, :]
+        synthetic_paths = synthetic_paths.squeeze()
+
+        assert obs_times.shape == synthetic_paths.shape, f"obs_times: {obs_times.shape}, synthetic_paths: {synthetic_paths.shape}"
+
+        obs_times = obs_times.reshape(P, T)
+        synthetic_paths = synthetic_paths.reshape(P, T)
+
+        ax.plot(obs_times[p].squeeze(), synthetic_paths[p].squeeze(), label=label, color=color, linewidth=linewidth, alpha=alpha)
 
     ax.legend()
     ax.set_title(title)
@@ -120,6 +130,7 @@ def get_vector_fields_figure(
     figsize=(5, 5),
     dpi=300,
     linewidth=2,
+    alpha=0.75,
 ):
     """
     Plot infered vector fields from all models.
@@ -138,8 +149,8 @@ def get_vector_fields_figure(
         assert locations.shape == drift.shape
         assert drift.shape == diffusion.shape
 
-        ax[0].plot(locations.squeeze(), drift.squeeze(), label=label, color=color, linewidth=linewidth)
-        ax[1].plot(locations.squeeze(), diffusion.squeeze(), label=label, color=color, linewidth=linewidth)
+        ax[0].plot(locations.squeeze(), drift.squeeze(), label=label, color=color, linewidth=linewidth, alpha=alpha)
+        ax[1].plot(locations.squeeze(), diffusion.squeeze(), label=label, color=color, linewidth=linewidth, alpha=alpha)
 
         ax[0].set_xlabel("Drift")
         ax[1].set_xlabel("Diffusion")
@@ -156,7 +167,7 @@ if __name__ == "__main__":
     dataset_descr = "real_world_complete_trajectory_figures"
 
     # How to name experiments
-    experiment_descr = "develop"
+    experiment_descr = "fim_checkpoints_vs_BISDE"
 
     complete_trajectory_data_json = Path(
         "/home/seifner/repos/FIM/data/processed/test/20250506_real_world_with_5_fold_cross_validation/complete_paths.json"
@@ -170,25 +181,31 @@ if __name__ == "__main__":
     ]
 
     models_jsons = {
-        "develop": Path(
-            "/home/seifner/repos/FIM/evaluations/real_world_complete_trajectory_vf_and_paths_evaluation/05061830_develop/model_paths.json"
+        "FIM (05-03-2033)": Path(
+            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_complete_trajectory_vf_and_paths_evaluation/05101118_fim_fixed_attn_fixed_softmax_05-03-2033/model_paths.json",
         ),
-        "develop2": Path(
-            "/home/seifner/repos/FIM/evaluations/real_world_complete_trajectory_vf_and_paths_evaluation/05061830_develop/model_paths.json"
+        "FIM (05-06-2300)": Path(
+            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_complete_trajectory_vf_and_paths_evaluation/05101246_fim_fixed_attn_fixed_softmax_05-06-2300/model_paths.json",
+        ),
+        "BISDE(20250510, BISDE Library Functions)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_reeval_on_complete_trajectory_function_library_from_bisde_paper/bisde_real_world_reeval_results.json"
+        ),
+        "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_reeval_on_complete_trajectory_function_library_with_exps_and_sins/bisde_real_world_reeval_our_basis_results.json"
         ),
     }
 
     models_color = {
-        "develop": "#0072B2",
-        "develop2": "#CC79A7",
+        "FIM (05-03-2033)": "#0072B2",
+        "FIM (05-06-2300)": "blue",
+        "BISDE(20250510, BISDE Library Functions)": "#CC79A7",
+        "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": "magenta",
     }
 
     apply_sqrt_to_diffusion = [
-        "develop2",
+        "BISDE(20250510, BISDE Library Functions)",
+        "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
     ]
-
-    # model_color = ("#0072B2",)
-    # bisde_color = ("#CC79A7",)
 
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
@@ -204,8 +221,21 @@ if __name__ == "__main__":
     # load complete trajectory data
     data_paths: list[dict] = json.load(open(complete_trajectory_data_json, "r"))
 
+    # add locations to model_results
+    def get_locations_of_dataset(data_paths: list[dict], dataset: str):
+        data_from_dataset = [d for d in data_paths if d["name"] == dataset]
+        assert len(data_from_dataset) == 1
+        data_from_dataset = data_from_dataset[0]
+
+        return data_from_dataset["locations"]
+
+    models_results = {
+        model_label: [result | {"locations": get_locations_of_dataset(deepcopy(data_paths), result["name"])} for result in model_results]
+        for model_label, model_results in models_results.items()
+    }
+
     for dataset in datasets_to_evaluate:
-        reference_data = get_reference_data(data_paths, dataset)
+        reference_data = get_reference_data(deepcopy(data_paths), dataset)
         models_results_of_dataset = get_model_results_on_dataset(deepcopy(models_results), dataset, apply_sqrt_to_diffusion)
 
         # sample paths figure

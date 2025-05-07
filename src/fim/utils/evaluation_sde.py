@@ -157,6 +157,7 @@ def load_evaluations(paths: str | list[str]) -> list[ModelEvaluation]:
     # Load model evaluations
     model_evaluations = []
     for path in (pbar := tqdm(list(paths), total=len(list(paths)), leave=False, desc="Loading saved evaluations")):
+        print(path)
         model_evaluations.append(ModelEvaluation.from_path(path))
     pbar.close()
 

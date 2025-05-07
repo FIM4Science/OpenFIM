@@ -215,7 +215,9 @@ if __name__ == "__main__":
     dataset_descr = "real_world_cross_validation_metrics_tables"
 
     # How to name experiments
-    experiment_descr = "develop"
+    # experiment_descr = "fim_checkpoints_vs_BISDE"
+    # experiment_descr = "fim_and_BISDE_vs_ablation_models"
+    experiment_descr = "fim_vs_bisde_neurips_table"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
@@ -223,22 +225,92 @@ if __name__ == "__main__":
         "/home/seifner/repos/FIM/data/processed/test/20250506_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
     )
 
+    # models_jsons = {
+    #     "FIM (05-03-2033)": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05102037_fim_fixed_attn_fixed_softmax_05-03-2033/model_paths.json",
+    #     ),
+    #     "FIM (05-06-2300)": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05102124_fim_fixed_attn_fixed_softmax_05-06-2300/model_paths.json",
+    #     ),
+    #     "BISDE(20250510, BISDE Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_from_bisde_paper/bisde_real_world_cv_results.json"
+    #     ),
+    #     "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_with_exps_and_sins/bisde_real_world_cv_our_basis_results.json"
+    #     ),
+    #     "Ablation: train size 30k, 5M params": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05121921_ablation_model_train_size_30k/model_paths.json"
+    #     ),
+    #     "Ablation: train size 100k, 10M params": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05121914_ablation_model_train_size_100k/model_paths.json"
+    #     ),
+    #     "Ablation: train size 600k, 20M params": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05121902_ablation_model_train_size_600k/model_paths.json"
+    #     ),
+    #     "Ablation: train size 30k with degree 4 drift, 5M params": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05121927_ablation_model_degree_4_drift/model_paths.json"
+    #     ),
+    # }
+
+    # models_jsons = {
+    #     "FIM (05-03-2033)": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05102037_fim_fixed_attn_fixed_softmax_05-03-2033/model_paths.json",
+    #     ),
+    #     "FIM (05-06-2300)": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05102124_fim_fixed_attn_fixed_softmax_05-06-2300/model_paths.json",
+    #     ),
+    #     "BISDE(20250510, BISDE Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_from_bisde_paper/bisde_real_world_cv_results.json"
+    #     ),
+    #     "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_with_exps_and_sins/bisde_real_world_cv_our_basis_results.json"
+    #     ),
+    #     "BISDE(20250514, BISDE Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
+    #     ),
+    #     "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+    #     ),
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 040": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05132202_fim_fixed_linear_attn_04-28-0941_epoch_040/model_paths.json",
+    #     ),
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 070": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05132215_fim_fixed_linear_attn_04-28-0941_epoch_070/model_paths.json",
+    #     ),
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 100": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05132227_fim_fixed_linear_attn_04-28-0941_epoch_100/model_paths.json",
+    #     ),
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 125": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05132353_fim_fixed_linear_attn_04-28-0941_epoch_125/model_paths.json",
+    #     ),
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 040": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05140004_fim_fixed_softmax_05-03-2033_epoch_040/model_paths.json",
+    #     ),
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 070": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05140019_fim_fixed_softmax_05-03-2033_epoch_070/model_paths.json",
+    #     ),
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 100": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05140033_fim_fixed_softmax_05-03-2033_epoch_100/model_paths.json",
+    #     ),
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 125": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05140045_fim_fixed_softmax_05-03-2033_epoch_125/model_paths.json",
+    #     ),
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
+    #         "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
+    #     ),
+    # }
+
     models_jsons = {
-        "develop": Path(
-            "/home/seifner/repos/FIM/evaluations/real_world_cross_validation_vf_and_paths_evaluation/05070634_develop/model_paths.json"
+        "BISDE(20250514, BISDE Library Functions)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
         ),
-        "develop2": Path(
-            "/home/seifner/repos/FIM/evaluations/real_world_cross_validation_vf_and_paths_evaluation/05070634_develop/model_paths.json"
+        "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+        ),
+        "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
+            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
         ),
     }
-    apply_sqrt_to_diffusion = [
-        "BISDE(Reevaluation, April 25)",
-    ]
-
-    models_to_evaluate = [
-        "develop",
-        "develop2",
-    ]
 
     datasets_to_evaluate: list[str] = [
         "wind",
@@ -256,13 +328,57 @@ if __name__ == "__main__":
     ]
 
     metric_evaluations_to_load: list[Path] = [
-        # Path("/home/seifner/repos/FIM/evaluations/real_world_cross_validation_metrics_tables/05061331_develop/metric_evaluations_jsons"),
+        # Path(
+        #     "/home/seifner/repos/FIM/evaluations/real_world_cross_validation_metrics_tables/05140653_fim_fixed_linear_vs_fixed_softmax_different_epochs/metric_evaluations_jsons"
+        # ),
     ]
 
     # tables config
+    # models_order = [
+    #     "FIM (05-03-2033)",
+    #     "FIM (05-06-2300)",
+    #     "BISDE(20250510, BISDE Library Functions)",
+    #     "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+    #     "Ablation: train size 30k, 5M params",
+    #     "Ablation: train size 100k, 10M params",
+    #     "Ablation: train size 600k, 20M params",
+    #     "Ablation: train size 30k with degree 4 drift, 5M params",
+    # ]
+
+    # models_order = [
+    #     "FIM (05-03-2033)",
+    #     "FIM (05-06-2300)",
+    #     "BISDE(20250510, BISDE Library Functions)",
+    #     "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+    #     "BISDE(20250514, BISDE Library Functions)",
+    #     "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 040",
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 070",
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 100",
+    #     "FIM fixed linear Attn., 04-28-0941, Epoch 125",
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 040",
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 070",
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 100",
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 125",
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 138",
+    # ]
+
     models_order = [
-        "develop",
-        "develop2",
+        # "FIM (05-03-2033)",
+        # "FIM (05-06-2300)",
+        # "BISDE(20250510, BISDE Library Functions)",
+        # "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+        "BISDE(20250514, BISDE Library Functions)",
+        "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+        # "FIM fixed linear Attn., 04-28-0941, Epoch 040",
+        # "FIM fixed linear Attn., 04-28-0941, Epoch 070",
+        # "FIM fixed linear Attn., 04-28-0941, Epoch 100",
+        # "FIM fixed linear Attn., 04-28-0941, Epoch 125",
+        # "FIM fixed Softmax dim., 05-03-2033, Epoch 040",
+        # "FIM fixed Softmax dim., 05-03-2033, Epoch 070",
+        # "FIM fixed Softmax dim., 05-03-2033, Epoch 100",
+        # "FIM fixed Softmax dim., 05-03-2033, Epoch 125",
+        "FIM fixed Softmax dim., 05-03-2033, Epoch 138",
     ]
     datasets_order = datasets_to_evaluate
     precision = 3
@@ -291,7 +407,7 @@ if __name__ == "__main__":
             metric_id=metric,
             metric_value=None,  # input later
         )
-        for model in models_to_evaluate
+        for model in models_jsons.keys()
         for dataset in datasets_to_evaluate
         for split in range(expected_num_total_splits)
         for metric in metrics_to_evaluate
@@ -340,8 +456,10 @@ if __name__ == "__main__":
             start_time = datetime.now()
 
             if eval.metric_id == "mmd":
-                reference_paths: np.ndarray = get_reference_paths(data_paths, dataset, split, total_splits)
-                model_paths: np.ndarray = get_model_data(models_data[eval.model_id], "synthetic_paths", dataset, split, total_splits)
+                reference_paths: np.ndarray = get_reference_paths(deepcopy(data_paths), dataset, split, total_splits)
+                model_paths: np.ndarray = get_model_data(
+                    deepcopy(models_data[eval.model_id]), "synthetic_paths", dataset, split, total_splits
+                )
 
                 if model_paths is None or np.isnan(model_paths).any():
                     eval.metric_value = np.nan
