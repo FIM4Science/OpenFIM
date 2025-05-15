@@ -116,7 +116,6 @@ class FIMHawkes(AModel):
         base_intensity_decoder = copy.deepcopy(self.config.base_intensity_decoder)
         base_intensity_var_decoder = copy.deepcopy(self.config.base_intensity_var_decoder)
         self.hidden_dim = self.config.hidden_dim
-        self.loss_scaling_factor = self.config.loss_scaling_factor
         self.normalize_times = self.config.normalize_times
 
         mark_encoder["in_features"] = self.max_num_marks
@@ -420,8 +419,6 @@ class FIMHawkes(AModel):
 
         # loss = kernel_loss + base_intensity_loss
         loss = kernel_rmse + base_intensity_rmse
-
-        loss = loss * self.loss_scaling_factor
 
         # With a 1% probability plot the kernel function and the ground truth and add the RMSE as a title to the plot
         if torch.rand(1) < 0.01:

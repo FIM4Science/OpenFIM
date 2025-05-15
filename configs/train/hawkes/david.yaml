@@ -37,7 +37,7 @@ dataset:
     max_path_count: 2000
     max_number_of_minibatch_sizes: 20
 
-    variable_sequence_lens: false
+    variable_sequence_lens: true
     min_sequence_len: 10
     max_sequence_len: 250
 
@@ -63,7 +63,6 @@ model:
 
   max_num_marks: &max_num_marks 1
   hidden_dim: &hidden_dim 64
-  loss_scaling_factor: 1 # The loss values are scaled by this factor to avoid numerical issues
 
   hidden_act: &hidden_act
     name: &activation torch.nn.GELU
