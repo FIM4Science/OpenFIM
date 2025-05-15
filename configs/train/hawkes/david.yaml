@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_1st_exp_rmse_norm_2000_paths_mixed_250_events_mixed_fp32
+  name: FIM_Hawkes_1st_exp_rmse_norm_2000_paths_mixed_250_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -59,11 +59,14 @@ model:
   model_type: fimhawkes
   is_bulk_model: *is_bulk_model
   normalize_times: true
-  normalize_by_max_time: true # Otherwise normalize by the delta times
+  normalize_by_max_time: false # Otherwise normalize by the delta times
 
   max_num_marks: &max_num_marks 1
   hidden_dim: &hidden_dim 64
-  loss_scaling_factor: 500 # The loss values are scaled by this factor to avoid numerical issues
+  loss_scaling_factor: 1 # The loss values are scaled by this factor to avoid numerical issues
+
+  hidden_act: &hidden_act
+    name: &activation torch.nn.GELU
 
   mark_encoder:
     name: torch.nn.Linear
@@ -118,25 +121,29 @@ model:
   kernel_value_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    hidden_act: *hidden_act
 
   kernel_value_var_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    hidden_act: *hidden_act
 
   base_intensity_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    hidden_act: *hidden_act
 
   base_intensity_var_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    hidden_act: *hidden_act
 
   thinning: null
 
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: fp32_policy # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  precision: bf16mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: &epochs 5000
   detect_anomaly: false
   save_every: 10

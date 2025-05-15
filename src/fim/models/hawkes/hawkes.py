@@ -373,23 +373,23 @@ class FIMHawkes(AModel):
         x["delta_times"] = x["delta_times"] / norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] / norm_constants.view(-1, 1, 1)
         if "base_intensities" in x:
-            x["base_intensities"] = x["base_intensities"] / norm_constants.view(-1, 1)
+            x["base_intensities"] = x["base_intensities"] * norm_constants.view(-1, 1)
         if "kernel_evaluations" in x:
-            x["kernel_evaluations"] = x["kernel_evaluations"] / norm_constants.view(-1, 1, 1)
+            x["kernel_evaluations"] = x["kernel_evaluations"] * norm_constants.view(-1, 1, 1)
 
         return norm_constants
 
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
-        out["predicted_kernel_values"] = out["predicted_kernel_values"] * norm_constants.view(-1, 1, 1)
-        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] + torch.log(norm_constants).view(-1, 1, 1)
-        out["predicted_base_intensity"] = out["predicted_base_intensity"] * norm_constants.view(-1, 1)
+        out["predicted_kernel_values"] = out["predicted_kernel_values"] / norm_constants.view(-1, 1, 1)
+        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - torch.log(norm_constants).view(-1, 1, 1)
+        out["predicted_base_intensity"] = out["predicted_base_intensity"] / norm_constants.view(-1, 1)
         x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
         x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
         x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
         if "base_intensities" in x:
-            x["base_intensities"] = x["base_intensities"] * norm_constants.view(-1, 1)
+            x["base_intensities"] = x["base_intensities"] / norm_constants.view(-1, 1)
         if "kernel_evaluations" in x:
-            x["kernel_evaluations"] = x["kernel_evaluations"] * norm_constants.view(-1, 1, 1)
+            x["kernel_evaluations"] = x["kernel_evaluations"] / norm_constants.view(-1, 1, 1)
 
     def loss(
         self,
@@ -439,8 +439,6 @@ class FIMHawkes(AModel):
                 torch.mean(torch.tensor((predicted_kernel_function_np - ground_truth_kernel_function_np)) ** 2, dim=-1)
             )
             kernel_rmse_np = torch.mean(kernel_rmse_np)
-            print("RMSE: ", kernel_rmse)
-            print("RMSE np: ", kernel_rmse_np)
             for b in range(B):
                 for m in range(M):
                     axs[b, m].scatter(
