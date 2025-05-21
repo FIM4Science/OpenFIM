@@ -70,3 +70,6 @@ venv/
 *.jpg
 
 .env
+
+!tutorial/*.jpg
+!tutorial/*.png
