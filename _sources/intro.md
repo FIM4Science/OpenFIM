@@ -15,6 +15,8 @@ The Deep Learning for Scientific Discovery (DL4SD) group of the [Lamarr Institut
 
 To achieve this overarching goal, we introduced Foundation Inference Models (FIMs)
 
+![A photo of the DL4SD group in front of the b-it building in Bonn](group-1.jpg)
+
 ## About Foundation Inference Models (FIMs)
 
 FIMs are pre-trained neural recognition models that encode classical mathematical models commonly used in the natural and social sciences. Indeed, we define FIM that encode mathematical models which are simple enough to remain approximately valid across a wide range of observation scales, from microscopic to coarse-grained.

@@ -25,7 +25,6 @@ Optional and needed only once after `git clone`:
 
    and check out the configuration under `.pre-commit-config.yaml`. The `-n, --no-verify` flag of `git commit` can be used to deactivate pre-commit hooks temporarily.
 
-Then take a look into the `scripts` folder.
 
 ## Usage
 
@@ -62,3 +61,5 @@ your-config.yaml
    Replace `<number_of_gpus>` with the number of GPUs you want to use for distributed training.
 
 5. Monitor the training progress and adjust the parameters in the configuration file as needed.
+
+Then take a look into the `scripts` folder.
