@@ -58,13 +58,11 @@ if __name__ == "__main__":
 
     model_dicts, models_display_ids = get_model_dicts_600k_fixed_linear_attn()
 
-    results_to_load: list[str] = [
-        # "/home/seifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/model_evaluations/20M_params_trained_even_longer"
-    ]
+    results_to_load: list[str] = []
 
     # systems in table of paper
     path_to_complete_trajectory_data_json = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250506_real_world_with_5_fold_cross_validation/complete_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/complete_paths.json"
     )
 
     datasets_to_load: list[str] = [

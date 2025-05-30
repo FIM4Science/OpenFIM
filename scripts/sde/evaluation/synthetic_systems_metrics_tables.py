@@ -281,57 +281,57 @@ if __name__ == "__main__":
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     data_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ksig_reference_paths.json"
     )
     data_vector_fields_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
     )
 
     models_jsons = {
         # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05062310_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-03-2033/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05062310_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-03-2033/model_paths.json"
         # ),
         # "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05092348_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-06-2300/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05092348_fim_fixed_linear_attn_fixed_softmax_delta_tau_05-06-2300/model_paths.json"
         # ),
         "SparseGP(Reevaluation, May 5th 25)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
         ),
         # "Ablation: 30k, degree 4 drift, 500k steps": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021706_ablation_30k_deg_4_drift_500k_steps/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05021706_ablation_30k_deg_4_drift_500k_steps/model_paths.json"
         # ),
         # "Ablation: 30k train size, 5M parameters, 500k steps": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021712_ablation_30k_train_size_500k_steps/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05021712_ablation_30k_train_size_500k_steps/model_paths.json"
         # ),
         # "Ablation: 100k train size, 10M parameters, 500k steps": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021720_ablation_100k_train_size_500k_steps/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05021720_ablation_100k_train_size_500k_steps/model_paths.json"
         # ),
         # "Ablation: 600k train size, 20M parameters, 500k steps": Path(  # DO NOT USE; TRAIN DATA WAS DELTA TAU (should be named "FIM (fixed linear Attn.) (04-28-0941) Epoch 70")
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05021730_ablation_600k_train_size_500k_steps/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05021730_ablation_600k_train_size_500k_steps/model_paths.json"
         # ),
         # "Ablation: 600k train size, 20M parameters, 500k steps (ICML model, no delta tau, epoch 70)": Path(
         #     "/home/seifner/repos/FIM/evaluations/synthetic_systems_vf_and_paths_evaluation/05131859_ablation_600k_train_size_500k_steps_using_ICML_model_no_delta_tau/model_paths.json",
         # ),
         "BISDE(Reevaluation, May 10th 25) (no diffusion clipping)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250510_bisde_results_with_noise/20250510_bisde_results_with_multiple_diffusion_summands_no_diffusion_clipping/20250510_bisde_results_no_diffusion_clipping.json"
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250510_bisde_results_with_noise/20250510_bisde_results_with_multiple_diffusion_summands_no_diffusion_clipping/20250510_bisde_results_no_diffusion_clipping.json"
         ),
         # "BISDE(Reevaluation, May 11th 25) (with diffusion clipping)": Path(
-        #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250510_bisde_results_with_noise/20250511_bisde_results_with_multiple_diffusion_summands_with_diffusion_clipping/20250511_bisde_results_with_diffusion_clipping.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250510_bisde_results_with_noise/20250511_bisde_results_with_multiple_diffusion_summands_with_diffusion_clipping/20250511_bisde_results_with_diffusion_clipping.json"
         # ),
         # "FIM (fixed linear Attn.) (04-28-0941) Epoch 125": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141243_fim_fixed_linear_attn_04-28-0941_epoch_125/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141243_fim_fixed_linear_attn_04-28-0941_epoch_125/model_paths.json"
         # ),
         # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 40": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141331_fim_fixed_softmax_dim_05-03-2033_epoch_040/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141331_fim_fixed_softmax_dim_05-03-2033_epoch_040/model_paths.json"
         # ),
         # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 70": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141352_fim_fixed_softmax_dim_05-03-2033_epoch_070/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141352_fim_fixed_softmax_dim_05-03-2033_epoch_070/model_paths.json"
         # ),
         # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 100": Path(
-        #     "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141418_fim_fixed_softmax_dim_05-03-2033_epoch_100/model_paths.json"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141418_fim_fixed_softmax_dim_05-03-2033_epoch_100/model_paths.json"
         # ),
         "FIM (fixed Softmax dim.) (05-03-2033) Epoch 139": Path(
-            "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
         ),
     }
     apply_sqrt_to_diffusion = [
@@ -400,49 +400,49 @@ if __name__ == "__main__":
 
     metric_evaluations_to_load: list[Path] = [
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05091823_fim_fixed_attn_fixed_softmax_05-03-2033/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05091823_fim_fixed_attn_fixed_softmax_05-03-2033/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05100018_fim_fixed_attn_fixed_softmax_05-06-2300/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05100018_fim_fixed_attn_fixed_softmax_05-06-2300/metric_evaluations_jsons"
         # ),
         Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05110044_bisde_reevaluation_may_10th_25_no_diffusion_clipping/metric_evaluations_jsons"
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05110044_bisde_reevaluation_may_10th_25_no_diffusion_clipping/metric_evaluations_jsons"
         ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05112004_bisde_reevaluation_may_11th_25_with_diffusion_clipping/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05112004_bisde_reevaluation_may_11th_25_with_diffusion_clipping/metric_evaluations_jsons"
         # ),
         Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05091855_sparsegp_reevaluation_may_5th/metric_evaluations_jsons"
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05091855_sparsegp_reevaluation_may_5th/metric_evaluations_jsons"
         ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05122300_ablation_degree_4/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05122300_ablation_degree_4/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05091903_ablation_train_size_30k/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05091903_ablation_train_size_30k/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05110804_ablation_train_size_100k/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05110804_ablation_train_size_100k/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05110806_ablation_train_size_600k/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05110806_ablation_train_size_600k/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05131923_ablation_600k_train_size_500k_steps_using_ICML_model_no_delta_tau/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05131923_ablation_600k_train_size_500k_steps_using_ICML_model_no_delta_tau/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141535_fim_fixed_linear_attn_04-28-0941_epoch_125/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05141535_fim_fixed_linear_attn_04-28-0941_epoch_125/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141538_fim_fixed_softmax_dim_05-03-2033_epoch_40/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05141538_fim_fixed_softmax_dim_05-03-2033_epoch_40/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141540_fim_fixed_softmax_dim_05-03-2033_epoch_70/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05141540_fim_fixed_softmax_dim_05-03-2033_epoch_70/metric_evaluations_jsons"
         # ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141547_fim_fixed_softmax_dim_05-03-2033_epoch_100/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05141547_fim_fixed_softmax_dim_05-03-2033_epoch_100/metric_evaluations_jsons"
         # ),
         Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_metrics_tables/05141550_fim_fixed_softmax_dim_05-03-2033_epoch_139/metric_evaluations_jsons"
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05141550_fim_fixed_softmax_dim_05-03-2033_epoch_139/metric_evaluations_jsons"
         ),
     ]
 

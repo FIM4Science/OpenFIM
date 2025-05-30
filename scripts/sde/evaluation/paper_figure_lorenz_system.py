@@ -36,16 +36,16 @@ if __name__ == "__main__":
     current_description = "develop"
 
     reference_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_reference_data.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_reference_data.json"
     )
     fim_no_finetune_paths_json = Path(
-        "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/lorenz_system_vf_and_paths_evaluation/05160055_neurips_model_no_finetuning/model_paths/fim_model_C_at_139_epochs_no_finetuning_train_data_linear_diffusion_num_context_paths_1024.json"  # data and results to load
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160055_neurips_model_no_finetuning/model_paths/fim_model_C_at_139_epochs_no_finetuning_train_data_linear_diffusion_num_context_paths_1024.json"  # data and results to load
     )
     fim_finetune_paths_json = Path(
-        "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/lorenz_system_vf_and_paths_evaluation/05160031_neurips_model_finetuning_on_128_paths_up_to_500_epochs/model_paths/fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_200_train_data_linear_diffusion_num_context_paths_1024.json"
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160031_neurips_model_finetuning_on_128_paths_up_to_500_epochs/model_paths/fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_200_train_data_linear_diffusion_num_context_paths_1024.json"
     )
     latent_sde_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/05161005_latent_dim_3_paths_sampled_from_prior_lorenz-16_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/05161005_latent_dim_3_paths_sampled_from_prior_lorenz-16_paths.json"
     )
 
     diffusion_label = "linear"

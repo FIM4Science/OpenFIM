@@ -42,17 +42,17 @@ if __name__ == "__main__":
 
     # data and results to load
     path_to_synthetic_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ksig_reference_paths.json"
     )
     path_to_synthetic_fimsde_json = Path(
-        "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
     )
 
     path_to_real_world_cross_validation_data_json = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250506_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
     )
     path_to_real_world_cross_validation_fimsde_json = Path(
-        "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json"
     )
 
     # results to plot

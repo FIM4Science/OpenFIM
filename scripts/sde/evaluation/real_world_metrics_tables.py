@@ -129,11 +129,13 @@ if __name__ == "__main__":
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     data_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250130_bisde_real_world_oil_wind/ksig_reference_paths.json"
     )
 
     models_jsons = {
-        "FIM(Paper)": Path("/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/model_paths.json"),
+        "FIM(Paper)": Path(
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250130_bisde_real_world_oil_wind/model_paths.json"
+        ),
         "FIM(Delta Tau 1e-1 to 1e-3. 03-13-1415)": Path(
             "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_real_world_oil_wind_mmd_tables/03171207_model_trained_on_delta_tau_1e-1_to_1e-3_03-13-1415/data_jsons/model_paths.json"
         ),
@@ -141,8 +143,7 @@ if __name__ == "__main__":
             "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250311_real_world_oil_wind_mmd_tables/03301834_model_trained_on_delta_tau_1e-1_to_1e-3_03-23-1747/data_jsons/model_paths.json"
         ),
         "BISDE": Path(
-            "/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/bisde_inferred_vector_fields_and_paths.json"
-            # "/Users/patrickseifner/repos/FIM/data/raw/SDE_bisde_on_bisde_oil_wind/bisde_vector_fields.json", # same file as the above in cephfs
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250130_bisde_real_world_oil_wind/bisde_inferred_vector_fields_and_paths.json"
         ),
         "BISDE(ICML Submission)": Path(
             "/cephfs_projects/foundation_models/data/SDE/table_sanity_check_data/bisde_empirical_experiments.json"

@@ -195,23 +195,6 @@ if __name__ == "__main__":
     current_description = "develop_large_figure_exp"
 
     # data and results to load
-    # path_to_data_json = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
-    # )
-    # path_to_ksig_paths_json = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ksig_reference_paths.json"
-    # )
-    # path_to_gp_json = Path(
-    #     "/home/seifner/repos/FIM/data/raw/SDE_opper_gp_on_coarse_synthetic_data_results/opper_sparse_gp_evaluations_at_locations_paths_coarse_synth_data.json"
-    # )
-    # path_to_most_bisde_json = Path("/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_new.json")
-    # path_to_double_well_bisde_json = Path(
-    #     "/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_friday_full.json"
-    # )
-    # path_to_fimsde_json = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json"
-    # )
-
     path_to_data_json = Path(
         "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/data_jsons/ground_truth_drift_diffusion.json"
     )

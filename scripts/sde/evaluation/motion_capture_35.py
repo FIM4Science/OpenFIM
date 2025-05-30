@@ -726,8 +726,7 @@ if __name__ == "__main__":
     evaluation_dir.mkdir(parents=True, exist_ok=True)
 
     # Get dataloaders inits and their display ids (for ModelEvaluation)
-    # mocap_dir = Path("/home/seifner/repos/FIM/data/processed/test/20250123_preprocessed_mocap35/")
-    mocap_dir = Path("/home/seifner/repos/FIM/data/processed/test/20250510_preprocessed_mocap35/")
+    mocap_dir = Path("/cephfs_projects/foundation_models/data/SDE/test/20250510_preprocessed_mocap35/")
     dataloader_dicts, dataloader_display_ids = get_mocap_35_dataloaders_inits(mocap_dir)
 
     # Get model_map to load models when they are needed

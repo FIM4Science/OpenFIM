@@ -187,15 +187,15 @@ dataset:
 
   data_dirs:
     train: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250115_preprocessed_mocap43/forecasting_0.5_perc/single_path_per_element/",
+      "/cephfs_projects/foundation_models/data/SDE/test/20250115_preprocessed_mocap43/forecasting_0.5_perc/single_path_per_element/",
     ]
 
     test: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250115_preprocessed_mocap43/forecasting_0.5_perc/single_path_per_element/",
+      "/cephfs_projects/foundation_models/data/SDE/test/20250115_preprocessed_mocap43/forecasting_0.5_perc/single_path_per_element/",
     ]
 
     validation: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250115_preprocessed_mocap43/forecasting_0.5_perc/single_path_per_element/",
+      "/cephfs_projects/foundation_models/data/SDE/test/20250115_preprocessed_mocap43/forecasting_0.5_perc/single_path_per_element/",
        ]
 
 trainer:

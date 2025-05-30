@@ -103,7 +103,7 @@ def process_single_trajectory(file_path: Path, dt: float) -> dict:
 if __name__ == "__main__":
     # set paths
     save_dir = Path("processed/test/20250125_preprocessed_wang_real_world")
-    base_data_dir = Path("raw/SDE_data_driven_BISDE_datasets")
+    base_data_dir = Path("/cephfs_projects/foundation_models/data/SDE/raw/BISDE_datasets")
 
     # # set split options
     # split_path_length = 128

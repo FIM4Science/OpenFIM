@@ -252,7 +252,7 @@ if __name__ == "__main__":
         save_dir = Path(data_path) / save_dir
 
     # set data paths
-    base_data_dir = Path("raw/SDE_data_driven_BISDE_datasets")
+    base_data_dir = Path("/cephfs_projects/foundation_models/data/SDE/raw/BISDE_datasets")
 
     if not base_data_dir.is_absolute():
         base_data_dir = Path(data_path) / base_data_dir

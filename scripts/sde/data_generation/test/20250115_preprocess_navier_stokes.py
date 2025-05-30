@@ -159,7 +159,7 @@ def preprocess_navier_stokes(vortex_path: Path, save_dir: Path) -> None:
 
 
 if __name__ == "__main__":
-    vortex_path = Path("/home/seifner/repos/FIM/data/raw/SDE_navier_stokes/vortex.pkl")
-    save_dir = Path("/home/seifner/repos/FIM/data/processed/test/20250116_preprocessed_navier_stokes")
+    vortex_path = Path("/cephfs_projects/foundation_models/data/SDE/raw/vortex.pkl")
+    save_dir = Path("")  # full path to a dir
 
     preprocess_navier_stokes(vortex_path, save_dir)

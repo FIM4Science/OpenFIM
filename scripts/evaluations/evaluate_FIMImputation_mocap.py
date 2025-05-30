@@ -23,7 +23,7 @@ model_config = {
     "denoising_model": None,
 }
 data_config = {
-    "data_dir": "/cephfs_projects/foundation_models/data/neurips_baseline_comparison_data/cmu_mocap_43_preprocessed_imputation_percentage_0_2/",
+    "data_dir": "/cephfs_projects/foundation_models/data/ODE/test/cmu_mocap_43_preprocessed_imputation_percentage_0_2/",
     "window_count": (wc := 5),
     "max_length_window": 64 if wc == 5 else 128,
     "overlap_locations": 0,

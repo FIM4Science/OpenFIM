@@ -9,7 +9,7 @@ import numpy as np
 import optree
 import torch
 from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
-    get_model_dicts_search_good_checkpoint,
+    get_model_dicts_neurips_submission_checkpoint,
 )
 from tqdm import tqdm
 
@@ -172,15 +172,13 @@ if __name__ == "__main__":
     # experiment_descr = "fim_fixed_linear_attn_fixed_softmax_delta_tau_05-06-2300"
     experiment_descr = "fim_fixed_softmax_dim_05-03-2033_epoch_139"
 
-    model_dicts, models_display_ids = get_model_dicts_search_good_checkpoint()
+    model_dicts, models_display_ids = get_model_dicts_neurips_submission_checkpoint()
 
-    results_to_load: list[str] = [
-        # "/home/seifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/model_evaluations/20M_params_trained_even_longer"
-    ]
+    results_to_load: list[str] = []
 
     # systems in table of paper
     path_to_inference_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_observations_and_locations.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_observations_and_locations.json"
     )
 
     systems_to_load: list[str] = [

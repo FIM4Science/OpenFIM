@@ -226,7 +226,7 @@ if __name__ == "__main__":
         "/home/seifner/repos/FIM/evaluations/navier_stokes_sindy_trajectory/01261810_develop/model_evaluations",
     ]
 
-    data_dir = Path("/home/seifner/repos/FIM/data/processed/test/20250126_preprocessed_navier_stokes_sindy_trajectory")
+    data_dir = Path("")  # full path to a dir
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
     # Save dir setup: project_path / evaluations / synthetic_datasets / time_stamp + _ + experiment_descr
