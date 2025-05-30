@@ -44,8 +44,8 @@ if __name__ == "__main__":
     save_dir = Path("processed/test")
     subdir_label = "lorenz_train_data"
 
-    lorenz_data_linear_diffusion_pth = "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/20250513_lorenz_data_linear_diffusion_from_neural_sde_github_setup_40_path_length.pth"
-    lorenz_data_constant_diffusion_pth = "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/20250514_lorenz_data_constant_diffusion_from_neural_sde_paper_setup_generated_with_adapted_github_code.pth"
+    lorenz_data_linear_diffusion_pth = "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250513_lorenz_data_linear_diffusion_from_neural_sde_github_setup_40_path_length.pth"
+    lorenz_data_constant_diffusion_pth = "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250514_lorenz_data_constant_diffusion_from_neural_sde_paper_setup_generated_with_adapted_github_code.pth"
 
     total_num_paths = [128, 256, 512, 1024]
     # --------------------------------------------------------------------------------------------------------------------------------- #

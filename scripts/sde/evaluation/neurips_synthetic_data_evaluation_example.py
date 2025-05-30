@@ -115,7 +115,7 @@
 #
 #     # systems in table of paper
 #     path_to_inference_data_json = Path(
-#         "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_observations_and_locations.json"
+#         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_observations_and_locations.json"
 #     )
 #
 #     systems_to_load: list[str] = [

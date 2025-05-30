@@ -47,7 +47,7 @@ dim = 1
 
 show_plots = False
 
-data_base_dir = "/cephfs_projects/foundation_models/data/ode_bench_preprocessed"
+data_base_dir = "/cephfs_projects/foundation_models/data/ODE/test/ode_bench_preprocessed"
 
 
 def load_ODEBench_as_torch(directory: str) -> dict:

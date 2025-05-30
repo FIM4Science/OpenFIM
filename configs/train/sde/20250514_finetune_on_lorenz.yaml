@@ -190,15 +190,15 @@ dataset:
 
   data_dirs:
     train: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250515224733_lorenz_train_data/constant_diffusion_data/128_paths/",
+      "/cephfs_projects/foundation_models/data/SDE/train/20250515224733_lorenz_train_data/constant_diffusion_data/128_paths/",
     ]
 
     test: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250515224733_lorenz_train_data/constant_diffusion_data/128_paths/",
+      "/cephfs_projects/foundation_models/data/SDE/train/20250515224733_lorenz_train_data/constant_diffusion_data/128_paths/",
     ]
 
     validation: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250515224733_lorenz_train_data/constant_diffusion_data/128_paths/",
+      "/cephfs_projects/foundation_models/data/SDE/train/20250515224733_lorenz_train_data/constant_diffusion_data/128_paths/",
        ]
 
 trainer:

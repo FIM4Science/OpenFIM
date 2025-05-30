@@ -144,17 +144,17 @@ if __name__ == "__main__":
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     reference_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_reference_data.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_reference_data.json"
     )
 
     base_path_latent_sde_latent_dim_3 = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/"
     )
     base_path_no_finetuning = Path(
-        "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/lorenz_system_vf_and_paths_evaluation/05160055_neurips_model_no_finetuning/model_paths/"
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160055_neurips_model_no_finetuning/model_paths/"
     )
     base_path_finetuned = Path(
-        "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/lorenz_system_vf_and_paths_evaluation/05160031_neurips_model_finetuning_on_128_paths_up_to_500_epochs/model_paths/"
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160031_neurips_model_finetuning_on_128_paths_up_to_500_epochs/model_paths/"
     )
 
     models_jsons = {
@@ -235,13 +235,13 @@ if __name__ == "__main__":
 
     metric_evaluations_to_load: list[Path] = [
         Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/lorenz_system_metrics_tables/05160100_fim_model_C_fixed_softmax_dim_epoch_139_no_finetuning/metric_evaluations_jsons"
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_metrics_tables/05160100_fim_model_C_fixed_softmax_dim_epoch_139_no_finetuning/metric_evaluations_jsons"
         ),
         Path(
-            "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/lorenz_system_metrics_tables/05160042_fim_model_C_fixed_softmax_dim_epoch_139_finetune_on_128_paths_lr_1e-6_eval_context_1024/metric_evaluations_jsons"
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_metrics_tables/05160042_fim_model_C_fixed_softmax_dim_epoch_139_finetune_on_128_paths_lr_1e-6_eval_context_1024/metric_evaluations_jsons"
         ),
         # Path(
-        #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/lorenz_system_metrics_tables/05160105_latent_sde_latent_dim_3_context_16-64/metric_evaluations_jsons"
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_metrics_tables/05160105_latent_sde_latent_dim_3_context_16-64/metric_evaluations_jsons"
         # ),
         # Path(
         #     "/cephfs/users/seifner/repos/FIM/evaluations/lorenz_system_metrics_tables/05161014_prior_sampled_latent_sdes/metric_evaluations_jsons"

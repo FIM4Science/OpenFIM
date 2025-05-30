@@ -258,58 +258,18 @@ if __name__ == "__main__":
 
     model_dicts = {
         ("fim_model_C_at_139_epochs_no_finetuning", "linear_diffusion"): {
-            "checkpoint_dir": "/home/seifner/repos/FIM/saved_results/20250430_20M_params_trained_on_600k_deg_3_with_delta_tau_fixed_linear_attn/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
+            "checkpoint_dir": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
             "checkpoint_name": "epoch-139",
         },
         ("fim_model_C_at_139_epochs_no_finetuning", "constant_diffusion"): {
-            "checkpoint_dir": "/home/seifner/repos/FIM/saved_results/20250430_20M_params_trained_on_600k_deg_3_with_delta_tau_fixed_linear_attn/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
+            "checkpoint_dir": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
             "checkpoint_name": "epoch-139",
         },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_010", "linear_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_linear_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2249/checkpoints/",
-        #     "checkpoint_name": "epoch-149",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_050", "linear_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_linear_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2249/checkpoints/",
-        #     "checkpoint_name": "epoch-189",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_100", "linear_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_linear_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2249/checkpoints/",
-        #     "checkpoint_name": "epoch-239",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_200", "linear_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_linear_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2249/checkpoints/",
-        #     "checkpoint_name": "epoch-339",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_500", "linear_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_linear_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2249/checkpoints/",
-        #     "checkpoint_name": "epoch-639",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_010", "constant_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_constant_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2332/checkpoints/",
-        #     "checkpoint_name": "epoch-149",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_050", "constant_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_constant_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2332/checkpoints/",
-        #     "checkpoint_name": "epoch-189",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_100", "constant_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_constant_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2332/checkpoints/",
-        #     "checkpoint_name": "epoch-239",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_200", "constant_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_constant_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2332/checkpoints/",
-        #     "checkpoint_name": "epoch-339",
-        # },
-        # ("fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_500", "constant_diffusion"): {
-        #     "checkpoint_dir": "/home/seifner/repos/FIM/results/finetune_fim_05-03-2033_epoch_139_on_128_constant_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6_05-15-2332/checkpoints/",
-        #     "checkpoint_name": "epoch-639",
-        # },
     }
 
-    constant_diffusion_training_data_pth = "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/20250514_lorenz_data_constant_diffusion_from_neural_sde_paper_setup_generated_with_adapted_github_code.pth"
-    linear_diffusion_training_data_pth = "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/20250513_lorenz_data_linear_diffusion_from_neural_sde_github_setup_40_path_length.pth"
-    inference_data_json = "/cephfs_projects/foundation_models/data/SDE/evaluation/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_inference_data.json"
+    constant_diffusion_training_data_pth = "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250514_lorenz_data_constant_diffusion_from_neural_sde_paper_setup_generated_with_adapted_github_code.pth"
+    linear_diffusion_training_data_pth = "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250513_lorenz_data_linear_diffusion_from_neural_sde_github_setup_40_path_length.pth"
+    inference_data_json = "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_inference_data.json"
 
     num_context_paths = [128, 1024]
     # num_context_paths = [128]

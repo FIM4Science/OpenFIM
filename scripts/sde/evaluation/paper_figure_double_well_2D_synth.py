@@ -45,32 +45,17 @@ if __name__ == "__main__":
     current_description = "found_tau_0_002_noise_0_results_for_all_models"
 
     # data and results to load
-    # ## ICML
-    # path_to_data_json = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/ground_truth_drift_diffusion.json"
-    # )
-    # path_to_gp_json = Path(
-    #     "/home/seifner/repos/FIM/data/raw/SDE_opper_gp_on_coarse_synthetic_data_results/opper_sparse_gp_evaluations_at_locations_paths_coarse_synth_data.json"
-    # )
-    # path_to_wang_bisde_json = Path("/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_new.json")
-    # path_to_double_well_bisde_json = Path(
-    #     "/home/seifner/repos/FIM/data/raw/SDE_bisde_on_coarse_synthetic_data_results/bisde_experiments_friday_full.json"
-    # )
-    # path_to_fimsde_json = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json"
-    # )
-
     path_to_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
     )
     path_to_gp_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
     )
     path_to_bisde_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250510_bisde_results_with_noise/20250510_bisde_results_with_multiple_diffusion_summands_no_diffusion_clipping/20250510_bisde_results_no_diffusion_clipping.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250510_bisde_results_with_noise/20250510_bisde_results_with_multiple_diffusion_summands_no_diffusion_clipping/20250510_bisde_results_no_diffusion_clipping.json"
     )
     path_to_fimsde_json = Path(
-        "/home/seifner/repos/FIM/saved_evaluations/20250329_neurips_submission_preparations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
     )
 
     # results to plot

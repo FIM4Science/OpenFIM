@@ -137,10 +137,10 @@ if __name__ == "__main__":
 
     # systems in table of paper
     path_to_data = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250129_opper_svise_wang_long_dense_for_density_ablation_5_realizations/"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250129_opper_svise_wang_long_dense_for_density_ablation_5_realizations_base_trajectories_for_icml_submission/"
     )
     path_to_ksig_reference_data = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250129_opper_svise_wang_long_dense_for_density_ablation_5_realizations_KSIG_reference_paths"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250129_opper_svise_wang_long_dense_for_density_ablation_5_realizations_KSIG_reference_paths_for_icml_submission/"
     )
     systems_to_load: list[str] = [
         "Damped_Linear",

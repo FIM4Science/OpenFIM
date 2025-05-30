@@ -6,7 +6,9 @@ import numpy as np
 
 if __name__ == "__main__":
     # compare generated data
-    old_data_dir = Path("/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/")
+    old_data_dir = Path(
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250129_coarse_synthetic_systems_5000_points_data/"
+    )
     old_data_paths_json = old_data_dir / "ksig_reference_paths.json"
     old_data_vector_fields_json = old_data_dir / "ground_truth_drift_diffusion.json"
     old_data_inference_json = old_data_dir / "systems_coarse_observations.json"
@@ -38,7 +40,7 @@ if __name__ == "__main__":
     )
 
     old_model_output_path = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250129_coarse_synthetic_systems_5000_points_data/20M_trained_even_longer_synthetic_paths.json"
     )
 
     new_model_output: list = json.load(open(new_model_output_path, "r"))

@@ -54,7 +54,7 @@ if __name__ == "__main__":
     description = "train_set_statistics"
     experiment_descr = "develop"
     train_set_dir = Path(
-        "/home/seifner/repos/FIM/data/processed/train/600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train"
+        "/cephfs_projects/foundation_models/data/SDE/train/202501XX_icml_submission_model_600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise/train"
     )
     # --------------------------------------------------------------------------------------------------------------------------------- #
 

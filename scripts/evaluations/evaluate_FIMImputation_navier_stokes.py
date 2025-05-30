@@ -23,7 +23,7 @@ model_config = {
     "denoising_model": None,
 }
 data_config = {
-    "data_dir": "/cephfs_projects/foundation_models/data/neurips_baseline_comparison_data/navier_stokes_preprocessed_with_imputation_sets_and_train_test_split/split_single_long/",
+    "data_dir": "/cephfs_projects/foundation_models/data/ODE/test/navier_stokes_preprocessed_with_imputation_sets_and_train_test_split/split_single_long/",
     "window_count": (wc := 5),
     "max_length_window": 40 if wc == 5 else 40,
     "overlap_locations": 0,

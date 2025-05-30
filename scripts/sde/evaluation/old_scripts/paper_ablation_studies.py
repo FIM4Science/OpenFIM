@@ -218,25 +218,25 @@ if __name__ == "__main__":
 
     models = {
         "30k_deg_4_drift_first_checkpoint": FIMSDE.load_model(
-            "/home/seifner/repos/FIM/saved_results/20250318_icml_rebuttal_ablation/30k_drift_deg_4_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-24-1650/checkpoints/epoch-1"
+            "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/ablation_models/30k_drift_deg_4_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-24-1650/checkpoints/epoch-1"
         ),
         "30k_train_size_first_checkpoint": FIMSDE.load_model(
-            "/home/seifner/repos/FIM/saved_results/20250318_icml_rebuttal_ablation/30k_drift_deg_3_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-16-1744/checkpoints/epoch-1"
+            "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/ablation_models/30k_drift_deg_3_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-16-1744/checkpoints/epoch-1"
         ).to("cpu"),
         "100k_train_size_first_checkpoint": FIMSDE.load_model(
-            "/home/seifner/repos/FIM/saved_results/20250318_icml_rebuttal_ablation/100k_drift_deg_3_diff_deg_2_10M_params_1_layer_enc_4_layer_256_hidden_size_03-16-1737/checkpoints/epoch-1"
+            "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/ablation_models/100k_drift_deg_3_diff_deg_2_10M_params_1_layer_enc_4_layer_256_hidden_size_03-16-1737/checkpoints/epoch-1"
         ).to("cpu"),
         "600k_train_size_first_checkpoint": FIMSDE.load_model(
             "/home/seifner/repos/FIM/saved_results/20250124_20M_params_trained_on_600k_deg_3/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-09-1844/checkpoints/epoch-1"
         ).to("cpu"),
         "30k_deg_4_drift_500k_steps": FIMSDE.load_model(
-            "/home/seifner/repos/FIM/saved_results/20250318_icml_rebuttal_ablation/30k_drift_deg_4_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-24-1650/checkpoints/epoch-475"
+            "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/ablation_models/30k_drift_deg_4_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-24-1650/checkpoints/epoch-475"
         ),
         "30k_train_size_500k_steps": FIMSDE.load_model(
-            "/home/seifner/repos/FIM/saved_results/20250318_icml_rebuttal_ablation/30k_drift_deg_3_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-16-1744/checkpoints/epoch-494"
+            "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/ablation_models/30k_drift_deg_3_diff_deg_2_5M_params_1_layer_enc_4_layer_128_hidden_size_03-16-1744/checkpoints/epoch-494"
         ).to("cpu"),
         "100k_train_size_500k_steps": FIMSDE.load_model(
-            "/home/seifner/repos/FIM/saved_results/20250318_icml_rebuttal_ablation/100k_drift_deg_3_diff_deg_2_10M_params_1_layer_enc_4_layer_256_hidden_size_03-18-1123/checkpoints/epoch-159"
+            "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/ablation_models/100k_drift_deg_3_diff_deg_2_10M_params_1_layer_enc_4_layer_256_hidden_size_03-18-1123/checkpoints/epoch-159"
         ).to("cpu"),
         "600k_train_size_500k_steps": FIMSDE.load_model(
             "/home/seifner/repos/FIM/saved_results/20250124_20M_params_trained_on_600k_deg_3/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-09-1844/checkpoints/epoch-70"

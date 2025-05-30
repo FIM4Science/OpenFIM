@@ -49,10 +49,10 @@ if __name__ == "__main__":
 
     # data and results to load
     path_to_locations_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/data_for_inference.json"
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250130_bisde_real_world_oil_wind/data_for_inference.json"
     )
     path_to_bisde_json = Path("/home/seifner/repos/FIM/data/raw/SDE_bisde_on_bisde_oil_wind/bisde_vector_fields.json")
-    # path_to_fimsde_json = Path("/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/model_paths.json")
+    # path_to_fimsde_json = Path("/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250130_bisde_real_world_oil_wind/model_paths.json")
     path_to_fimsde_json = Path("")
 
     # --------------------------------------------------------------------------------------------------------------------------------- #

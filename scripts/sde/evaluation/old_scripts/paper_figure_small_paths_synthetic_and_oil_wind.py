@@ -23,15 +23,14 @@ if __name__ == "__main__":
 
     # real world data and results to load
     path_to_real_world_paths_json = Path(
-        # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/ksig_reference_paths.json"
+        # "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250130_bisde_real_world_oil_wind/ksig_reference_paths.json"
         "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/bisde_real_world_evaluation_for_figure_and_table/data_jsons/ksig_reference_paths.json"
     )
     path_to_bisde_real_world_json = Path(
-        # "/home/seifner/repos/FIM/data/raw/SDE_bisde_on_bisde_oil_wind/bisde_vector_fields.json",
         "/Users/patrickseifner/repos/FIM/data/raw/SDE_bisde_on_bisde_oil_wind/bisde_vector_fields.json",
     )
     path_to_fimsde_real_world_json = Path(
-        # "/cephfs_projects/foundation_models/data/SDE/evaluation/20250130_bisde_real_world_oil_wind/model_paths.json"
+        # "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250130_bisde_real_world_oil_wind/model_paths.json"
         "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/bisde_real_world_evaluation_for_figure_and_table/data_jsons/model_paths.json"
     )
 

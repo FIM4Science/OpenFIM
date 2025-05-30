@@ -190,15 +190,15 @@ dataset:
 
   data_dirs:
     train: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250510_preprocessed_mocap35/last_context_index_0/",
+      "/cephfs_projects/foundation_models/data/SDE/test/20250510_preprocessed_mocap35/last_context_index_0/",
     ]
 
     test: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250510_preprocessed_mocap35/last_context_index_0/",
+      "/cephfs_projects/foundation_models/data/SDE/test/20250510_preprocessed_mocap35/last_context_index_0/",
     ]
 
     validation: !!python/tuple [
-      "/home/seifner/repos/FIM/data/processed/test/20250510_preprocessed_mocap35/last_context_index_0/",
+      "/cephfs_projects/foundation_models/data/SDE/test/20250510_preprocessed_mocap35/last_context_index_0/",
        ]
 
 trainer:
