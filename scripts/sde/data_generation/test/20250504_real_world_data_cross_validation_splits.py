@@ -8,7 +8,7 @@ import numpy as np
 import optree
 
 from fim import data_path
-from fim.utils.evaluation_sde import NumpyEncoder
+from fim.utils.sde.evaluation import NumpyEncoder
 
 
 def process_single_trajectory(name: str, data_path: Path, delta_tau: float, transform: str, num_locations: int, **kwargs) -> dict:

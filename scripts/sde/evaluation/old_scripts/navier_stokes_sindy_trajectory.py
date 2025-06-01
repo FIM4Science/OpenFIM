@@ -12,8 +12,8 @@ from tqdm import tqdm
 from fim import project_path
 from fim.data.utils import load_h5
 from fim.models.blocks import AModel
-from fim.pipelines.sde_sampling_from_model import fimsde_sample_paths_on_masked_grid
-from fim.utils.evaluation_sde import (
+from fim.sampling.sde_path_samplers import fimsde_sample_paths_on_masked_grid
+from fim.utils.sde.evaluation import (
     ModelEvaluation,
     ModelMap,
     load_evaluations,

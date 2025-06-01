@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from fim import project_path
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 def get_model_results_on_dataset(models_results: dict[list], dataset: str, apply_sqrt_to_diffusion: list) -> dict[dict]:

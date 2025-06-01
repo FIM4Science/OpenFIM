@@ -7,7 +7,6 @@ ipympl
 ipython
 ipywidgets
 jupyterlab
-lightning
 matplotlib
 mlflow
 nbdime

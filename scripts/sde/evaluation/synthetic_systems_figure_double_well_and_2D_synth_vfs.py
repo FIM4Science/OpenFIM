@@ -9,7 +9,7 @@ import numpy as np
 import optree
 
 from fim import project_path
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 def _load_from_json(path_to_json: Path, system_name: str, tau: float, noise: float, exp: int, apply_sqrt_to_diffusion: bool):
@@ -39,7 +39,7 @@ def _load_from_json(path_to_json: Path, system_name: str, tau: float, noise: flo
 
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
-    global_description = "paper_figure_double_well_2D_synth"
+    global_description = "synthetic_systems_figure_double_well_and_2D_synth_vfs"
 
     # current_description = "neurips_search_for_decent_results_tau_0_002_noise_0_exp_4"
     current_description = "found_tau_0_002_noise_0_results_for_all_models"

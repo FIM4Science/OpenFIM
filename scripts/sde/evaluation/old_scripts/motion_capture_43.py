@@ -15,8 +15,9 @@ from tqdm import tqdm
 from fim import project_path
 from fim.data.datasets import PaddedFIMSDEDataset
 from fim.models.blocks import AModel
-from fim.pipelines.sde_sampling_from_model import fimsde_sample_paths_on_masked_grid
-from fim.utils.evaluation_sde import (
+from fim.sampling.sde_path_samplers import fimsde_sample_paths_on_masked_grid
+from fim.utils.grids import define_regular_surrounding_cube
+from fim.utils.sde.evaluation import (
     DataLoaderMap,
     EvaluationConfig,
     ModelEvaluation,
@@ -29,7 +30,6 @@ from fim.utils.evaluation_sde import (
     save_fig,
     save_table,
 )
-from fim.utils.grids import define_regular_surrounding_cube
 
 
 def get_high_dim_reconstr_mocap(paths: Tensor, eigenvalues: Tensor, eigenvectors: Tensor):

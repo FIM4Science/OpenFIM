@@ -12,7 +12,7 @@ from lab_visits_synthetic_equations_figure import load_system_results, plot_1D_p
 from matplotlib.lines import Line2D
 
 from fim import project_path
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 if __name__ == "__main__":

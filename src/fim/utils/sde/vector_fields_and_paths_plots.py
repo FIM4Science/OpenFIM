@@ -8,10 +8,8 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.gridspec import GridSpec
 from torch import Tensor
 
-from fim.data.datasets import FIMSDEDatabatchTuple
-from fim.pipelines.sde_pipelines import FIMSDEPipelineOutput
-from fim.utils.helper import select_dimension_for_plot
-from fim.utils.plots.sde_data_exploration_plots import plot_paths_in_axis
+# from fim.pipelines.sde_pipelines import FIMSDEPipelineOutput
+from fim.utils.sde.data_exploration_plots import plot_paths_in_axis
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -333,128 +331,128 @@ def plot_paths(dimension: int, obs_times: Tensor, obs_values: Tensor, model_path
     return fig
 
 
-def images_log_3D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
-    selected_data = select_dimension_for_plot(
-        3,
-        databatch_target.dimension_mask,
-        databatch_target.obs_times,
-        databatch_target.obs_values,
-        databatch_target.locations,
-        pipeline_output.drift_at_locations_estimator,
-        pipeline_output.diffusion_at_locations_estimator,
-        databatch_target.drift_at_locations,
-        databatch_target.diffusion_at_locations,
-        pipeline_output.path,
-    )
-    if selected_data is None:  # no 3D data to print
-        return None, None
-
-    else:
-        (
-            obs_times,
-            obs_values,
-            locations,
-            drift_at_locations_real,
-            diffusion_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_estimation,
-            paths_estimation,
-        ) = selected_data
-
-        fig_vf = plot_3d_vf_real_and_estimation(
-            locations,
-            drift_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_real,
-            diffusion_at_locations_estimation,
-            your_fixed_x_value=0.1,
-            show=False,
-        )
-
-        fig_paths = plot_paths(3, obs_times, obs_values, paths_estimation)
-
-        return fig_vf, fig_paths
-
-
-def images_log_2D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
-    selected_data = select_dimension_for_plot(
-        2,
-        databatch_target.dimension_mask,
-        databatch_target.obs_times,
-        databatch_target.obs_values,
-        databatch_target.locations,
-        pipeline_output.drift_at_locations_estimator,
-        pipeline_output.diffusion_at_locations_estimator,
-        databatch_target.drift_at_locations,
-        databatch_target.diffusion_at_locations,
-        pipeline_output.path,
-    )
-    if selected_data is None:  # no 2D data to print
-        return None, None
-
-    else:
-        (
-            obs_times,
-            obs_values,
-            locations,
-            drift_at_locations_real,
-            diffusion_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_estimation,
-            paths_estimation,
-        ) = selected_data
-
-        fig_vf = plot_2d_vf_real_and_estimation(
-            locations,
-            drift_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_real,
-            diffusion_at_locations_estimation,
-            show=False,
-        )
-
-        fig_paths = plot_paths(2, obs_times, obs_values, paths_estimation)
-
-        return fig_vf, fig_paths
-
-
-def images_log_1D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
-    selected_data = select_dimension_for_plot(
-        1,
-        databatch_target.dimension_mask,
-        databatch_target.obs_times,
-        databatch_target.obs_values,
-        databatch_target.locations,
-        pipeline_output.drift_at_locations_estimator,
-        pipeline_output.diffusion_at_locations_estimator,
-        databatch_target.drift_at_locations,
-        databatch_target.diffusion_at_locations,
-        pipeline_output.path,
-    )
-    if selected_data is None:  # no 1D data to print
-        return None, None
-
-    else:
-        (
-            obs_times,
-            obs_values,
-            locations,
-            drift_at_locations_real,
-            diffusion_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_estimation,
-            paths_estimation,
-        ) = selected_data
-
-        fig_vf = plot_1d_vf_real_and_estimation(
-            locations,
-            drift_at_locations_real,
-            drift_at_locations_estimation,
-            diffusion_at_locations_real,
-            diffusion_at_locations_estimation,
-            show=False,
-        )
-
-        fig_paths = plot_paths(2, obs_times, obs_values, paths_estimation)
-
-        return fig_vf, fig_paths
+# def images_log_3D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
+#     selected_data = select_dimension_for_plot(
+#         3,
+#         databatch_target.dimension_mask,
+#         databatch_target.obs_times,
+#         databatch_target.obs_values,
+#         databatch_target.locations,
+#         pipeline_output.drift_at_locations_estimator,
+#         pipeline_output.diffusion_at_locations_estimator,
+#         databatch_target.drift_at_locations,
+#         databatch_target.diffusion_at_locations,
+#         pipeline_output.path,
+#     )
+#     if selected_data is None:  # no 3D data to print
+#         return None, None
+#
+#     else:
+#         (
+#             obs_times,
+#             obs_values,
+#             locations,
+#             drift_at_locations_real,
+#             diffusion_at_locations_real,
+#             drift_at_locations_estimation,
+#             diffusion_at_locations_estimation,
+#             paths_estimation,
+#         ) = selected_data
+#
+#         fig_vf = plot_3d_vf_real_and_estimation(
+#             locations,
+#             drift_at_locations_real,
+#             drift_at_locations_estimation,
+#             diffusion_at_locations_real,
+#             diffusion_at_locations_estimation,
+#             your_fixed_x_value=0.1,
+#             show=False,
+#         )
+#
+#         fig_paths = plot_paths(3, obs_times, obs_values, paths_estimation)
+#
+#         return fig_vf, fig_paths
+#
+#
+# def images_log_2D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
+#     selected_data = select_dimension_for_plot(
+#         2,
+#         databatch_target.dimension_mask,
+#         databatch_target.obs_times,
+#         databatch_target.obs_values,
+#         databatch_target.locations,
+#         pipeline_output.drift_at_locations_estimator,
+#         pipeline_output.diffusion_at_locations_estimator,
+#         databatch_target.drift_at_locations,
+#         databatch_target.diffusion_at_locations,
+#         pipeline_output.path,
+#     )
+#     if selected_data is None:  # no 2D data to print
+#         return None, None
+#
+#     else:
+#         (
+#             obs_times,
+#             obs_values,
+#             locations,
+#             drift_at_locations_real,
+#             diffusion_at_locations_real,
+#             drift_at_locations_estimation,
+#             diffusion_at_locations_estimation,
+#             paths_estimation,
+#         ) = selected_data
+#
+#         fig_vf = plot_2d_vf_real_and_estimation(
+#             locations,
+#             drift_at_locations_real,
+#             drift_at_locations_estimation,
+#             diffusion_at_locations_real,
+#             diffusion_at_locations_estimation,
+#             show=False,
+#         )
+#
+#         fig_paths = plot_paths(2, obs_times, obs_values, paths_estimation)
+#
+#         return fig_vf, fig_paths
+#
+#
+# def images_log_1D(databatch_target: FIMSDEDatabatchTuple, pipeline_output: FIMSDEPipelineOutput):
+#     selected_data = select_dimension_for_plot(
+#         1,
+#         databatch_target.dimension_mask,
+#         databatch_target.obs_times,
+#         databatch_target.obs_values,
+#         databatch_target.locations,
+#         pipeline_output.drift_at_locations_estimator,
+#         pipeline_output.diffusion_at_locations_estimator,
+#         databatch_target.drift_at_locations,
+#         databatch_target.diffusion_at_locations,
+#         pipeline_output.path,
+#     )
+#     if selected_data is None:  # no 1D data to print
+#         return None, None
+#
+#     else:
+#         (
+#             obs_times,
+#             obs_values,
+#             locations,
+#             drift_at_locations_real,
+#             diffusion_at_locations_real,
+#             drift_at_locations_estimation,
+#             diffusion_at_locations_estimation,
+#             paths_estimation,
+#         ) = selected_data
+#
+#         fig_vf = plot_1d_vf_real_and_estimation(
+#             locations,
+#             drift_at_locations_real,
+#             drift_at_locations_estimation,
+#             diffusion_at_locations_real,
+#             diffusion_at_locations_estimation,
+#             show=False,
+#         )
+#
+#         fig_paths = plot_paths(2, obs_times, obs_values, paths_estimation)
+#
+#         return fig_vf, fig_paths

@@ -8,7 +8,7 @@ from tqdm import tqdm
 from fim import project_path
 from fim.data.utils import load_h5
 from fim.models.sde import FIMSDE
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 def delta_times_histogram(train_set_dir: Path, save_dir: Path):

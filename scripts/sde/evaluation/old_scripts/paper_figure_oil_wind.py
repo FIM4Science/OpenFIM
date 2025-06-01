@@ -7,7 +7,7 @@ import matplotlib.ticker as plticker
 import numpy as np
 
 from fim import project_path
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 def _load_from_json(path_to_json: Path, dataset_name: str, apply_sqrt_to_diffusion: bool):

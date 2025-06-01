@@ -16,7 +16,7 @@ from fim import project_path
 from fim.data.datasets import PaddedFIMSDEDataset
 from fim.models.blocks import AModel
 from fim.models.sde import FIMSDE
-from fim.utils.evaluation_sde import ModelEvaluation, ModelMap, load_evaluations, save_evaluations
+from fim.utils.sde.evaluation import ModelEvaluation, ModelMap, load_evaluations, save_evaluations
 
 
 def get_dataloader(data_dir: str) -> tuple[dict]:

@@ -12,7 +12,8 @@ from tqdm import tqdm
 
 from fim.data.datasets import PaddedFIMSDEDataset
 from fim.models.sde import MinMaxNormalization, SDEConcepts, Standardization
-from fim.utils.evaluation_sde import (
+from fim.utils.sde.data_exploration_plots import plot_paths_in_axis
+from fim.utils.sde.evaluation import (
     EvaluationConfig,
     ModelEvaluation,
     dataloader_get_all_elements,
@@ -25,8 +26,7 @@ from fim.utils.evaluation_sde import (
     save_fig,
     save_table,
 )
-from fim.utils.plots.sde_data_exploration_plots import plot_paths_in_axis
-from fim.utils.plots.sde_estimation_plots import plot_1d_vf_real_and_estimation_axes, plot_2d_vf_real_and_estimation_axes
+from fim.utils.sde.vector_fields_and_paths_plots import plot_1d_vf_real_and_estimation_axes, plot_2d_vf_real_and_estimation_axes
 
 
 def plot_1D_synthetic_data_figure_grid(

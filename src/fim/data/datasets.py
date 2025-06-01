@@ -1532,7 +1532,6 @@ def get_subdict(d: dict, keys: list[str]):
     return {k: d[k] for k in keys if k in d.keys()}
 
 
-# @torch.compile(disable=not torch.cuda.is_available())
 def pad_data_in_dict(
     data: dict, keys_to_pad: list[str], dim: int, mode: Optional[str] = "constant", max_length: Optional[int] = None
 ) -> dict:
@@ -1574,7 +1573,6 @@ def pad_data_in_dict(
     return data
 
 
-# @torch.compile(disable=not torch.cuda.is_available())
 def shuffle_at_dim(tree: Any, dim: int) -> Tensor:
     """
     Permute leaf tensors of tree at dim, independently for each batch element, but jointly for each leaf.

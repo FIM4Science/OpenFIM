@@ -46,6 +46,10 @@ if __name__ == "__main__":
     # yaml_path, labels_to_use, save_dir = get_30k_100_paths_half_noisy(project_path, data_path)
     # save_dynamical_system_from_yaml(yaml_path, labels_to_use, save_dir, tr_save_dir=tr_save_dir)
 
+    # print("100k, half noisy")
+    # yaml_path, labels_to_use, save_dir = get_100k_100_paths_half_noisy(project_path, data_path)
+    # save_dynamical_system_from_yaml(yaml_path, labels_to_use, save_dir, tr_save_dir=tr_save_dir)
+
     print("degree 4 drift, 30k, half noisy")
     yaml_path, labels_to_use, save_dir = get_deg_4_drift_30k_100_paths_half_noisy(project_path, data_path)
     save_dynamical_system_from_yaml(yaml_path, labels_to_use, save_dir, tr_save_dir=tr_save_dir)
