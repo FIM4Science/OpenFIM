@@ -15,7 +15,7 @@ from fim.models.sde import (
     nrmse_at_locations,
     rmse_at_locations,
 )
-from fim.pipelines.sde_sampling_from_model import (
+from fim.sampling.sde_path_samplers import (
     fimsde_euler_maruyama,
     fimsde_sample_paths,
     fimsde_sample_paths_by_dt_and_grid_size,

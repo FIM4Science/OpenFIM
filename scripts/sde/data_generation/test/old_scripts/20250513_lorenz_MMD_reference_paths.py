@@ -11,7 +11,7 @@ import torch
 import torchsde
 
 from fim import data_path
-from fim.utils.evaluation_sde import NumpyEncoder, save_fig
+from fim.utils.sde.evaluation import NumpyEncoder, save_fig
 
 
 class StochasticLorenz(object):

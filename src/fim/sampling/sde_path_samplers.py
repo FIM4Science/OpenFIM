@@ -8,7 +8,6 @@ from tqdm import tqdm
 from fim.models.sde import FIMSDE, backward_fill_masked_values
 
 
-# @torch.compile(disable=not torch.cuda.is_available())
 def _euler_step(model, current_states, dt, solver_granularity, paths_encoding, obs_mask, dimension_mask):
     for _ in range(solver_granularity):
         with torch.amp.autocast(

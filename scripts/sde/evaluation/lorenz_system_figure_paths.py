@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from fim import project_path
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 def _load_real_world_from_json(path_to_json: Path, name: str, split_num: int):
@@ -30,7 +30,7 @@ def _load_real_world_from_json(path_to_json: Path, name: str, split_num: int):
 
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
-    global_description = "paper_figure_lorenz_sample_paths"
+    global_description = "lorenz_system_figure_paths"
 
     # current_description = "neurips_search_for_decent_results_tau_0_002_noise_0_exp_0"
     current_description = "develop"

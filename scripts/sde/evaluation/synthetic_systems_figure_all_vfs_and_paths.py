@@ -10,7 +10,7 @@ import numpy as np
 import optree
 
 from fim import project_path
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 def load_system_results(all_results: list[dict], system_name: str, tau: float, exp: int, apply_sqrt_to_diffusion: bool):
@@ -191,24 +191,29 @@ def plot_row(
 
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
-    global_description = "lab_visits_figure_synthetic_equations"
-    current_description = "develop_large_figure_exp"
+    global_description = "synthetic_systems_figure_all_vfs_and_paths"
+    current_description = "develop"
 
     # data and results to load
     path_to_data_json = Path(
-        "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/data_jsons/ground_truth_drift_diffusion.json"
+        # needs update
+        # "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/data_jsons/ground_truth_drift_diffusion.json"
     )
     path_to_ksig_paths_json = Path(
-        "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/data_jsons/ksig_reference_paths.json"
+        # needs update
+        # "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/data_jsons/ksig_reference_paths.json"
     )
     path_to_gp_json = Path(
-        "/Users/patrickseifner/sciebo/sde_data_transfer/coarse_obs_systems_data_5000_points/bisde_experiments_friday_full.json"
+        # needs update
+        # "/Users/patrickseifner/sciebo/sde_data_transfer/coarse_obs_systems_data_5000_points/bisde_experiments_friday_full.json"
     )
     path_to_bisde_json = Path(
-        "/Users/patrickseifner/sciebo/sde_data_transfer/coarse_obs_systems_data_5000_points/bisde_experiments_friday_full.json"
+        # needs update
+        # "/Users/patrickseifner/sciebo/sde_data_transfer/coarse_obs_systems_data_5000_points/bisde_experiments_friday_full.json"
     )
     path_to_fimsde_json = Path(
-        "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/data_jsons/model_paths.json"
+        # needs update
+        # "/Users/patrickseifner/repos/FIM/saved_evaluations/20250203_icml_submission_evaluations/synthetic_equations_stride_1_5_10_for_table/data_jsons/model_paths.json"
     )
 
     # results to plot

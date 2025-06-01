@@ -12,7 +12,7 @@ from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
 from real_world_cross_validation_vf_and_paths_evaluation import _check_finite, _pprint_dict_with_shapes, run_evaluations
 
 from fim import project_path
-from fim.utils.evaluation_sde import (
+from fim.utils.sde.evaluation import (
     ModelEvaluation,
     NumpyEncoder,
     load_evaluations,

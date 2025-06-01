@@ -1,35 +1,36 @@
-def get_model_dicts_600k_deg_3_drift_deg_2_diff() -> tuple[dict, dict, str]:
-    """
-    Set up evaluation for ablation studies on 30k degree 3 drift and degree 2 diffusion.
-    Ablations include:
-    """
-    model_dict = {
-        "20M_params_trained_even_longer": "/cephfs_projects/foundation_models/models/FIMSDE/ICML_submission_models/20M_params_icml_submission/checkpoints",
-    }
-
-    model_display_ids = {
-        "20M_params_trained_even_longer": "20M Paramters trained even longer (ICML Paper)",
-    }
-
-    return model_dict, model_display_ids
-
-
-def get_model_dicts_600k_post_submission_models() -> tuple[dict, dict, str]:
-    """ """
-    model_dicts = {
-        # "20M_params_trained_even_longer": "/cephfs_projects/foundation_models/models/FIMSDE/ICML_submission_models/20M_params_icml_submission/checkpoints",
-        # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-13-1415)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-13-1415/checkpoints",
-        # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-18-1205)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-18-1205/checkpoints",
-        "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-23-1747)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-23-1747/checkpoints",
-    }
-    models_display_ids = {
-        # "20M_params_trained_even_longer": "20M Paramters trained even longer (ICML Paper)",
-        # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-13-1415)": "20M Params, trained on delta tau from 1e-1 to 1e-3 (checkpoint 03-13-1415)",
-        # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-18-1205)": "20M Params, trained on delta tau from 1e-1 to 1e-3 (checkpoint 03-18-1205)",
-        "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-23-1747)": "20M Params, trained on delta tau from 1e-1 to 1e-3 (checkpoint 03-23-1747)",
-    }
-
-    return model_dicts, models_display_ids
+# def get_model_dicts_600k_deg_3_drift_deg_2_diff() -> tuple[dict, dict, str]:
+#     """
+#     Set up evaluation for ablation studies on 30k degree 3 drift and degree 2 diffusion.
+#     Ablations include:
+#     """
+#     model_dict = {
+#         "20M_params_trained_even_longer": "/cephfs_projects/foundation_models/models/FIMSDE/ICML_submission_models/20M_params_icml_submission/checkpoints",
+#     }
+#
+#     model_display_ids = {
+#         "20M_params_trained_even_longer": "20M Paramters trained even longer (ICML Paper)",
+#     }
+#
+#     return model_dict, model_display_ids
+#
+#
+# def get_model_dicts_600k_post_submission_models() -> tuple[dict, dict, str]:
+#     """ """
+#     model_dicts = {
+#         # "20M_params_trained_even_longer": "/cephfs_projects/foundation_models/models/FIMSDE/ICML_submission_models/20M_params_icml_submission/checkpoints",
+#         # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-13-1415)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-13-1415/checkpoints",
+#         # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-18-1205)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-18-1205/checkpoints",
+#         "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-23-1747)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_03-23-1747/checkpoints",
+#     }
+#     models_display_ids = {
+#         # "20M_params_trained_even_longer": "20M Paramters trained even longer (ICML Paper)",
+#         # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-13-1415)": "20M Params, trained on delta tau from 1e-1 to 1e-3 (checkpoint 03-13-1415)",
+#         # "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-18-1205)": "20M Params, trained on delta tau from 1e-1 to 1e-3 (checkpoint 03-18-1205)",
+#         "20M_params_trained_delta_tau_1e-1_to-1e-3 (checkpoint 03-23-1747)": "20M Params, trained on delta tau from 1e-1 to 1e-3 (checkpoint 03-23-1747)",
+#     }
+#
+#     return model_dicts, models_display_ids
+#
 
 
 def get_model_dicts_ablation_models() -> tuple[dict, dict, str]:
@@ -67,24 +68,24 @@ def get_model_dicts_ablation_models() -> tuple[dict, dict, str]:
     return model_dicts, models_display_ids
 
 
-def get_model_dicts_600k_fixed_linear_attn() -> tuple[dict, dict, str]:
-    """ """
-    model_dicts = {
-        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn_04-28-0941/checkpoints/",
-        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 05-01-1207)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn_05-01-1207/checkpoints/",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-03-2033/checkpoints/",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-10-0015)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-10-0015/checkpoints/",
-    }
-    models_display_ids = {
-        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn (checkpoint 04-28-0941)",
-        # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 05-01-1207)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn (checkpoint 05-01-1207)",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn and softmax (checkpoint 05-03-2033)",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn and softmax (checkpoint 05-06-2300)",
-        "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-10-0015)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn and softmax (checkpoint '5-10-0015)",
-    }
-
-    return model_dicts, models_display_ids
+# def get_model_dicts_600k_fixed_linear_attn() -> tuple[dict, dict, str]:
+#     """ """
+#     model_dicts = {
+#         # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn_04-28-0941/checkpoints/",
+#         # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 05-01-1207)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/old_development_models/600k_drift_deg_3_diff_deg_2_delta_tau_1e-1_to_1e-3_2_layer_enc_8_layer_with_fixed_linear_attn_05-01-1207/checkpoints/",
+#         "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-03-2033/checkpoints/",
+#         "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
+#         "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-10-0015)": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-10-0015/checkpoints/",
+#     }
+#     models_display_ids = {
+#         # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 04-28-0941)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn (checkpoint 04-28-0941)",
+#         # "20M_params_600k_polys_delta_tau_fixed_attn (checkpoint 05-01-1207)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn (checkpoint 05-01-1207)",
+#         "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-03-2033)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn and softmax (checkpoint 05-03-2033)",
+#         "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-06-2300)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn and softmax (checkpoint 05-06-2300)",
+#         "20M_params_600k_polys_delta_tau_fixed_attn_fixed_softmax (checkpoint 05-10-0015)": "20M Params, trained on 600k polys, with delta tau, fixed linear attn and softmax (checkpoint '5-10-0015)",
+#     }
+#
+#     return model_dicts, models_display_ids
 
 
 def get_model_dicts_neurips_submission_checkpoint() -> tuple[dict, dict, str]:

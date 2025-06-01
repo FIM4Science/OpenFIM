@@ -11,7 +11,7 @@ from lab_visits_synthetic_equations_figure import plot_1D_paths, plot_2D_paths
 from paper_figure_double_well_2D_synth import _load_from_json
 
 from fim import project_path
-from fim.utils.evaluation_sde import save_fig
+from fim.utils.sde.evaluation import save_fig
 
 
 def _load_real_world_from_json(path_to_json: Path, name: str, split_num: int):
@@ -35,7 +35,7 @@ def _load_real_world_from_json(path_to_json: Path, name: str, split_num: int):
 
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
-    global_description = "paper_figure_sample_paths_dw_wang_fb_tsl"
+    global_description = "combined_figure_sample_paths_dw_wang_fb_tsla"
 
     # current_description = "neurips_search_for_decent_results_tau_0_002_noise_0_exp_0"
     current_description = "okay_split_for_each_neurips_submission"

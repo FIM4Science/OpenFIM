@@ -16,8 +16,8 @@ from fim import project_path
 from fim.data.datasets import PaddedFIMSDEDataset
 from fim.data.utils import load_h5
 from fim.models.sde import FIMSDE
-from fim.pipelines.sde_sampling_from_model import fimsde_sample_paths_on_masked_grid
-from fim.utils.evaluation_sde import (
+from fim.sampling.sde_path_samplers import fimsde_sample_paths_on_masked_grid
+from fim.utils.sde.evaluation import (
     ModelEvaluation,
     ModelMap,
     NumpyEncoder,
@@ -27,7 +27,7 @@ from fim.utils.evaluation_sde import (
     save_fig,
     save_table,
 )
-from fim.utils.evaluation_sde_synthetic_datasets import plot_1D_synthetic_data_figure_grid, plot_2D_synthetic_data_figure_grid
+from fim.utils.sde.evaluation_synthetic_datasets import plot_1D_synthetic_data_figure_grid, plot_2D_synthetic_data_figure_grid
 
 
 def run_evaluations(

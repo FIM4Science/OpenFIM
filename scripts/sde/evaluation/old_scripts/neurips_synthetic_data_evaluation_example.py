@@ -8,7 +8,7 @@
 # import torch
 #
 # from fim.models.sde import FIMSDE
-# from fim.pipelines.sde_sampling_from_model import fimsde_sample_paths_on_masked_grid
+# from fim.sampling.sde_path_samplers import fimsde_sample_paths_on_masked_grid
 # from scripts.sde.evaluation.lab_visits_synthetic_equations_figure import plot_1D_paths, plot_2D_paths, plot_2D_vf
 #
 #

@@ -9,7 +9,7 @@ import torch
 
 from fim.data.datasets import get_file_paths
 from fim.data.utils import load_file, load_h5
-from fim.utils.evaluation_sde import NumpyEncoder, save_fig
+from fim.utils.sde.evaluation import NumpyEncoder, save_fig
 
 
 def get_inference_data(

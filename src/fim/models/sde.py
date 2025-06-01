@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional
 
 import optree
 import torch
-import torch._dynamo
 import torch.nn as nn
 from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
@@ -15,9 +14,6 @@ from fim.models.blocks.base import Block
 from fim.models.blocks.neural_operators import AttentionOperator, InducedSetTransformerEncoder, ResidualEncoderLayer
 from fim.models.utils import SinActivation
 from fim.utils.helper import create_class_instance
-
-
-torch._dynamo.config.suppress_errors = True
 
 
 def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_dimension: Optional[Tensor] = None) -> Tensor:
