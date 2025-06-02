@@ -1,5 +1,6 @@
 exclude: "^docs/conf.py"
 exclude: ".*\\.ipynb$"
+exclude: "scripts/sde/evaluation/mmd.py" # ksig needs to be imported after sys. calls
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

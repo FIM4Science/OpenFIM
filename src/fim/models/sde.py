@@ -2,13 +2,8 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
-import lightning.pytorch as pl
 import optree
 import torch
-
-# from fim.pipelines.sde_pipelines import FIMSDEPipeline
-# from fim.utils.plots.sde_estimation_plots import images_log_1D, images_log_2D, images_log_3D
-import torch._dynamo
 import torch.nn as nn
 from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
@@ -19,9 +14,6 @@ from fim.models.blocks.base import Block
 from fim.models.blocks.neural_operators import AttentionOperator, InducedSetTransformerEncoder, ResidualEncoderLayer
 from fim.models.utils import SinActivation
 from fim.utils.helper import create_class_instance
-
-
-torch._dynamo.config.suppress_errors = True
 
 
 def rmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_dimension: Optional[Tensor] = None) -> Tensor:
@@ -96,6 +88,15 @@ def mse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_
     assert mse.ndim == 2, "Got " + str(mse.ndim)
 
     return mse
+
+
+def nmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_dimension: Optional[Tensor] = None) -> Tensor:
+    mse = mse_at_locations(estimated, target, mask, scale_per_dimension)
+    target_norm = mse_at_locations(target, torch.zeros_like(target), mask, scale_per_dimension)
+
+    eps = 1e-6
+
+    return mse / (target_norm + eps)
 
 
 def nrmse_at_locations(estimated: Tensor, target: Tensor, mask: Tensor, scale_per_dimension: Optional[Tensor] = None) -> Tensor:
@@ -217,7 +218,6 @@ class StaticQuery(nn.Module):
 
 
 @torch.profiler.record_function("forward_fill_masked_values")
-# @torch.compile(disable=not torch.cuda.is_available())
 def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill forward values at masked entries in dimension -2.
@@ -259,7 +259,6 @@ def forward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tens
 
 
 @torch.profiler.record_function("backward_fill_masked_values")
-# @torch.compile(disable=not torch.cuda.is_available())
 def backward_fill_masked_values(x: Tensor, mask: Optional[Tensor] = None) -> Tensor:
     """
     Fill backwards values at masked entries in dimension -2.
@@ -405,7 +404,6 @@ class MinMaxNormalization(InstanceNormalization):
         self.batch_transform_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(transform_map_grad_grad)))
 
     @torch.profiler.record_function("minmax_get_stats")
-    # @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return min and max of passed values along all dimensions 1 to -2, where mask == True.
@@ -478,7 +476,6 @@ class MinMaxNormalization(InstanceNormalization):
         return transformed_value
 
     @torch.profiler.record_function("minmax_norm_map")
-    # @torch.compile(disable=not torch.cuda.is_available())
     def normalization_map(self, values: Tensor, norm_stats: tuple[Tensor], derivative_num: Optional[int] = 0) -> Tensor:
         """
         (Derivative of) normalization based on previously set statistics, i.e. evaluate the map
@@ -593,7 +590,6 @@ class Standardization(InstanceNormalization):
         self.batch_inv_standardize_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_standardize_map_grad_grad)))
 
     @torch.profiler.record_function("stand_get_stats")
-    # @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return mean and standard deviation of passed values along all dimensions 1 to -2, where mask == True.
@@ -792,7 +788,6 @@ class DeltaLogCentering(InstanceNormalization):
         self.batch_inv_center_map_grad_grad = torch.vmap(torch.vmap(torch.vmap(inv_center_map_grad_grad)))
 
     @torch.profiler.record_function("stand_get_stats")
-    # @torch.compile(disable=not torch.cuda.is_available())
     def get_norm_stats(self, values: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor]:
         """
         Return mean of ln(values) along all dimensions 1 to -2, where mask == True.
@@ -1205,7 +1200,6 @@ class FIMSDEConfig(PretrainedConfig):
         detach_learnable_loss_scale_heads (bool): Default is True.
         single_learnable_loss_scale_head (bool): Default is False
         learnable_loss_scale_mlp (dict): Default is None
-        use_kl (bool): To use kl instead of individual losses for each term. Default is False.
         data_delta_t (float): Fine grid delta t of data generation.
         divide_drift_loss_by_diffusion (bool): Default is True
         num_epochs (int): Number of epochs. Default is 2.
@@ -1223,6 +1217,11 @@ class FIMSDEConfig(PretrainedConfig):
         dt_pipeline (float): Time step for pipeline. Default is 0.01.
         number_of_time_steps_pipeline (int): Number of time steps in the pipeline. Default is 128.
         evaluate_with_unnormalized_heads (bool): Evaluate with unnormalized heads. Default is True.
+        finetune (bool): Indicates fintuning on the observations. Default is False.
+        finetune_only_on_one_step_ahead (bool): Indicates finetuning only on one-step-ahead prediction. Default is True.
+        finetune_samples_count (int): Number of samples to generate for finetuning. Default is 1.
+        finetune_em_steps (int): Number of EM steps between two observations for finetuning. Default is 1.
+        finetune_detach_diffusion (bool): Detach diffusion head for finetuning. Default is False
     """
 
     model_type = "fimsde"
@@ -1230,22 +1229,22 @@ class FIMSDEConfig(PretrainedConfig):
     def __init__(
         self,
         name: str = "FIMSDE",
-        experiment_name: str = "sde",
-        experiment_dir: str = rf"{results_path}",
+        experiment_name: str = "sde",  # Todo: remove
+        experiment_dir: str = rf"{results_path}",  # Todo: remove
         max_dimension: int = 3,
-        max_time_steps: int = 128,
-        max_location_size: int = 1024,
-        max_num_paths: int = 30,
+        max_time_steps: int = 128,  # Todo: remove
+        max_location_size: int = 1024,  # Todo: remove
+        max_num_paths: int = 30,  # Todo: remove
         model_embedding_size: int = 64,
-        delta_time_only: bool = False,
-        layer_norms_in_phi_0: bool = False,
-        separate_phi_0_encoders: bool = False,
+        delta_time_only: bool = False,  # Todo: remove, we use True
+        layer_norms_in_phi_0: bool = False,  # Todo: remove, we use False
+        separate_phi_0_encoders: bool = False,  # Todo: remove, True
         phi_0t: dict = {},
         phi_0x: dict = {"hidden_layers": [64]},
         psi_1: dict = {"name": "PathTransformer", "num_layers": 2, "layer": {}},
         phi_1x: dict = {"hidden_layers": [64]},
-        learn_vf_var: bool = False,
-        operator_specificity: str = "all",
+        learn_vf_var: bool = False,  # Todo: remove, we use False
+        operator_specificity: str = "all",  # Todo: remove, we use "per_concept"
         operator: dict = {"attention": {"nhead": 2}, "projection": {"hidden_layers": [64]}},
         non_negative_diffusion_by: Optional[str] = None,
         states_norm: dict = {"name": "fim.models.sde.MinMaxNormalization"},
@@ -1255,25 +1254,29 @@ class FIMSDEConfig(PretrainedConfig):
         learnable_loss_scales: Optional[dict] = None,
         detach_learnable_loss_scale_heads: Optional[bool] = True,
         single_learnable_loss_scale_head: Optional[bool] = False,
-        learnable_loss_scale_mlp=None,
-        use_kl: bool = False,
+        learnable_loss_scale_mlp=None,  # Todo: remove, we use None
         data_delta_t: float = 0.003906,  # 10 / 128 / 20
-        lightning_training: bool = True,
-        num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)
-        learning_rate: float = 1.0e-5,
-        weight_decay: float = 1.0e-4,
-        dropout_rate: float = 0.1,
+        num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)  Todo: remove
+        learning_rate: float = 1.0e-5,  # Todo: remove
+        weight_decay: float = 1.0e-4,  # Todo: remove
+        dropout_rate: float = 0.1,  # Todo: remove
         loss_type: str = "rmse",
-        log_images_every_n_epochs: int = 2,
+        log_images_every_n_epochs: int = 2,  # Todo: remove
         ablation_feature_no_X: bool = False,
         ablation_feature_no_dX: bool = False,
         ablation_feature_no_dX_2: bool = False,
         ablation_feature_no_dt: bool = False,
         train_with_normalized_head: bool = True,
         skip_nan_grads: bool = True,
-        dt_pipeline: float = 0.01,
-        number_of_time_steps_pipeline: int = 128,
-        evaluate_with_unnormalized_heads: bool = True,
+        dt_pipeline: float = 0.01,  # Todo: remove
+        number_of_time_steps_pipeline: int = 128,  # Todo: remove
+        evaluate_with_unnormalized_heads: bool = True,  # Todo: remove
+        finetune: bool = False,
+        finetune_only_on_one_step_ahead: bool = True,
+        finetune_samples_count: int = 1,
+        finetune_em_steps: int = 1,
+        finetune_detach_diffusion: bool = False,
+        finetune_on_likelihood: bool = False,
         **kwargs,
     ):
         self.name = name
@@ -1305,11 +1308,9 @@ class FIMSDEConfig(PretrainedConfig):
         self.detach_learnable_loss_scale_heads = detach_learnable_loss_scale_heads
         self.single_learnable_loss_scale_head = single_learnable_loss_scale_head
         self.learnable_loss_scale_mlp = learnable_loss_scale_mlp
-        self.use_kl = use_kl
         self.data_delta_t = data_delta_t
         # training variables
         self.num_epochs = num_epochs
-        self.lightning_training = lightning_training
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.dropout_rate = dropout_rate
@@ -1325,12 +1326,19 @@ class FIMSDEConfig(PretrainedConfig):
         self.ablation_feature_no_dX = ablation_feature_no_dX
         self.ablation_feature_no_dX_2 = ablation_feature_no_dX_2
         self.ablation_feature_no_dt = ablation_feature_no_dt
+        # finetuning
+        self.finetune = finetune
+        self.finetune_only_on_one_step_ahead = finetune_only_on_one_step_ahead
+        self.finetune_samples_count = finetune_samples_count
+        self.finetune_em_steps = finetune_em_steps
+        self.finetune_detach_diffusion = finetune_detach_diffusion
+        self.finetune_on_likelihood = finetune_on_likelihood
         super().__init__(**kwargs)
 
 
 # 3. Model Following FIM conventions
 # class FIMSDE(AModel):
-class FIMSDE(AModel, pl.LightningModule):
+class FIMSDE(AModel):
     """
     Stochastic Differential Equation Trainining
     """
@@ -1339,12 +1347,11 @@ class FIMSDE(AModel, pl.LightningModule):
 
     def __init__(
         self,
-        config: dict | FIMSDEConfig | FIMSDEConfig,
+        config: FIMSDEConfig,
         device_map: torch.device = None,
         **kwargs,
     ):
         AModel.__init__(self, config, **kwargs)
-        pl.LightningModule.__init__(self)
 
         # for backward compatibility
         self.learnable_loss_scales = config.learnable_loss_scales if hasattr(config, "learnable_loss_scales") else None
@@ -1359,15 +1366,23 @@ class FIMSDE(AModel, pl.LightningModule):
             config.divide_drift_loss_by_diffusion if hasattr(config, "divide_drift_loss_by_diffusion") else True
         )
         self.learnable_loss_scale_mlp = config.learnable_loss_scale_mlp if hasattr(config, "learnable_loss_scale_mlp") else None
-        self.use_kl = config.use_kl if hasattr(config, "use_kl") else False
         self.data_delta_t = config.data_delta_t if hasattr(config, "data_delta_t") else None
         self.ablation_feature_no_X = config.ablation_feature_no_X if hasattr(config, "ablation_feature_no_X") else False
         self.ablation_feature_no_dX = config.ablation_feature_no_dX if hasattr(config, "ablation_feature_no_dX") else False
         self.ablation_feature_no_dX_2 = config.ablation_feature_no_dX_2 if hasattr(config, "ablation_feature_no_dX_2") else False
         self.ablation_feature_no_dt = config.ablation_feature_no_dt if hasattr(config, "ablation_feature_no_dt") else False
 
-        # Save hyperparameters
-        self.save_hyperparameters()
+        self.finetune = config.finetune if hasattr(config, "finetune") else False
+        self.finetune_only_on_one_step_ahead = (
+            config.finetune_only_on_one_step_ahead if hasattr(config, "finetune_only_on_one_step_ahead") else True
+        )
+        self.finetune_samples_count = config.finetune_samples_count if hasattr(config, "finetune_samples_count") else 1
+        self.finetune_em_steps = config.finetune_em_steps if hasattr(config, "finetune_em_steps") else 1
+        self.finetune_detach_diffusion = config.finetune_detach_diffusion if hasattr(config, "finetune_detach_diffusion") else False
+        self.finetune_on_likelihood = config.finetune_on_likelihood if hasattr(config, "finetune_on_likelihood") else False
+
+        # # Save hyperparameters
+        # self.save_hyperparameters()
 
         # Set hyperparameters
         if isinstance(config, dict):
@@ -1382,9 +1397,6 @@ class FIMSDE(AModel, pl.LightningModule):
 
         if device_map is not None:
             self.to(device_map)
-
-        # Important: This property activates manual optimization (Lightning)
-        self.automatic_optimization = False
 
     def _create_modules(self):
         config = deepcopy(self.config)  # model loading won't work without it
@@ -1640,7 +1652,6 @@ class FIMSDE(AModel, pl.LightningModule):
 
     @staticmethod
     @torch.profiler.record_function("fimsde_fill_masekd_values")
-    # @torch.compile(disable=not torch.cuda.is_available())
     def _fill_masked_values(data: dict):
         if "obs_mask" in data.keys() and data["obs_mask"] is not None:
             obs_mask = data["obs_mask"].bool()
@@ -1731,6 +1742,8 @@ class FIMSDE(AModel, pl.LightningModule):
         Returns:
             H (Tensor): Embedding of observations processed by transformer. Shape: [B, P, T-1, psi_1_tokes_dim]
         """
+        obs_times = obs_times.to(torch.float32)  # Todo: should be handled better
+        obs_values = obs_values.to(torch.float32)  # Todo: should be handled better
 
         B, P, T, D = obs_values.shape
 
@@ -1827,7 +1840,7 @@ class FIMSDE(AModel, pl.LightningModule):
     @torch.profiler.record_function("get_estimated_sde_concepts")
     def get_estimated_sde_concepts(
         self,
-        locations: Tensor,
+        locations: Optional[Tensor] = None,
         obs_times: Optional[Tensor] = None,
         obs_values: Optional[Tensor] = None,
         obs_mask: Optional[Tensor] = None,
@@ -1865,50 +1878,54 @@ class FIMSDE(AModel, pl.LightningModule):
             ), f"Expect {(B, P, T - 1, self.config.model_embedding_size)}. Got {paths_encoding.shape}"
 
         # locations encoding
-        locations_encoding = self.phi_1x(locations)  # [B, G, embed_dim]
+        if locations is not None:
+            locations_encoding = self.phi_1x(locations)  # [B, G, embed_dim]
 
-        B, G, _ = locations.shape
-        assert locations_encoding.shape == (
-            B,
-            G,
-            self.config.model_embedding_size,
-        ), f"Expect {(B, G, self.config.model_embedding_size)}. Got {locations_encoding.shape}"
+            B, G, _ = locations.shape
+            assert locations_encoding.shape == (
+                B,
+                G,
+                self.config.model_embedding_size,
+            ), f"Expect {(B, G, self.config.model_embedding_size)}. Got {locations_encoding.shape}"
 
-        # projection to heads
-        observations_padding_mask = torch.logical_not(obs_mask)  # revert convention for neural operator
-        heads = self.apply_operator(locations_encoding, paths_encoding, observations_padding_mask=observations_padding_mask)
-        drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = heads  # [B, G, D]
+            # projection to heads
+            observations_padding_mask = torch.logical_not(obs_mask)  # revert convention for neural operator
+            heads = self.apply_operator(locations_encoding, paths_encoding, observations_padding_mask=observations_padding_mask)
+            drift_estimator, diffusion_estimator, log_var_drift_estimator, log_var_diffusion_estimator = heads  # [B, G, D]
 
-        # Optionally make diffusion non-negative, already during training
-        if self.config.non_negative_diffusion_by == "clip":
-            diffusion_estimator = torch.clip(diffusion_estimator, min=0.0)
-        elif self.config.non_negative_diffusion_by == "abs":
-            diffusion_estimator = torch.abs(diffusion_estimator)
-        elif self.config.non_negative_diffusion_by == "exp":
-            diffusion_estimator = torch.exp(diffusion_estimator)
-        elif self.config.non_negative_diffusion_by == "softplus":
-            diffusion_estimator = torch.nn.functional.softplus(diffusion_estimator)
+            # Optionally make diffusion non-negative, already during training
+            if self.config.non_negative_diffusion_by == "clip":
+                diffusion_estimator = torch.clip(diffusion_estimator, min=0.0)
+            elif self.config.non_negative_diffusion_by == "abs":
+                diffusion_estimator = torch.abs(diffusion_estimator)
+            elif self.config.non_negative_diffusion_by == "exp":
+                diffusion_estimator = torch.exp(diffusion_estimator)
+            elif self.config.non_negative_diffusion_by == "softplus":
+                diffusion_estimator = torch.nn.functional.softplus(diffusion_estimator)
 
-        # set values at padded dimensions to 0
-        if dimension_mask is not None:
-            zeros_ = torch.zeros_like(drift_estimator)
-            ninf_ = -torch.inf * torch.ones_like(drift_estimator)
+            # set values at padded dimensions to 0
+            if dimension_mask is not None:
+                zeros_ = torch.zeros_like(drift_estimator)
+                ninf_ = -torch.inf * torch.ones_like(drift_estimator)
 
-            dimension_mask = dimension_mask.bool()
-            drift_estimator = torch.where(dimension_mask, drift_estimator, zeros_)
-            diffusion_estimator = torch.where(dimension_mask, diffusion_estimator, zeros_)
-            if self.config.learn_vf_var is True:
-                log_var_drift_estimator = torch.where(dimension_mask, log_var_drift_estimator, ninf_)
-                log_var_diffusion_estimator = torch.where(dimension_mask, log_var_diffusion_estimator, ninf_)
+                dimension_mask = dimension_mask.bool()
+                drift_estimator = torch.where(dimension_mask, drift_estimator, zeros_)
+                diffusion_estimator = torch.where(dimension_mask, diffusion_estimator, zeros_)
+                if self.config.learn_vf_var is True:
+                    log_var_drift_estimator = torch.where(dimension_mask, log_var_drift_estimator, ninf_)
+                    log_var_diffusion_estimator = torch.where(dimension_mask, log_var_diffusion_estimator, ninf_)
 
-        estimated_concepts = SDEConcepts(
-            locations=locations,
-            drift=drift_estimator,
-            diffusion=diffusion_estimator,
-            log_var_drift=log_var_drift_estimator,
-            log_var_diffusion=log_var_diffusion_estimator,
-            normalized=True,
-        )
+            estimated_concepts = SDEConcepts(
+                locations=locations,
+                drift=drift_estimator,
+                diffusion=diffusion_estimator,
+                log_var_drift=log_var_drift_estimator,
+                log_var_diffusion=log_var_diffusion_estimator,
+                normalized=True,
+            )
+
+        else:
+            estimated_concepts = None
 
         return estimated_concepts, paths_encoding
 
@@ -1954,51 +1971,56 @@ class FIMSDE(AModel, pl.LightningModule):
         )
 
         # Weighting loss from each location
-        if self.learnable_loss_scales is not None:
-            locations_encoding = self.phi_1x(locations)  # should return this from get_estimated_sde_concepts
+        if locations is not None:
+            if self.learnable_loss_scales is not None:
+                locations_encoding = self.phi_1x(locations)  # should return this from get_estimated_sde_concepts
 
-            locations_encoding_ = (
-                locations_encoding.clone().detach() if self.detach_learnable_loss_scale_heads is True else locations_encoding
-            )
-            paths_encoding_ = paths_encoding.clone().detach() if self.detach_learnable_loss_scale_heads is True else paths_encoding
-            observations_padding_mask_ = (
-                torch.logical_not(obs_mask[..., :-1, :].contiguous()).clone().detach()
-                if self.detach_learnable_loss_scale_heads is True
-                else torch.logical_not(obs_mask[..., :-1, :].contiguous())
-            )
+                locations_encoding_ = (
+                    locations_encoding.clone().detach() if self.detach_learnable_loss_scale_heads is True else locations_encoding
+                )
+                paths_encoding_ = paths_encoding.clone().detach() if self.detach_learnable_loss_scale_heads is True else paths_encoding
+                observations_padding_mask_ = (
+                    torch.logical_not(obs_mask[..., :-1, :].contiguous()).clone().detach()
+                    if self.detach_learnable_loss_scale_heads is True
+                    else torch.logical_not(obs_mask[..., :-1, :].contiguous())
+                )
 
-            drift_log_loss_scale_per_location = self.operator_loss_scale_drift(
-                locations_encoding_,
-                paths_encoding_,
-                observations_padding_mask=observations_padding_mask_,
-            )  # [B, G, 1]
-            diffusion_log_loss_scale_per_location = self.operator_loss_scale_diffusion(
-                locations_encoding_,
-                paths_encoding_,
-                observations_padding_mask=observations_padding_mask_,
-            )  # [B, G, 1]
+                drift_log_loss_scale_per_location = self.operator_loss_scale_drift(
+                    locations_encoding_,
+                    paths_encoding_,
+                    observations_padding_mask=observations_padding_mask_,
+                )  # [B, G, 1]
+                diffusion_log_loss_scale_per_location = self.operator_loss_scale_diffusion(
+                    locations_encoding_,
+                    paths_encoding_,
+                    observations_padding_mask=observations_padding_mask_,
+                )  # [B, G, 1]
 
-        elif self.learnable_loss_scale_mlp is not None:
-            B, P, T, D = obs_values.shape
-            B, G, D = locations.shape
+            elif self.learnable_loss_scale_mlp is not None:
+                B, P, T, D = obs_values.shape
+                B, G, D = locations.shape
 
-            obs_values = torch.broadcast_to(obs_values.view(B, 1, P * T, D), (B, G, P * T, D))  # [B, G, P*T, D]
-            obs_mask = torch.broadcast_to(obs_mask.view(B, 1, P * T), (B, G, P * T))  # [B, G, P*T]
-            locations = torch.broadcast_to(locations.view(B, G, 1, D), (B, G, P * T, D))  # [B, G, P*T, D]
+                obs_values = torch.broadcast_to(obs_values.view(B, 1, P * T, D), (B, G, P * T, D))  # [B, G, P*T, D]
+                obs_mask = torch.broadcast_to(obs_mask.view(B, 1, P * T), (B, G, P * T))  # [B, G, P*T]
+                locations = torch.broadcast_to(locations.view(B, G, 1, D), (B, G, P * T, D))  # [B, G, P*T, D]
 
-            dist_to_obs = torch.linalg.vector_norm(obs_values - locations, dim=-1)  # [B, G, P*T]
-            min_dist_to_obs = torch.amin(torch.where(obs_mask, dist_to_obs, torch.inf), dim=-1)  # [B, G]
-            mean_dist_to_obs = torch.nanmean(torch.where(obs_mask, dist_to_obs, torch.nan), dim=-1)  # [B, G]
+                dist_to_obs = torch.linalg.vector_norm(obs_values - locations, dim=-1)  # [B, G, P*T]
+                min_dist_to_obs = torch.amin(torch.where(obs_mask, dist_to_obs, torch.inf), dim=-1)  # [B, G]
+                mean_dist_to_obs = torch.nanmean(torch.where(obs_mask, dist_to_obs, torch.nan), dim=-1)  # [B, G]
 
-            scale_mlp_input = torch.stack([min_dist_to_obs, mean_dist_to_obs], dim=-1)
-            log_scale = self.learnable_loss_scale_mlp(scale_mlp_input)  # [B, G, 1]
+                scale_mlp_input = torch.stack([min_dist_to_obs, mean_dist_to_obs], dim=-1)
+                log_scale = self.learnable_loss_scale_mlp(scale_mlp_input)  # [B, G, 1]
 
-            drift_log_loss_scale_per_location = log_scale
-            diffusion_log_loss_scale_per_location = log_scale
+                drift_log_loss_scale_per_location = log_scale
+                diffusion_log_loss_scale_per_location = log_scale
+
+            else:
+                drift_log_loss_scale_per_location = torch.zeros_like(locations[..., 0][..., None])
+                diffusion_log_loss_scale_per_location = torch.zeros_like(locations[..., 0][..., None])
 
         else:
-            drift_log_loss_scale_per_location = torch.zeros_like(locations[..., 0][..., None])
-            diffusion_log_loss_scale_per_location = torch.zeros_like(locations[..., 0][..., None])
+            drift_log_loss_scale_per_location = None
+            diffusion_log_loss_scale_per_location = None
 
         # Losses
         target_concepts: SDEConcepts | None = SDEConcepts.from_dict(data)
@@ -2007,57 +2029,74 @@ class FIMSDE(AModel, pl.LightningModule):
             dimension_mask = data["dimension_mask"].bool()
 
         else:
-            dimension_mask = torch.ones_like(estimated_concepts.drift, dtype=bool)
+            if estimated_concepts is not None:
+                dimension_mask = torch.ones_like(estimated_concepts.drift, dtype=bool)
+
+            else:
+                dimension_mask = torch.ones_like(obs_values[:, 0, 0, :][:, None, :])
 
         if schedulers is not None:
             if "loss_threshold" in schedulers.keys() and training is True:
-                # loss_threshold = torch.tensor(schedulers.get("loss_threshold")(step), device=self.device)
                 loss_threshold = schedulers.get("loss_threshold")(step)
 
             else:
-                # loss_threshold = torch.tensor(torch.inf, device=self.device)
                 loss_threshold = torch.inf
 
             if "vector_field_max_norm" in schedulers.keys() and training is True:
-                # vector_field_max_norm = torch.tensor(schedulers.get("vector_field_max_norm")(step), device=self.device)
                 vector_field_max_norm = schedulers.get("vector_field_max_norm")(step)
 
             else:
-                # vector_field_max_norm = torch.tensor(torch.inf, device=self.device)
                 vector_field_max_norm = torch.inf
+
+            if "drift_loss_scale" in schedulers.keys() and training is True:
+                drift_loss_scale = schedulers.get("drift_loss_scale")(step)
+
+            else:
+                drift_loss_scale = 1.0
 
             if "diffusion_loss_scale" in schedulers.keys() and training is True:
                 diffusion_loss_scale = schedulers.get("diffusion_loss_scale")(step)
 
             else:
                 diffusion_loss_scale = 1.0
+
+            if "kl_loss_scale" in schedulers.keys() and training is True:
+                kl_loss_scale = schedulers.get("kl_loss_scale")(step)
+
+            else:
+                kl_loss_scale = 0.0
+
+            if "short_time_transition_log_likelihood_loss_scale" in schedulers.keys() and training is True:
+                short_time_transition_log_likelihood_loss_scale = schedulers.get("short_time_transition_log_likelihood_loss_scale")(step)
+
+            else:
+                short_time_transition_log_likelihood_loss_scale = 0.0
+
+            if "one_step_ahead_loss_scale" in schedulers.keys() and training is True:
+                one_step_ahead_loss_scale = schedulers.get("one_step_ahead_loss_scale")(step)
+
+            else:
+                one_step_ahead_loss_scale = 1.0
+
+            if "whole_path_loss_scale" in schedulers.keys() and training is True:
+                whole_path_loss_scale = schedulers.get("whole_path_loss_scale")(step)
+
+            else:
+                whole_path_loss_scale = 1.0
+
         else:
-            # loss_threshold = torch.tensor(torch.inf, device=self.device)
-            # vector_field_max_norm = torch.tensor(torch.inf, device=self.device)
             loss_threshold = torch.inf
             vector_field_max_norm = torch.inf
+            drift_loss_scale = 1.0
             diffusion_loss_scale = 1.0
+            kl_loss_scale = 0.0
+            short_time_transition_log_likelihood_loss_scale = 0.0
+            one_step_ahead_loss_scale = 1.0
+            whole_path_loss_scale = 1.0
 
         # Returns
         if training is True:
-            losses: dict = self.loss(
-                estimated_concepts,
-                target_concepts,
-                states_norm_stats,
-                times_norm_stats,
-                dimension_mask,
-                loss_threshold,
-                vector_field_max_norm,
-                diffusion_loss_scale,
-                drift_log_loss_scale_per_location,
-                diffusion_log_loss_scale_per_location,
-            )
-            return {"losses": losses}
-
-        else:
-            estimated_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
-
-            if return_losses is True:
+            if self.finetune is False:
                 losses: dict = self.loss(
                     estimated_concepts,
                     target_concepts,
@@ -2066,10 +2105,58 @@ class FIMSDE(AModel, pl.LightningModule):
                     dimension_mask,
                     loss_threshold,
                     vector_field_max_norm,
+                    drift_loss_scale,
                     diffusion_loss_scale,
+                    kl_loss_scale,
+                    short_time_transition_log_likelihood_loss_scale,
                     drift_log_loss_scale_per_location,
                     diffusion_log_loss_scale_per_location,
                 )
+
+            else:
+                losses: dict = self.finetune_loss(
+                    obs_times,
+                    obs_values,
+                    obs_mask,
+                    paths_encoding,
+                    one_step_ahead_loss_scale,
+                    whole_path_loss_scale,
+                    dimension_mask,
+                )
+
+            return {"losses": losses}
+
+        else:
+            estimated_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
+
+            if return_losses is True:
+                if self.finetune is False:
+                    losses: dict = self.loss(
+                        estimated_concepts,
+                        target_concepts,
+                        states_norm_stats,
+                        times_norm_stats,
+                        dimension_mask,
+                        loss_threshold,
+                        vector_field_max_norm,
+                        drift_loss_scale,
+                        diffusion_loss_scale,
+                        kl_loss_scale,
+                        short_time_transition_log_likelihood_loss_scale,
+                        drift_log_loss_scale_per_location,
+                        diffusion_log_loss_scale_per_location,
+                    )
+                else:
+                    losses: dict = self.finetune_loss(
+                        obs_times,
+                        obs_values,
+                        obs_mask,
+                        paths_encoding,
+                        one_step_ahead_loss_scale,
+                        whole_path_loss_scale,
+                        dimension_mask,
+                    )
+
                 return estimated_concepts, {"losses": losses}
 
             else:
@@ -2156,6 +2243,7 @@ class FIMSDE(AModel, pl.LightningModule):
 
     def kl_loss(
         self,
+        locations: Tensor,
         estimated_drift: Tensor,
         target_drift: Tensor,
         estimated_diffusion: Tensor,
@@ -2165,11 +2253,13 @@ class FIMSDE(AModel, pl.LightningModule):
         log_loss_scale_per_location: Optional[Tensor] = None,
     ) -> tuple[Tensor]:
         """
-        Compute (regularized) KL loss. Note that target and estimated diffusion already contain a sqrt.
+        Compute (regularized) KL loss: 1 / 2 * sum_{i=1}^D (f_gt - f_est) ** 2 / g_gt * delta_t + g_est / g_gt  + log(g_gt) - log(g_est) - 1
+        Note that target and estimated diffusion already contain a sqrt, i.e. ..._diffusion = sqrt(g_...).
 
         Args:
-            estimated and target vector fields (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
+            locations, estimated and target vector fields (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
             mask (Tensor): 0 masks padded values to ignore in loss calculation. Shape: [B, G, D]
+            data_delta_t (Tensor): Time scale of dta generation.
             log_loss_scale_per_location (Optional[Tensor]): Multiply the loss at each location by a (potentially) different scale. Shape: [B, G, 1]
 
         Returns
@@ -2187,13 +2277,87 @@ class FIMSDE(AModel, pl.LightningModule):
                 estimated_diffusion, None, target_diffusion, mask
             )
 
-        eps = 1e-6
-        loss_at_locations = (
-            estimated_diffusion**2 / (2 * (target_diffusion + eps) ** 2)
-            + (estimated_drift - target_drift) ** 2 / (2 * (target_diffusion + eps) ** 2) * data_delta_t
+        eps = 1e-4
+        estimated_diffusion = torch.clip(estimated_diffusion, min=eps)
+        target_diffusion = torch.clip(target_diffusion, min=eps)
+
+        loss_at_locations = (1 / 2) * (
+            ((estimated_drift - target_drift) ** 2) / ((target_diffusion) ** 2) * data_delta_t
+            + estimated_diffusion**2 / ((target_diffusion) ** 2)
             - 1
-            + torch.log(target_diffusion + eps)
-            - torch.log(estimated_diffusion + eps)
+            + 2 * torch.log(target_diffusion)
+            - 2 * torch.log(estimated_diffusion)
+        )  # [B, G, D]
+
+        loss_at_locations = (loss_at_locations * mask).sum(dim=-1)  # [B, G]
+
+        # weight per locations
+        assert log_loss_scale_per_location.ndim == 3, f"Got {log_loss_scale_per_location.ndim}"
+
+        loss_at_locations = loss_at_locations * torch.exp(-log_loss_scale_per_location[..., 0])
+
+        assert loss_at_locations.ndim == 2, f"Got {loss_at_locations.ndim}"
+
+        # filter out Nans or above threshold locations from loss
+        loss_at_locations, loss_at_locations_mask, filtered_loss_locations_perc = self.filter_loss_at_locations(loss_at_locations, None)
+
+        loss_per_batch_element = torch.sum(loss_at_locations * loss_at_locations_mask, dim=-1)  # [B]
+        assert loss_per_batch_element.ndim == 1
+
+        loss = torch.mean(loss_per_batch_element)
+
+        return loss, filtered_loss_locations_perc
+
+    def short_time_trans_ll_loss(
+        self,
+        locations: Tensor,
+        estimated_drift: Tensor,
+        target_drift: Tensor,
+        estimated_diffusion: Tensor,
+        target_diffusion: Tensor,
+        mask: Tensor,
+        data_delta_t: Tensor,
+        log_loss_scale_per_location: Optional[Tensor] = None,
+    ) -> tuple[Tensor]:
+        """
+        Compute (regularized) short-time transition log-likelihood loss:
+        let x^prime = x + delta_t * f_gt(x) + sqrt(delta_t) * sqrt(g_gt) * rnd with rnd ~ N(0,1) be the short term simulation of the ground-truth dynamics.
+        then compute:
+        1 / 2 * sum_{i=1}^D  (x^prime_i - (x_i + delta_t * f_est_i)) ** 2 / (g_est * delta_t) - log(g_est) * delta_t
+
+        Note that target and estimated diffusion already contain a sqrt, i.e. ..._diffusion = sqrt(g_...).
+
+        Args:
+            location, estimated and target vector fields (Tensor): Vector fields to compute loss with.  Shape: [B, G, D]
+            mask (Tensor): 0 masks padded values to ignore in loss calculation. Shape: [B, G, D]
+            data_delta_t (Tensor): Time scale of dta generation.
+            log_loss_scale_per_location (Optional[Tensor]): Multiply the loss at each location by a (potentially) different scale. Shape: [B, G, 1]
+
+        Returns
+            loss (Tensor): Loss of vector field. Shape: []
+            target_is_infinite_perc (Tensor): Percentage of locations where target vector field is Nan. Shape: []
+        """
+        # comparing vector field should have 3 dimensions and equal shape
+        assert estimated_drift.ndim == target_drift.ndim == 3
+        assert estimated_diffusion.ndim == target_diffusion.ndim == 3
+
+        # filter Nans and infinite values
+        if self.config.loss_filter_nans:
+            estimated_drift, _, target_drift = self.filter_nans_from_vector_fields(estimated_drift, None, target_drift, mask)
+            estimated_diffusion, _, target_diffusion = self.filter_nans_from_vector_fields(
+                estimated_diffusion, None, target_diffusion, mask
+            )
+
+        eps = 1e-4
+        estimated_diffusion = torch.clip(estimated_diffusion, min=eps)
+        target_diffusion = torch.clip(target_diffusion, min=eps)
+
+        # one step simulation of ground-truth system
+        gt_step = locations + data_delta_t * target_drift + torch.sqrt(data_delta_t) * target_diffusion * torch.rand_like(locations)
+        mean_est_step = locations + data_delta_t * estimated_drift
+
+        loss_at_locations = (1 / 2) * (
+            ((gt_step - mean_est_step) ** 2) / (2 * (estimated_diffusion) ** 2 * data_delta_t) + 2 * torch.log(estimated_diffusion)
         )  # [B, G, D]
 
         loss_at_locations = (loss_at_locations * mask).sum(dim=-1)  # [B, G]
@@ -2308,8 +2472,7 @@ class FIMSDE(AModel, pl.LightningModule):
 
         return loss, filtered_loss_locations_perc, target_clipped_norm_perc
 
-    @torch.profiler.record_function("fimsde_loss")
-    # @torch.compile(fullgraph=True, disable=not torch.cuda.is_available())
+    @torch.profiler.record_function("fimsde_train_loss")
     def loss(
         self,
         estimated_concepts: SDEConcepts,
@@ -2319,7 +2482,10 @@ class FIMSDE(AModel, pl.LightningModule):
         dimension_mask: Optional[Tensor] = None,
         loss_threshold: Optional[float] = None,
         vector_field_max_norm: Optional[float] = None,
+        drift_loss_scale: Optional[float] = 1.0,
         diffusion_loss_scale: Optional[float] = 1.0,
+        kl_loss_scale: Optional[float] = 0.0,
+        short_time_transition_log_likelihood_loss_scale: Optional[float] = 0.0,
         drift_log_loss_scale_per_location: Optional[Tensor] = None,
         diffusion_log_loss_scale_per_location: Optional[Tensor] = None,
     ):
@@ -2334,7 +2500,7 @@ class FIMSDE(AModel, pl.LightningModule):
             dimension_mask (Optional[Tensor]): Masks padded dimensions to ignore in loss computations. Shape: [B, G, D]
             loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
             vector_field_max_norm (Optional[float]): If passed, clip norm of vector fields to this value
-            diffusion_loss_scale (Optional[float]): Scale of diffusion relative to drift loss. Defaults to 1.
+            ..._loss_scale (Optional[float]): Scales of each loss term loss. Defaults to 1, for direct vector field losses, or 0, for KL and short term trans. ll.
             drift/diffusion_log_loss_scale_per_location (Optional[Tensor]): Log of cale of loss per location. Shape: [B, G, 1]
 
         Returns:
@@ -2370,56 +2536,65 @@ class FIMSDE(AModel, pl.LightningModule):
             estimated_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
             target_concepts.renormalize(self.states_norm, states_norm_stats, self.times_norm, times_norm_stats)
 
-        if self.use_kl is True:
+        # compute KL
+        if self.data_delta_t is not None:
             data_delta_t = self.data_delta_t * torch.ones_like(estimated_concepts.drift[:, :, 0][:, :, None])
             data_delta_t = self.times_norm.normalization_map(data_delta_t, times_norm_stats)
 
-            drift_loss, drift_loss_above_threshold_or_nan_perc = self.kl_loss(
-                estimated_concepts.drift,
-                target_concepts.drift,
-                estimated_concepts.diffusion,
-                target_concepts.diffusion,
-                dimension_mask,
-                data_delta_t,
-                drift_log_loss_scale_per_location,
-            )
-            diffusion_loss = 0.0
-
-            drift_target_above_max_norm = 0
-            diffusion_target_above_max_norm = 0
-            diffusion_loss_above_threshold_or_nan_perc = 0
-            drift_loss_above_threshold_or_nan_perc = 0
-
         else:
-            # compute loss per vector field
-            (
-                drift_loss,
-                drift_loss_above_threshold_or_nan_perc,
-                drift_target_above_max_norm,
-            ) = self.vector_field_loss(
-                estimated_concepts.drift,
-                estimated_concepts.log_var_drift,
-                target_concepts.drift,
-                dimension_mask,
-                loss_threshold,
-                vector_field_max_norm,
-                target_diffusion=target_concepts.diffusion if self.divide_drift_loss_by_diffusion is True else None,
-                log_loss_scale_per_location=drift_log_loss_scale_per_location,
-            )
-            (
-                diffusion_loss,
-                diffusion_loss_above_threshold_or_nan_perc,
-                diffusion_target_above_max_norm,
-            ) = self.vector_field_loss(
-                estimated_concepts.diffusion,
-                estimated_concepts.log_var_diffusion,
-                target_concepts.diffusion,
-                dimension_mask,
-                loss_threshold,
-                vector_field_max_norm,
-                log_loss_scale_per_location=diffusion_log_loss_scale_per_location,
-            )
+            data_delta_t = torch.ones_like(estimated_concepts.drift[:, :, 0][:, :, None])
 
+        kl_loss, _ = self.kl_loss(
+            estimated_concepts.locations,
+            estimated_concepts.drift,
+            target_concepts.drift,
+            estimated_concepts.diffusion,
+            target_concepts.diffusion,
+            dimension_mask,
+            data_delta_t,
+            drift_log_loss_scale_per_location,
+        )
+
+        short_time_trans_ll, _ = self.short_time_trans_ll_loss(
+            estimated_concepts.locations,
+            estimated_concepts.drift,
+            target_concepts.drift,
+            estimated_concepts.diffusion,
+            target_concepts.diffusion,
+            dimension_mask,
+            data_delta_t,
+            drift_log_loss_scale_per_location,
+        )
+
+        (
+            drift_loss,
+            drift_loss_above_threshold_or_nan_perc,
+            drift_target_above_max_norm,
+        ) = self.vector_field_loss(
+            estimated_concepts.drift,
+            estimated_concepts.log_var_drift,
+            target_concepts.drift,
+            dimension_mask,
+            loss_threshold,
+            vector_field_max_norm,
+            target_diffusion=target_concepts.diffusion if self.divide_drift_loss_by_diffusion is True else None,
+            log_loss_scale_per_location=drift_log_loss_scale_per_location,
+        )
+        (
+            diffusion_loss,
+            diffusion_loss_above_threshold_or_nan_perc,
+            diffusion_target_above_max_norm,
+        ) = self.vector_field_loss(
+            estimated_concepts.diffusion,
+            estimated_concepts.log_var_diffusion,
+            target_concepts.diffusion,
+            dimension_mask,
+            loss_threshold,
+            vector_field_max_norm,
+            log_loss_scale_per_location=diffusion_log_loss_scale_per_location,
+        )
+
+        # balancing term for learned scaling
         assert drift_log_loss_scale_per_location.ndim == 3
         assert diffusion_log_loss_scale_per_location.ndim == 3
 
@@ -2432,12 +2607,19 @@ class FIMSDE(AModel, pl.LightningModule):
 
         # assemble losses
         total_loss = (
-            drift_loss + diffusion_loss_scale * diffusion_loss + learned_scale_add_loss_term_drift + learned_scale_add_loss_term_diffusion
+            drift_loss_scale * drift_loss
+            + diffusion_loss_scale * diffusion_loss
+            + kl_loss_scale * kl_loss
+            + short_time_transition_log_likelihood_loss_scale * short_time_trans_ll
+            + learned_scale_add_loss_term_drift
+            + learned_scale_add_loss_term_diffusion
         )
         losses = {
             "loss": total_loss,
-            "drift_loss": drift_loss,
-            "diffusion_loss": diffusion_loss,
+            "L1_drift_loss": drift_loss,
+            "L1_diffusion_loss": diffusion_loss,
+            "L2_KL_loss": kl_loss,
+            "L3_short_time_trans_log_likelihood_loss": short_time_trans_ll,
             "drift_loss_above_threshold_or_nan_perc": drift_loss_above_threshold_or_nan_perc,
             "diffusion_loss_above_threshold_or_nan_perc": diffusion_loss_above_threshold_or_nan_perc,
             "loss_threshold": loss_threshold,
@@ -2450,108 +2632,165 @@ class FIMSDE(AModel, pl.LightningModule):
 
         return losses
 
+    @torch.profiler.record_function("fimsde_finetune_loss")
+    def finetune_loss(
+        self,
+        obs_times: Tensor,
+        obs_values: Tensor,
+        obs_mask: Tensor,
+        paths_encoding: Tensor,
+        one_step_ahead_loss_scale: float,
+        whole_path_loss_scale: float,
+        dimension_mask: Optional[Tensor] = None,
+    ):
+        """
+        Compute finetuning losses (one-step ahead prediction and whole path prediction) at non-padded dimensions.
+
+        Args:
+            obs_times (Tensor): Time grid to sample paths on. Shape: [B, P, T, 1]
+            obs_values (Tensor): Values to extract initial state(s) and compare sample paths to. Shape: [B, P, T, D]
+            obs_mask (Tensor): True indicates values are observed. Shape: [B, P, T, 1]
+            paths_encoding (Tensor): Encoding for sampling paths. Shape: [B, P, T-1, H]
+            ...loss_scale (float): Factors to scale different loss terms.
+
+        Returns:
+            losses (dict):
+                total_loss (Tensor): Training objective. one_step_ahead_scale * one_step_ahead_loss + whole_path_scale * whole_path_loss
+                one_step_ahead_loss (Tensor): Simulate one step ahead and compute error.
+                whole_path_loss (Tensor): Simulate whole path from same initial state and compute error.
+        """
+        obs_times = obs_times.to(torch.float32)  # Todo: should be handled better
+        obs_values = obs_values.to(torch.float32)  # Todo: should be handled better
+        dimension_mask = dimension_mask.to(torch.float32)  # Todo: should be handled better
+
+        # one step ahead
+        B, P, T, D = obs_values.shape
+        assert paths_encoding.shape[:-1] == (B, P, T - 1)
+        assert obs_times.shape == (B, P, T, 1)
+
+        initial_states = obs_values[:, :, :-1, :].reshape(B, -1, D)
+        target_states = obs_values[:, :, 1:, :].reshape(B, -1, D)
+        delta_tau = (obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]).reshape(B, -1, 1)
+
+        # multiple samples per state
+        initial_states = torch.repeat_interleave(initial_states, self.finetune_samples_count, dim=1)
+        target_states = torch.repeat_interleave(target_states, self.finetune_samples_count, dim=1)
+        delta_tau = torch.repeat_interleave(delta_tau, self.finetune_samples_count, dim=1)
+
+        if self.finetune_on_likelihood is False:
+            predicted_states = self._euler_step(
+                initial_states, delta_tau, self.finetune_em_steps, paths_encoding, obs_mask[:, :, :-1, :], dimension_mask
+            )
+
+            assert target_states.shape == predicted_states.shape
+
+            # add mask (currently does not really work for irregular grids)
+            one_step_ahead_mask = (obs_mask[:, :, 1:, :] * obs_mask[:, :, :-1, :] * dimension_mask[:, :, None, :]).reshape(B, -1, D)
+            one_step_ahead_mask = torch.repeat_interleave(one_step_ahead_mask, self.finetune_samples_count, dim=1)
+
+            # use MSE loss? can reuse location loss, as same shapes
+            assert one_step_ahead_mask.shape == target_states.shape
+            assert target_states.ndim == 3
+            one_step_ahead_loss = mse_at_locations(predicted_states, target_states, one_step_ahead_mask)  # [B, -1]
+
+        else:
+            sde_concepts_at_initial_states, _ = self.get_estimated_sde_concepts(
+                initial_states, paths_encoding=paths_encoding, obs_mask=obs_mask[:, :, :-1, :], dimension_mask=dimension_mask
+            )
+
+            drift, diffusion = sde_concepts_at_initial_states.drift, sde_concepts_at_initial_states.diffusion
+
+            one_step_ahead_loss = ((target_states - initial_states - drift * delta_tau) ** 2) / (2 * diffusion**2 * delta_tau) + (
+                2 * torch.log(diffusion)
+            )
+
+        # whole path
+        if self.finetune_only_on_one_step_ahead is False:
+            target_states = obs_values[:, :, 1:, :]  # [B, P, T-1, D]
+            initial_states = obs_values[:, :, 0, :]  # [B, P, D]
+            delta_tau = obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]  # [B, P, T-1, 1]
+
+            # multiple samples per state
+            initial_states = torch.repeat_interleave(initial_states, self.finetune_samples_count, dim=1)
+            target_states = torch.repeat_interleave(target_states, self.finetune_samples_count, dim=1)
+            delta_tau = torch.repeat_interleave(delta_tau, self.finetune_samples_count, dim=1)
+
+            whole_path_mask = obs_mask[:, :, 1:, :] * obs_mask[:, :, :-1, :] * dimension_mask[:, :, None, :]
+            whole_path_mask = torch.repeat_interleave(whole_path_mask, self.finetune_samples_count, dim=1)
+
+            predicted_states = [initial_states]
+
+            for t in range(T - 2):
+                delta_tau_ = delta_tau[:, :, t]
+                predicted_states.append(
+                    self._euler_step(
+                        predicted_states[-1], delta_tau_, self.finetune_em_steps, paths_encoding, obs_mask[:, :, :-1, :], dimension_mask
+                    )
+                )
+
+            predicted_states = torch.stack(predicted_states, dim=-2)
+
+            # use MSE loss? can reuse location loss, after reshaping
+            assert target_states.shape == predicted_states.shape
+            assert target_states.shape == whole_path_mask.shape
+            assert target_states.ndim == 4
+
+            target_states = target_states.reshape(B, -1, D)
+            predicted_states = predicted_states.reshape(B, -1, D)
+            whole_path_mask = whole_path_mask.reshape(B, -1, D)
+
+            whole_path_loss = mse_at_locations(predicted_states, target_states, whole_path_mask)  # [B, -1]
+
+        else:
+            whole_path_loss = torch.zeros_like(one_step_ahead_loss)
+
+        # gather losses
+        one_step_ahead_loss = one_step_ahead_loss.mean()
+        whole_path_loss = whole_path_loss.mean()
+        total_loss = one_step_ahead_loss_scale * one_step_ahead_loss + whole_path_loss_scale * whole_path_loss
+
+        losses = {
+            "loss": total_loss,
+            "one_step_ahead_loss": one_step_ahead_loss,
+            "whole_path_loss": whole_path_loss,
+        }
+
+        return losses
+
+    def _euler_step(
+        self,
+        current_states: Tensor,
+        delta_tau: Tensor,
+        solver_granularity: int,
+        paths_encoding: Tensor,
+        obs_mask: Tensor,
+        dimension_mask: Tensor,
+    ):
+        assert current_states.shape[:-1] == delta_tau.shape[:-1]
+
+        current_states = current_states.to(torch.float32)  # Todo: should be handled better
+
+        for _ in range(solver_granularity):
+            sde_concepts, _ = self.get_estimated_sde_concepts(
+                current_states, paths_encoding=paths_encoding, obs_mask=obs_mask, dimension_mask=dimension_mask
+            )
+
+            drift_increment = sde_concepts.drift * (delta_tau / solver_granularity)  # [B, I, D]
+            diffusion_increment = (
+                sde_concepts.diffusion * torch.sqrt(delta_tau / solver_granularity) * torch.randn_like(current_states)
+            )  # [B, I, D]
+
+            if self.finetune_detach_diffusion:
+                diffusion_increment = diffusion_increment.detach()
+
+            current_states = current_states + drift_increment + diffusion_increment  # [B, I, D]
+
+        assert current_states.shape[:-1] == delta_tau.shape[:-1]
+
+        return current_states
+
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)
-
-    # ----------------------------- Lightning Functionality ---------------------------------------------
-    # ----------------------------- Remove temporarily due to circular inputs ---------------------------
-    # def prepare_batch(self, batch) -> FIMSDEDatabatchTuple:
-    #     """lightning will convert name tuple into a full tensor for training
-    #     here we create the nametuple as required for the model
-    #     """
-    #     databatch = self.DatabatchNameTuple(*batch)
-    #     return databatch
-    #
-    # def training_step(self, batch, batch_idx):
-    #     optimizer = self.optimizers()
-    #     databatch: FIMSDEDatabatchTuple = self.prepare_batch(batch)
-    #     losses = self.forward(databatch, training=True)
-    #
-    #     total_loss = losses.get("loss")
-    #
-    #     optimizer.zero_grad()
-    #     self.manual_backward(total_loss)
-    #     if self.config.clip_grad:
-    #         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config.clip_max_norm)
-    #
-    #     if self.config.skip_nan_grads is True:  # skip updates if gradients contain Nans
-    #         grad_is_finite = [torch.isfinite(p.grad).all() if p.grad is not None else True for p in self.parameters()]
-    #         if all(grad_is_finite):
-    #             optimizer.step()
-    #
-    #         self.log("skipped_grad_due_to_nan", not all(grad_is_finite), prog_bar=False, logger=True)
-    #
-    #     else:
-    #         optimizer.step()
-    #
-    #     prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
-    #
-    #     for label, loss in losses.items():
-    #         prog_bar = label in prog_bar_labels
-    #         if loss is not None:
-    #             self.log(label, loss, on_step=True, prog_bar=prog_bar, logger=True)
-    #
-    #     return total_loss
-    #
-    # def validation_step(self, batch, batch_idx):
-    #     databatch = self.prepare_batch(batch)
-    #     _, losses = self.forward(databatch, training=False, return_losses=True)
-    #
-    #     total_loss = losses.get("loss")
-    #
-    #     # losses["val_loss"] = losses.pop("loss")  # take loss as val_loss
-    #     # prog_bar_labels = ["val_loss", "drift_loss", "diffusion_loss"]
-    #     prog_bar_labels = ["loss", "drift_loss", "diffusion_loss"]
-    #
-    #     for label, loss in losses.items():
-    #         prog_bar = label in prog_bar_labels
-    #         if loss is not None:
-    #             self.log("val_" + label, loss, on_step=True, prog_bar=prog_bar, logger=True)
-    #
-    #     return total_loss
-    #
-    # def configure_optimizers(self):
-    #     return torch.optim.Adam(self.parameters(), lr=self.config.learning_rate, weight_decay=self.config.weight_decay)
-    #
-    # def on_train_epoch_start(self):
-    #     # Action to be executed at the start of each training epoch
-    #     if (self.current_epoch + 1) % self.config.log_images_every_n_epochs == 0:
-    #         if self.config.pipeline_data is not None:
-    #             pipeline = FIMSDEPipeline(self)
-    #             pipeline_sample = pipeline(self.config.pipeline_data)
-    #             self.images_log(self.config.pipeline_data, pipeline_sample)
-    #
-    # def images_log(self, databatch, pipeline_sample):
-    #     fig_vf, fig_paths = images_log_1D(databatch, pipeline_sample)
-    #     if fig_vf is not None:
-    #         mlflow_client_ = self.logger.experiment
-    #         mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_1D_vector_field.png")
-    #     if fig_paths is not None:
-    #         mlflow_client_ = self.logger.experiment
-    #         mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_1D_paths.png")
-    #     plt.close(fig_vf)
-    #     plt.close(fig_paths)
-    #
-    #     fig_vf, fig_paths = images_log_2D(databatch, pipeline_sample)
-    #     if fig_vf is not None:
-    #         mlflow_client_ = self.logger.experiment
-    #         mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_2D_vector_field.png")
-    #     if fig_paths is not None:
-    #         mlflow_client_ = self.logger.experiment
-    #         mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_2D_paths.png")
-    #     plt.close(fig_vf)
-    #     plt.close(fig_paths)
-    #
-    #     fig_vf, fig_paths = images_log_3D(databatch, pipeline_sample)
-    #     if fig_vf is not None:
-    #         mlflow_client_ = self.logger.experiment
-    #         mlflow_client_.log_figure(self.logger._run_id, fig_vf, f"{self.current_epoch}_3D_vector_field.png")
-    #     if fig_paths is not None:
-    #         mlflow_client_ = self.logger.experiment
-    #         mlflow_client_.log_figure(self.logger._run_id, fig_paths, f"{self.current_epoch}_3D_paths.png")
-    #     plt.close(fig_vf)
-    #     plt.close(fig_paths)
-    #
 
 
 ModelFactory.register(FIMSDEConfig.model_type, FIMSDE)

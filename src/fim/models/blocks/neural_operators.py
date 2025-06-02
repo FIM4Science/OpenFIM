@@ -25,7 +25,6 @@ class InducedSetAttentionLayer(Block):
         self.res_attn_layer_0 = ResidualAttentionLayer(batch_first=True, **deepcopy(layer))
         self.res_attn_layer_1 = ResidualAttentionLayer(batch_first=True, **deepcopy(layer))
 
-    # @torch.compile(disable=not torch.cuda.is_available())
     def forward(self, values: Tensor, key_padding_mask: Optional[Tensor] = None) -> Tensor:
         """
         Applies sinduced set attention with num_induced_points induced points.
@@ -266,7 +265,6 @@ class ResidualAttentionLayer(Block):
         # Flag for resiual connection with query
         self.query_residual = query_residual
 
-    # @torch.compile(disable=not torch.cuda.is_available())
     def forward(self, queries: Tensor, keys: Tensor, values: Tensor, key_padding_mask: Optional[Tensor] = None) -> Tensor:
         """
         Apply attention and layer norm, followed by a residual feedforward block.
@@ -325,7 +323,6 @@ class LinearAttention(Block):
         self.feature_map = feature_map
         self.normalize = normalize
 
-    # @torch.compile(disable=not torch.cuda.is_available())
     def forward(self, query: Tensor, key: Tensor, value: Tensor, key_padding_mask: Optional[Tensor] = None):
         B, Tq, _ = query.shape
         B, Tk, _ = key.shape
@@ -345,7 +342,7 @@ class LinearAttention(Block):
 
         if self.feature_map == "softmax":
             q_ = q.softmax(dim=-1, dtype=torch.float32)
-            k_ = k.softmax(dim=-1, dtype=torch.float32)
+            k_ = k.softmax(dim=-2, dtype=torch.float32)
 
         else:  # elu
             q_ = torch.nn.functional.elu(q) + 1
@@ -357,7 +354,7 @@ class LinearAttention(Block):
             norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)  # [B, num_heads, Tq, 1]
 
         else:
-            norm_coeff = 1
+            norm_coeff = q_.shape[-1] ** (0.5)
 
         # context
         kv = k_.transpose(-2, -1) @ v  # [B, num_heads, head_dim, head_dim]
@@ -367,7 +364,7 @@ class LinearAttention(Block):
         attn_output = (1 / norm_coeff) * q_ @ kv  # [B, num_heads, Tq, head_dim]
         attn_output = attn_output.transpose(1, 2).reshape(B, Tq, self.embed_dim)  # [B, Tq, embed_dim]
 
-        return self.out_proj(attn_output)
+        return self.out_proj(attn_output), None  # same signature as nn.MultiheadAttention, returning None as attention output weights
 
 
 class ResidualEncoderLayer(Block):
