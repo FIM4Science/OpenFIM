@@ -1,4 +1,5 @@
 import itertools
+import json
 import logging
 import math
 import operator
@@ -7,7 +8,7 @@ import pathlib
 import random
 from collections import defaultdict, namedtuple
 from dataclasses import dataclass
-from functools import reduce
+from functools import partial, reduce
 from typing import Any, List, Optional, Union
 
 import h5py
@@ -19,6 +20,7 @@ from datasets import Dataset, DatasetDict, DownloadMode, get_dataset_split_names
 from torch import Tensor
 from torch.utils.data import default_collate
 
+from fim import data_path
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.utils import load_h5
 
@@ -963,6 +965,92 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         param.max_dimension = self.max_dimension
         param.max_hypercube_size = self.max_location_size
         param.max_num_steps = self.max_num_steps
+
+
+class JsonSDEDataset(torch.utils.data.IterableDataset):
+    def __init__(
+        self,
+        batch_size: int,
+        json_paths: Path | Paths,
+        keys_to_load: dict,
+        paths_per_batch_element: int | None = None,
+        **kwargs,
+    ):
+        self.batch_size = batch_size
+        self.num_batches = None  # determined by self.__len__()
+
+        self.keys_to_load = keys_to_load
+        self.paths_per_batch_element = paths_per_batch_element
+
+        self.data = self.__load_data(json_paths, keys_to_load, paths_per_batch_element)
+
+    def __load_data(self, json_paths: Path | Paths, keys_to_load: dict, paths_per_batch_element: int | None) -> dict:
+        """
+        Load dicts from jsons (all containing keys_to_load as keys), concatenate their Tensor values along first dimension.
+
+        Args:
+            json_paths (Path | Paths): (List of) Path to jsons containing dicts with Tensor values.
+            keys_to_load (dict): Keys to load from dicts in jsons. Rename loaded keys to the corresponding values in keys_to_load.
+            paths_per_batch_element (int): Group loaded paths into batch eleemnts with this many paths for easier FIM processing.
+        """
+        if not isinstance(json_paths, list):
+            json_paths: Paths = [json_paths]
+
+        data: list[dict] = torch.utils._pytree.tree_map(
+            partial(self._load_dict_from_json, keys_to_load=keys_to_load, paths_per_batch_element=paths_per_batch_element), json_paths
+        )
+        data: dict = torch.utils._pytree.tree_map(lambda *x: torch.concatenate(x, dim=0), *data)  # tuple of length 1
+
+        return data[0]
+
+    @staticmethod
+    def _load_dict_from_json(json_path: Path, keys_to_load: dict, paths_per_batch_element: int | None = None) -> dict:
+        """
+        Load dict with Tensor values from json.
+        Extract relevant keys and (optionally) add a specific path dimension for FIM processing.
+        """
+        json_path: Path = pathlib.Path(json_path)  # to be sure
+        if not json_path.is_absolute():
+            json_path = pathlib.Path(data_path) / json_path
+
+        assert json_path.exists(), f"{json_path} does not exist."
+
+        data: dict = json.load(open(json_path, "r"))
+        data: dict = {key: Tensor(value) if isinstance(value, list) else value for key, value in data.items()}
+
+        assert all(json_key in data.keys() for json_key in keys_to_load.values()), (
+            f"Json {json_path} has keys {data.keys()} and does not contain all keys to load {keys_to_load}."
+        )
+        data: dict = {renamed_key: data[json_key] for renamed_key, json_key in keys_to_load.items()}
+
+        assert all(isinstance(value, Tensor) for value in data.values()), (
+            f"Can only load Tensors, got types {(type(value) for value in data.values())} in json {json_path}."
+        )
+
+        if paths_per_batch_element is not None:
+            data_size = list(data.values())[0].shape[-3]
+            num_batches = data_size // paths_per_batch_element
+
+            data: dict = {key: value[: num_batches * paths_per_batch_element] for key, value in data.items()}
+            data: dict = {key: value.reshape(num_batches, paths_per_batch_element, *value.shape[1:]) for key, value in data.items()}
+
+        return data
+
+    def __len__(self):
+        """
+        Length is number of batches.
+        """
+        if self.num_batches is None:
+            B = list(self.data.values())[0].shape[0]
+            self.num_batches = B // self.batch_size
+
+        return self.num_batches
+
+    def __iter__(self):
+        """
+        Return iterator yielding batches of self.batch_size.
+        """
+        return tensor_dict_iterator(self.data, self.batch_size, process_data=None, process_batch=None)
 
 
 class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):

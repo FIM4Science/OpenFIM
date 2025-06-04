@@ -32,6 +32,7 @@ from ..data.datasets import (
     HawkesDataset,
     HeterogeneousFIMSDEDataset,
     HFDataset,
+    JsonSDEDataset,
     PaddedFIMSDEDataset,
     StreamingFIMSDEDataset,
     TimeSeriesImputationDatasetTorch,
@@ -1054,6 +1055,8 @@ class FIMSDEDataloaderIterableDataset(BaseDataLoader):
             dataset_class = PaddedFIMSDEDataset
         elif dataset_name == "StreamingFIMSDEDataset":
             dataset_class = StreamingFIMSDEDataset
+        elif dataset_name == "JsonSDEDataset":
+            dataset_class = JsonSDEDataset
         else:
             raise ValueError(f"Dataset {dataset_name} not recognized.")
 
