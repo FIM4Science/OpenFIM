@@ -9,7 +9,7 @@ from torch import Tensor
 from fim.data.dataloaders import BaseDataLoader
 from fim.models.blocks import AModel
 from fim.models.sde import SDEConcepts
-from fim.sampling.sde_path_samplers import fimsde_sample_paths
+from fim.sampling.sde_path_samplers import fimsde_sample_paths, fimsde_sample_paths_on_masked_grid
 from fim.trainers.utils import TrainLossTracker
 from fim.utils.sde.vector_fields_and_paths_plots import (
     plot_1d_vf_real_and_estimation,
@@ -264,6 +264,129 @@ class SDEEvaluationPlots(EvaluationEpoch):
 
                 dim_figures = {f"Vector_Field_{str(dim)}D": fig_vf, f"Paths_{str(dim)}D": fig_paths}
                 figures.update(dim_figures)
+
+            return {"figures": figures}
+
+
+class LorenzEvaluationEpoch(EvaluationEpoch):
+    def __init__(
+        self,
+        model,
+        dataloader,
+        loss_tracker,
+        debug_mode,
+        local_rank,
+        accel_type,
+        use_mixeprecision,
+        is_accelerator,
+        auto_cast_type,
+        **kwargs,
+    ):
+        super().__init__(
+            model, dataloader, loss_tracker, debug_mode, local_rank, accel_type, use_mixeprecision, is_accelerator, auto_cast_type
+        )
+
+        self.model_type = kwargs.get("model_type")
+
+        # which dataloader to take plotting data from
+        iterator_name: str = kwargs.get("iterator_name", "test")
+        if iterator_name == "validation":
+            self.dataloader = dataloader.validation_it
+        elif iterator_name == "test":
+            self.dataloader = dataloader.test_it
+        elif iterator_name == "evaluation":
+            self.dataloader = dataloader.evaluation_it
+
+        # how often to plot
+        self.plot_frequency: int = kwargs.get("plot_frequency", 1)
+
+    def __call__(self, epoch: int) -> dict:
+        if epoch % self.plot_frequency != 0:
+            return {}
+
+        else:
+            self.model.eval()
+
+            batch = next(iter(self.dataloader))
+            batch = optree.tree_map(lambda x: x.to(self.model.device), batch)
+            obs_times = batch["obs_times"]
+            obs_values = batch["obs_values"]
+
+            with torch.no_grad():
+                with torch.amp.autocast(
+                    self.accel_type,
+                    enabled=self.use_mixeprecision and self.is_accelerator,
+                    dtype=self.auto_cast_type,
+                ):
+                    if self.model_type == "latentsde":
+                        ctx, obs_times, _ = self.model.encode_inputs(obs_times, obs_values)
+                        posterior_initial_states, _, _ = self.model.sample_posterior_initial_condition(ctx[0])
+                        _, paths_post_init_cond = self.model.sample_from_prior_equation(posterior_initial_states, obs_times)
+
+                        prior_initial_states = self.model.sample_prior_initial_condition(obs_values.shape[0])
+                        _, paths_prior_init_cond = self.model.sample_from_prior_equation(prior_initial_states, obs_times)
+
+                    elif self.model_type == "fimsde":
+                        paths_post_init_cond = None
+                        paths_prior_init_cond, _ = fimsde_sample_paths_on_masked_grid(
+                            self.model,
+                            batch,
+                            obs_times,
+                            torch.ones_like(obs_times),
+                            initial_states=obs_values[:, :, 0, :],
+                            solver_granularity=5,
+                        )
+
+            # Create figure from paths
+            figures = {}
+
+            paths_prior_init_cond = paths_prior_init_cond.to("cpu").detach().to(torch.float32)
+            paths_prior_init_cond = paths_prior_init_cond.squeeze()
+
+            obs_values = obs_values.to("cpu").detach().to(torch.float32)
+            obs_values = obs_values.squeeze()
+
+            if paths_post_init_cond is not None:
+                paths_post_init_cond = paths_post_init_cond.to("cpu").detach().to(torch.float32)
+                paths_post_init_cond = paths_post_init_cond.squeeze()
+
+            fig = plt.Figure(figsize=(5, 5), dpi=300)
+            ax = fig.add_axes(111, projection="3d")
+            ax.set_axis_off()
+
+            for i in range(obs_values.shape[0]):
+                ax.plot(
+                    obs_values[i, ..., 0],
+                    obs_values[i, ..., 1],
+                    obs_values[i, ..., 2],
+                    color="black",
+                    linestyle="dashed",
+                    label="Observations" if i == 0 else None,
+                    linewidth=0.2,
+                )
+                ax.plot(
+                    paths_prior_init_cond[i, ..., 0],
+                    paths_prior_init_cond[i, ..., 1],
+                    paths_prior_init_cond[i, ..., 2],
+                    color="#0072B2",
+                    linestyle="solid",
+                    label="Prior Eq." if i == 0 else None,
+                    linewidth=0.2,
+                )
+                if paths_post_init_cond is not None:
+                    ax.plot(
+                        paths_post_init_cond[i, ..., 0],
+                        paths_post_init_cond[i, ..., 1],
+                        paths_post_init_cond[i, ..., 2],
+                        color="#CC79A7",
+                        linestyle="solid",
+                        label="Prior Eq. - Post. Init. Cond." if i == 0 else None,
+                        linewidth=0.2,
+                    )
+
+            ax.legend()
+
+            figures["sample_paths"] = fig
 
             return {"figures": figures}
 
