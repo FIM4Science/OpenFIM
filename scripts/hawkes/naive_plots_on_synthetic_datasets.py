@@ -7,12 +7,12 @@ from fim.models.hawkes import FIMHawkes
 from fim.utils.experiment_files import ExperimentsFiles
 
 
-DATASET_DIR = Path("data/synthetic_data/hawkes/5k_1_st_hawkes_exp_smaller_scale_2000_paths_250_events/test")
+DATASET_DIR = Path("data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/test")
 # DATASET_DIR = Path("/cephfs_projects/foundation_models/hawkes/data/1D_easytpp/train")
 EXPERIMENT_DIR = Path(
     # "results/FIM_Hawkes_1-3_st_weird_norm_exp_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_03-22-1420/checkpoints/best-model"
     # "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM_Hawkes_1st_exp_rmse_no_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_04-09-1514/checkpoints/best-model"
-    "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM_Hawkes_1st_exp_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_05-13-1435/checkpoints/best-model"
+    "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM_Hawkes_1-3st_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensities_06-03-1952/checkpoints/best-model"
 )
 num_samples = 5
 start_idx = 0
