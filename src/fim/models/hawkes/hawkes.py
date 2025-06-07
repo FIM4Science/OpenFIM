@@ -97,9 +97,16 @@ class FIMHawkes(AModel):
             raise NotImplementedError("Bulk model only supports 2 marks.")
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         self.__create_modules()
+        self._register_cached_tensors()
 
         # self.gaussian_nll = nn.GaussianNLLLoss(full=True, reduction="none")
         # self.init_cross_entropy = nn.CrossEntropyLoss(reduction="none")
+
+    def _register_cached_tensors(self):
+        """Register pre-computed tensors as buffers for efficiency"""
+        # Only cache the one-hot encodings (no gradients involved)
+        mark_one_hot = torch.eye(self.max_num_marks)
+        self.register_buffer("mark_one_hot", mark_one_hot)
 
     def __create_modules(self) -> None:
         mark_encoder = copy.deepcopy(self.config.mark_encoder)
@@ -202,21 +209,22 @@ class FIMHawkes(AModel):
         if "seq_lengths" not in x:
             x["seq_lengths"] = torch.full((B, P), L, device=self.device)
 
-        x["delta_times"] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
-        # Add a delta time of 0 for the first event
-        x["delta_times"] = torch.cat([torch.zeros_like(x["delta_times"][:, :, :1]), x["delta_times"]], dim=2)
+        # Compute delta times in-place for efficiency
+        self._compute_delta_times_inplace(x, obs_grid)
 
         if self.normalize_times:
             norm_constants = self._normalize_input_times(x)
 
-        sequence_encodings = self._encode_observations(x)  # [B, P, L, D]
+        sequence_encodings = self._encode_observations_optimized(x)  # [B, P, L, D]
 
         observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1)  # [B, P, L, 1]
-        time_dependent_encodings = self._time_dependent_encoder(
+        time_dependent_encodings = self._time_dependent_encoder_optimized(
             x, sequence_encodings, observations_padding_mask=observations_padding_mask
         )  # [B, M, L_kernel, D]
 
-        static_encodings = self._static_encoder(x, sequence_encodings, observations_padding_mask=observations_padding_mask)  # [B, M, D]
+        static_encodings = self._static_encoder_optimized(
+            x, sequence_encodings, observations_padding_mask=observations_padding_mask
+        )  # [B, M, D]
 
         predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
 
@@ -378,6 +386,86 @@ class FIMHawkes(AModel):
 
         return norm_constants
 
+    def _compute_delta_times_inplace(self, x: dict, obs_grid: Tensor):
+        """Compute delta times more efficiently"""
+        B, P, L = obs_grid.shape[:3]
+        # Pre-allocate tensor with zeros for the first event
+        delta_times = torch.zeros(B, P, L, 1, device=obs_grid.device, dtype=obs_grid.dtype)
+        delta_times[:, :, 1:] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
+        x["delta_times"] = delta_times
+
+    def _encode_observations_optimized(self, x: dict) -> Tensor:
+        """Optimized observation encoding using cached one-hot encodings"""
+        obs_grid_normalized = x["event_times"]
+        B, P, L = obs_grid_normalized.shape[:3]
+
+        time_enc = self.time_encoder(obs_grid_normalized)
+        delta_time_enc = self.delta_time_encoder(x["delta_times"])
+
+        # More efficient mark encoding using cached one-hot matrix
+        event_types_flat = x["event_types"].reshape(-1).long()
+        # Use cached one-hot matrix instead of computing it each time
+        one_hot_marks = self.mark_one_hot[event_types_flat]  # [B*P*L, max_num_marks]
+        mark_encodings = self.mark_encoder(one_hot_marks)  # [B*P*L, hidden_dim]
+        state_enc = mark_encodings.reshape(B, P, L, -1)
+
+        # Fused addition
+        path = time_enc + delta_time_enc + state_enc
+
+        # Use original mask creation (exactly as in original method)
+        mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
+        mask = mask.repeat(B, P, 1, 1)
+
+        positions = torch.arange(L, device=self.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # (1, 1, L, 1)
+        padding_mask = positions >= x["seq_lengths"].unsqueeze(-1).unsqueeze(-1)  # (B, P, L, 1)
+        padding_mask = padding_mask.expand(-1, -1, -1, L)  # (B, P, L, L)
+        mask = mask | padding_mask
+        padding_mask = None
+
+        h = self.ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
+
+        return h.view(B, P, L, -1)
+
+    def _trunk_net_encoder_optimized(self, x: dict) -> Tensor:
+        """Optimized trunk net encoding using cached one-hot encodings"""
+        kernel_grids = x["kernel_grids"]
+        B, M, L_kernel = kernel_grids.shape
+
+        # More efficient reshaping and encoding
+        time_encodings = self.kernel_time_encoder(kernel_grids.view(-1, 1)).view(B, M, L_kernel, -1)
+
+        # Use cached one-hot encodings for evaluation marks
+        marks = torch.arange(M, device=kernel_grids.device)
+        one_hot_eval_marks = self.mark_one_hot[marks]  # [M, max_num_marks]
+        eval_mark_encodings = self.evaluation_mark_encoder(one_hot_eval_marks)  # [M, hidden_dim]
+        mark_encodings = eval_mark_encodings.unsqueeze(0).unsqueeze(2).expand(B, -1, L_kernel, -1)  # [B, M, L_kernel, D]
+
+        return time_encodings + mark_encodings
+
+    def _time_dependent_encoder_optimized(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
+        """Optimized time dependent encoder"""
+        trunk_net_encodings = self._trunk_net_encoder_optimized(x)  # [B, M, L_kernel, D]
+        B, M, L_kernel, D = trunk_net_encodings.shape
+
+        # Avoid unnecessary view operations
+        trunk_reshaped = trunk_net_encodings.reshape(B, M * L_kernel, D)
+        result = self.time_dependent_functional_attention(
+            trunk_reshaped, sequence_encodings, observations_padding_mask=observations_padding_mask
+        )
+        return result.reshape(B, M, L_kernel, D)
+
+    def _static_encoder_optimized(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
+        """Optimized static encoder using cached one-hot encodings"""
+        B, M, _ = x["kernel_grids"].shape
+
+        # Use cached one-hot encodings for learnable queries
+        mark_indices = torch.arange(M, device=x["kernel_grids"].device)
+        cached_one_hot = self.mark_one_hot.to(x["kernel_grids"].device)
+        learnable_queries = self.static_functional_attention_learnable_query(cached_one_hot[mark_indices])
+        learnable_queries = learnable_queries.unsqueeze(0).expand(B, -1, -1)
+
+        return self.static_functional_attention(learnable_queries, sequence_encodings, observations_padding_mask=observations_padding_mask)
+
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
         out["predicted_kernel_values"] = out["predicted_kernel_values"] / norm_constants.view(-1, 1, 1)
         out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - torch.log(norm_constants).view(-1, 1, 1)
@@ -420,37 +508,37 @@ class FIMHawkes(AModel):
         # loss = kernel_loss + base_intensity_loss
         loss = kernel_rmse + base_intensity_rmse
 
-        # With a 1% probability plot the kernel function and the ground truth and add the RMSE as a title to the plot
-        if torch.rand(1) < 0.01:
-            import matplotlib.pyplot as plt
+        # # With a 1% probability plot the kernel function and the ground truth and add the RMSE as a title to the plot
+        # if torch.rand(1) < 0.01:
+        #     import matplotlib.pyplot as plt
 
-            B, M, T = predicted_kernel_function.shape
-            predicted_kernel_function_np = predicted_kernel_function.clone().detach().cpu().float().numpy()
-            ground_truth_kernel_function_np = target_kernel_values.clone().detach().cpu().float().numpy()
-            # Define scaling factors
-            width_per_subplot = 3
-            height_per_subplot = 3
-            figsize = (width_per_subplot * M, height_per_subplot * B)
-            fig, axs = plt.subplots(B, M, figsize=figsize, squeeze=False)
-            kernel_rmse_np = torch.sqrt(
-                torch.mean(torch.tensor((predicted_kernel_function_np - ground_truth_kernel_function_np)) ** 2, dim=-1)
-            )
-            kernel_rmse_np = torch.mean(kernel_rmse_np)
-            for b in range(B):
-                for m in range(M):
-                    axs[b, m].scatter(
-                        kernel_grids[b, m].clone().detach().cpu().float().numpy(), predicted_kernel_function_np[b, m], label="Model"
-                    )
-                    axs[b, m].scatter(
-                        kernel_grids[b, m].clone().detach().cpu().float().numpy(),
-                        ground_truth_kernel_function_np[b, m],
-                        label="Ground Truth",
-                    )
-                    axs[b, m].legend()
-                    axs[b, m].tick_params(axis="both", which="major", labelsize=8)
-            plt.tight_layout()
-            plt.savefig("foo.png", dpi=300)
-            plt.close()
+        #     B, M, T = predicted_kernel_function.shape
+        #     predicted_kernel_function_np = predicted_kernel_function.clone().detach().cpu().float().numpy()
+        #     ground_truth_kernel_function_np = target_kernel_values.clone().detach().cpu().float().numpy()
+        #     # Define scaling factors
+        #     width_per_subplot = 3
+        #     height_per_subplot = 3
+        #     figsize = (width_per_subplot * M, height_per_subplot * B)
+        #     fig, axs = plt.subplots(B, M, figsize=figsize, squeeze=False)
+        #     kernel_rmse_np = torch.sqrt(
+        #         torch.mean(torch.tensor((predicted_kernel_function_np - ground_truth_kernel_function_np)) ** 2, dim=-1)
+        #     )
+        #     kernel_rmse_np = torch.mean(kernel_rmse_np)
+        #     for b in range(B):
+        #         for m in range(M):
+        #             axs[b, m].scatter(
+        #                 kernel_grids[b, m].clone().detach().cpu().float().numpy(), predicted_kernel_function_np[b, m], label="Model"
+        #             )
+        #             axs[b, m].scatter(
+        #                 kernel_grids[b, m].clone().detach().cpu().float().numpy(),
+        #                 ground_truth_kernel_function_np[b, m],
+        #                 label="Ground Truth",
+        #             )
+        #             axs[b, m].legend()
+        #             axs[b, m].tick_params(axis="both", which="major", labelsize=8)
+        #     plt.tight_layout()
+        #     plt.savefig("foo.png", dpi=300)
+        #     plt.close()
 
         return {
             "loss": loss,

@@ -1,4 +1,4 @@
-from .hawkes import FIMHawkes
+from .hawkes import FIMHawkes, FIMHawkesConfig
 
 
-__all__ = ["FIMHawkes"]
+__all__ = ["FIMHawkes", "FIMHawkesConfig"]
