@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_1-3st_mixed_rmse_norm_2000_paths_mixed_250_events_mixed
+  name: FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -19,13 +19,13 @@ dataset:
       - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/train
       - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/train
       - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/train
-      # - data/synthetic_data/hawkes/5k_1_st_hawkes_exp_smaller_scale_2000_paths_250_events/train
+      # - data/synthetic_data/hawkes/100_3_st_hawkes_mixed_2000_paths_250_events/train
 
     validation: !!python/tuple
       - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/val
       - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/val
       - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/val
-      # - data/synthetic_data/hawkes/5k_1_st_hawkes_exp_smaller_scale_2000_paths_250_events/val
+      # - data/synthetic_data/hawkes/100_3_st_hawkes_mixed_2000_paths_250_events/val
 
   loader_kwargs:
     batch_size: 1
