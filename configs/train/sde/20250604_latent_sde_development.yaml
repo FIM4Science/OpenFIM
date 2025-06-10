@@ -53,25 +53,25 @@ dataset:
 
   json_paths:
     train: !!python/tuple [
-      /home/seifner/repos/FIM/data/processed/test/20250604_lorenz_system/neural_sde_paper/set_0/train_data.json
+      /home/seifner/repos/FIM/data/processed/test/20250610_lorenz_system/neural_sde_paper/set_0/train_data.json
     ]
 
     test: !!python/tuple [
-      /home/seifner/repos/FIM/data/processed/test/20250604_lorenz_system/neural_sde_paper/set_0/validation_data.json
+      /home/seifner/repos/FIM/data/processed/test/20250610_lorenz_system/neural_sde_paper/set_0/validation_data.json
     ]
 
     validation: !!python/tuple [
-      /home/seifner/repos/FIM/data/processed/test/20250604_lorenz_system/neural_sde_paper/set_0/validation_data.json
+      /home/seifner/repos/FIM/data/processed/test/20250610_lorenz_system/neural_sde_paper/set_0/validation_data.json
     ]
 
 
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: bf16mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
+  precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
   epochs: &epochs 5000
   detect_anomaly: false
-  save_every: 100
+  save_every: 10
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"

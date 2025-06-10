@@ -48,6 +48,7 @@ class LatentSDEConfig(PretrainedConfig):
     def __init__(
         self,
         name: str = "LatentSDE",
+        model_type: str = "latentsde",
         data_size: int = 3,
         hidden_size: int = 32,
         context_size: int = 32,
@@ -61,6 +62,8 @@ class LatentSDEConfig(PretrainedConfig):
         **kwargs,
     ):
         self.name = name
+        self.model_type = model_type
+        self.data_size = data_size
         self.hidden_size = hidden_size
         self.context_size = context_size
         self.latent_size = latent_size
@@ -154,8 +157,6 @@ class LatentSDE(AModel):
 
         self._ctx = None
 
-    # def contextualize(self, ctx):
-
     def f(self, t, y):
         ts, ctx = self._ctx
         i = min(torch.searchsorted(ts, t, right=True), len(ts) - 1)
@@ -194,7 +195,7 @@ class LatentSDE(AModel):
 
         if times.ndim == 2:  # [T, 1]
             assert times.shape[1] == 1, f"Got {times.shape}."
-            times = times.squeeze()
+            times = times.squeeze(1)
 
         return times
 

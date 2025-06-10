@@ -4,103 +4,89 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import optree
 
 from fim import project_path
 from fim.utils.sde.evaluation import save_fig
-
-
-def _load_real_world_from_json(path_to_json: Path, name: str, split_num: int):
-    all_results: list[dict] = json.load(open(path_to_json))
-
-    results_with_name = [result for result in all_results if result["name"] == name]
-    results_with_split_num = [result for result in results_with_name if result["split"] == split_num]
-
-    assert len(results_with_split_num) == 1, f"Got {len(results_with_split_num)}."
-
-    results = results_with_split_num[0]
-    # results.pop("name", None)
-    # results.pop("tau", None)
-    # results.pop("noise", None)
-    # results.pop("equations", None)  # BISDE results has extra key
-
-    results = {k: np.array(v) if isinstance(v, list) else v for k, v in results.items()}
-
-    return results
 
 
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     global_description = "lorenz_system_figure_paths"
 
-    # current_description = "neurips_search_for_decent_results_tau_0_002_noise_0_exp_0"
-    current_description = "develop"
+    current_description = "latent_sde_vs_fim_finetuning_vs_fim_from_scratch"
 
-    reference_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_reference_data.json"
+    neural_sde_paper_path = Path(
+        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/"
     )
-    fim_no_finetune_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160055_neurips_model_no_finetuning/model_paths/fim_model_C_at_139_epochs_no_finetuning_train_data_linear_diffusion_num_context_paths_1024.json"  # data and results to load
-    )
-    fim_finetune_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160031_neurips_model_finetuning_on_128_paths_up_to_500_epochs/model_paths/fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_200_train_data_linear_diffusion_num_context_paths_1024.json"
-    )
-    latent_sde_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/05161005_latent_dim_3_paths_sampled_from_prior_lorenz-16_paths.json"
+    neural_sde_github_path = Path(
+        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_github/set_0/"
     )
 
-    diffusion_label = "linear"
-    initial_state_label = "sampled_normal_mean_0_std_1"
-
-    num_plot_paths = 128
-
-    # results to plot
-    # systems_to_plot = ["Double Well", "Wang"]
-    # noise = 0.0
-    # synthetic_experiment_to_plot = 0
-    #
-    # select_synthetic_fimsde_results = {
-    #     "Double Well": {"tau": 0.002, "noise": noise, "exp": 1},  # any is okay
-    #     "Wang": {"tau": 0.002, "noise": noise, "exp": 0},  # good: 0, 1
-    # }
-    #
-    # real_world_to_plot = ["fb", "tsla"]
-    # select_real_world_fimsde_results = {
-    #     "fb": {"split_num": 0},  # good: 0, 3, 4
-    #     "tsla": {"split_num": 4},  # good: 3, 4
-    # }
-    #
-    # # plot config
-    # num_paths_synthetic = 10
-    #
-    fim_plot_config = {
-        "color": "#0072B2",
-        "linestyle": "solid",
-        "label": "FIM-SDE",
-        "linewidth": 0.2,
+    reference_paths_jsons = {
+        "neural_sde_paper": {
+            "(1,1,1)": neural_sde_paper_path / "(1,1,1)_reference_data.json",
+            "N(0,1)": neural_sde_paper_path / "N(0,1)_reference_data.json",
+            "N(0,2)": neural_sde_paper_path / "N(0,2)_reference_data.json",
+        },
+        "neural_sde_github": {
+            "(1,1,1)": neural_sde_github_path / "(1,1,1)_reference_data.json",
+            "N(0,1)": neural_sde_github_path / "N(0,1)_reference_data.json",
+            "N(0,2)": neural_sde_github_path / "N(0,2)_reference_data.json",
+        },
     }
 
-    fim_finetuned_plot_config = {
-        "color": "blue",
-        "linestyle": "solid",
-        "label": "FIM-SDE finetuned",
-        "linewidth": 0.2,
+    base_path = Path(
+        "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250701_latent_sde_and_fim_with_vector_fields"
+    )
+
+    lat_sde_context_1_base_path = base_path / "07011432_latent_sde_context_1_with_vector_fields/model_paths"
+    lat_sde_context_100_base_path = base_path / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
+    fim_epochs_200_500_base_path = base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
+    fim_epochs_1000_2000_base_path = base_path / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
+    fim_no_training_base_path = base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+
+    models_jsons = {
+        "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
+        "fim_train_from_scratch_epochs_5000_lr_1e-5": fim_no_training_base_path
+        / "fim_train_from_scratch_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_200_lr_1e-5": fim_epochs_200_500_base_path
+        / "fim_finetune_200_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_500_lr_1e-5": fim_epochs_200_500_base_path
+        / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
+        / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_2000_lr_1e-5": fim_epochs_1000_2000_base_path
+        / "fim_finetune_2000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_200_lr_1e-6": fim_epochs_200_500_base_path
+        / "fim_finetune_200_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_500_lr_1e-6": fim_epochs_200_500_base_path
+        / "fim_finetune_500_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_1000_lr_1e-6": fim_epochs_1000_2000_base_path
+        / "fim_finetune_1000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_2000_lr_1e-6": fim_epochs_1000_2000_base_path
+        / "fim_finetune_2000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "lat_sde_context_1": lat_sde_context_1_base_path / "lat_sde_context_1_train_data_neural_sde_paper.json",
+        "lat_sde_context_100": lat_sde_context_100_base_path / "lat_sde_context_100_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_context_1": lat_sde_context_1_base_path / "lat_sde_latent_3_context_1_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_context_100": lat_sde_context_100_base_path / "lat_sde_latent_3_context_100_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_no_proj_context_1": lat_sde_context_1_base_path
+        / "lat_sde_latent_3_no_proj_context_1_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
+        / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
     }
 
     gt_plot_config = {
         "color": "black",
         "linestyle": "solid",
-        "label": "Observations",
         "linewidth": 0.2,
     }
 
-    latent_sde_plot_config = {
-        "color": "#CC79A7",
+    model_plot_config = {
+        "color": "#0072B2",
         "linestyle": "solid",
-        "label": "Latent SDE",
         "linewidth": 0.2,
     }
-
-    # linewidth_paths = 0.2
 
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
@@ -111,93 +97,114 @@ if __name__ == "__main__":
     evaluation_dir.mkdir(parents=True, exist_ok=True)
 
     # load ground-truth synthetic paths
-    all_paths: list[dict] = json.load(open(reference_paths_json, "r"))
-    reference_paths: list[dict] = [
-        d for d in all_paths if d["diffusion_label"] == diffusion_label and d["initial_state_label"] == initial_state_label
+    print("Loading ground-truth and model data.")
+    reference_data: dict = optree.tree_map(lambda x: json.load(open(x, "r")), reference_paths_jsons)
+    models_data: dict = optree.tree_map(lambda x: json.load(open(x, "r")), models_jsons)
+
+    # per train_data_label, inference_data_label, model_label show (cols) sampling, (rows), initial_state_label
+    figure_setups: list[dict] = [
+        {
+            "model_label": model_label,
+            # "sampling_label": model_paths.get("sampling_label"),
+            # "initial_state_label": model_paths.get("initial_state_label"),
+            "train_data_label": model_paths["train_data_label"],
+            "inference_data_label": model_paths["inference_data_label"],
+        }
+        for model_label, model_data in models_data.items()
+        for model_paths in model_data
     ]
-    assert len(reference_paths) == 1
-    reference_paths = np.array(reference_paths[0]["paths"]).squeeze()
 
-    # no finetuned
-    all_fim_no_finetuned_paths: list[dict] = json.load(open(fim_no_finetune_paths_json, "r"))
-    fim_no_finetuned_paths = [
-        d
-        for d in all_fim_no_finetuned_paths
-        if d["train_data_diffusion_label"] == diffusion_label and d["initial_state_label"] == initial_state_label
-    ]
-    assert len(fim_no_finetuned_paths) == 1
-    fim_no_finetuned_paths = np.array(fim_no_finetuned_paths[0]["synthetic_path"]).squeeze()
+    for figure_setup in figure_setups:
+        print(f"Processing {figure_setup}")
+        figure_model_data: list = [
+            d
+            for d in models_data[figure_setup["model_label"]]
+            if (
+                d["train_data_label"] == figure_setup["train_data_label"]
+                and d["inference_data_label"] == figure_setup["inference_data_label"]
+            )
+        ]
 
-    # finetuned
-    all_fim_finetuned_paths: list[dict] = json.load(open(fim_finetune_paths_json, "r"))
-    fim_finetuned_paths = [
-        d
-        for d in all_fim_finetuned_paths
-        if d["train_data_diffusion_label"] == diffusion_label and d["initial_state_label"] == initial_state_label
-    ]
-    assert len(fim_finetuned_paths) == 1
-    fim_finetuned_paths = np.array(fim_finetuned_paths[0]["synthetic_path"]).squeeze()
+        sampling_labels = list({d.get("sampling_label") for d in figure_model_data})
+        initial_state_labels = list({d.get("initial_state_label") for d in figure_model_data})
 
-    # latent sde
-    all_latent_sde_paths: list[dict] = json.load(open(latent_sde_paths_json, "r"))
-    latent_sde_paths = [
-        d
-        for d in all_latent_sde_paths
-        if d["train_data_diffusion_label"] == diffusion_label and d["initial_state_label"] == initial_state_label
-    ]
-    assert len(latent_sde_paths) == 1
-    latent_sde_paths = np.array(latent_sde_paths[0]["synthetic_path"]).squeeze()
+        # create figure with separating gap between the two systems
+        num_rows = len(initial_state_labels)
+        num_cols = len(sampling_labels)
+        fig, axs = plt.subplots(
+            nrows=num_rows,
+            ncols=num_cols,
+            figsize=(num_cols * 2, num_rows * 2),
+            dpi=300,
+            subplot_kw={"projection": "3d"},
+            tight_layout=True,
+        )
+        fig.suptitle(figure_setup["model_label"], fontsize=7)
 
-    # data is the same in all experiments
-    # keys: obs_times, obs_values, locations, drift_at_locations, diffusion_at_locations per system
+        if num_rows == 1 and num_cols == 1:
+            axs = np.array([[axs]])
 
-    # create figure with separating gap between the two systems
-    fig, axs = plt.subplots(nrows=1, ncols=3, figsize=(7, 1.5), dpi=300, subplot_kw={"projection": "3d"})
+        elif num_rows == 1:
+            axs = axs.reshape(1, -1)
 
-    # configure axes general
-    for ax in axs:
-        ax.set_axis_off()
+        elif num_cols == 1:
+            axs = axs.reshape(-1, 1)
 
-    for i in range(num_plot_paths):
-        for a in range(3):
-            axs[a].plot(reference_paths[i, :, 0], reference_paths[i, :, 1], reference_paths[i, :, 2], **gt_plot_config)
+        # configure axes general
+        for ax in axs.reshape(-1):
+            ax.set_axis_off()
 
-        axs[0].plot(latent_sde_paths[i, :, 0], latent_sde_paths[i, :, 1], latent_sde_paths[i, :, 2], **latent_sde_plot_config)
-        axs[1].plot(fim_no_finetuned_paths[i, :, 0], fim_no_finetuned_paths[i, :, 1], fim_no_finetuned_paths[i, :, 2], **fim_plot_config)
-        axs[2].plot(fim_finetuned_paths[i, :, 0], fim_finetuned_paths[i, :, 1], fim_finetuned_paths[i, :, 2], **fim_finetuned_plot_config)
+        for row in range(num_rows):
+            for col in range(num_cols):
+                initial_state_label = initial_state_labels[row]
+                sampling_label = sampling_labels[col]
 
-    axs[1].scatter(
-        fim_no_finetuned_paths[:, 0, 0], fim_no_finetuned_paths[:, 0, 1], fim_no_finetuned_paths[:, 0, 2], marker="o", color="red"
-    )
+                axs[row, col].set_title(f"Init. State Sampling: {initial_state_label} \n Equation: {sampling_label}", fontsize=6)
 
-    # # place right legend directly on top of the plot
-    # plt.draw()
-    # handles, labels = axs[0].get_legend_handles_labels()
-    #
-    # # # because bise is not on double well
-    # # quiver_handles, quiver_labels = axs[3].get_legend_handles_labels()
-    # # bisde_handle = [mlines.Line2D([], [], color=bisde_color, linewidth=linewidth, linestyle="dashdot")]
-    # # bisde_label = quiver_labels
-    # #
-    # # handles = handles[:2] + bisde_handle + handles[2:]
-    # # labels = labels[:2] + bisde_label + labels[2:]
-    # #
-    # # legend_fontsize = 6
-    # legend_fontsize = 5
-    # bbox_x = axs[2].get_position().x0 + 0.5 * (axs[2].get_position().x1 - axs[2].get_position().x0)
-    # bbox_y = axs[2].get_position().y1 * 1.07
-    #
-    # legend = fig.legend(
-    #     handles,
-    #     labels,
-    #     loc="lower center",
-    #     bbox_to_anchor=[bbox_x, bbox_y],
-    #     fontsize=legend_fontsize,
-    #     ncols=4,
-    # )
-    #
-    # save
-    save_dir: Path = evaluation_dir
-    save_dir.mkdir(parents=True, exist_ok=True)
-    file_name = "vector_field_plot"
-    save_fig(fig, save_dir, file_name)
+                reference_paths = reference_data[figure_setup["train_data_label"]][figure_setup["inference_data_label"]]
+                reference_paths = np.array(reference_paths["clean_obs_values"])
+
+                model_paths = [
+                    d
+                    for d in figure_model_data
+                    if d.get("initial_state_label") == initial_state_label and d.get("sampling_label") == sampling_label
+                ]
+                if len(model_paths) == 0:
+                    print(
+                        f"Model path {initial_state_label=}, {sampling_label} not found in {[d['initial_state_label'] for d in figure_model_data]}, {[d['sampling_label'] for d in figure_model_data]}."
+                    )
+                elif len(model_paths) > 1:
+                    raise ValueError(
+                        f"Found multiple paths of figure setup {optree.tree_map(lambda x: x.shape if isinstance(x, np.ndarray) else x, figure_setup)}"
+                    )
+                else:
+                    model_paths = np.array(model_paths[0]["synthetic_path"])
+
+                    assert reference_paths.shape == model_paths.shape
+                    for i in range(reference_paths.shape[0]):
+                        axs[row, col].plot(
+                            reference_paths[i, :, 0],
+                            reference_paths[i, :, 1],
+                            reference_paths[i, :, 2],
+                            **gt_plot_config,
+                            label="Reference" if i == 0 else None,
+                        )
+                        axs[row, col].plot(
+                            model_paths[i, :, 0],
+                            model_paths[i, :, 1],
+                            model_paths[i, :, 2],
+                            **model_plot_config,
+                            label="Model" if i == 0 else None,
+                        )
+
+        plt.draw()
+        handles, labels = axs[0, 0].get_legend_handles_labels()
+
+        legend = fig.legend(fontsize=5)
+
+        save_dir: Path = evaluation_dir / figure_setup["train_data_label"] / figure_setup["inference_data_label"]
+        save_dir.mkdir(parents=True, exist_ok=True)
+        file_name = figure_setup["model_label"]
+        save_fig(fig, save_dir, file_name)
+
+        plt.close(fig)

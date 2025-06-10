@@ -1,5 +1,4 @@
 import json
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -9,73 +8,100 @@ import pandas as pd
 from metrics_helpers import (
     MetricEvaluation,
     load_metric_evaluations_from_dirs,
-    nans_to_stars,
     save_table,
 )
 from mmd import compute_mmd
 from tqdm import tqdm
 
 
-def get_lorenz_setup_paths(all_paths: list[dict], system_setup: str, initial_state_setup: int) -> np.ndarray:
+def get_mse(target: np.ndarray, estimation: np.ndarray):
     """
-    Extract paths from one experiment of lorenz data, loaded from json file.
+    Return MSE between estimation and target.
+
+    Args: target, estimation (np.ndarray): Shape: [G, D]
+    Returns: mse np.ndarrayTensor): Shape: []
+    """
+    assert estimation.ndim == target.ndim == 2
+
+    se = (estimation - target) ** 2
+    mse = np.mean(se)
+
+    return mse
+
+
+def get_lorenz_data(all_data, train_data_label, inference_data_label) -> np.ndarray:
+    """
+    Extract data from one experiment of lorenz data, loaded from json file.
 
     Args:
-        all_paths (list[dict]): List of all datasets, including all setups.
-        system_setup, initial_state_setup: Identifying information for paths to extract from all_paths.
+        all_data (dict): all datasets, including all setups.
+        ... label: Identifying information for paths to extract from all_paths.
 
     Returns:
-        paths_of_dataset (dict): Unique element in all_paths with identifier (system_setup, initial_state_setup).
+        paths, drift, diffusion of setup
     """
-    paths_of_setup = [d for d in all_paths if d["diffusion_label"] == system_setup and d["initial_state_label"] == initial_state_setup]
-
-    # should contain exactly one set of paths for each setup
-    if len(paths_of_setup) == 1:
-        return np.array(paths_of_setup[0]["paths"])
-
-    elif len(paths_of_setup) == 0:
-        raise ValueError(f"Could not find reference paths of setup {initial_state_setup=}, {system_setup=}.")
-
-    else:
-        raise ValueError(f"Found {len(paths_of_setup)} sets of paths for setup {initial_state_setup=}, {system_setup=}.")
+    data_of_setup = all_data[train_data_label][inference_data_label]
+    return (
+        np.array(data_of_setup["clean_obs_values"]),
+        np.array(data_of_setup["drift_at_locations"]),
+        np.array(data_of_setup["diffusion_at_locations"]),
+    )
 
 
-def get_model_paths(all_model_data: list[dict], train_data_setup: str, initial_state_setup: str) -> np.ndarray:
+def get_model_data(
+    all_model_data: list[dict], train_data_label: str, inference_data_label: str, sampling_label: str, initial_state_label: str | None
+) -> np.ndarray:
     """
     Extract result of one experiment from one model from a loaded json file.
 
     Args:
         all_model_data (list[dict]): Results of one model on all datasets.
-        train_data_setup, initial_state_setup: Identifying information for result to extract from all_model_data.
+        ...label (str): Identifying information for result to extract from all_model_data.
 
     Returns:
-        model_paths_value (np.ndarray): Extracted model result.
+        model_paths_value (np.ndarray): Extracted model sampled paths.
+        model_drift (np.ndarray): Extracted model drift at passed locations.
+        model_diffusion (np.ndarray): Extracted model diffusion at passed locations.
     """
-    model_data_of_setup = [
+    model_data = [
         d
         for d in all_model_data
-        if (d["train_data_diffusion_label"] == train_data_setup) and (d["initial_state_label"] == initial_state_setup)
+        if (
+            d["train_data_label"] == train_data_label
+            and (d["inference_data_label"] == inference_data_label)
+            and (d["sampling_label"] == sampling_label)
+            and (d.get("initial_state_label") == initial_state_label)
+        )
     ]
 
-    # should contain exactly one set of data for each setup
-    if len(model_data_of_setup) == 1:
-        return np.array(model_data_of_setup[0]["synthetic_path"])
+    if len(model_data) == 1:
+        return model_data[0]
 
-    elif len(model_data_of_setup) == 0:
+    elif len(model_data) == 0:
         return None
 
     else:
         raise Warning(
-            f"Found {len(model_data_of_setup)} sets of data for setup {train_data_setup} with initial_state_setup {initial_state_setup}."
+            f"Found {len(model_data)} sets of data for {train_data_label=}, {inference_data_label=}, {sampling_label=}, {initial_state_label=}."
         )
+
+
+def get_model_hyperparams(
+    *keys,
+    model_json: Path,
+    train_data_label: str,
+    inference_data_label: str,
+    sampling_label: str,
+    initial_state_label: str | None,
+):
+    model_data: dict = json.load(open(model_json, "r"))
+    model_data = get_model_data(model_data, train_data_label, inference_data_label, sampling_label, initial_state_label)
+    return {key: model_data.get(key) for key in keys}
 
 
 def lorenz_metric_table(
     all_evaluations: list[MetricEvaluation],
     metric: str,
-    models_order: list[str],
-    initial_state_order: list[str],
-    train_data_order: list[str],
     precision: int,
     handle_negative_values: str,
 ):
@@ -84,31 +110,33 @@ def lorenz_metric_table(
     """
     assert handle_negative_values in [None, "clip", "abs"]
 
-    # all evaluations with metric to dataframe
     rows = [
         {
-            "model": eval.model_id,
-            "train_data_diffusion_label": eval.data_id[0],
-            "initial_state_label": eval.data_id[1],
+            "model": eval.model_id[0],
+            "sampling_label": eval.model_id[1],
+            "initial_state_label": eval.model_id[2],
+            "train_data_label": eval.data_id[0],
+            "inference_data_label": eval.data_id[1],
             "metric_value": eval.metric_value,
         }
+        | get_model_hyperparams(
+            "learn_projection",
+            "latent_size",
+            "hidden_size",
+            "context_size",
+            "activation",
+            model_json=eval.model_json,
+            train_data_label=eval.data_id[0],
+            inference_data_label=eval.data_id[1],
+            sampling_label=eval.model_id[1],
+            initial_state_label=eval.model_id[2],
+        )
         for eval in all_evaluations
         if eval.metric_id == metric
     ]
 
-    cols = optree.tree_map(lambda *x: x, *rows)
+    cols = optree.tree_map(lambda *x: x, *rows, none_is_leaf=True)
     df = pd.DataFrame.from_dict(cols)
-
-    # models have custom sorting
-    df["model"] = pd.Categorical(df["model"], models_order)
-
-    # count Nans and depict them as stars
-    df_count_nans = deepcopy(df[["train_data_diffusion_label", "initial_state_label", "model", "metric_value"]])
-    df_count_nans["metric_is_nan"] = np.isnan(df["metric_value"])
-    df_count_nans = df_count_nans.drop("metric_value", axis=1)
-
-    df_star_nans = df_count_nans.groupby(["train_data_diffusion_label", "initial_state_label", "model"]).agg(nans_to_stars)
-    df_star_nans = df_star_nans["metric_is_nan"].unstack(0).unstack(0)
 
     # sometimes mmd can be negative, if the paths are really good
     if handle_negative_values == "clip":
@@ -117,20 +145,24 @@ def lorenz_metric_table(
     elif handle_negative_values == "abs":
         df["metric_value"] = np.abs(df["metric_value"])
 
-    # mean without Nans
-    df_mean = df.groupby(["train_data_diffusion_label", "initial_state_label", "model"]).agg(
-        lambda x: str(x.dropna().mean().round(precision)) if (len(x.dropna()) != 0) else "-"
-    )
-    df_mean = df_mean["metric_value"].unstack(0).unstack(0)
+    df = df.groupby(
+        [
+            "learn_projection",
+            "activation",
+            "latent_size",
+            "hidden_size",
+            "context_size",
+            "model",
+            "sampling_label",
+            "initial_state_label",
+            "train_data_label",
+            "inference_data_label",
+        ],
+        dropna=False,
+        as_index=False,
+    ).mean()
 
-    # add number of Nan experiments as stars to each cell
-    df_mean = df_mean + " " + df_star_nans
-
-    # reorder columns
-    column_order = [(t, i) for t in train_data_order for i in initial_state_order]
-    df_mean = df_mean[column_order]
-
-    return df_mean
+    return df
 
 
 if __name__ == "__main__":
@@ -138,120 +170,80 @@ if __name__ == "__main__":
     dataset_descr = "lorenz_system_metrics_tables"
 
     # How to name experiments
-    experiment_descr = "posterior_of_reference_paths_for_latent_initial_condition_sampled_latent_sdes"
-    # experiment_descr = "fim_vs_lorenz_sampled_from_prior_initial_condition"
+    experiment_descr = "latent_sde_vs_fim_finetune_and_fim_retrain_from_scratch"
+
+    metrics = ["mmd", "mse_drift", "mse_diffusion"]
 
     project_path = "/cephfs/users/seifner/repos/FIM"
-
-    reference_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/20250514221957_lorenz_system_mmd_reference_paths/20250514221957_lorenz_mmd_reference_data.json"
+    neural_sde_paper_path = Path(
+        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/"
+    )
+    neural_sde_github_path = Path(
+        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_github/set_0/"
     )
 
-    base_path_latent_sde_latent_dim_3 = Path(
-        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250512_lorenz_data_from_neural_sde_github/"
+    reference_paths_jsons = {
+        "neural_sde_paper": {
+            "(1,1,1)": neural_sde_paper_path / "(1,1,1)_reference_data.json",
+            "N(0,1)": neural_sde_paper_path / "N(0,1)_reference_data.json",
+            "N(0,2)": neural_sde_paper_path / "N(0,2)_reference_data.json",
+        },
+        "neural_sde_github": {
+            "(1,1,1)": neural_sde_github_path / "(1,1,1)_reference_data.json",
+            "N(0,1)": neural_sde_github_path / "N(0,1)_reference_data.json",
+            "N(0,2)": neural_sde_github_path / "N(0,2)_reference_data.json",
+        },
+    }
+
+    base_path = Path(
+        "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250701_latent_sde_and_fim_with_vector_fields"
     )
-    base_path_no_finetuning = Path(
-        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160055_neurips_model_no_finetuning/model_paths/"
-    )
-    base_path_finetuned = Path(
-        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_vf_and_paths_evaluation/05160031_neurips_model_finetuning_on_128_paths_up_to_500_epochs/model_paths/"
-    )
+
+    lat_sde_context_1_base_path = base_path / "07011432_latent_sde_context_1_with_vector_fields/model_paths"
+    lat_sde_context_100_base_path = base_path / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
+    fim_epochs_200_500_base_path = base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
+    fim_epochs_1000_2000_base_path = base_path / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
+    fim_no_training_base_path = base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
 
     models_jsons = {
-        # "latent_sde_latent_dim_3_context_16": base_path_latent_sde_latent_dim_3 / "05151624_lorenz-16_paths.json",
-        # "latent_sde_latent_dim_3_context_32": base_path_latent_sde_latent_dim_3 / "05151624_lorenz-32_paths.json",
-        # "latent_sde_latent_dim_3_context_64": base_path_latent_sde_latent_dim_3 / "05151624_lorenz-64_paths.json",
-        "fim_no_finetuning": [
-            base_path_no_finetuning / "fim_model_C_at_139_epochs_no_finetuning_train_data_linear_diffusion_num_context_paths_1024.json",
-            base_path_no_finetuning / "fim_model_C_at_139_epochs_no_finetuning_train_data_constant_diffusion_num_context_paths_1024.json",
-        ],
-        # "fim_finetune_on_128_paths_all_points_lr_1e-6_epochs_010": [
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_010_train_data_linear_diffusion_num_context_paths_1024.json",
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_010_train_data_constant_diffusion_num_context_paths_1024.json",
-        # ],
-        # "fim_finetune_on_128_paths_all_points_lr_1e-6_epochs_050": [
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_050_train_data_linear_diffusion_num_context_paths_1024.json",
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_050_train_data_constant_diffusion_num_context_paths_1024.json",
-        # ],
-        # "fim_finetune_on_128_paths_all_points_lr_1e-6_epochs_100": [
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_100_train_data_linear_diffusion_num_context_paths_1024.json",
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_100_train_data_constant_diffusion_num_context_paths_1024.json",
-        # ],
-        "fim_finetune_on_128_paths_all_points_lr_1e-6_epochs_200": [
-            base_path_finetuned
-            / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_200_train_data_linear_diffusion_num_context_paths_1024.json",
-            base_path_finetuned
-            / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_200_train_data_constant_diffusion_num_context_paths_1024.json",
-        ],
-        # "fim_finetune_on_128_paths_all_points_lr_1e-6_epochs_500": [
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_500_train_data_linear_diffusion_num_context_paths_1024.json",
-        #     base_path_finetuned
-        #     / "fim_model_C_at_139_epochs_finetuned_on_128_paths_all_points_lr_1e-6_epochs_500_train_data_constant_diffusion_num_context_paths_1024.json",
-        # ],
-        #
-        #
-        # "latent_sde_latent_dim_3_context_64_sample_from_prior": base_path_latent_sde_latent_dim_3
-        # / "05161005_latent_dim_3_paths_sampled_from_prior_lorenz-64_paths.json",
-        # "latent_sde_latent_dim_3_context_32_sample_from_prior": base_path_latent_sde_latent_dim_3
-        # / "05161005_latent_dim_3_paths_sampled_from_prior_lorenz-32_paths.json",
-        # "latent_sde_latent_dim_3_context_16_sample_from_prior": base_path_latent_sde_latent_dim_3
-        # / "05161005_latent_dim_3_paths_sampled_from_prior_lorenz-16_paths.json",
-        # "latent_sde_latent_dim_4_context_64_sample_from_prior": base_path_latent_sde_latent_dim_3
-        # / "05161006_latent_dim_4_paths_sampled_from_prior_lorenz_64_paths.json",
-        # "latent_sde_latent_dim_4_context_32_sample_from_prior": base_path_latent_sde_latent_dim_3
-        # / "05161006_latent_dim_4_paths_sampled_from_prior_lorenz_32_paths.json",
-        #
-        #
-        "latent_sde_latent_dim_3_context_64_sample_from_posterior": base_path_latent_sde_latent_dim_3
-        / "05161229_latent_dim_3_paths_sampled_from_posterior_initial_condition_from_reference_paths_lorenz-16_paths.json",
-        "latent_sde_latent_dim_3_context_32_sample_from_posterior": base_path_latent_sde_latent_dim_3
-        / "05161229_latent_dim_3_paths_sampled_from_posterior_initial_condition_from_reference_paths_lorenz-32_paths.json",
-        "latent_sde_latent_dim_3_context_16_sample_from_posterior": base_path_latent_sde_latent_dim_3
-        / "05161229_latent_dim_3_paths_sampled_from_posterior_initial_condition_from_reference_paths_lorenz-64_paths.json",
-        "latent_sde_latent_dim_4_context_64_sample_from_posterior": base_path_latent_sde_latent_dim_3
-        / "05161230_latent_dim_4_paths_sampled_from_posterior_initial_condition_from_reference_paths_lorenz_64_paths.json",
-        "latent_sde_latent_dim_4_context_32_sample_from_posterior": base_path_latent_sde_latent_dim_3
-        / "05161230_latent_dim_4_paths_sampled_from_posterior_initial_condition_from_reference_paths_lorenz_32_paths.json",
+        "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
+        "fim_train_from_scratch_epochs_5000_lr_1e-5": fim_no_training_base_path
+        / "fim_train_from_scratch_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_200_lr_1e-5": fim_epochs_200_500_base_path
+        / "fim_finetune_200_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_500_lr_1e-5": fim_epochs_200_500_base_path
+        / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
+        / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_2000_lr_1e-5": fim_epochs_1000_2000_base_path
+        / "fim_finetune_2000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_200_lr_1e-6": fim_epochs_200_500_base_path
+        / "fim_finetune_200_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_500_lr_1e-6": fim_epochs_200_500_base_path
+        / "fim_finetune_500_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_1000_lr_1e-6": fim_epochs_1000_2000_base_path
+        / "fim_finetune_1000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "fim_finetune_epochs_2000_lr_1e-6": fim_epochs_1000_2000_base_path
+        / "fim_finetune_2000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+        "lat_sde_context_1": lat_sde_context_1_base_path / "lat_sde_context_1_train_data_neural_sde_paper.json",
+        "lat_sde_context_100": lat_sde_context_100_base_path / "lat_sde_context_100_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_context_1": lat_sde_context_1_base_path / "lat_sde_latent_3_context_1_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_context_100": lat_sde_context_100_base_path / "lat_sde_latent_3_context_100_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_no_proj_context_1": lat_sde_context_1_base_path
+        / "lat_sde_latent_3_no_proj_context_1_train_data_neural_sde_paper.json",
+        "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
+        / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
     }
 
-    initial_states_setups_to_evaluate = {
-        "sampled_normal_mean_0_std_1": r"$\mathcal{N}(0, 1)$",
-        "sampled_normal_mean_0_std_2": r"$\mathcal{N}(0, 2)$",
-        "fixed_at_1_1_1": r"$(1, 1, 1)$",
-    }
-
-    train_data_setups_to_evaluate = {
-        "linear": "Linear Diffusion",
-        "constant": "Constant Diffusion",
-    }
     only_use_loaded_evaluations = False
 
     metric_evaluations_to_load: list[Path] = [
-        Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_metrics_tables/05160100_fim_model_C_fixed_softmax_dim_epoch_139_no_finetuning/metric_evaluations_jsons"
-        ),
-        Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_metrics_tables/05160042_fim_model_C_fixed_softmax_dim_epoch_139_finetune_on_128_paths_lr_1e-6_eval_context_1024/metric_evaluations_jsons"
-        ),
         # Path(
-        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/lorenz_system_metrics_tables/05160105_latent_sde_latent_dim_3_context_16-64/metric_evaluations_jsons"
-        # ),
-        # Path(
-        #     "/cephfs/users/seifner/repos/FIM/evaluations/lorenz_system_metrics_tables/05161014_prior_sampled_latent_sdes/metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/evaluations/lorenz_system_metrics_tables/06171745_latent_sde_vs_fim_finetuning_first_comparisons/metric_evaluations_jsons"
         # ),
     ]
 
     # tables config
-    models_order = tuple(models_jsons.keys())
-    initial_state_order = tuple(initial_states_setups_to_evaluate.values())
-    train_data_order = tuple(train_data_setups_to_evaluate.values())
     precision = 3
 
     # --------------------------------------------------------------------------------------------------------------------------------- #
@@ -263,38 +255,24 @@ if __name__ == "__main__":
     evaluation_dir.mkdir(parents=True, exist_ok=True)
 
     print("Loading ground-truth and model data.")
-    reference_data_paths: list[dict] = json.load(open(reference_paths_json, "r"))
-
-    # some model data is split into multiple jsons
-    models_data: dict = {}
-    for model_name, model_json_list in models_jsons.items():
-        if not isinstance(model_json_list, list):
-            model_json_list = [model_json_list]
-
-        model_data = []
-
-        for model_json in model_json_list:
-            model_data = model_data + json.load(open(model_json, "r"))
-
-        models_data.update({model_name: model_data})
-
-    # models_data: list[dict] = {model_name: json.load(open(model_json, "r")) for model_name, model_json in models_jsons.items()}
+    reference_data: dict = optree.tree_map(lambda x: json.load(open(x, "r")), reference_paths_jsons)
+    models_data: dict = optree.tree_map(lambda x: json.load(open(x, "r")), models_jsons)
 
     # prepare all evaluations to be done
     print("Preparing all evaluations.")
     all_evaluations: list[MetricEvaluation] = [
         MetricEvaluation(
-            model_id=model,
-            model_json=models_jsons[model],
-            data_id=(train_data_setup, initial_state_setup),
-            data_paths_json=reference_paths_json,
+            model_id=(model_label, model_paths.get("sampling_label"), model_paths.get("initial_state_label")),
+            model_json=models_jsons[model_label],
+            data_id=(model_paths["train_data_label"], model_paths["inference_data_label"]),
+            data_paths_json=reference_paths_jsons[model_paths["train_data_label"]][model_paths["inference_data_label"]],
             data_vector_fields_json=None,
-            metric_id="mmd",
+            metric_id=metric,
             metric_value=None,  # input later
         )
-        for initial_state_setup in initial_states_setups_to_evaluate.keys()
-        for train_data_setup in train_data_setups_to_evaluate
-        for model in models_jsons.keys()
+        for metric in metrics
+        for model_label, model_data in models_data.items()
+        for model_paths in model_data
     ]
 
     print("Loading saved evaluations.")
@@ -313,84 +291,93 @@ if __name__ == "__main__":
     json_save_dir.mkdir(exist_ok=True, parents=True)
 
     for eval in loaded_evaluations:
-        train_data_setup, initial_state_setup = eval.data_id
-        file_name = f"mod_{eval.model_id.replace(' ', '_')}_met_{eval.metric_id}_train_data_{train_data_setup}_init_state_{initial_state_setup}.json"
+        train_data_label, inference_data_label = eval.data_id
+        file_name = f"model_{str(eval.model_id).replace(' ', '_')}_data_{str(eval.data_id).replace(' ', '_')}_met_{eval.metric_id}.json"
         eval.to_json(json_save_dir / file_name)
 
-    # compute metric for missing evaluations
     all_evaluations = loaded_evaluations
-    mmd_ground_truth_cache = {}  # K_xx for the ground truth data is the same for all models, so we cache it
 
     if len(to_evaluate) > 0:
         print(
-            f"Data paths keys (Initial States, Diffusion Label): {[(d['initial_state_label'], d['diffusion_label']) for d in reference_data_paths]}"
+            f"Data paths keys (Train Data Label, Inference Labels): {[(train_data_label, inference_data.keys()) for train_data_label, inference_data in reference_data.items()]}"
         )
         print("Models keys: ")
-        for model_name, model_data in models_data.items():
-            print(
-                f"Model: {model_name}, (Initial States, Train Data): ",
-                [(setup["initial_state_label"], setup["train_data_diffusion_label"]) for setup in model_data],
-            )
+
+        evaluated = []
+
+        for model_label, model_data in models_data.items():
+            for model_paths in model_data:
+                print(
+                    f"Model: {model_label, model_paths.get('sampling_label'), model_paths.get('initial_state_label')}, (Train Data Label, Inference Label): ",
+                    (model_paths["train_data_label"], model_paths["inference_data_label"]),
+                )
 
         for eval in (pbar := tqdm(to_evaluate, leave=False)):
             train_data_setup, initial_state_setup = eval.data_id
-            pbar.set_description(f"Processing metric={'mmd'}, model={eval.model_id}, {train_data_setup=}, {initial_state_setup=}.")
+            pbar.set_description(f"Processing metric={eval.metric_id}, model={eval.model_id}, {train_data_setup=}, {initial_state_setup=}.")
 
             start_time = datetime.now()
 
-            reference_paths: np.ndarray = get_lorenz_setup_paths(reference_data_paths, train_data_setup, initial_state_setup)
-            model_paths: np.ndarray = get_model_paths(models_data[eval.model_id], train_data_setup, initial_state_setup)
+            model_label, sampling_label, initial_state_label = eval.model_id
+            train_data_label, inference_data_label = eval.data_id
 
-            if model_paths is None or np.isnan(model_paths).any() or np.isnan(reference_paths).any():
-                eval.metric_value = np.nan
+            model_data = get_model_data(
+                models_data[model_label], train_data_label, inference_data_label, sampling_label, initial_state_label
+            )
 
-            else:
-                # print("\n\n")
-                # print(f"{model_paths.min()=}, {model_paths.max()=}")
-                # print(f"{reference_paths.min()=}, {reference_paths.max()=}")
-                # print("\n\n")
-                print(model_paths.shape)
-                eval.metric_value = compute_mmd(reference_paths, model_paths, kernel_cache=mmd_ground_truth_cache)
+            model_paths = np.array(model_data["synthetic_path"])
+            model_drift = model_data.get("drift_at_locations")
+            model_diffusion = model_data.get("diffusion_at_locations")
 
-            # record computation time
+            if model_drift is not None:
+                model_drift = np.array(model_drift)
+            if model_diffusion is not None:
+                model_diffusion = np.array(model_diffusion)
+
+            reference_paths, reference_drift, reference_diffusion = get_lorenz_data(reference_data, train_data_label, inference_data_label)
+
+            if eval.metric_id == "mmd":
+                if model_paths is None or np.isnan(model_paths).any() or np.isnan(reference_paths).any():
+                    eval.metric_value = np.nan
+
+                else:
+                    eval.metric_value = compute_mmd(reference_paths, model_paths)
+
+            elif eval.metric_id == "mse_drift" and model_drift is not None:
+                eval.metric_value = get_mse(reference_drift, model_drift)
+
+            elif eval.metric_id == "mse_diffusion" and model_drift is not None:
+                eval.metric_value = get_mse(reference_diffusion, model_diffusion)
+
             end_time = datetime.now()
             computation_time = (end_time - start_time).total_seconds()
 
-            print(
-                f"Last result: metric={eval.metric_id}, value={eval.metric_value}, model={eval.model_id}, {train_data_setup=}, {initial_state_setup=}, {computation_time=} seconds."
-            )
-            print("\n")
+            # in case no model drift or diffusion was available
+            if eval.metric_value is not None:
+                print(
+                    f"Last result: metric={eval.metric_id}, value={eval.metric_value}, model={eval.model_id}, data={eval.data_id}, {computation_time=} seconds."
+                )
+                print("\n")
 
-            # save results as json
-            file_name = f"mod_{eval.model_id.replace(' ', '_')}_met_{eval.metric_id}_train_data_{train_data_setup}_init_state_{initial_state_setup}.json"
-            eval.to_json(json_save_dir / file_name)
+                file_name = (
+                    f"model_{str(eval.model_id).replace(' ', '_')}_data_{str(eval.data_id).replace(' ', '_')}_met_{eval.metric_id}.json"
+                )
+                eval.to_json(json_save_dir / file_name)
 
-            all_evaluations.append(eval)
+                all_evaluations.append(eval)
 
-    # replace initial states and training data labels
-    renamed_evaluations = []
-    for eval in all_evaluations:
-        train_data_setup, initial_state_setup = eval.data_id
+    for metric in metrics:
+        handle_negative_values = [None, "clip", "abs"] if metric == "mmd" else [None]
+        for handle in handle_negative_values:
+            df_mean = lorenz_metric_table(all_evaluations, metric, precision, handle)
 
-        train_data_setup = train_data_setups_to_evaluate[train_data_setup]
-        initial_state_setup = initial_states_setups_to_evaluate[initial_state_setup]
+            subdir_name = f"tables_{metric}"
 
-        eval.data_id = (train_data_setup, initial_state_setup)
+            if handle is not None:
+                subdir_name = subdir_name + "_" + handle
 
-        renamed_evaluations.append(eval)
+            metric_save_dir: Path = evaluation_dir / subdir_name
+            metric_save_dir.mkdir(exist_ok=True, parents=True)
 
-    for handle_negative_values in [None, "clip", "abs"]:
-        df_mean = lorenz_metric_table(
-            renamed_evaluations, "mmd", models_order, initial_state_order, train_data_order, precision, handle_negative_values
-        )
-
-        subdir_name = "tables_mmd"
-
-        if handle_negative_values is not None:
-            subdir_name = subdir_name + "_" + handle_negative_values
-
-        metric_save_dir: Path = evaluation_dir / subdir_name
-        metric_save_dir.mkdir(exist_ok=True, parents=True)
-
-        # save_table(df_count_exps, metric_save_dir, "count_experiments")
-        save_table(df_mean, metric_save_dir, "mean")
+            # save_table(df_count_exps, metric_save_dir, "count_experiments")
+            save_table(df_mean, metric_save_dir, "mean")
