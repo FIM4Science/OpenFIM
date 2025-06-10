@@ -298,6 +298,9 @@ def get_dataloader_init(config: Any) -> DataLoaderInitializer:
     if isinstance(config, DataLoader):
         return model_init_from_instance(config)
 
+    if isinstance(config, dict):
+        return lambda: config
+
     else:
         raise ValueError(f"Dataloader initialization configuration from {type(config)} not implemented.")
 

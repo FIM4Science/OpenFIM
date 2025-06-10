@@ -46,8 +46,8 @@ class MetricEvaluation:
     @classmethod
     def from_dict(cls, src: dict):
         return cls(
-            model_id=src.get("model_id"),
-            model_json=src.get(Path("model_json")),
+            model_id=tuple(src.get("model_id")) if isinstance(src.get("model_id"), list) else src.get("model_id"),
+            model_json=Path(src.get("model_json")),
             data_id=tuple(src.get("data_id")) if isinstance(src.get("data_id"), list) else src.get("data_id"),
             data_paths_json=Path(src.get("data_paths_json")),
             data_vector_fields_json=Path(src.get("data_vector_fields_json")),
