@@ -357,7 +357,9 @@ class TrainCheckpoint:
         Returns:
             None
         """
-        if not isinstance(checkpoint, (int, str)) or (isinstance(checkpoint, str) and checkpoint not in {"best-model", "last-epoch"}):
+        if not isinstance(checkpoint, (int, str)) or (
+            isinstance(checkpoint, str) and not (checkpoint in {"best-model", "last-epoch"} or checkpoint.isdigit())
+        ):
             raise ValueError(
                 f"Invalid checkpoint value: {checkpoint}. Supported values are 'best-model', 'last-epoch', or an integer epoch number."
             )

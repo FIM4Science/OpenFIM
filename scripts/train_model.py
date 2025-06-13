@@ -39,23 +39,24 @@ logger = RankLoggerAdapter(logging.getLogger(__name__))
     "resume",
     default=None,
     type=click.Path(exists=True, dir_okay=True, file_okay=False, path_type=Path),
-    help="Resume the training from the last checkpoint of the experiment.",
+    help="Path to checkpoint directory to resume training from.",
 )
-def main(cfg_path: Path, log_level: int, resume: Path):
+@click.option("-e", "--epoch", "epoch", default="last-epoch", help="Epoch to resume training from.")
+def main(cfg_path: Path, log_level: int, resume: Path, epoch: str):
     config = load_yaml(cfg_path)
     gs_configs = expand_params(config)
-    train(gs_configs, resume)
+    train(gs_configs, resume, epoch)
 
 
-def train(configs: List[GenericConfig], resume: Path):
+def train(configs: List[GenericConfig], resume: Path, epoch: str):
     for config in configs:
         if config.distributed.enabled:
-            train_distributed(config, resume)
+            train_distributed(config, resume, epoch)
         else:
-            train_single(config, resume)
+            train_single(config, resume, epoch)
 
 
-def train_distributed(config: List[GenericConfig], resume: Path):
+def train_distributed(config: List[GenericConfig], resume: Path, epoch: str):
     torch.manual_seed(int(config.experiment.seed))
     torch.cuda.manual_seed(int(config.experiment.seed))
     np.random.seed(int(config.experiment.seed))
@@ -81,13 +82,15 @@ def train_distributed(config: List[GenericConfig], resume: Path):
             model = ModelFactory.create(config.model.to_dict())
         else:
             model = AutoModel.from_pretrained(config.model.base_model)
-        trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
+        trainer = TrainerFactory.create(
+            config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume, resume_epoch=epoch
+        )
         trainer.train()
     # dist.barrier()
     cleanup()
 
 
-def train_single(config: List[GenericConfig], resume: Path):
+def train_single(config: List[GenericConfig], resume: Path, epoch: str):
     logger.info("Starting Experiment: %s", config.experiment.name)
 
     torch.manual_seed(int(config.experiment.seed))
@@ -105,7 +108,9 @@ def train_single(config: List[GenericConfig], resume: Path):
         logger.info(f"Loading model from {config.model.base_model}")
         model = AutoModel.from_pretrained(config.model.base_model)
 
-    trainer = TrainerFactory.create(config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume)
+    trainer = TrainerFactory.create(
+        config.trainer.name, model=model, dataloader=dataloader, config=config, resume=resume, resume_epoch=epoch
+    )
     trainer.train()
 
 
