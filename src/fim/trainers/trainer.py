@@ -38,7 +38,14 @@ from .utils import (
 
 
 class Trainer:
-    def __init__(self, model: AModel, dataloader: BaseDataLoader, config: GenericConfig, resume: Optional[Path | str] = None) -> None:
+    def __init__(
+        self,
+        model: AModel,
+        dataloader: BaseDataLoader,
+        config: GenericConfig,
+        resume: Optional[Path | str] = None,
+        resume_epoch: Optional[str] = "last-epoch",
+    ) -> None:
         self.config = config
         self.resume = resume
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
@@ -52,7 +59,7 @@ class Trainer:
         self.max_steps = self.dataloader.n_train_batches * self.config.trainer.epochs // self.gradient_accumulation_steps
         self.steps_in_epoch = self.dataloader.n_train_batches // self.gradient_accumulation_steps
         self.schedulers: dict = create_schedulers(config.trainer.schedulers, self.max_steps, self.steps_in_epoch)
-        self._prepare_model(model, config, resume)
+        self._prepare_model(model, config, resume, resume_epoch)
         self._evaluation_epoch: EvaluationEpoch = self._prepare_evaluation_epoch()
 
         self._save_experiment_parameters()
@@ -60,7 +67,7 @@ class Trainer:
 
         self.profiler_config: dict = self.config.trainer.to_dict().get("profiler")  # None or {"trace_path": , "num_batches": }
 
-    def _prepare_model(self, model, config, resume: Optional[Path | str] = None):
+    def _prepare_model(self, model, config, resume: Optional[Path | str] = None, resume_epoch: Optional[str] = "last_epoch"):
         self.model = model
         checkpoint_class = TrainCheckpointFSDPFullStateDict if self.is_distributed else TrainCheckpoint
         self.optimizers = create_optimizers(self.model, config.optimizers)
@@ -88,11 +95,11 @@ class Trainer:
         if not self.is_distributed:
             self.model.to(device)
             if resume is not None:
-                self.start_epoch = self.checkpointer.load_checkpoint("last-epoch")
+                self.start_epoch = self.checkpointer.load_checkpoint(resume_epoch)
                 self.optimizers = self.checkpointer.optimizers
         else:
             if resume is not None:
-                self.start_epoch = self.checkpointer.load_model_state("last-epoch")
+                self.start_epoch = self.checkpointer.load_model_state(resume_epoch)
                 self.model = self.checkpointer.model
 
             self._fsdp_initialize()
