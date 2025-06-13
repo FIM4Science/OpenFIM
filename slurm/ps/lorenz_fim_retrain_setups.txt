@@ -1,0 +1,1 @@
+torchrun --nproc_per_node=1 --master-port=29725 scripts/sde/finetune_fim_sde.py --exp-name=fim_train_from_scratch_1024_paths_1024_points_20000_epochs_lr_1e-5 --config=configs/train/sde/20250614_finetune_fim_on_lorenz.yaml --seed=0 --train-data-label=neural_sde_paper --num-points=1024 --epochs=20000 --lr=0.00001 --train-from-scratch=True

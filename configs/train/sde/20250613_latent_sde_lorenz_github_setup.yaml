@@ -1,5 +1,5 @@
 experiment:
-  name: latent_sde_development
+  name: "latent_sde_lorenz_github_setup_base"
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -17,9 +17,9 @@ model:
 
   data_size: 3
 
-  hidden_size: 8 # paper: 100, github: 128
-  context_size: 8 # paper: 1, github: 64
-  latent_size: 8 # paper: 4, github: 4
+  hidden_size: 128 # paper: 100, github: 128
+  context_size: 64 # paper: 1, github: 64
+  latent_size: 4 # paper: 4, github: 4
   activation: "softplus" # paper: sigmoid, github: softplus
 
   learn_projection: True

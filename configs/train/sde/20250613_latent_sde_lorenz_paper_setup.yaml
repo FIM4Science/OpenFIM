@@ -1,5 +1,5 @@
 experiment:
-  name: latent_sde_development
+  name: "latent_sde_lorenz_paper_setup_base"
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: 10
   device_map: cuda # auto, cuda, cpu
@@ -17,16 +17,16 @@ model:
 
   data_size: 3
 
-  hidden_size: 8 # paper: 100, github: 128
-  context_size: 8 # paper: 1, github: 64
-  latent_size: 8 # paper: 4, github: 4
-  activation: "softplus" # paper: sigmoid, github: softplus
+  hidden_size: 100 # paper: 100, github: 128
+  context_size: 1 # paper: 1, github: 64
+  latent_size: 4 # paper: 4, github: 4
+  activation: "sigmoid" # paper: sigmoid, github: softplus
 
   learn_projection: True
 
   solver_adjoint: False
   solver_method: "euler"
-  solver_dt: 0.02 # paper: 0.01, github: 0.02
+  solver_dt: 0.01 # paper: 0.01, github: 0.02
 
   noise_std: 0.01 # paper: 0.01, github: 0.01
 
@@ -89,7 +89,7 @@ trainer:
     - name: fim.utils.param_scheduler.LinearScheduler
       label: kl_scale
       start_step: 0
-      end_step: 1000 # paper: 50, github: 1000
+      end_step: 50 # paper: 50, github: 1000
       start_value: 0
       end_value: 1
 
@@ -103,5 +103,5 @@ optimizers: !!python/tuple
           step_type: minibatch
           schedulers: !!python/tuple
             - name: torch.optim.lr_scheduler.ExponentialLR
-              gamma: 0.997 # paper: 0.999, github: 0.997
+              gamma: 0.999 # paper: 0.999, github: 0.997
           milestones: !!python/tuple []
