@@ -241,6 +241,7 @@ class TrainCheckpoint:
             },
             "commit": latest_commit(),
         }
+        torch.save(self.model.state_dict(), save_dir / "model-checkpoint.pth")
         torch.save(state, train_state)
 
     def _save_optimizers_state(self, epoch: int, save_dir: Union[Path, str]):
@@ -466,7 +467,7 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
         self.__logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         super().__init__(**kwargs)
 
-    def _save_model_state(self, epoch: int, save_dir: Path | str):
+    def _save_model_state(self, epoch: int, save_dir: Path | str, push_to_hub: bool = False):
         """
         Saves the model's state as part of the checkpoint.
 
