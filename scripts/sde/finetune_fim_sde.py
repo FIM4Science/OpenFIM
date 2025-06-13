@@ -11,10 +11,11 @@ from pathlib import Path
 import click
 import torch
 from train_latent_sde import sample_paths_from_trained_model
+from transformers import AutoConfig
 
 from fim.data.dataloaders import DataLoaderFactory
 from fim.models import FIMSDE
-from fim.models.blocks import AModel
+from fim.models.blocks import AModel, ModelFactory
 from fim.trainers.trainer import TrainerFactory
 from fim.trainers.utils import cleanup, clear_gpu_cache, get_accel_type, setup, setup_environ_flags
 from fim.utils.helper import expand_params, load_yaml
@@ -40,6 +41,7 @@ def finetune_fim(
     sample_paths: bool,
     epochs: int,
     lr: int,
+    train_from_scratch: bool,
 ) -> None:
     """
     Training config is loaded from file.
@@ -58,7 +60,13 @@ def finetune_fim(
     config["trainer"]["epochs"] = epochs
 
     model_path = "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/epoch-139"
-    model: FIMSDE = AModel.load_model(model_path)
+
+    if train_from_scratch is False:
+        model: FIMSDE = AModel.load_model(model_path)
+
+    else:
+        model_config = AutoConfig.from_pretrained(Path(model_path) / "config.json")
+        model = ModelFactory.create(model_config)
 
     model.finetune = True
     model.config.finetune = True
@@ -158,6 +166,7 @@ if __name__ == "__main__":
     @click.option("--sample-paths", "sample_paths", type=bool, required=False, default=True)
     @click.option("--epochs", "epochs", type=int, required=False, default=500)
     @click.option("--lr", "lr", type=float, required=False, default=1e-5)
+    @click.option("--train-from-scratch", "train_from_scratch", type=bool, required=False, default=False)
     def cli(**kwargs):
         finetune_fim(test_data_setups, **kwargs)
 
