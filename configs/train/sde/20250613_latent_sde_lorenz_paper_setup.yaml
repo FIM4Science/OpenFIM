@@ -1,7 +1,7 @@
 experiment:
   name: "latent_sde_lorenz_paper_setup_base"
   name_add_date: true # if true, the current date & time will be added to the experiment name
-  seed: 10
+  # seed: 10
   device_map: cuda # auto, cuda, cpu
 
 distributed:
@@ -71,7 +71,7 @@ trainer:
   precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
   epochs: &epochs 5000
   detect_anomaly: false
-  save_every: 10
+  save_every: 1000
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -82,7 +82,7 @@ trainer:
 
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.LorenzEvaluationEpoch
-    plot_frequency: 20
+    plot_frequency: 1000
     model_type: *model_type
 
   schedulers: !!python/tuple

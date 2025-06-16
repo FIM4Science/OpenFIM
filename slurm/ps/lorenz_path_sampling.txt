@@ -1,0 +1,1 @@
+python3 scripts/sde/evaluation/lorenz_system_paths_evaluation.py
