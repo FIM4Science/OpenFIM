@@ -1,7 +1,7 @@
 experiment:
   name: "latent_sde_lorenz_github_setup_base"
   name_add_date: true # if true, the current date & time will be added to the experiment name
-  seed: 10
+  # seed: 10
   device_map: cuda # auto, cuda, cpu
 
 distributed:
