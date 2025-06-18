@@ -180,21 +180,21 @@ class FIMHawkes(AModel):
 
         Args:
             x (dict[str, Tensor]): A dictionary containing the input tensors:
-                - "context_event_times": Tensor representing the event times. [B, P_context, L, 1]
-                - "context_event_types": Tensor representing the event types. [B, P_context, L, 1]
-                - "inference_event_times": Tensor representing the event times. [B, P_inference, L, 1]
-                - "inference_event_types": Tensor representing the event types. [B, P_inference, L, 1]
-                - "intensity_evaluation_times": Tensor representing the times at which to evaluate the intensity. [B, P_inference, L_inference]
+                - "event_times": Tensor representing the event times. [B, P, L, 1]
+                - "event_types": Tensor representing the event types. [B, P, L, 1]
+                - "kernel_grids": Tensor representing the times at which to evaluate the kernel. [B, M, L_kernel]
                 - Optional keys:
-                    - "kernel_functions": Tensor representing the kernel functions using byte-encoded strings. [B, M, M]
-                    - "base_intensity_functions": Tensor representing the base intensity functions using byte-encoded strings. [B, M]
-                    - "context_seq_lengths": Tensor representing the sequence lengths (which we use for masking). [B, P_context]
-                    - "inference_seq_lengths": Tensor representing the sequence lengths (which we use for masking). [B, P_inference]
+                    - "base_intensities": Tensor representing the ground truth base intensity. [B, M]
+                    - "kernel_evaluations": Tensor representing the ground truth kernel evaluation values. [B, M, L_kernel]
+                    - "seq_lengths": Tensor representing the sequence lengths (which we use for masking). [B, P]
             schedulers (dict, optional): A dictionary of schedulers for the training process. Default is None.
             step (int, optional): The current step in the training process. Default is None.
         Returns:
             dict: A dictionary containing the following keys:
-                - "intensity": Tensor representing the predicted intensity. [B, P_inference, L_inference, M]
+                - "kernel_eval_values": Tensor representing the predicted kernel evaluation values. [B, M, L_kernel]
+                - "kernel_eval_var_values": Tensor representing the variances of the predicted kernel values. [B, M, L_kernel]
+                - "baseline_intensity": Tensor representing the predicted baseline intensity. [B, M]
+                - "baseline_intensity_var": Tensor representing the variance of the predicted baseline intensity. [B, M]
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
         obs_grid = x["event_times"]

@@ -16,16 +16,22 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/large_scale_config/train
+      - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/train
+      - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/train
+      - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/train
+      # - data/synthetic_data/hawkes/100_3_st_hawkes_mixed_2000_paths_250_events/train
+
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/large_scale_config/val
+      - data/synthetic_data/hawkes/5k_1_st_hawkes_mixed_2000_paths_250_events/val
+      - data/synthetic_data/hawkes/5k_2_st_hawkes_mixed_2000_paths_250_events/val
+      - data/synthetic_data/hawkes/5k_3_st_hawkes_mixed_2000_paths_250_events/val
+      # - data/synthetic_data/hawkes/100_3_st_hawkes_mixed_2000_paths_250_events/val
 
   loader_kwargs:
     batch_size: 1
     num_workers: 8
     test_batch_size: 1
 
-    num_inference_paths: 5
     variable_num_of_paths: true
     min_path_count: 100
     max_path_count: 2000
@@ -35,18 +41,19 @@ dataset:
     min_sequence_len: 10
     max_sequence_len: 250
 
-    num_inference_times: 10 # Number of times at which to evaluate the intensity function per inference path
+    num_kernel_evaluation_points: 10
 
     is_bulk_model: &is_bulk_model false
   dataset_kwargs:
     files_to_load:
-      base_intensity_functions: "base_intensity_functions.pt"
+      base_intensities: "base_intensities.pt"
       event_times: "event_times.pt"
       event_types: "event_types.pt"
-      kernel_functions: "kernel_functions.pt"
+      kernel_evaluations: "kernel_evaluations.pt"
+      kernel_grids: "kernel_grids.pt"
     # data_limit: 50
     field_name_for_dimension_grouping:
-      ["base_intensity_functions", "kernel_functions"]
+      ["base_intensities", "kernel_evaluations", "kernel_grids"]
 
 model:
   model_type: fimhawkes
