@@ -269,6 +269,8 @@ class HawkesDataLoader(BaseDataLoader):
         self.max_path_count = loader_kwargs.pop("max_path_count", None)
         self.min_path_count = loader_kwargs.pop("min_path_count", 1)
         self.max_number_of_minibatch_sizes = loader_kwargs.pop("max_number_of_minibatch_sizes", None)
+        self.num_inference_paths = loader_kwargs.pop("num_inference_paths", 1)
+        self.num_inference_times = loader_kwargs.pop("num_inference_times", 1)
         self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
 
         self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", False)
@@ -314,6 +316,8 @@ class HawkesDataLoader(BaseDataLoader):
 
             if self.variable_sequence_lens:
                 batch = self.custom_hawkes_collate_fun(batch)
+            batch = self.select_inference_paths(batch)
+            batch = self.select_inference_times(batch)
             if dataset.is_last_dim_varying:
                 return self.__custom_var_dim_collate_fn(batch)
 
@@ -351,7 +355,7 @@ class HawkesDataLoader(BaseDataLoader):
 
     def custom_hawkes_collate_fun(self, batch: List[dict], previous_collate_fn=None):
         """
-        Collate function for Hawkes processes which samples variable sequence lengths and subsamples kernel grids.
+        Collate function for Hawkes processes which samples variable sequence lengths.
         """
         if previous_collate_fn is not None:
             batch = previous_collate_fn(batch)
@@ -369,36 +373,59 @@ class HawkesDataLoader(BaseDataLoader):
 
         batch_data = [add_variable_seq_lens(item) for item in batch]
 
-        def subsample_kernel_evaluation_points(item):
-            L_kernel = item["kernel_grids"].shape[1]
-            selected_points = torch.randperm(L_kernel)[: self.num_kernel_evaluation_points]
-            item["kernel_grids"] = item["kernel_grids"][:, selected_points]
-            item["kernel_evaluations"] = item["kernel_evaluations"][:, selected_points]
-            return item
+        return batch_data
 
-        if self.num_kernel_evaluation_points is not None:
-            batch_data = [subsample_kernel_evaluation_points(item) for item in batch_data]
+    def select_inference_paths(self, batch_data: List[dict]):
+        """
+        Split observations into inference and context paths. Select the first 'num_inference_paths' paths for inference and remove them from the context paths.
+        """
+        # Early return if no items have event_times to avoid unnecessary processing
+        if not any("event_times" in item for item in batch_data):
+            return batch_data
 
-        def bulk_observations(item):
-            """
-            Select a random mark and label these as 0 and all other marks as 1.
-            """
-            # Find all unique marks in the event_types
-            marks = torch.unique(item["event_types"])
-            # Select a random mark
-            selected_mark = int(random.choice(marks))
-            # Label the selected mark as 0 and all other marks as 1
-            item["event_types"] = torch.where(
-                item["event_types"] == selected_mark, torch.zeros_like(item["event_types"]), torch.ones_like(item["event_types"])
+        for item in batch_data:
+            if "event_times" not in item:
+                continue
+
+            P = item["event_times"].shape[0]
+            if P <= self.num_inference_paths:
+                raise ValueError(
+                    f"Number of paths {P} is less than or equal to the number of inference paths {self.num_inference_paths}. "
+                    "Please increase the number of paths in the dataset or decrease the number of inference paths."
+                )
+
+            # Use pop() to remove and retrieve tensors more efficiently than del
+            event_times = item.pop("event_times")
+            event_types = item.pop("event_types")
+            seq_lengths = item.pop("seq_lengths")
+
+            # Split tensors using slicing (creates views, not copies)
+            item["inference_event_times"] = event_times[: self.num_inference_paths]
+            item["inference_event_types"] = event_types[: self.num_inference_paths]
+            item["context_event_times"] = event_times[self.num_inference_paths :]
+            item["context_event_types"] = event_types[self.num_inference_paths :]
+            item["context_seq_lengths"] = seq_lengths[self.num_inference_paths :]
+            item["inference_seq_lengths"] = seq_lengths[: self.num_inference_paths]
+
+        return batch_data
+
+    def select_inference_times(self, batch_data: List[dict]):
+        """
+        Sample random times within the intervals of the inference paths up to their sequence lengths.
+        """
+        for item in batch_data:
+            if "inference_event_times" not in item:
+                continue
+            # Create tensor for inference evaluation times
+            item["intensity_evaluation_times"] = torch.zeros(
+                self.num_inference_paths, self.num_inference_times, dtype=item["inference_event_times"].dtype
             )
-            item["kernel_grids"] = item["kernel_grids"][selected_mark][None]
-            item["kernel_evaluations"] = item["kernel_evaluations"][selected_mark][None]
-            item["base_intensities"] = item["base_intensities"][selected_mark][None]
-            return item
-
-        if self.is_bulk_model:
-            batch_data = [bulk_observations(item) for item in batch_data]
-
+            for i in range(self.num_inference_paths):
+                max_time = item["inference_event_times"][i, item["inference_seq_lengths"][i] - 1]
+                # Sample random times
+                item["intensity_evaluation_times"][i] = torch.rand(self.num_inference_times) * max_time
+                # Sort times in ascending order
+                item["intensity_evaluation_times"][i] = torch.sort(item["intensity_evaluation_times"][i])[0]
         return batch_data
 
     def __fetch_path_count_for_minibatch(self):
