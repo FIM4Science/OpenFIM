@@ -1,0 +1,70 @@
+# hawkes_rmse_eval_hf.yaml
+
+# Specifies the evaluation type for Hawkes Processes. This includes RMSE on event times.
+evaluation_type: hawkes_pp
+
+# Directory to save the evaluation results.
+evaluation_dir: "./eval_results/fim-hawkes-small_on_easytpp-synthetic-1d"
+
+# The Hugging Face Hub identifier for your model.
+model_id: "FIM4Science/fim-hawkes-small"
+
+# A list of datasets to evaluate on.
+datasets:
+  -
+    # A descriptive label for this evaluation run.
+    label: "rmse_on_easytpp_1d"
+
+    # Configuration for the data loader.
+    dataloader:
+      # Use the Hugging Face DataLoader.
+      name: "FIMHFDataLoader"
+
+      # The Hugging Face Hub identifier for the dataset.
+      path: "FIM4Science/easytpp-synthetic-1d"
+
+      # We will evaluate on the 'test' split.
+      split: "train"
+
+      # Arguments for the dataset class.
+      dataset_kwargs:
+        # This mapping is crucial. It renames the columns from the Hugging Face dataset
+        # to the names the FIMHawkes model expects in its forward pass.
+        rename_columns:
+          time_since_start: "event_times"
+          type_event: "event_types"
+          seq_len: "seq_lengths"
+          target_base_intensities: "base_intensities"
+          target_kernel_evaluations: "kernel_evaluations"
+          target_kernel_grids: "kernel_grids"
+          target_intensities: "intensities"
+          target_intensity_times: "intensity_times"
+          time_since_last_event: "delta_times" # Important for evaluation
+
+        # We only need to pass the columns required by the model.
+        output_columns:
+          - "event_times"
+          - "event_types"
+          - "seq_lengths"
+          - "base_intensities"
+          - "kernel_evaluations"
+          - "kernel_grids"
+          - "delta_times"
+          - "seq_idx" # Needed to retrieve the ground truth intensities
+
+      # Arguments for the PyTorch DataLoader.
+      loader_kwargs:
+        batch_size: 1
+        num_workers: 0
+
+    # Configuration for sampling the kernel grid during inference.
+    # This is used to determine the range over which the model's kernel is evaluated.
+    kernel_grids_sampler:
+      distribution_type: "exponential"
+      rate: 1.0
+      num_marks: 1
+      sample_size: 250
+      max_value_factor: 1.2 # A factor to extend the sampling range slightly beyond the max observed delta_time
+
+    # Set to false to force re-evaluation even if results exist.
+    load_if_exists: false
