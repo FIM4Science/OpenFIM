@@ -25,14 +25,10 @@ class FIMHawkesConfig(PretrainedConfig):
         delta_time_encoder: dict = None,
         kernel_time_encoder: dict = None,
         evaluation_mark_encoder: dict = None,
-        ts_encoder: dict = None,
-        time_dependent_functional_attention: dict = None,
-        static_functional_attention: dict = None,
-        static_functional_attention_learnable_query: dict = None,
-        kernel_value_decoder: dict = None,
-        kernel_value_var_decoder: dict = None,
-        base_intensity_decoder: dict = None,
-        base_intensity_var_decoder: dict = None,
+        context_ts_encoder: dict = None,
+        inference_ts_encoder: dict = None,
+        functional_attention: dict = None,
+        intensity_decoder: dict = None,
         hidden_dim: int = None,
         max_num_marks: int = 1,
         is_bulk_model: bool = False,
@@ -48,14 +44,10 @@ class FIMHawkesConfig(PretrainedConfig):
         self.delta_time_encoder = delta_time_encoder
         self.kernel_time_encoder = kernel_time_encoder
         self.evaluation_mark_encoder = evaluation_mark_encoder
-        self.ts_encoder = ts_encoder
-        self.time_dependent_functional_attention = time_dependent_functional_attention
-        self.static_functional_attention = static_functional_attention
-        self.static_functional_attention_learnable_query = static_functional_attention_learnable_query
-        self.kernel_value_decoder = kernel_value_decoder
-        self.kernel_value_var_decoder = kernel_value_var_decoder
-        self.base_intensity_decoder = base_intensity_decoder
-        self.base_intensity_var_decoder = base_intensity_var_decoder
+        self.context_ts_encoder = context_ts_encoder
+        self.inference_ts_encoder = inference_ts_encoder
+        self.functional_attention = functional_attention
+        self.intensity_decoder = intensity_decoder
         self.hidden_dim = hidden_dim
         self.thinning = thinning
         if "model_type" in kwargs:
@@ -112,16 +104,12 @@ class FIMHawkes(AModel):
         mark_encoder = copy.deepcopy(self.config.mark_encoder)
         time_encoder = copy.deepcopy(self.config.time_encoder)
         delta_time_encoder = copy.deepcopy(self.config.delta_time_encoder)
-        kernel_time_encoder = copy.deepcopy(self.config.kernel_time_encoder)
+        intensity_evaluation_time_encoder = copy.deepcopy(self.config.intensity_evaluation_time_encoder)
         evaluation_mark_encoder = copy.deepcopy(self.config.evaluation_mark_encoder)
-        ts_encoder = copy.deepcopy(self.config.ts_encoder)
-        time_dependent_functional_attention = copy.deepcopy(self.config.time_dependent_functional_attention)
-        static_functional_attention = copy.deepcopy(self.config.static_functional_attention)
-        static_functional_attention_learnable_query = copy.deepcopy(self.config.static_functional_attention_learnable_query)
-        kernel_value_decoder = copy.deepcopy(self.config.kernel_value_decoder)
-        kernel_value_var_decoder = copy.deepcopy(self.config.kernel_value_var_decoder)
-        base_intensity_decoder = copy.deepcopy(self.config.base_intensity_decoder)
-        base_intensity_var_decoder = copy.deepcopy(self.config.base_intensity_var_decoder)
+        context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
+        inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
+        functional_attention = copy.deepcopy(self.config.functional_attention)
+        intensity_decoder = copy.deepcopy(self.config.intensity_decoder)
         self.hidden_dim = self.config.hidden_dim
         self.normalize_times = self.config.normalize_times
 
@@ -131,44 +119,26 @@ class FIMHawkes(AModel):
         self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
         delta_time_encoder["in_features"] = 1
         self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
-        kernel_time_encoder["in_features"] = 1
-        kernel_time_encoder["out_features"] = self.hidden_dim
-        self.kernel_time_encoder = create_class_instance(kernel_time_encoder.pop("name"), kernel_time_encoder)
+        intensity_evaluation_time_encoder["in_features"] = 1
+        intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
+        self.intensity_evaluation_time_encoder = create_class_instance(
+            intensity_evaluation_time_encoder.pop("name"), intensity_evaluation_time_encoder
+        )
         evaluation_mark_encoder["in_features"] = self.max_num_marks
         evaluation_mark_encoder["out_features"] = self.hidden_dim
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
 
-        ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
-        self.ts_encoder = create_class_instance(ts_encoder.pop("name"), ts_encoder)
+        context_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
+        self.context_ts_encoder = create_class_instance(context_ts_encoder.pop("name"), context_ts_encoder)
+        inference_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
+        self.inference_ts_encoder = create_class_instance(inference_ts_encoder.pop("name"), inference_ts_encoder)
 
-        self.time_dependent_functional_attention = AttentionOperator(
-            embed_dim=self.hidden_dim, out_features=self.hidden_dim, **time_dependent_functional_attention
-        )
+        self.functional_attention = AttentionOperator(embed_dim=self.hidden_dim, out_features=self.hidden_dim, **functional_attention)
 
-        self.static_functional_attention = AttentionOperator(
-            embed_dim=self.hidden_dim, out_features=self.hidden_dim, **static_functional_attention
-        )
+        intensity_decoder["in_features"] = self.hidden_dim
+        intensity_decoder["out_features"] = 1
+        self.intensity_decoder = create_class_instance(intensity_decoder.pop("name"), intensity_decoder)
 
-        static_functional_attention_learnable_query["in_features"] = self.max_num_marks
-        self.static_functional_attention_learnable_query = create_class_instance(
-            static_functional_attention_learnable_query.pop("name"), static_functional_attention_learnable_query
-        )
-
-        kernel_value_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
-        kernel_value_decoder["out_features"] = 1
-        self.kernel_value_decoder = create_class_instance(kernel_value_decoder.pop("name"), kernel_value_decoder)
-
-        kernel_value_var_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
-        kernel_value_var_decoder["out_features"] = 1
-        self.kernel_value_var_decoder = create_class_instance(kernel_value_var_decoder.pop("name"), kernel_value_var_decoder)
-
-        base_intensity_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
-        base_intensity_decoder["out_features"] = 1
-        self.base_intensity_decoder = create_class_instance(base_intensity_decoder.pop("name"), base_intensity_decoder)
-
-        base_intensity_var_decoder["in_features"] = self.static_functional_attention_learnable_query.out_features
-        base_intensity_var_decoder["out_features"] = 1
-        self.base_intensity_var_decoder = create_class_instance(base_intensity_var_decoder.pop("name"), base_intensity_var_decoder)
         if self.config.thinning is not None:
             self.event_sampler = EventSampler(**self.config.thinning)
         else:
@@ -197,60 +167,46 @@ class FIMHawkes(AModel):
                 - "intensity": Tensor representing the predicted intensity. [B, P_inference, L_inference, M]
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
-        obs_grid = x["event_times"]
-        if obs_grid.dim() == 2:
-            # for datasets that have only one process and many paths (e.g. easytpp)
-            obs_grid = obs_grid.unsqueeze(0).unsqueeze(-1)
-            x["event_times"] = obs_grid
-            x["event_types"] = x["event_types"].unsqueeze(0).unsqueeze(-1)
-            x["seq_lengths"] = x["seq_lengths"].unsqueeze(0)
-        B, P, L = obs_grid.shape[:3]
+        B, P_context, L = x["context_event_times"].shape[:3]
+        P_inference = x["inference_event_times"].shape[1]
 
-        if "seq_lengths" not in x:
-            x["seq_lengths"] = torch.full((B, P), L, device=self.device)
+        if "context_seq_lengths" not in x:
+            x["context_seq_lengths"] = torch.full((B, P_context), L, device=self.device)
+        if "inference_seq_lengths" not in x:
+            x["inference_seq_lengths"] = torch.full((B, P_inference), L, device=self.device)
 
-        # Compute delta times in-place for efficiency
-        self._compute_delta_times_inplace(x, obs_grid)
+        # Compute delta times
+        self._compute_delta_times_inplace(x, "context")
+        self._compute_delta_times_inplace(x, "inference")
 
         if self.normalize_times:
             norm_constants = self._normalize_input_times(x)
 
-        sequence_encodings = self._encode_observations_optimized(x)  # [B, P, L, D]
+        sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P, L, D]
+        sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B, P, L, D]
 
-        observations_padding_mask = self._generate_padding_mask(x["seq_lengths"], L).unsqueeze(-1)  # [B, P, L, 1]
+        # Concatenate sequence encodings REMOVE THIS
+        sequence_encodings = torch.cat([sequence_encodings_context, sequence_encodings_inference], dim=1)
+        observations_padding_mask = None  # TODO: Create a proper mask here
+
         time_dependent_encodings = self._time_dependent_encoder_optimized(
             x, sequence_encodings, observations_padding_mask=observations_padding_mask
-        )  # [B, M, L_kernel, D]
+        )  # [B, M, P_inference, L_inference, D]
 
-        static_encodings = self._static_encoder_optimized(
-            x, sequence_encodings, observations_padding_mask=observations_padding_mask
-        )  # [B, M, D]
-
-        predicted_kernel_values = self._kernel_value_decoder(time_dependent_encodings)  # [B, M, L_kernel]
-
-        log_predicted_kernel_values_var = self._kernel_value_var_decoder(
-            time_dependent_encodings.clone().detach()
-        )  # [B, M, L_kernel] # Do not backpropagate through this
-
-        predicted_base_intensity = torch.exp(self._base_intensity_decoder(static_encodings))  # [B, M]
+        predicted_intensity_values = self._intensity_decoder(time_dependent_encodings)  # [B, M, P_inference, L_inference]
 
         out = {
-            "predicted_kernel_values": predicted_kernel_values,
-            "log_predicted_kernel_values_var": log_predicted_kernel_values_var,
-            "predicted_base_intensity": predicted_base_intensity,
+            "predicted_intensity_values": predicted_intensity_values,
         }
 
-        if "base_intensities" in x and "kernel_evaluations" in x:
-            out["losses"] = self.loss(
-                out["predicted_kernel_values"],
-                out["log_predicted_kernel_values_var"],
-                out["predicted_base_intensity"],
-                x["kernel_evaluations"],
-                x["base_intensities"],
-                x["kernel_grids"],
-                schedulers,
-                step,
-            )
+        if "intensity_evaluation_times" in x:
+            out["losses"] = {}
+            # out["losses"] = self.loss(
+            #     out["predicted_intensity_values"],
+            #     x["intensity_evaluation_times"],
+            #     schedulers,
+            #     step,
+            # )
 
         if self.normalize_times:
             self._denormalize_output(x, out, norm_constants)
@@ -323,40 +279,31 @@ class FIMHawkes(AModel):
             learnable_queries, sequence_encodings, observations_padding_mask=observations_padding_mask
         )  # [B, M, D]
 
-    def _kernel_value_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
-        B, M, L_kernel, D_3 = time_dependent_path_summary.shape
-        time_dependent_path_summary = time_dependent_path_summary.view(B * M * L_kernel, D_3)
-        h = self.kernel_value_decoder(time_dependent_path_summary)
-        return h.view(B, M, L_kernel)
-
-    def _kernel_value_var_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
-        B, M, L_kernel, D_3 = time_dependent_path_summary.shape
-        time_dependent_path_summary = time_dependent_path_summary.view(B * M * L_kernel, D_3)
-        h = self.kernel_value_var_decoder(time_dependent_path_summary)
-        return h.view(B, M, L_kernel)
-
-    def _base_intensity_decoder(self, static_path_summary: Tensor) -> Tensor:
-        B, M, D_2 = static_path_summary.shape
-        h = self.base_intensity_decoder(static_path_summary)
-        return h.view(-1, M)
-
-    def _base_intensity_var_decoder(self, static_path_summary: Tensor) -> Tensor:
-        B, M, D_2 = static_path_summary.shape
-        h = self.base_intensity_var_decoder(static_path_summary)
-        return h.view(-1, M)
+    def _intensity_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
+        B, M, P_inference, L_inference, D = time_dependent_path_summary.shape
+        time_dependent_path_summary = time_dependent_path_summary.view(B * M * P_inference * L_inference, D)
+        h = self.intensity_decoder(time_dependent_path_summary)
+        return h.view(B, M, P_inference, L_inference)
 
     def _normalize_input_times(self, x: dict) -> dict:
-        batch_indices = (
-            torch.arange(x["event_times"].size(0), device=x["event_times"].device).view(-1, 1).expand(-1, x["event_times"].size(1))
-        )
-        path_indices = (
-            torch.arange(x["event_times"].size(1), device=x["event_times"].device).view(1, -1).expand(x["event_times"].size(0), -1)
-        )
+        """
+        Normalize the input times either by the maximum time in the context sequences or by the maximum time in the delta times.
+        """
         if self.normalize_by_max_time:
-            max_times = x["event_times"][batch_indices, path_indices, x["seq_lengths"] - 1]
+            batch_indices = (
+                torch.arange(x["context_event_times"].size(0), device=x["context_event_times"].device)
+                .view(-1, 1)
+                .expand(-1, x["context_event_times"].size(1))
+            )
+            path_indices = (
+                torch.arange(x["context_event_times"].size(1), device=x["context_event_times"].device)
+                .view(1, -1)
+                .expand(x["context_event_times"].size(0), -1)
+            )
+            max_times = x["context_event_times"][batch_indices, path_indices, x["context_seq_lengths"] - 1]
             norm_constants = max_times.amax(dim=[1, 2])
         else:
-            masked_delta_times = x["delta_times"].clone()
+            masked_delta_times = x["context_delta_times"].clone()
             B, P, L, _ = masked_delta_times.shape
 
             # Remove last dimension if it's size 1
@@ -366,7 +313,7 @@ class FIMHawkes(AModel):
             positions = torch.arange(L).view(1, 1, L).to(masked_delta_times.device)  # Shape: (1, 1, L)
 
             # Expand seq_lengths to match dimensions
-            seq_lengths_expanded = x["seq_lengths"].unsqueeze(2)  # Shape: (B, P, 1)
+            seq_lengths_expanded = x["context_seq_lengths"].unsqueeze(2)  # Shape: (B, P, 1)
 
             # Create mask for invalid positions
             mask = positions >= seq_lengths_expanded  # Shape: (B, P, L)
@@ -376,34 +323,41 @@ class FIMHawkes(AModel):
 
             # Compute the maximum over the sequence length dimension
             norm_constants = masked_delta_times.amax(dim=[1, 2])
-        x["event_times"] = x["event_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["delta_times"] = x["delta_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["kernel_grids"] = x["kernel_grids"] / norm_constants.view(-1, 1, 1)
-        if "base_intensities" in x:
-            x["base_intensities"] = x["base_intensities"] * norm_constants.view(-1, 1)
-        if "kernel_evaluations" in x:
-            x["kernel_evaluations"] = x["kernel_evaluations"] * norm_constants.view(-1, 1, 1)
+        x["context_event_times"] = x["context_event_times"] / norm_constants.view(-1, 1, 1, 1)
+        x["context_delta_times"] = x["context_delta_times"] / norm_constants.view(-1, 1, 1, 1)
+        x["inference_event_times"] = x["inference_event_times"] / norm_constants.view(-1, 1, 1, 1)
+        x["inference_delta_times"] = x["inference_delta_times"] / norm_constants.view(-1, 1, 1, 1)
+        x["intensity_evaluation_times"] = x["intensity_evaluation_times"] / norm_constants.view(-1, 1, 1)
+        if "kernel_functions" in x:
+            x["kernel_functions"] = x["kernel_functions"] * norm_constants.view(-1, 1)
+        if "base_intensity_functions" in x:
+            x["base_intensity_functions"] = x["base_intensity_functions"] * norm_constants.view(-1, 1, 1)
 
         return norm_constants
 
-    def _compute_delta_times_inplace(self, x: dict, obs_grid: Tensor):
+    def _compute_delta_times_inplace(self, x: dict, type="context"):
         """Compute delta times more efficiently"""
-        B, P, L = obs_grid.shape[:3]
+        B, P, L = x[f"{type}_event_times"].shape[:3]
         # Pre-allocate tensor with zeros for the first event
-        delta_times = torch.zeros(B, P, L, 1, device=obs_grid.device, dtype=obs_grid.dtype)
-        delta_times[:, :, 1:] = obs_grid[:, :, 1:] - obs_grid[:, :, :-1]
-        x["delta_times"] = delta_times
+        delta_times = torch.zeros(B, P, L, 1, device=x[f"{type}_event_times"].device, dtype=x[f"{type}_event_times"].dtype)
+        delta_times[:, :, 1:] = x[f"{type}_event_times"][:, :, 1:] - x[f"{type}_event_times"][:, :, :-1]
+        x[f"{type}_delta_times"] = delta_times
 
-    def _encode_observations_optimized(self, x: dict) -> Tensor:
+    def _encode_observations_optimized(self, x: dict, type="context") -> Tensor:
         """Optimized observation encoding using cached one-hot encodings"""
-        obs_grid_normalized = x["event_times"]
+        if type == "context":
+            obs_grid_normalized = x[f"{type}_event_times"]
+        elif type == "inference":
+            obs_grid_normalized = x[f"{type}_event_times"]
+        else:
+            raise ValueError(f"Invalid type: {type}")
         B, P, L = obs_grid_normalized.shape[:3]
 
         time_enc = self.time_encoder(obs_grid_normalized)
-        delta_time_enc = self.delta_time_encoder(x["delta_times"])
+        delta_time_enc = self.delta_time_encoder(x[f"{type}_delta_times"])
 
         # More efficient mark encoding using cached one-hot matrix
-        event_types_flat = x["event_types"].reshape(-1).long()
+        event_types_flat = x[f"{type}_event_types"].reshape(-1).long()
         # Use cached one-hot matrix instead of computing it each time
         one_hot_marks = self.mark_one_hot[event_types_flat]  # [B*P*L, max_num_marks]
         mark_encodings = self.mark_encoder(one_hot_marks)  # [B*P*L, hidden_dim]
@@ -417,66 +371,73 @@ class FIMHawkes(AModel):
         mask = mask.repeat(B, P, 1, 1)
 
         positions = torch.arange(L, device=self.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # (1, 1, L, 1)
-        padding_mask = positions >= x["seq_lengths"].unsqueeze(-1).unsqueeze(-1)  # (B, P, L, 1)
+        padding_mask = positions >= x[f"{type}_seq_lengths"].unsqueeze(-1).unsqueeze(-1)  # (B, P, L, 1)
         padding_mask = padding_mask.expand(-1, -1, -1, L)  # (B, P, L, L)
         mask = mask | padding_mask
         padding_mask = None
 
-        h = self.ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
+        if type == "context":
+            h = self.context_ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
+        elif type == "inference":
+            h = self.inference_ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
+        else:
+            raise ValueError(f"Invalid type: {type}")
 
         return h.view(B, P, L, -1)
 
     def _trunk_net_encoder_optimized(self, x: dict) -> Tensor:
         """Optimized trunk net encoding using cached one-hot encodings"""
-        kernel_grids = x["kernel_grids"]
-        B, M, L_kernel = kernel_grids.shape
+        intensity_evaluation_times = x["intensity_evaluation_times"]
+        B, P_inference, L_inference = intensity_evaluation_times.shape
+
+        # Expand to include marks dimension: [B, M, P_inference, L_inference]
+        M = self.max_num_marks
+        intensity_evaluation_times_expanded = intensity_evaluation_times.unsqueeze(1).expand(B, M, P_inference, L_inference)
 
         # More efficient reshaping and encoding
-        time_encodings = self.kernel_time_encoder(kernel_grids.view(-1, 1)).view(B, M, L_kernel, -1)
+        time_encodings = self.intensity_evaluation_time_encoder(intensity_evaluation_times_expanded.reshape(-1, 1)).reshape(
+            B, M, P_inference, L_inference, -1
+        )
 
         # Use cached one-hot encodings for evaluation marks
-        marks = torch.arange(M, device=kernel_grids.device)
+        marks = torch.arange(M, device=intensity_evaluation_times.device)
         one_hot_eval_marks = self.mark_one_hot[marks]  # [M, max_num_marks]
         eval_mark_encodings = self.evaluation_mark_encoder(one_hot_eval_marks)  # [M, hidden_dim]
-        mark_encodings = eval_mark_encodings.unsqueeze(0).unsqueeze(2).expand(B, -1, L_kernel, -1)  # [B, M, L_kernel, D]
+        mark_encodings = (
+            eval_mark_encodings.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand(B, -1, P_inference, L_inference, -1)
+        )  # [B, M, P_inference, L_inference, D]
 
         return time_encodings + mark_encodings
 
     def _time_dependent_encoder_optimized(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
         """Optimized time dependent encoder"""
-        trunk_net_encodings = self._trunk_net_encoder_optimized(x)  # [B, M, L_kernel, D]
-        B, M, L_kernel, D = trunk_net_encodings.shape
+        trunk_net_encodings = self._trunk_net_encoder_optimized(x)  # [B, M, P_inference, L_inference, D]
+        B, M, P_inference, L_inference, D = trunk_net_encodings.shape
 
-        # Avoid unnecessary view operations
-        trunk_reshaped = trunk_net_encodings.reshape(B, M * L_kernel, D)
-        result = self.time_dependent_functional_attention(
-            trunk_reshaped, sequence_encodings, observations_padding_mask=observations_padding_mask
-        )
-        return result.reshape(B, M, L_kernel, D)
+        # Reshape for attention: [B, M * P_inference * L_inference, D]
+        trunk_reshaped = trunk_net_encodings.reshape(B, M * P_inference * L_inference, D)
 
-    def _static_encoder_optimized(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
-        """Optimized static encoder using cached one-hot encodings"""
-        B, M, _ = x["kernel_grids"].shape
+        # Apply functional attention
+        result = self.functional_attention(trunk_reshaped, sequence_encodings, observations_padding_mask=observations_padding_mask)
 
-        # Use cached one-hot encodings for learnable queries
-        mark_indices = torch.arange(M, device=x["kernel_grids"].device)
-        cached_one_hot = self.mark_one_hot.to(x["kernel_grids"].device)
-        learnable_queries = self.static_functional_attention_learnable_query(cached_one_hot[mark_indices])
-        learnable_queries = learnable_queries.unsqueeze(0).expand(B, -1, -1)
-
-        return self.static_functional_attention(learnable_queries, sequence_encodings, observations_padding_mask=observations_padding_mask)
+        # Reshape back to [B, M, P_inference, L_inference, D]
+        return result.reshape(B, M, P_inference, L_inference, D)
 
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
-        out["predicted_kernel_values"] = out["predicted_kernel_values"] / norm_constants.view(-1, 1, 1)
-        out["log_predicted_kernel_values_var"] = out["log_predicted_kernel_values_var"] - torch.log(norm_constants).view(-1, 1, 1)
-        out["predicted_base_intensity"] = out["predicted_base_intensity"] / norm_constants.view(-1, 1)
-        x["event_times"] = x["event_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["delta_times"] = x["delta_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["kernel_grids"] = x["kernel_grids"] * norm_constants.view(-1, 1, 1)
-        if "base_intensities" in x:
-            x["base_intensities"] = x["base_intensities"] / norm_constants.view(-1, 1)
-        if "kernel_evaluations" in x:
-            x["kernel_evaluations"] = x["kernel_evaluations"] / norm_constants.view(-1, 1, 1)
+        out["predicted_intensity_values"] = out["predicted_intensity_values"] / norm_constants.view(-1, 1, 1, 1)
+        if "log_predicted_intensity_values_var" in out:
+            out["log_predicted_intensity_values_var"] = out["log_predicted_intensity_values_var"] - torch.log(norm_constants).view(
+                -1, 1, 1, 1
+            )
+        x["context_event_times"] = x["context_event_times"] * norm_constants.view(-1, 1, 1, 1)
+        x["context_delta_times"] = x["context_delta_times"] * norm_constants.view(-1, 1, 1, 1)
+        x["inference_event_times"] = x["inference_event_times"] * norm_constants.view(-1, 1, 1, 1)
+        x["inference_delta_times"] = x["inference_delta_times"] * norm_constants.view(-1, 1, 1, 1)
+        x["intensity_evaluation_times"] = x["intensity_evaluation_times"] * norm_constants.view(-1, 1, 1)
+        if "kernel_functions" in x:
+            x["kernel_functions"] = x["kernel_functions"] * norm_constants.view(-1, 1)
+        if "base_intensity_functions" in x:
+            x["base_intensity_functions"] = x["base_intensity_functions"] * norm_constants.view(-1, 1, 1)
 
     def loss(
         self,
@@ -601,7 +562,7 @@ class FIMHawkes(AModel):
         # [batch_size, seq_len, num_marks]
         intensities_weighted = torch.einsum("...s,...sm->...m", weights, intensities_normalized)
 
-        # [batch_size, seq_len]
+        # [batch_size, seq_len, num_marks]
         types_pred = torch.argmax(intensities_weighted, dim=-1)
 
         # [batch_size, seq_len]

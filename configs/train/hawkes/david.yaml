@@ -72,13 +72,13 @@ model:
     name: torch.nn.Linear
     out_features: *hidden_dim
 
-  kernel_time_encoder:
+  intensity_evaluation_time_encoder:
     name: torch.nn.Linear
 
   evaluation_mark_encoder:
     name: torch.nn.Linear
 
-  ts_encoder:
+  context_ts_encoder:
     name: torch.nn.TransformerEncoder
     num_layers: 4
 
@@ -88,18 +88,17 @@ model:
       nhead: 4
       batch_first: true
 
-  # ts_encoder:
-  #   num_layers: 2
-  #   layer:
-  #     attn_method: "linear"
-  #     lin_feature_map: "softmax"
-  #     lin_normalize: false
-  #     nhead: &nhead 4
-  #     dim_feedforward: *hidden_dim
-  #     dropout: 0.1
-  #     activation: *activation
+  inference_ts_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 4
 
-  time_dependent_functional_attention:
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.1
+      nhead: 4
+      batch_first: true
+
+  functional_attention:
     paths_block_attention: false
     num_res_layers: 2 # TODO: Set this higher for larger models
     attention:
@@ -108,35 +107,7 @@ model:
       name: fim.models.blocks.base.MLP
       hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
-  static_functional_attention:
-    paths_block_attention: false
-    num_res_layers: 2 # TODO: Set this higher for larger models
-    attention:
-      nhead: 1
-    projection:
-      name: fim.models.blocks.base.MLP
-      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
-
-  static_functional_attention_learnable_query:
-    name: torch.nn.Linear
-    out_features: *hidden_dim
-
-  kernel_value_decoder:
-    name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
-    hidden_act: *hidden_act
-
-  kernel_value_var_decoder:
-    name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
-    hidden_act: *hidden_act
-
-  base_intensity_decoder:
-    name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
-    hidden_act: *hidden_act
-
-  base_intensity_var_decoder:
+  intensity_decoder:
     name: fim.models.blocks.base.MLP
     hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
     hidden_act: *hidden_act
