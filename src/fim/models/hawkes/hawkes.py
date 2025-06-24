@@ -186,7 +186,9 @@ class FIMHawkes(AModel):
         sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B, P, L, D]
 
         # Concatenate sequence encodings REMOVE THIS
-        sequence_encodings = torch.cat([sequence_encodings_context, sequence_encodings_inference], dim=1)
+        sequence_encodings = torch.cat(
+            [sequence_encodings_context, sequence_encodings_inference], dim=1
+        )  # [B, P_context + P_inference, L, D]
         observations_padding_mask = None  # TODO: Create a proper mask here
 
         time_dependent_encodings = self._time_dependent_encoder_optimized(
@@ -201,6 +203,7 @@ class FIMHawkes(AModel):
 
         if "intensity_evaluation_times" in x:
             out["losses"] = {}
+            out["losses"]["loss"] = torch.mean(predicted_intensity_values**2)
             # out["losses"] = self.loss(
             #     out["predicted_intensity_values"],
             #     x["intensity_evaluation_times"],

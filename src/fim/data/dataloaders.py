@@ -306,18 +306,38 @@ class HawkesDataLoader(BaseDataLoader):
         self._init_dataloaders(self.dataset)
 
     def _get_collate_fn(self, dataset_name: str, dataset: FIMDataset) -> Union[None, callable]:
-        if not self.variable_num_of_paths or dataset_name != "train":
-            if dataset.is_last_dim_varying:
-                return self.__custom_var_dim_collate_fn
-            return default_collate
-
         def custom_collate(batch):
-            batch = self.var_path_collate_fn(batch)
+            # Apply variable path selection only for training data when enabled
+            if self.variable_num_of_paths and dataset_name == "train":
+                batch = self.var_path_collate_fn(batch)
 
+            # Apply variable sequence lengths only when enabled
             if self.variable_sequence_lens:
                 batch = self.custom_hawkes_collate_fun(batch)
+
+            # Ensure seq_lengths exists for all items (needed for inference path selection)
+            for item in batch:
+                if "event_times" in item and "seq_lengths" not in item:
+                    # Create default seq_lengths based on the actual length of event_times
+                    P, L = item["event_times"].shape[:2]
+                    # For each path, find the actual sequence length (assuming padded with zeros or -1)
+                    seq_lengths = []
+                    for p in range(P):
+                        # Find first zero or negative value to determine actual length
+                        times = item["event_times"][p]
+                        non_zero_mask = times > 0
+                        if non_zero_mask.any():
+                            seq_len = non_zero_mask.sum().item()
+                        else:
+                            seq_len = 1  # At least one event
+                        seq_lengths.append(seq_len)
+                    item["seq_lengths"] = torch.tensor(seq_lengths, dtype=torch.long)
+
+            # ALWAYS apply inference path and time selection for all datasets
             batch = self.select_inference_paths(batch)
             batch = self.select_inference_times(batch)
+
+            # Handle variable dimensions if needed
             if dataset.is_last_dim_varying:
                 return self.__custom_var_dim_collate_fn(batch)
 
