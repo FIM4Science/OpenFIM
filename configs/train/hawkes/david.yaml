@@ -16,9 +16,11 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/large_scale_config/train
+      - data/synthetic_data/hawkes/3_mark_processes/train
+      - data/synthetic_data/hawkes/2_mark_processes/train
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/large_scale_config/val
+      - data/synthetic_data/hawkes/3_mark_processes/val
+      - data/synthetic_data/hawkes/2_mark_processes/val
 
   loader_kwargs:
     batch_size: 1
