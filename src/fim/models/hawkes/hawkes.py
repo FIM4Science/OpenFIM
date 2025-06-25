@@ -1,14 +1,12 @@
 import copy
 import logging
-from functools import partial
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 
 import torch
 from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
-from ...utils.helper import create_class_instance
-from ...utils.interpolator import KernelInterpolator
+from ...utils.helper import create_class_instance, decode_byte_string
 from ...utils.logging import RankLoggerAdapter
 from ..blocks import AModel, ModelFactory
 from ..blocks.neural_operators import AttentionOperator
@@ -202,14 +200,20 @@ class FIMHawkes(AModel):
         }
 
         if "intensity_evaluation_times" in x:
-            out["losses"] = {}
-            out["losses"]["loss"] = torch.mean(predicted_intensity_values**2)
-            # out["losses"] = self.loss(
-            #     out["predicted_intensity_values"],
-            #     x["intensity_evaluation_times"],
-            #     schedulers,
-            #     step,
-            # )
+            # out["losses"] = {}
+            # out["losses"]["loss"] = torch.mean(predicted_intensity_values**2)
+            out["losses"] = self.loss(
+                out["predicted_intensity_values"],
+                x["kernel_functions"],
+                x["base_intensity_functions"],
+                x["intensity_evaluation_times"],
+                x["inference_event_times"],
+                x["inference_event_types"],
+                x["inference_seq_lengths"],
+                norm_constants,
+                schedulers,
+                step,
+            )
 
         if self.normalize_times:
             self._denormalize_output(x, out, norm_constants)
@@ -268,20 +272,6 @@ class FIMHawkes(AModel):
             trunk_net_encodings.view(B, M * L_kernel, -1), sequence_encodings, observations_padding_mask=observations_padding_mask
         ).view(B, M, L_kernel, -1)  # [B, M, L_kernel, D]
 
-    def _static_encoder(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
-        """
-        Apply functional attention to obtain a static summary of the paths.
-        """
-        (B, M, _) = x["kernel_grids"].shape
-        learnable_queries = self.static_functional_attention_learnable_query(
-            torch.nn.functional.one_hot(torch.arange(M, device=self.device), num_classes=self.max_num_marks).float()
-        )  # [M, D]
-        # Stack B learnable_queries together to reshape to [B, M, D]
-        learnable_queries = learnable_queries.repeat(B, 1).view(B, M, -1)
-        return self.static_functional_attention(
-            learnable_queries, sequence_encodings, observations_padding_mask=observations_padding_mask
-        )  # [B, M, D]
-
     def _intensity_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
         B, M, P_inference, L_inference, D = time_dependent_path_summary.shape
         time_dependent_path_summary = time_dependent_path_summary.view(B * M * P_inference * L_inference, D)
@@ -331,10 +321,6 @@ class FIMHawkes(AModel):
         x["inference_event_times"] = x["inference_event_times"] / norm_constants.view(-1, 1, 1, 1)
         x["inference_delta_times"] = x["inference_delta_times"] / norm_constants.view(-1, 1, 1, 1)
         x["intensity_evaluation_times"] = x["intensity_evaluation_times"] / norm_constants.view(-1, 1, 1)
-        if "kernel_functions" in x:
-            x["kernel_functions"] = x["kernel_functions"] * norm_constants.view(-1, 1)
-        if "base_intensity_functions" in x:
-            x["base_intensity_functions"] = x["base_intensity_functions"] * norm_constants.view(-1, 1, 1)
 
         return norm_constants
 
@@ -393,17 +379,17 @@ class FIMHawkes(AModel):
         intensity_evaluation_times = x["intensity_evaluation_times"]
         B, P_inference, L_inference = intensity_evaluation_times.shape
 
-        # Expand to include marks dimension: [B, M, P_inference, L_inference]
-        M = self.max_num_marks
-        intensity_evaluation_times_expanded = intensity_evaluation_times.unsqueeze(1).expand(B, M, P_inference, L_inference)
+        past_event_shifted_intensity_evaluation_times = self._get_past_event_shifted_intensity_evaluation_times(
+            intensity_evaluation_times, x["inference_event_times"]
+        )
 
         # More efficient reshaping and encoding
-        time_encodings = self.intensity_evaluation_time_encoder(intensity_evaluation_times_expanded.reshape(-1, 1)).reshape(
-            B, M, P_inference, L_inference, -1
+        time_encodings = self.intensity_evaluation_time_encoder(past_event_shifted_intensity_evaluation_times.reshape(-1, 1)).reshape(
+            B, self.max_num_marks, P_inference, L_inference, -1
         )
 
         # Use cached one-hot encodings for evaluation marks
-        marks = torch.arange(M, device=intensity_evaluation_times.device)
+        marks = torch.arange(self.max_num_marks, device=intensity_evaluation_times.device)
         one_hot_eval_marks = self.mark_one_hot[marks]  # [M, max_num_marks]
         eval_mark_encodings = self.evaluation_mark_encoder(one_hot_eval_marks)  # [M, hidden_dim]
         mark_encodings = (
@@ -437,196 +423,303 @@ class FIMHawkes(AModel):
         x["inference_event_times"] = x["inference_event_times"] * norm_constants.view(-1, 1, 1, 1)
         x["inference_delta_times"] = x["inference_delta_times"] * norm_constants.view(-1, 1, 1, 1)
         x["intensity_evaluation_times"] = x["intensity_evaluation_times"] * norm_constants.view(-1, 1, 1)
-        if "kernel_functions" in x:
-            x["kernel_functions"] = x["kernel_functions"] * norm_constants.view(-1, 1)
-        if "base_intensity_functions" in x:
-            x["base_intensity_functions"] = x["base_intensity_functions"] * norm_constants.view(-1, 1, 1)
 
     def loss(
         self,
-        predicted_kernel_function: Tensor,
-        log_predicted_kernel_var: Tensor,
-        predicted_base_intensity: Tensor,
-        target_kernel_values: Tensor,
-        target_base_intensity: Tensor,
-        kernel_grids: Tensor,
+        predicted_intensity_values: Tensor,
+        kernel_functions: Tensor,
+        base_intensity_functions: Tensor,
+        intensity_evaluation_times: Tensor,
+        inference_event_times: Tensor,
+        inference_event_types: Tensor,
+        inference_seq_lengths: Tensor,
+        norm_constants: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        B, M, L_kernel = predicted_kernel_function.shape
-        assert target_kernel_values.shape == predicted_kernel_function.shape
-        assert target_base_intensity.shape == predicted_base_intensity.shape
-        U = log_predicted_kernel_var
+        kernel_functions_list, base_intensity_functions_list = self._decode_functions(kernel_functions, base_intensity_functions)
 
-        # First perform the RMSE per mark
-        kernel_rmse = torch.sqrt(torch.mean((predicted_kernel_function - target_kernel_values) ** 2, dim=-1))
-        base_intensity_rmse = torch.sqrt(torch.mean((predicted_base_intensity - target_base_intensity) ** 2, dim=-1))
+        target_intensity_values = self.compute_target_intensity_values(
+            kernel_functions_list,
+            base_intensity_functions_list,
+            intensity_evaluation_times,
+            inference_event_times,
+            inference_event_types,
+            inference_seq_lengths,
+            norm_constants,
+        )
+        assert target_intensity_values.shape == predicted_intensity_values.shape
 
-        # Then compute the mean over all marks
-        kernel_rmse = torch.mean(kernel_rmse)
-        base_intensity_rmse = torch.mean(base_intensity_rmse)
+        pass
 
-        kernel_loss = (torch.exp(-U) * (predicted_kernel_function - target_kernel_values) ** 2 + U).mean() / 2
-        base_intensity_loss = base_intensity_rmse**2
+    def compute_target_intensity_values(
+        self,
+        kernel_functions_list: list,
+        base_intensity_functions_list: list,
+        intensity_evaluation_times: Tensor,
+        inference_event_times: Tensor,
+        inference_event_types: Tensor,
+        inference_seq_lengths: Tensor,
+        norm_constants: Tensor,
+    ):
+        """
+        Compute the target intensity values based on the formula:
+        λ_i(t) = max(0, μ_i(t) + Σ_{j=1..D} Σ_{k: t_jk < t} φ_ij(t - t_jk))
 
-        # loss = kernel_loss + base_intensity_loss
-        loss = kernel_rmse + base_intensity_rmse
+        This function calculates the ground-truth intensity for each mark `i` at each
+        time `t` specified in `intensity_evaluation_times`, based on the historical
+        events provided in `inference_event_times`.
 
-        # # With a 1% probability plot the kernel function and the ground truth and add the RMSE as a title to the plot
-        # if torch.rand(1) < 0.01:
-        #     import matplotlib.pyplot as plt
+        Args:
+            kernel_functions_list (list): A nested list of shape [B, D, D] containing
+                the callable kernel functions φ_ij.
+            base_intensity_functions_list (list): A list of shape [B, D] containing
+                the callable base intensity functions μ_i.
+            intensity_evaluation_times (Tensor): The times `t` to evaluate the intensity at.
+                Shape: [B, P, L_eval].
+            inference_event_times (Tensor): The historical event timestamps t_jk.
+                Shape: [B, P, L_hist, 1].
+            inference_event_types (Tensor): The historical event types `j`.
+                Shape: [B, P, L_hist, 1].
+            inference_seq_lengths (Tensor): The actual length of each historical sequence.
+                Shape: [B, P].
+            norm_constants (Tensor): The normalization constants.
+                Shape: [B, 1].
 
-        #     B, M, T = predicted_kernel_function.shape
-        #     predicted_kernel_function_np = predicted_kernel_function.clone().detach().cpu().float().numpy()
-        #     ground_truth_kernel_function_np = target_kernel_values.clone().detach().cpu().float().numpy()
-        #     # Define scaling factors
-        #     width_per_subplot = 3
-        #     height_per_subplot = 3
-        #     figsize = (width_per_subplot * M, height_per_subplot * B)
-        #     fig, axs = plt.subplots(B, M, figsize=figsize, squeeze=False)
-        #     kernel_rmse_np = torch.sqrt(
-        #         torch.mean(torch.tensor((predicted_kernel_function_np - ground_truth_kernel_function_np)) ** 2, dim=-1)
-        #     )
-        #     kernel_rmse_np = torch.mean(kernel_rmse_np)
-        #     for b in range(B):
-        #         for m in range(M):
-        #             axs[b, m].scatter(
-        #                 kernel_grids[b, m].clone().detach().cpu().float().numpy(), predicted_kernel_function_np[b, m], label="Model"
-        #             )
-        #             axs[b, m].scatter(
-        #                 kernel_grids[b, m].clone().detach().cpu().float().numpy(),
-        #                 ground_truth_kernel_function_np[b, m],
-        #                 label="Ground Truth",
-        #             )
-        #             axs[b, m].legend()
-        #             axs[b, m].tick_params(axis="both", which="major", labelsize=8)
-        #     plt.tight_layout()
-        #     plt.savefig("foo.png", dpi=300)
-        #     plt.close()
+        Returns:
+            Tensor: The computed target intensity values. Shape: [B, D, P, L_eval],
+                    where D is the number of marks.
+        """
+        device = intensity_evaluation_times.device
+        B, P, L_eval = intensity_evaluation_times.shape
+        _, _, L_hist, _ = inference_event_times.shape
+        D = self.max_num_marks
 
-        return {
-            "loss": loss,
-            "kernel_loss": kernel_loss,
-            "base_intensity_loss": base_intensity_loss,
-            "kernel_rmse": kernel_rmse,
-            "base_intensity_rmse": base_intensity_rmse,
-        }
+        # Ensure tensors are 3D for easier processing by removing the trailing dimension
+        event_times = inference_event_times.squeeze(-1)  # Shape: [B, P, L_hist]
+        event_types = inference_event_types.squeeze(-1)  # Shape: [B, P, L_hist]
+
+        # The final output tensor, matching the model's prediction shape [B, M, P, L_eval]
+        # where M (self.max_num_marks) is D.
+        total_intensity = torch.zeros(B, D, P, L_eval, device=device)
+
+        # Loop over batch items because kernel/base functions are heterogeneous Python objects.
+        # The operations inside this loop are vectorized over paths (P) and time dimensions.
+        for b in range(B):
+            # Extract data for the current batch item for clarity
+            eval_times_b = intensity_evaluation_times[b]  # [P, L_eval]
+            hist_times_b = event_times[b]  # [P, L_hist]
+            hist_types_b = event_types[b]  # [P, L_hist]
+            seq_lengths_b = inference_seq_lengths[b]  # [P]
+
+            # --- Calculate Summed Kernel Term ---
+            # Shape: [P, L_eval, L_hist]. Element (p, l, k) is eval_times[p,l] - hist_times[p,k]
+            delta_t_b = eval_times_b.unsqueeze(-1) - hist_times_b.unsqueeze(-2)
+
+            # Mask for causality: t_jk < t  (historical event time < evaluation time).
+            # Use a small epsilon for strict inequality to handle floating point issues.
+            causality_mask_b = delta_t_b > 1e-9  # [P, L_eval, L_hist]
+
+            # Mask for padding: only consider historical events within the actual sequence length.
+            hist_indices = torch.arange(L_hist, device=device).view(1, L_hist)
+            padding_mask_b = hist_indices < seq_lengths_b.unsqueeze(-1)  # [P, L_hist]
+
+            # Combine causality and padding masks. Broadcast padding_mask from [P,1,L_hist] to [P,L_eval,L_hist].
+            valid_history_mask_b = causality_mask_b & padding_mask_b.unsqueeze(1)
+
+            # Initialize the intensity with the baseline values.
+            for i in range(D):
+                mu_func_b_i = base_intensity_functions_list[b][i]
+                # Assuming mu_func can take a [P, L_eval] tensor and return a tensor of the same shape.
+                total_intensity[b, i, :, :] = mu_func_b_i(eval_times_b)
+
+            # Accumulate kernel influences by iterating over target (i) and source (j) marks.
+            for i in range(D):
+                for j in range(D):
+                    phi_func_b_ij = kernel_functions_list[b][i][j]
+
+                    # Mask for events of source type j. Broadcast from [P,1,L_hist] to [P,L_eval,L_hist].
+                    source_mark_mask_b = (hist_types_b == j).unsqueeze(1)
+
+                    # Final mask for this (i, j) pair's contribution.
+                    final_mask_b = valid_history_mask_b & source_mark_mask_b
+
+                    if not torch.any(final_mask_b):
+                        continue
+
+                    # Evaluate the kernel function only on the valid (t - t_jk) values.
+                    delta_t_to_eval = delta_t_b[final_mask_b]
+                    kernel_values = phi_func_b_ij(delta_t_to_eval)
+
+                    # Place the computed kernel values back into a structured tensor and sum over the history axis.
+                    kernel_contribution = torch.zeros_like(delta_t_b)
+                    kernel_contribution[final_mask_b] = kernel_values
+
+                    # Sum over the history dimension (k) to get the total influence on each evaluation time.
+                    summed_kernel_values = kernel_contribution.sum(dim=-1)  # Shape: [P, L_eval]
+
+                    # Add the summed influence to the total intensity for the target mark i.
+                    total_intensity[b, i, :, :] += summed_kernel_values
+
+        # Apply the non-negativity constraint from the max(0, ...) in the formula.
+        target_intensity_values = torch.relu(total_intensity)
+
+        return target_intensity_values * norm_constants.view(-1, 1, 1, 1)
+
+    def _get_past_event_shifted_intensity_evaluation_times(self, intensity_evaluation_times: Tensor, inference_event_times: Tensor):
+        """
+        Computes the time elapsed since the last event for each evaluation time.
+
+        This function implements the calculation of `t - T_k*(t)` from the paper, where `t` is an
+        intensity evaluation time and `T_k*(t) = max_{t_k,j < t} t_k,j` is the time of the
+        most recent event before `t`.
+
+        - For each time `t` in `intensity_evaluation_times` and each sequence in the batch,
+          it finds the time `t_last` of the latest event in `inference_event_times` such that
+          `t_last < t`.
+        - If no such event exists (i.e., `t` is before the first event), `t_last` is considered to be 0.
+        - It then computes the difference `delta_t = t - t_last`.
+        - The result is expanded to match the number of marks, as this time difference is a
+          component of the query embedding for every possible mark.
+
+        Args:
+            intensity_evaluation_times (Tensor): Times to evaluate the intensity at.
+                                                 Shape: [B, P_inference, L_inference].
+            inference_event_times (Tensor): Historical event times for the inference sequences.
+                                            Shape: [B, P_inference, L_hist, 1].
+
+        Returns:
+            Tensor: The time difference `t - t_last` for each evaluation time, expanded
+                    for all mark types. Shape: [B, M, P_inference, L_inference], where M is
+                    the maximum number of marks.
+        """
+        # Get dimensions. This function is a method of FIMHawkes, so it has access to self.
+        B, P, L_eval = intensity_evaluation_times.shape
+        M = self.max_num_marks
+
+        # Squeeze the last dimension of event times for easier broadcasting.
+        # Shape: [B, P, L_hist]
+        hist_times = inference_event_times.squeeze(-1)
+
+        # Expand dimensions for broadcasting comparison.
+        # eval_times_expanded -> [B, P, L_eval, 1]
+        # hist_times_expanded -> [B, P, 1, L_hist]
+        eval_times_expanded = intensity_evaluation_times.unsqueeze(3)
+        hist_times_expanded = hist_times.unsqueeze(2)
+
+        # Find all historical events that occurred strictly before each evaluation time.
+        # This corresponds to the definition T_k*(t) = max_{t_k,j < t} t_k,j.
+        # Shape: [B, P, L_eval, L_hist]
+        is_past_event = hist_times_expanded < eval_times_expanded
+
+        # Mask the historical times, keeping only past events.
+        # Non-past events are set to a very small number (-inf) so they are ignored by the max operation.
+        masked_hist_times = torch.where(is_past_event, hist_times_expanded, -float("inf"))
+
+        # Find the maximum time among past events for each evaluation time.
+        # This computes T_k*(t) for each t.
+        # Shape: [B, P, L_eval]
+        last_event_time, _ = torch.max(masked_hist_times, dim=3)
+
+        # Handle the case where no past events exist for an evaluation time `t`.
+        # In this scenario, `torch.max` returns -inf. We replace it with 0,
+        # effectively treating the process as starting at time 0.
+        last_event_time = torch.nan_to_num(last_event_time, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Compute the delta time: t - T_k*(t)
+        # Shape: [B, P, L_eval]
+        delta_t = intensity_evaluation_times - last_event_time
+
+        # The time delta is the same for all target marks `m`.
+        # Expand the result to include the mark dimension `M` as expected by the calling function.
+        # Shape: [B, M, P, L_eval]
+        delta_t_expanded = delta_t.unsqueeze(1).expand(-1, M, -1, -1)
+
+        return delta_t_expanded
+
+    def _decode_functions(self, kernel_functions: Tensor, base_intensity_functions: Tensor):
+        """
+        Decode the kernel and base intensity functions into lists of functions using eval.
+
+        Input:
+            "kernel_functions": Tensor representing the kernel functions using byte-encoded strings. [B, M, M]
+            "base_intensity_functions": Tensor representing the base intensity functions using byte-encoded strings. [B, M]
+        Output:
+            "kernel_functions": List of kernel functions. [B, M, M]
+            "base_intensity_functions": List of base intensity functions. [B, M]
+        """
+        B, M, _, _ = kernel_functions.shape
+        kernel_functions_list = []
+        base_intensity_functions_list = []
+        for b in range(B):
+            kernel_functions_list.append([])
+            base_intensity_functions_list.append([])
+            for m in range(M):
+                kernel_functions_list[b].append([])
+                for m_prime in range(M):
+                    kernel_functions_list[b][m].append(eval(decode_byte_string(kernel_functions[b, m, m_prime])))
+                base_intensity_functions_list[b].append(eval(decode_byte_string(base_intensity_functions[b, m])))
+        return kernel_functions_list, base_intensity_functions_list
 
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)
 
-    def _generate_padding_mask(self, sequence_lengths, L):
-        B, P = sequence_lengths.shape
-        mask = torch.arange(L).expand(B, P, L).to(self.device) >= sequence_lengths.unsqueeze(-1)
-        return mask
+    # def predict_one_step_at_every_event(self, batch: dict, intensity_fn: Callable):
+    #     """One-step prediction for every event in the sequence.
 
-    def predict_one_step_at_every_event(self, batch: dict, intensity_fn: Callable):
-        """One-step prediction for every event in the sequence.
+    #     Code taken from https://github.com/ant-research/EasyTemporalPointProcess/blob/main/easy_tpp/model/torch_model/torch_basemodel.py
+    #     Args:
+    #         batch (dict): A dictionary containing the following keys:
+    #             - "event_times": Tensor representing the event times. [B, L]
+    #             - "delta_times": Tensor representing the delta times. [B, L]
+    #             - "event_types": Tensor representing the event types. [B, L]
+    #             - "seq_lengths": Tensor representing the sequence lengths (which we use for masking). [B]
 
-        Code taken from https://github.com/ant-research/EasyTemporalPointProcess/blob/main/easy_tpp/model/torch_model/torch_basemodel.py
-        Args:
-            batch (dict): A dictionary containing the following keys:
-                - "event_times": Tensor representing the event times. [B, L]
-                - "delta_times": Tensor representing the delta times. [B, L]
-                - "event_types": Tensor representing the event types. [B, L]
-                - "seq_lengths": Tensor representing the sequence lengths (which we use for masking). [B]
+    #     Returns:
+    #         tuple: tensors of dtime and type prediction, [batch_size, seq_len].
+    #     """
+    #     time_seq = batch["event_times"]
+    #     time_delta_seq = batch["delta_times"]
+    #     event_seq = batch["event_types"]
 
-        Returns:
-            tuple: tensors of dtime and type prediction, [batch_size, seq_len].
-        """
-        time_seq = batch["event_times"]
-        time_delta_seq = batch["delta_times"]
-        event_seq = batch["event_types"]
+    #     # remove the last event, as the prediction based on the last event has no label
+    #     # note: the first dts is 0
+    #     # [batch_size, seq_len]
+    #     time_seq, time_delta_seq, event_seq = time_seq[:, :-1], time_delta_seq[:, :-1], event_seq[:, :-1]
 
-        # remove the last event, as the prediction based on the last event has no label
-        # note: the first dts is 0
-        # [batch_size, seq_len]
-        time_seq, time_delta_seq, event_seq = time_seq[:, :-1], time_delta_seq[:, :-1], event_seq[:, :-1]
+    #     # [batch_size, seq_len]
+    #     # dtime_boundary = torch.max(time_delta_seq * self.event_sampler.dtime_max, time_delta_seq + self.event_sampler.dtime_max)
 
-        # [batch_size, seq_len]
-        # dtime_boundary = torch.max(time_delta_seq * self.event_sampler.dtime_max, time_delta_seq + self.event_sampler.dtime_max)
+    #     # [batch_size, seq_len, num_sample]
+    #     accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
+    #         time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only=False
+    #     )
 
-        # [batch_size, seq_len, num_sample]
-        accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
-            time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only=False
-        )
+    #     # We should condition on each accepted time to sample event mark, but not conditioned on the expected event time.
+    #     # 1. Use all accepted_dtimes to get intensity.
+    #     # [batch_size, seq_len, num_sample, num_marks]
+    #     intensities_at_times = intensity_fn(accepted_dtimes, time_seq)
 
-        # We should condition on each accepted time to sample event mark, but not conditioned on the expected event time.
-        # 1. Use all accepted_dtimes to get intensity.
-        # [batch_size, seq_len, num_sample, num_marks]
-        intensities_at_times = intensity_fn(accepted_dtimes, time_seq)
+    #     # 2. Normalize the intensity over last dim and then compute the weighted sum over the `num_sample` dimension.
+    #     # Each of the last dimension is a categorical distribution over all marks.
+    #     # [batch_size, seq_len, num_sample, num_marks]
+    #     intensities_normalized = intensities_at_times / intensities_at_times.sum(dim=-1, keepdim=True)
 
-        # 2. Normalize the intensity over last dim and then compute the weighted sum over the `num_sample` dimension.
-        # Each of the last dimension is a categorical distribution over all marks.
-        # [batch_size, seq_len, num_sample, num_marks]
-        intensities_normalized = intensities_at_times / intensities_at_times.sum(dim=-1, keepdim=True)
+    #     # 3. Compute weighted sum of distributions and then take argmax.
+    #     # [batch_size, seq_len, num_marks]
+    #     intensities_weighted = torch.einsum("...s,...sm->...m", weights, intensities_normalized)
 
-        # 3. Compute weighted sum of distributions and then take argmax.
-        # [batch_size, seq_len, num_marks]
-        intensities_weighted = torch.einsum("...s,...sm->...m", weights, intensities_normalized)
+    #     # [batch_size, seq_len, num_marks]
+    #     types_pred = torch.argmax(intensities_weighted, dim=-1)
 
-        # [batch_size, seq_len, num_marks]
-        types_pred = torch.argmax(intensities_weighted, dim=-1)
-
-        # [batch_size, seq_len]
-        dtimes_pred = torch.sum(accepted_dtimes * weights, dim=-1)  # compute the expected next event time
-        return {
-            "predicted_event_times": dtimes_pred,
-            "predicted_event_types": types_pred,
-            "predicted_intensities": intensities_at_times,
-            "predicted_dtimes": accepted_dtimes,
-        }
-
-    @staticmethod
-    def intentsity(
-        t: Tensor,
-        time_seqs: Tensor,
-        kernel: KernelInterpolator,
-        base_intensity: Tensor,
-    ):
-        """
-        Calculate the intensity function at time t given the history of events.
-
-        Args:
-            t (Tensor): The time at which to compute the intensity. Shape: [B, L, N].
-            time_seqs (Tensor): The sequence of event times. Shape: [B, L, 1].
-            kernel (KernelInterpolator): The kernel function to use for computing the intensity.
-            base_intensity (Tensor): The base intensity of the process. Shape: [M].
-
-        Note:
-            B is the number of processes, L is the number of events, N is the number of samples, M is the number of differentmarks.
-
-        Returns:
-            Tensor: The intensity at time t. Shape: [B, L, N, M].
-        """
-        dtime_sample = t.unsqueeze(-2) - time_seqs.unsqueeze(1).unsqueeze(-1)
-        mask = (dtime_sample >= 0).float()
-        dtime_sample = dtime_sample * mask
-        B, S, L, N = dtime_sample.shape
-        kernel_evaluations = kernel(dtime_sample.reshape(B, S, L * N))
-        kernel_evaluations = kernel_evaluations.reshape(B, -1, S, L, N) * mask.reshape(B, -1, S, L, N)
-        # [batch_size, num_marks, seq_len, num_samples]
-        intensities = base_intensity + kernel_evaluations.sum(dim=-2)
-        # [batch_size, seq_len, num_samples, num_marks]
-        return torch.nn.functional.relu(intensities).permute(0, 2, 3, 1)
-
-    def compute_intensities_at_sample_times(
-        self, sample_dtimes, time_seqs, kernel_interpolator: KernelInterpolator, base_intensity: Tensor
-    ):
-        """Compute the intensity at sampled times, not only event times.
-
-        Args:
-            time_seq (tensor): [B, P, L], times seqs.
-            time_delta_seq (tensor): [B, P, L], time delta seqs.
-            event_seq (tensor): [B, P, L], event type seqs.
-            sample_dtimes (tensor): [B, P, N], sampled inter-event timestamps.
-
-        Returns:
-            tensor: [batch_size, num_times, num_mc_sample, num_event_types],
-                    intensity at each timestamp for each event type.
-        """
-        intensity_fn = partial(FIMHawkes.intentsity, kernel=kernel_interpolator, base_intensity=base_intensity)
-        return intensity_fn(sample_dtimes, time_seqs)
+    #     # [batch_size, seq_len]
+    #     dtimes_pred = torch.sum(accepted_dtimes * weights, dim=-1)  # compute the expected next event time
+    #     return {
+    #         "predicted_event_times": dtimes_pred,
+    #         "predicted_event_types": types_pred,
+    #         "predicted_intensities": intensities_at_times,
+    #         "predicted_dtimes": accepted_dtimes,
+    #     }
 
 
 ModelFactory.register(FIMHawkesConfig.model_type, FIMHawkes)
