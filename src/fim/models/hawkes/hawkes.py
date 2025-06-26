@@ -59,19 +59,18 @@ class FIMHawkes(AModel):
 
     Attributes:
         max_num_marks (int): Maximum number of marks in the Hawkes process.
-        mark_encoder (nn.Module): The mark encoder for the observed data.
-        time_encoder (nn.Module): The time encoder for the observed data.
-        delta_time_encoder (nn.Module): The delta time encoder.
-        kernel_time_encoder (nn.Module): The kernel time encoder.
-        evaluation_mark_encoder (nn.Module): The mark encoder for the selected mark during evaluation.
-        ts_encoder (nn.Module): The time series encoder.
-        time_dependent_functional_attention (nn.Module): The time dependent functional attention.
-        static_functional_attention (nn.Module): The static functional attention.
-        static_functional_attention_learnable_query (nn.Module): The learnable query for static functional attention.
-        kernel_value_decoder (nn.Module): The kernel value decoder.
-        kernel_value_var_decoder (nn.Module): The kernel value variance decoder.
-        base_intensity_decoder (nn.Module): The base intensity decoder.
-        base_intensity_var_decoder (nn.Module): The base intensity variance decoder.
+        is_bulk_model (bool): Whether the model is a bulk model.
+        normalize_by_max_time (bool): Whether to normalize the input times by the maximum time in the context sequences.
+        thinning (dict): The thinning parameters.
+        mark_encoder (dict): The mark encoder configuration.
+        time_encoder (dict): The time encoder configuration.
+        delta_time_encoder (dict): The delta time encoder configuration.
+        kernel_time_encoder (dict): The kernel time encoder configuration.
+        evaluation_mark_encoder (dict): The mark encoder for the selected mark during evaluation.
+        context_ts_encoder (dict): The time series encoder for the context sequences.
+        inference_ts_encoder (dict): The time series encoder for the inference sequences.
+        functional_attention (dict): The functional attention configuration.
+        intensity_decoder (dict): The intensity decoder configuration.
         loss: TBD
 
     """
@@ -180,28 +179,46 @@ class FIMHawkes(AModel):
         if self.normalize_times:
             norm_constants = self._normalize_input_times(x)
 
-        sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P, L, D]
-        sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B, P, L, D]
+        # Encode all sequences once
+        sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
+        sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B, P_inference, L, D]
 
-        # Concatenate sequence encodings REMOVE THIS
-        sequence_encodings = torch.cat(
-            [sequence_encodings_context, sequence_encodings_inference], dim=1
-        )  # [B, P_context + P_inference, L, D]
-        observations_padding_mask = None  # TODO: Create a proper mask here
+        # Get all query embeddings once
+        # Shape: [B, M, P_inference, L_inference, D]
+        all_trunk_net_encodings = self._trunk_net_encoder_optimized(x)
 
-        time_dependent_encodings = self._time_dependent_encoder_optimized(
-            x, sequence_encodings, observations_padding_mask=observations_padding_mask
-        )  # [B, M, P_inference, L_inference, D]
+        # --- Loop over each inference path to treat it as an independent problem ---
+        all_time_dependent_encodings = []
+        for i in range(P_inference):
+            # 1. Select the keys/values for this problem: all context + one inference path
+            target_inference_encoding = sequence_encodings_inference[:, i : i + 1, :, :]  # [B, 1, L, D]
+            keys_values = torch.cat([sequence_encodings_context, target_inference_encoding], dim=1)  # [B, P_context+1, L, D]
 
-        predicted_intensity_values = self._intensity_decoder(time_dependent_encodings)  # [B, M, P_inference, L_inference]
+            # 2. Select the queries for this problem
+            queries = all_trunk_net_encodings[:, :, i, :, :]  # [B, M, L_inference, D]
+
+            # 3. Create the specific attention mask for this problem
+            attention_mask = self._create_single_inference_mask(x, target_inference_idx=i)  # [B, L_inference, P_context+1, L]
+
+            # 4. Apply attention
+            time_dependent_encoding = self._functional_attention_encoder_optimized(
+                queries, keys_values, attention_mask
+            )  # [B, M, L_inference, D]
+
+            all_time_dependent_encodings.append(time_dependent_encoding)
+
+        # Concatenate results along the P_inference dimension
+        # List of [B, M, L_inference, D] -> [B, M, P_inference, L_inference, D]
+        time_dependent_encodings = torch.stack(all_time_dependent_encodings, dim=2)
+
+        # The rest of the function remains the same
+        predicted_intensity_values = self._intensity_decoder(time_dependent_encodings)
 
         out = {
             "predicted_intensity_values": predicted_intensity_values,
         }
 
         if "intensity_evaluation_times" in x:
-            # out["losses"] = {}
-            # out["losses"]["loss"] = torch.mean(predicted_intensity_values**2)
             out["losses"] = self.loss(
                 out["predicted_intensity_values"],
                 x["kernel_functions"],
@@ -261,16 +278,6 @@ class FIMHawkes(AModel):
         marks = torch.arange(M, device=self.device).repeat_interleave(L_kernel).repeat(B)
         mark_encodings = encodings_per_event_mark[marks]
         return (time_encodings + mark_encodings).view(B, M, L_kernel, -1)
-
-    def _time_dependent_encoder(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
-        """
-        Apply functional attention to obtain a time dependent summary of the paths.
-        """
-        trunk_net_encodings = self._trunk_net_encoder(x)  # [B, M, L_kernel, D]
-        B, M, L_kernel, D = trunk_net_encodings.shape
-        return self.time_dependent_functional_attention(
-            trunk_net_encodings.view(B, M * L_kernel, -1), sequence_encodings, observations_padding_mask=observations_padding_mask
-        ).view(B, M, L_kernel, -1)  # [B, M, L_kernel, D]
 
     def _intensity_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
         B, M, P_inference, L_inference, D = time_dependent_path_summary.shape
@@ -398,19 +405,56 @@ class FIMHawkes(AModel):
 
         return time_encodings + mark_encodings
 
-    def _time_dependent_encoder_optimized(self, x: dict, sequence_encodings: Tensor, observations_padding_mask=None) -> Tensor:
-        """Optimized time dependent encoder"""
-        trunk_net_encodings = self._trunk_net_encoder_optimized(x)  # [B, M, P_inference, L_inference, D]
-        B, M, P_inference, L_inference, D = trunk_net_encodings.shape
+    def _functional_attention_encoder_optimized(self, queries: Tensor, keys_values: Tensor, attention_mask: Tensor) -> Tensor:
+        """
+        Performs functional attention for a single inference target.
+        This version formats its output to be compatible with the unmodified AttentionOperator.
 
-        # Reshape for attention: [B, M * P_inference * L_inference, D]
-        trunk_reshaped = trunk_net_encodings.reshape(B, M * P_inference * L_inference, D)
+        Args:
+            queries (Tensor): Query embeddings from the trunk net.
+                            Shape: [B, M, L_inference, D]
+            keys_values (Tensor): Key/Value embeddings from context + one inference path.
+                                Shape: [B, P_context + 1, L, D]
+            attention_mask (Tensor): The corresponding dynamic attention mask.
+                                    Shape: [B, L_inference, P_context + 1, L]
 
-        # Apply functional attention
-        result = self.functional_attention(trunk_reshaped, sequence_encodings, observations_padding_mask=observations_padding_mask)
+        Returns:
+            Tensor: The final time-dependent encodings after attention.
+                    Shape: [B, M, L_inference, D]
+        """
+        B, M, L_inference, D = queries.shape
+        _, P_relevant, L, _ = keys_values.shape
 
-        # Reshape back to [B, M, P_inference, L_inference, D]
-        return result.reshape(B, M, P_inference, L_inference, D)
+        # Reshape for batched attention. Each (L_inference) query gets its own mask.
+        # We treat the L_inference dimension as part of the batch.
+
+        # Reshape queries: [B, M, L_inf, D] -> [B * L_inf, M, D]
+        queries_reshaped = queries.permute(0, 2, 1, 3).reshape(B * L_inference, M, D)
+
+        # Expand and reshape keys/values: [B, P_rel, L, D] -> [B, 1, P_rel*L, D] -> [B*L_inf, P_rel*L, D]
+        keys_values_expanded = keys_values.unsqueeze(1).expand(-1, L_inference, -1, -1, -1)
+        keys_values_reshaped = keys_values_expanded.reshape(B * L_inference, P_relevant * L, D)
+
+        # Reshape mask: [B, L_inf, P_rel, L] -> [B * L_inf, P_rel * L]
+        mask_reshaped = attention_mask.reshape(B * L_inference, P_relevant * L)
+
+        # Shape: [B*L_inf, P_rel*L, D] -> [B*L_inf, P_rel*L, 1, D]
+        keys_values_4d = keys_values_reshaped.unsqueeze(2)
+
+        # The padding mask is already prepared in the correct 3D shape for the operator's internal layers.
+        # Shape: [B*L_inf, P_rel*L, 1]
+        padding_mask_3d = mask_reshaped.unsqueeze(-1)
+
+        # Apply functional attention with the correctly shaped tensors
+        result = self.functional_attention(
+            queries_reshaped,
+            keys_values_4d,  # Pass the 4D tensor here
+            observations_padding_mask=padding_mask_3d,
+        )  # Result shape: [B * L_inf, M, D]
+
+        # Reshape back to original format
+        # [B * L_inf, M, D] -> [B, L_inf, M, D] -> [B, M, L_inf, D]
+        return result.reshape(B, L_inference, M, D).permute(0, 2, 1, 3)
 
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
         out["predicted_intensity_values"] = out["predicted_intensity_values"] / norm_constants.view(-1, 1, 1, 1)
@@ -450,7 +494,16 @@ class FIMHawkes(AModel):
         )
         assert target_intensity_values.shape == predicted_intensity_values.shape
 
-        pass
+        # Compute the MSE loss
+        loss = torch.mean((predicted_intensity_values - target_intensity_values) ** 2)
+
+        # Compute the MAE loss
+        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+
+        return {
+            "loss": loss,
+            "mae_loss": mae_loss,
+        }
 
     def compute_target_intensity_values(
         self,
@@ -663,6 +716,64 @@ class FIMHawkes(AModel):
 
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)
+
+    def _create_single_inference_mask(self, x: dict, target_inference_idx: int) -> Tensor:
+        """
+        Creates a dynamic visibility mask for a single inference path.
+
+        The mask makes all context paths fully visible (respecting padding) and makes
+        the single target inference path causally visible based on evaluation times.
+
+        Args:
+            x (dict): The input data dictionary.
+            target_inference_idx (int): The index of the current target inference path.
+
+        Returns:
+            Tensor: A boolean mask where `True` indicates a masked position.
+                    Shape: [B, L_inference, P_context + 1, L]
+        """
+        B, P_context, L = x["context_event_times"].shape[:3]
+        L_inference = x["intensity_evaluation_times"].shape[2]
+        device = x["context_event_times"].device
+
+        # --- 1. Static Padding Mask ---
+        # Combine seq lengths for context paths and the single target inference path.
+        context_lengths = x["context_seq_lengths"]  # [B, P_context]
+        target_inference_length = x["inference_seq_lengths"][:, target_inference_idx : target_inference_idx + 1]  # [B, 1]
+
+        # Shape: [B, P_context + 1]
+        relevant_seq_lengths = torch.cat([context_lengths, target_inference_length], dim=1)
+
+        positions = torch.arange(L, device=device).view(1, 1, L)
+
+        # static_mask is True for padded positions. Shape: [B, P_context + 1, L]
+        static_mask = positions >= relevant_seq_lengths.unsqueeze(2)
+        # Expand for broadcasting with the dynamic mask. Shape: [B, 1, P_context + 1, L]
+        static_mask = static_mask.unsqueeze(1)
+
+        # --- 2. Dynamic Causality Mask for the Target Path ---
+        # Get evaluation times and event times for only the target path.
+        eval_times = x["intensity_evaluation_times"][:, target_inference_idx, :]  # [B, L_inference]
+        inference_times = x["inference_event_times"][:, target_inference_idx, :, :].squeeze(-1)  # [B, L]
+
+        # dynamic_mask is True if event_time >= eval_time. Shape: [B, L_inference, L]
+        dynamic_mask = inference_times.unsqueeze(1) >= eval_times.unsqueeze(2)
+
+        # --- 3. Combine Masks ---
+        # The dynamic mask only applies to the inference path, which is the last one
+        # in our concatenated sequence. We create a mask of Falses for the context paths.
+
+        # Shape: [B, L_inference, P_context, L]
+        context_dynamic_mask = torch.zeros(B, L_inference, P_context, L, dtype=torch.bool, device=device)
+
+        # Add a dimension to the inference dynamic mask and concatenate.
+        # Shape: [B, L_inference, P_context + 1, L]
+        full_dynamic_mask = torch.cat([context_dynamic_mask, dynamic_mask.unsqueeze(2)], dim=2)
+
+        # Final mask is the union of static padding and dynamic causality.
+        final_mask = static_mask | full_dynamic_mask
+
+        return final_mask
 
     # def predict_one_step_at_every_event(self, batch: dict, intensity_fn: Callable):
     #     """One-step prediction for every event in the sequence.

@@ -29,13 +29,13 @@ dataset:
 
     num_inference_paths: 5
     variable_num_of_paths: true
-    min_path_count: 100
-    max_path_count: 2000
+    min_path_count: 20
+    max_path_count: 40
     max_number_of_minibatch_sizes: 20
 
     variable_sequence_lens: true
     min_sequence_len: 10
-    max_sequence_len: 250
+    max_sequence_len: 50
 
     num_inference_times: 10 # Number of times at which to evaluate the intensity function per inference path
 
