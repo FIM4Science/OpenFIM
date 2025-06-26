@@ -266,3 +266,213 @@ class SDEEvaluationPlots(EvaluationEpoch):
                 figures.update(dim_figures)
 
             return {"figures": figures}
+
+
+class HawkesEvaluationPlots(EvaluationEpoch):
+    """
+    Evaluation epoch class for Hawkes processes that creates TensorBoard plots
+    comparing target and predicted intensity values for all marks.
+    """
+
+    def __init__(
+        self,
+        model,
+        dataloader,
+        loss_tracker,
+        debug_mode,
+        local_rank,
+        accel_type,
+        use_mixeprecision,
+        is_accelerator,
+        auto_cast_type,
+        **kwargs,
+    ):
+        super().__init__(
+            model, dataloader, loss_tracker, debug_mode, local_rank, accel_type, use_mixeprecision, is_accelerator, auto_cast_type
+        )
+
+        # which dataloader to take plotting data from
+        iterator_name: str = kwargs.get("iterator_name", "validation")
+        if iterator_name == "validation":
+            self.data_iterator = dataloader.validation_it
+        elif iterator_name == "test":
+            self.data_iterator = dataloader.test_it
+        elif iterator_name == "evaluation":
+            self.data_iterator = dataloader.evaluation_it
+        else:
+            self.data_iterator = dataloader.validation_it
+
+        # how often to plot
+        self.plot_frequency: int = kwargs.get("plot_frequency", 1)
+
+        # which inference path to plot (default: first one)
+        self.inference_path_idx: int = kwargs.get("inference_path_idx", 0)
+
+    @staticmethod
+    def create_intensity_plots(
+        target_intensities: Tensor,
+        predicted_intensities: Tensor,
+        evaluation_times: Tensor,
+        max_num_marks: int,
+        inference_path_idx: int = 0,
+    ) -> dict:
+        """
+        Create plots comparing target and predicted intensities for all marks.
+
+        Args:
+            target_intensities: Target intensity values [B, M, P_inference, L_inference]
+            predicted_intensities: Predicted intensity values [B, M, P_inference, L_inference]
+            evaluation_times: Times at which intensities are evaluated [B, P_inference, L_inference]
+            max_num_marks: Maximum number of marks
+            inference_path_idx: Which inference path to plot
+
+        Returns:
+            Dictionary of figure names to matplotlib figures
+        """
+        figures = {}
+
+        # Select first batch element and specified inference path
+        target_int = target_intensities[0, :, inference_path_idx, :].detach().cpu()  # [M, L_inference]
+        pred_int = predicted_intensities[0, :, inference_path_idx, :].detach().cpu()  # [M, L_inference]
+        eval_times = evaluation_times[0, inference_path_idx, :].detach().cpu()  # [L_inference]
+
+        # Create individual plots for each mark
+        for mark_idx in range(max_num_marks):
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            # Create scatter plots for target and predicted intensity for this mark
+            ax.scatter(
+                eval_times,
+                target_int[mark_idx],
+                c="blue",
+                s=60,
+                alpha=0.7,
+                label=f"Target Mark {mark_idx}",
+                marker="o",
+                edgecolors="darkblue",
+            )
+            ax.scatter(
+                eval_times,
+                pred_int[mark_idx],
+                c="red",
+                s=60,
+                alpha=0.7,
+                label=f"Predicted Mark {mark_idx}",
+                marker="^",
+                edgecolors="darkred",
+            )
+
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Intensity")
+            ax.set_title(f"Intensity Comparison for Mark {mark_idx}")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+
+            figures[f"Intensity_Mark_{mark_idx}"] = fig
+
+        # Create combined plot with all marks
+        fig_combined, ax_combined = plt.subplots(figsize=(12, 8))
+
+        colors = plt.cm.tab10(range(max_num_marks))
+        markers_target = ["o", "s", "D", "v", "^", "<", ">", "p", "*", "h"]
+        markers_pred = ["^", "v", "X", "<", ">", "P", "d", "8", "H", "+"]
+
+        for mark_idx in range(max_num_marks):
+            # Use different markers for target vs predicted, same color for same mark
+            ax_combined.scatter(
+                eval_times,
+                target_int[mark_idx],
+                c=colors[mark_idx],
+                s=60,
+                alpha=0.8,
+                marker=markers_target[mark_idx % len(markers_target)],
+                label=f"Target Mark {mark_idx}",
+                edgecolors="black",
+                linewidths=0.5,
+            )
+            ax_combined.scatter(
+                eval_times,
+                pred_int[mark_idx],
+                c=colors[mark_idx],
+                s=40,
+                alpha=0.6,
+                marker=markers_pred[mark_idx % len(markers_pred)],
+                label=f"Predicted Mark {mark_idx}",
+                edgecolors="black",
+                linewidths=0.5,
+            )
+
+        ax_combined.set_xlabel("Time")
+        ax_combined.set_ylabel("Intensity")
+        ax_combined.set_title("Intensity Comparison for All Marks")
+        ax_combined.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        ax_combined.grid(True, alpha=0.3)
+        plt.tight_layout()
+
+        figures["Intensity_All_Marks"] = fig_combined
+
+        return figures
+
+    @torch.no_grad()
+    def __call__(self, epoch: int) -> dict:
+        """
+        Create intensity plots for target vs predicted values during validation.
+        """
+        self.model.eval()
+
+        if epoch % self.plot_frequency != 0:
+            return {}
+
+        # Get a batch from validation data
+        try:
+            batch = next(iter(self.data_iterator))
+        except StopIteration:
+            return {}
+
+        # Move batch to device
+        batch = {k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+        # Check if we have the required keys for intensity computation
+        required_keys = [
+            "context_event_times",
+            "context_event_types",
+            "inference_event_times",
+            "inference_event_types",
+            "intensity_evaluation_times",
+            "kernel_functions",
+            "base_intensity_functions",
+        ]
+
+        if not all(key in batch for key in required_keys):
+            return {}
+
+        # Validate inference path index
+        P_inference = batch["inference_event_times"].shape[1]
+        if self.inference_path_idx >= P_inference:
+            self.inference_path_idx = 0  # Fall back to first path
+
+        # Run model forward pass (this will automatically compute delta_times and normalization)
+        with torch.amp.autocast(
+            self.accel_type,
+            enabled=self.use_mixeprecision and self.is_accelerator,
+            dtype=self.auto_cast_type,
+        ):
+            model_output = self.model(batch)
+
+        # Extract predicted and target intensities from model output
+        if "predicted_intensity_values" not in model_output or "target_intensity_values" not in model_output:
+            return {}  # Can't create plots without both predicted and target intensities
+
+        predicted_intensities = model_output["predicted_intensity_values"]  # [B, M, P_inference, L_inference]
+        target_intensities = model_output["target_intensity_values"]  # [B, M, P_inference, L_inference]
+
+        # Create plots
+        figures = self.create_intensity_plots(
+            target_intensities,
+            predicted_intensities,
+            batch["intensity_evaluation_times"],
+            self.model.max_num_marks,
+            self.inference_path_idx,
+        )
+
+        return {"figures": figures}
