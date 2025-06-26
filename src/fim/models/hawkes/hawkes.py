@@ -29,13 +29,11 @@ class FIMHawkesConfig(PretrainedConfig):
         intensity_decoder: dict = None,
         hidden_dim: int = None,
         max_num_marks: int = 1,
-        is_bulk_model: bool = False,
         normalize_by_max_time: bool = True,
         thinning: dict = None,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
-        self.is_bulk_model = is_bulk_model
         self.normalize_by_max_time = normalize_by_max_time
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
@@ -59,7 +57,6 @@ class FIMHawkes(AModel):
 
     Attributes:
         max_num_marks (int): Maximum number of marks in the Hawkes process.
-        is_bulk_model (bool): Whether the model is a bulk model.
         normalize_by_max_time (bool): Whether to normalize the input times by the maximum time in the context sequences.
         thinning (dict): The thinning parameters.
         mark_encoder (dict): The mark encoder configuration.
@@ -80,10 +77,7 @@ class FIMHawkes(AModel):
     def __init__(self, config: FIMHawkesConfig, **kwargs):
         super().__init__(config, **kwargs)
         self.max_num_marks = config.max_num_marks
-        self.is_bulk_model = config.is_bulk_model
         self.normalize_by_max_time = config.normalize_by_max_time
-        if self.is_bulk_model and self.max_num_marks != 2:
-            raise NotImplementedError("Bulk model only supports 2 marks.")
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         self.__create_modules()
         self._register_cached_tensors()
@@ -212,7 +206,7 @@ class FIMHawkes(AModel):
         time_dependent_encodings = torch.stack(all_time_dependent_encodings, dim=2)
 
         # The rest of the function remains the same
-        predicted_intensity_values = self._intensity_decoder(time_dependent_encodings)
+        predicted_intensity_values = torch.exp(self._intensity_decoder(time_dependent_encodings))
 
         out = {
             "predicted_intensity_values": predicted_intensity_values,

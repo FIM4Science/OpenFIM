@@ -29,8 +29,8 @@ dataset:
 
     num_inference_paths: 5
     variable_num_of_paths: true
-    min_path_count: 20
-    max_path_count: 40
+    min_path_count: 100
+    max_path_count: 1000
     max_number_of_minibatch_sizes: 20
 
     variable_sequence_lens: true
@@ -39,7 +39,6 @@ dataset:
 
     num_inference_times: 10 # Number of times at which to evaluate the intensity function per inference path
 
-    is_bulk_model: &is_bulk_model false
   dataset_kwargs:
     files_to_load:
       base_intensity_functions: "base_intensity_functions.pt"
@@ -52,7 +51,6 @@ dataset:
 
 model:
   model_type: fimhawkes
-  is_bulk_model: *is_bulk_model
   normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
 
