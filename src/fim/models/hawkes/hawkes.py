@@ -21,6 +21,7 @@ class FIMHawkesConfig(PretrainedConfig):
         mark_encoder: dict = None,
         time_encoder: dict = None,
         delta_time_encoder: dict = None,
+        intensity_evaluation_time_encoder: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
         inference_ts_encoder: dict = None,
@@ -28,15 +29,18 @@ class FIMHawkesConfig(PretrainedConfig):
         intensity_decoder: dict = None,
         hidden_dim: int = None,
         max_num_marks: int = 1,
+        normalize_times: bool = True,
         normalize_by_max_time: bool = True,
         thinning: dict = None,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
+        self.normalize_times = normalize_times
         self.normalize_by_max_time = normalize_by_max_time
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
+        self.intensity_evaluation_time_encoder = intensity_evaluation_time_encoder
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.inference_ts_encoder = inference_ts_encoder
@@ -209,16 +213,25 @@ class FIMHawkes(AModel):
             "predicted_intensity_values": predicted_intensity_values,
         }
 
-        if "intensity_evaluation_times" in x:
-            out["losses"] = self.loss(
-                out["predicted_intensity_values"],
-                x["kernel_functions"],
-                x["base_intensity_functions"],
+        if "kernel_functions" in x:
+            # Compute target intensities for plotting and loss computation
+            kernel_functions_list, base_intensity_functions_list = self._decode_functions(
+                x["kernel_functions"], x["base_intensity_functions"]
+            )
+            target_intensity_values = self.compute_target_intensity_values(
+                kernel_functions_list,
+                base_intensity_functions_list,
                 x["intensity_evaluation_times"],
                 x["inference_event_times"],
                 x["inference_event_types"],
                 x["inference_seq_lengths"],
                 norm_constants,
+            )
+            out["target_intensity_values"] = target_intensity_values
+
+            out["losses"] = self.loss(
+                out["predicted_intensity_values"],
+                out["target_intensity_values"],
                 schedulers,
                 step,
             )
@@ -462,27 +475,10 @@ class FIMHawkes(AModel):
     def loss(
         self,
         predicted_intensity_values: Tensor,
-        kernel_functions: Tensor,
-        base_intensity_functions: Tensor,
-        intensity_evaluation_times: Tensor,
-        inference_event_times: Tensor,
-        inference_event_types: Tensor,
-        inference_seq_lengths: Tensor,
-        norm_constants: Tensor,
+        target_intensity_values: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        kernel_functions_list, base_intensity_functions_list = self._decode_functions(kernel_functions, base_intensity_functions)
-
-        target_intensity_values = self.compute_target_intensity_values(
-            kernel_functions_list,
-            base_intensity_functions_list,
-            intensity_evaluation_times,
-            inference_event_times,
-            inference_event_types,
-            inference_seq_lengths,
-            norm_constants,
-        )
         assert target_intensity_values.shape == predicted_intensity_values.shape
 
         # Compute the MSE loss

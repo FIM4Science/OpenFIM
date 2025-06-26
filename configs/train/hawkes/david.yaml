@@ -126,6 +126,14 @@ trainer:
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
+
+  # Add evaluation epoch for TensorBoard plotting
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.HawkesEvaluationPlots
+    plot_frequency: 1
+    iterator_name: validation  # Use validation data for plotting
+    inference_path_idx: 0  # Which inference path to plot (0 = first path)
+
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
       beta: 1.0
