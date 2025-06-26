@@ -16,11 +16,11 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/3_mark_processes/train
-      - data/synthetic_data/hawkes/2_mark_processes/train
+      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/3_mark_processes/val
-      - data/synthetic_data/hawkes/2_mark_processes/val
+      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
 
   loader_kwargs:
     batch_size: 1
@@ -35,7 +35,7 @@ dataset:
 
     variable_sequence_lens: true
     min_sequence_len: 10
-    max_sequence_len: 50
+    max_sequence_len: 250
 
     num_inference_times: 10 # Number of times at which to evaluate the intensity function per inference path
 

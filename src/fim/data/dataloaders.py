@@ -29,6 +29,7 @@ from ..data.datasets import (
     FIMSDEDatabatch,
     FIMSDEDatabatchTuple,
     FIMSDEDataset,
+    HawkesDataset,
     HeterogeneousFIMSDEDataset,
     HFDataset,
     PaddedFIMSDEDataset,
@@ -277,10 +278,6 @@ class HawkesDataLoader(BaseDataLoader):
         self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
 
-        self.num_kernel_evaluation_points = loader_kwargs.pop("num_kernel_evaluation_points", None)
-
-        self.is_bulk_model = loader_kwargs.pop("is_bulk_model", False)
-
         self.current_minibatch_index = 0
         super().__init__(dataset_kwargs, loader_kwargs)
         if self.variable_num_of_paths:
@@ -291,7 +288,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         self.path = path
         for name, paths in path.items():
-            self.dataset[name] = FIMDataset(paths, **dataset_kwargs)
+            self.dataset[name] = HawkesDataset(paths, **dataset_kwargs)
             if self.variable_num_of_paths and name == "train":
                 self.num_paths_for_batch = get_path_counts(
                     len(self.dataset[name]),
@@ -305,7 +302,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         self._init_dataloaders(self.dataset)
 
-    def _get_collate_fn(self, dataset_name: str, dataset: FIMDataset) -> Union[None, callable]:
+    def _get_collate_fn(self, dataset_name: str, dataset: HawkesDataset) -> Union[None, callable]:
         def custom_collate(batch):
             # Apply variable path selection only for training data when enabled
             if self.variable_num_of_paths and dataset_name == "train":
@@ -314,6 +311,40 @@ class HawkesDataLoader(BaseDataLoader):
             # Apply variable sequence lengths only when enabled
             if self.variable_sequence_lens:
                 batch = self.custom_hawkes_collate_fun(batch)
+
+            # Tensors whose second dimension is the number of marks (M) for Hawkes processes
+            tensors_to_pad = dataset.field_name_for_dimension_grouping
+
+            # Find the maximum number of marks in the current batch
+            max_marks = 0
+            for item in batch:
+                for key in tensors_to_pad:
+                    if key in item:
+                        max_marks = max(max_marks, item[key].shape[1])
+                        break  # Move to next item once a mark-dependent tensor is found
+
+            if max_marks > 0:
+                for item in batch:
+                    # Store the original number of marks for this item
+                    # Use a default of 0 if no mark-dependent tensors are present
+                    current_marks = 0
+                    for key in tensors_to_pad:
+                        if key in item:
+                            current_marks = item[key].shape[1]
+                            break
+                    item["num_marks"] = torch.tensor(current_marks, dtype=torch.long)
+
+                    # Pad the relevant tensors
+                    pad_size = max_marks - current_marks
+                    if pad_size > 0:
+                        for key in tensors_to_pad:
+                            if key in item:
+                                tensor = item[key]
+                                # Create a padding tensor with the correct trailing dimensions
+                                # For Hawkes: pad the second dimension (marks dimension)
+                                pad_shape = (tensor.shape[0], pad_size) + tensor.shape[2:]
+                                padding = torch.zeros(pad_shape, dtype=tensor.dtype, device=tensor.device)
+                                item[key] = torch.cat([tensor, padding], dim=1)
 
             # Ensure seq_lengths exists for all items (needed for inference path selection)
             for item in batch:
@@ -333,7 +364,7 @@ class HawkesDataLoader(BaseDataLoader):
                         seq_lengths.append(seq_len)
                     item["seq_lengths"] = torch.tensor(seq_lengths, dtype=torch.long)
 
-            # ALWAYS apply inference path and time selection for all datasets
+            # ALWAYS apply inference path and time selection for all datasets BEFORE collating
             batch = self.select_inference_paths(batch)
             batch = self.select_inference_times(batch)
 

@@ -299,6 +299,141 @@ class FIMDataset(torch.utils.data.Dataset):
         return f"FimDataset(path={self.path}, files_to_load={self.files_to_load})"
 
 
+class HawkesDataset(FIMDataset):
+    """
+    Specialized dataset for Hawkes processes that handles variable numbers of marks.
+    Inherits from FIMDataset but adds mark-specific padding functionality.
+    """
+
+    def __init__(
+        self,
+        path: Path | Paths,
+        files_to_load: Optional[dict] = None,
+        data_limit: Optional[int] = None,
+        field_name_for_dimension_grouping: Optional[str] = None,
+    ):
+        # Initialize parent class attributes without calling its __load_data method
+        self.logger = RankLoggerAdapter(logging.getLogger(__class__.__name__))
+        self.path = path
+        self.files_to_load = files_to_load or {}
+        self.data_limit = data_limit
+        self.field_name_for_dimension_grouping = field_name_for_dimension_grouping
+        self._FIMDataset__different_last_dim = False
+
+        # Load data using our custom method
+        self.data = self._HawkesDataset__load_data()
+
+    def _HawkesDataset__load_data(self) -> dict:
+        data = defaultdict(list)
+        files_to_load = self._FIMDataset__get_files()
+        for file_name, file_path in files_to_load:
+            data[file_name].append(load_file(file_path)[: self.data_limit])
+
+        if self.field_name_for_dimension_grouping:
+            # Handle both single field name and list of field names for dimension grouping
+            grouping_fields = self.field_name_for_dimension_grouping
+            if isinstance(grouping_fields, list):
+                grouping_field = grouping_fields[0]  # Use first field for consistency check
+            else:
+                grouping_field = grouping_fields
+
+            self._HawkesDataset__different_last_dim = self.__check_hawkes_dimension_consistency(data, grouping_field)
+            if self._HawkesDataset__different_last_dim:
+                grouped_data = defaultdict(lambda: defaultdict(list))
+                # For Hawkes processes, marks dimension is the second dimension (shape[1])
+                idx_to_dim = [v.shape[1] for v in data[grouping_field]]
+                for k, v in data.items():
+                    for i, tensor in enumerate(v):
+                        grouped_data[idx_to_dim[i]][k].append(tensor)
+                return {dim: {k: torch.cat(v) for k, v in group.items()} for dim, group in grouped_data.items()}
+
+        # Always check if we need to pad tensors with different mark dimensions
+        tensors_to_pad = ["base_intensity_functions", "kernel_functions"]
+        need_padding = False
+        max_marks = 0
+
+        for key in tensors_to_pad:
+            if key in data:
+                # For Hawkes processes, marks dimension is the second dimension (index 1)
+                marks_dims = [tensor.shape[1] for tensor in data[key]]
+                if len(set(marks_dims)) > 1:  # Different mark dimensions found
+                    need_padding = True
+                    max_marks = max(max_marks, max(marks_dims))
+        if need_padding:
+            # Pad tensors to have the same number of marks
+            for key in tensors_to_pad:
+                if key in data:
+                    padded_tensors = []
+                    for tensor in data[key]:
+                        current_marks = tensor.shape[1]
+                        if current_marks < max_marks:
+                            # Pad the second dimension (marks dimension)
+                            pad_size = max_marks - current_marks
+                            # Create padding with shape [N, pad_size, remaining_dims...]
+                            pad_shape = (tensor.shape[0], pad_size) + tensor.shape[2:]
+                            padding = torch.zeros(pad_shape, dtype=tensor.dtype, device=tensor.device)
+                            tensor = torch.cat([tensor, padding], dim=1)
+                        padded_tensors.append(tensor)
+                    data[key] = padded_tensors
+
+        return {k: torch.cat(v) for k, v in data.items()}
+
+    def __check_hawkes_dimension_consistency(self, data, grouping_field=None):
+        """Check consistency for Hawkes-specific mark dimensions."""
+        if grouping_field is None:
+            grouping_field = self.field_name_for_dimension_grouping
+
+        different_marks_dim = False
+        if grouping_field in data and len(data[grouping_field]) > 0:
+            # For Hawkes processes, check the second dimension (marks dimension)
+            base_dim = data[grouping_field][0].shape[1]
+            for v in data[grouping_field][1:]:
+                if v.shape[1] != base_dim:
+                    different_marks_dim = True
+                    break
+        return different_marks_dim
+
+    @property
+    def is_last_dim_varying(self):
+        return self._HawkesDataset__different_last_dim
+
+    def __getitem__(self, idx):
+        if self.is_last_dim_varying:
+            # Handle grouped data structure
+            group_idx, data_idx = self._retrieve_group_index(idx)
+            item = {k: v[data_idx] for k, v in self.data[group_idx].items()}
+            item["_group_dim"] = group_idx  # Add group dimension for collate function
+            return item
+        else:
+            # Handle flat data structure
+            return {k: v[idx] for k, v in self.data.items()}
+
+    def _retrieve_group_index(self, idx):
+        """Retrieve group index and data index for variable dimension datasets."""
+        cumulative_size = 0
+        for group_idx, group_data in self.data.items():
+            group_size = len(next(iter(group_data.values())))
+            if cumulative_size + group_size > idx:
+                data_idx = idx - cumulative_size
+                return group_idx, data_idx
+            cumulative_size += group_size
+        raise IndexError(f"Index {idx} out of range for dataset of size {cumulative_size}")
+
+    def __len__(self):
+        if self.is_last_dim_varying:
+            # For grouped data, sum up the sizes of all groups
+            total_size = 0
+            for group_data in self.data.values():
+                if group_data:
+                    total_size += len(next(iter(group_data.values())))
+            return total_size
+        else:
+            # For flat data, get the size from any key
+            if self.data:
+                return len(next(iter(self.data.values())))
+            return 0
+
+
 class TimeSeriesDatasetTorch(torch.utils.data.Dataset):
     """
     Base class for time series datasets where the data is given in torch format.
