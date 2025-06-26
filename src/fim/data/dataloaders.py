@@ -274,7 +274,9 @@ class HawkesDataLoader(BaseDataLoader):
         self.num_inference_times = loader_kwargs.pop("num_inference_times", 1)
         self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
 
-        self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", False)
+        # Per-dataset configuration for variable_sequence_lens
+        self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", {})
+
         self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
 
@@ -308,8 +310,8 @@ class HawkesDataLoader(BaseDataLoader):
             if self.variable_num_of_paths and dataset_name == "train":
                 batch = self.var_path_collate_fn(batch)
 
-            # Apply variable sequence lengths only when enabled
-            if self.variable_sequence_lens:
+            # Apply variable sequence lengths only when enabled for this dataset
+            if self.variable_sequence_lens.get(dataset_name, False):
                 batch = self.custom_hawkes_collate_fun(batch)
 
             # Tensors whose second dimension is the number of marks (M) for Hawkes processes
