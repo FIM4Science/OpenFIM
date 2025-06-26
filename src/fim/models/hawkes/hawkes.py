@@ -21,7 +21,6 @@ class FIMHawkesConfig(PretrainedConfig):
         mark_encoder: dict = None,
         time_encoder: dict = None,
         delta_time_encoder: dict = None,
-        kernel_time_encoder: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
         inference_ts_encoder: dict = None,
@@ -38,7 +37,6 @@ class FIMHawkesConfig(PretrainedConfig):
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
-        self.kernel_time_encoder = kernel_time_encoder
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.inference_ts_encoder = inference_ts_encoder
@@ -62,7 +60,6 @@ class FIMHawkes(AModel):
         mark_encoder (dict): The mark encoder configuration.
         time_encoder (dict): The time encoder configuration.
         delta_time_encoder (dict): The delta time encoder configuration.
-        kernel_time_encoder (dict): The kernel time encoder configuration.
         evaluation_mark_encoder (dict): The mark encoder for the selected mark during evaluation.
         context_ts_encoder (dict): The time series encoder for the context sequences.
         inference_ts_encoder (dict): The time series encoder for the inference sequences.
@@ -611,7 +608,7 @@ class FIMHawkes(AModel):
         # Apply the non-negativity constraint from the max(0, ...) in the formula.
         target_intensity_values = torch.relu(total_intensity)
 
-        return target_intensity_values * norm_constants.view(-1, 1, 1, 1)
+        return target_intensity_values
 
     def _get_past_event_shifted_intensity_evaluation_times(self, intensity_evaluation_times: Tensor, inference_event_times: Tensor):
         """
