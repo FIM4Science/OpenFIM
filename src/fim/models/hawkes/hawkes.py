@@ -226,6 +226,7 @@ class FIMHawkes(AModel):
                 x["inference_event_types"],
                 x["inference_seq_lengths"],
                 norm_constants,
+                x.get("num_marks", None),
             )
             out["target_intensity_values"] = target_intensity_values
 
@@ -501,6 +502,7 @@ class FIMHawkes(AModel):
         inference_event_types: Tensor,
         inference_seq_lengths: Tensor,
         norm_constants: Tensor,
+        num_marks: Tensor = None,
     ):
         """
         Compute the target intensity values based on the formula:
@@ -546,6 +548,9 @@ class FIMHawkes(AModel):
         # Loop over batch items because kernel/base functions are heterogeneous Python objects.
         # The operations inside this loop are vectorized over paths (P) and time dimensions.
         for b in range(B):
+            # Get the actual number of marks for this batch item
+            actual_marks_b = num_marks[b].item() if num_marks is not None else len(base_intensity_functions_list[b])
+
             # Extract data for the current batch item for clarity
             eval_times_b = intensity_evaluation_times[b]  # [P, L_eval]
             hist_times_b = event_times[b]  # [P, L_hist]
@@ -567,15 +572,15 @@ class FIMHawkes(AModel):
             # Combine causality and padding masks. Broadcast padding_mask from [P,1,L_hist] to [P,L_eval,L_hist].
             valid_history_mask_b = causality_mask_b & padding_mask_b.unsqueeze(1)
 
-            # Initialize the intensity with the baseline values.
-            for i in range(D):
+            # Initialize the intensity with the baseline values - only for actual marks
+            for i in range(actual_marks_b):
                 mu_func_b_i = base_intensity_functions_list[b][i]
                 # Assuming mu_func can take a [P, L_eval] tensor and return a tensor of the same shape.
                 total_intensity[b, i, :, :] = mu_func_b_i(eval_times_b)
 
-            # Accumulate kernel influences by iterating over target (i) and source (j) marks.
-            for i in range(D):
-                for j in range(D):
+            # Accumulate kernel influences by iterating over target (i) and source (j) marks - only for actual marks
+            for i in range(actual_marks_b):
+                for j in range(actual_marks_b):
                     phi_func_b_ij = kernel_functions_list[b][i][j]
 
                     # Mask for events of source type j. Broadcast from [P,1,L_hist] to [P,L_eval,L_hist].
