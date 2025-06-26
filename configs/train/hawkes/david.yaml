@@ -16,11 +16,13 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
-      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
+      # - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
+      - data/synthetic_data/hawkes/2D_small/train
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
-      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
+      # - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
+      - data/synthetic_data/hawkes/2D_small/val
 
   loader_kwargs:
     batch_size: 1
@@ -28,12 +30,16 @@ dataset:
     test_batch_size: 1
 
     num_inference_paths: 5
+
+    # Training settings - variable paths and sequence lengths
     variable_num_of_paths: true
     min_path_count: 100
     max_path_count: 1000
     max_number_of_minibatch_sizes: 20
 
-    variable_sequence_lens: true
+    variable_sequence_lens:
+      train: true          # Variable sequence lengths for training
+      validation: false    # Fixed sequence lengths for consistent validation
     min_sequence_len: 10
     max_sequence_len: 250
 
