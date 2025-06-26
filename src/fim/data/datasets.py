@@ -1081,9 +1081,9 @@ class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):
         num_observations: Optional[tuple] = None,
     ):
         # group values by keys, so they can be easily selected
-        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + add_paths_keys
-        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_loc_keys
-        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_dim_keys
+        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + list(add_paths_keys)
+        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_loc_keys)
+        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_dim_keys)
         self.dim_mask_key = dim_mask_key
 
         # shuffle data per iter setup
@@ -1305,9 +1305,9 @@ class HeterogeneousFIMSDEDataset(torch.utils.data.IterableDataset):
         **kwargs,
     ):
         # group values by keys, so they can be easily selected
-        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + add_paths_keys
-        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_loc_keys
-        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_dim_keys
+        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + list(add_paths_keys)
+        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_loc_keys)
+        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_dim_keys)
         self.dim_mask_key = dim_mask_key
 
         # paths to data and loading / padding config
@@ -1498,9 +1498,9 @@ class StreamingFIMSDEDataset(torch.utils.data.IterableDataset):
         **kwargs,
     ):
         # group values by keys, so they can be easily selected
-        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + add_paths_keys
-        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_loc_keys
-        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_dim_keys
+        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + list(add_paths_keys)
+        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_loc_keys)
+        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_dim_keys)
         self.dim_mask_key = dim_mask_key
 
         # paths to data and loading / padding config
