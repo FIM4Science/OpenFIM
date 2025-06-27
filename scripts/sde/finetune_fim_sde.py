@@ -71,8 +71,8 @@ def finetune_fim(
     model.finetune = True
     model.config.finetune = True
 
-    model.finetune_only_on_one_step_ahead = True
-    model.config.finetune_only_on_one_step_ahead = True
+    model.finetune_on_sampling_mse_mse = True
+    model.config.finetune_on_sampling_mse_mse = True
 
     model.finetune_samples_count = samples_count
     model.config.finetune_samples_count = samples_count

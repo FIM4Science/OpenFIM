@@ -1201,6 +1201,7 @@ class FIMSDEConfig(PretrainedConfig):
         single_learnable_loss_scale_head (bool): Default is False
         learnable_loss_scale_mlp (dict): Default is None
         data_delta_t (float): Fine grid delta t of data generation.
+        one_step_ahead_loss_obs (int): Subsample observations for one step ahead train loss to reduce computational load.
         divide_drift_loss_by_diffusion (bool): Default is True
         num_epochs (int): Number of epochs. Default is 2.
         learning_rate (float): Learning rate. Default is 1.0e-5.
@@ -1218,7 +1219,7 @@ class FIMSDEConfig(PretrainedConfig):
         number_of_time_steps_pipeline (int): Number of time steps in the pipeline. Default is 128.
         evaluate_with_unnormalized_heads (bool): Evaluate with unnormalized heads. Default is True.
         finetune (bool): Indicates fintuning on the observations. Default is False.
-        finetune_only_on_one_step_ahead (bool): Indicates finetuning only on one-step-ahead prediction. Default is True.
+        finetune_on_sampling_mse_mse_mse_mse_mse (bool): Indicates finetuning only on one-step-ahead prediction. Default is True.
         finetune_samples_count (int): Number of samples to generate for finetuning. Default is 1.
         finetune_em_steps (int): Number of EM steps between two observations for finetuning. Default is 1.
         finetune_detach_diffusion (bool): Detach diffusion head for finetuning. Default is False
@@ -1256,6 +1257,7 @@ class FIMSDEConfig(PretrainedConfig):
         single_learnable_loss_scale_head: Optional[bool] = False,
         learnable_loss_scale_mlp=None,  # Todo: remove, we use None
         data_delta_t: float = 0.003906,  # 10 / 128 / 20
+        one_step_ahead_loss_obs: int = 1,
         num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)  Todo: remove
         learning_rate: float = 1.0e-5,  # Todo: remove
         weight_decay: float = 1.0e-4,  # Todo: remove
@@ -1272,11 +1274,12 @@ class FIMSDEConfig(PretrainedConfig):
         number_of_time_steps_pipeline: int = 128,  # Todo: remove
         evaluate_with_unnormalized_heads: bool = True,  # Todo: remove
         finetune: bool = False,
-        finetune_only_on_one_step_ahead: bool = True,
         finetune_samples_count: int = 1,
         finetune_em_steps: int = 1,
         finetune_detach_diffusion: bool = False,
         finetune_on_likelihood: bool = False,
+        finetune_on_sampling_mse_mse_mse_mse_mse: bool = False,
+        finetune_num_points: int = -1,
         **kwargs,
     ):
         self.name = name
@@ -1309,6 +1312,7 @@ class FIMSDEConfig(PretrainedConfig):
         self.single_learnable_loss_scale_head = single_learnable_loss_scale_head
         self.learnable_loss_scale_mlp = learnable_loss_scale_mlp
         self.data_delta_t = data_delta_t
+        self.one_step_ahead_loss_obs = one_step_ahead_loss_obs
         # training variables
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
@@ -1328,11 +1332,12 @@ class FIMSDEConfig(PretrainedConfig):
         self.ablation_feature_no_dt = ablation_feature_no_dt
         # finetuning
         self.finetune = finetune
-        self.finetune_only_on_one_step_ahead = finetune_only_on_one_step_ahead
         self.finetune_samples_count = finetune_samples_count
         self.finetune_em_steps = finetune_em_steps
         self.finetune_detach_diffusion = finetune_detach_diffusion
         self.finetune_on_likelihood = finetune_on_likelihood
+        self.finetune_on_sampling_mse_mse_mse_mse_mse = finetune_on_sampling_mse_mse_mse_mse_mse
+        self.finetune_num_points = finetune_num_points
         super().__init__(**kwargs)
 
 
@@ -1367,19 +1372,21 @@ class FIMSDE(AModel):
         )
         self.learnable_loss_scale_mlp = config.learnable_loss_scale_mlp if hasattr(config, "learnable_loss_scale_mlp") else None
         self.data_delta_t = config.data_delta_t if hasattr(config, "data_delta_t") else None
+        self.one_step_ahead_loss_obs = config.one_step_ahead_loss_obs if hasattr(config, "one_step_ahead_loss_obs") else 1
         self.ablation_feature_no_X = config.ablation_feature_no_X if hasattr(config, "ablation_feature_no_X") else False
         self.ablation_feature_no_dX = config.ablation_feature_no_dX if hasattr(config, "ablation_feature_no_dX") else False
         self.ablation_feature_no_dX_2 = config.ablation_feature_no_dX_2 if hasattr(config, "ablation_feature_no_dX_2") else False
         self.ablation_feature_no_dt = config.ablation_feature_no_dt if hasattr(config, "ablation_feature_no_dt") else False
 
         self.finetune = config.finetune if hasattr(config, "finetune") else False
-        self.finetune_only_on_one_step_ahead = (
-            config.finetune_only_on_one_step_ahead if hasattr(config, "finetune_only_on_one_step_ahead") else True
-        )
         self.finetune_samples_count = config.finetune_samples_count if hasattr(config, "finetune_samples_count") else 1
         self.finetune_em_steps = config.finetune_em_steps if hasattr(config, "finetune_em_steps") else 1
         self.finetune_detach_diffusion = config.finetune_detach_diffusion if hasattr(config, "finetune_detach_diffusion") else False
         self.finetune_on_likelihood = config.finetune_on_likelihood if hasattr(config, "finetune_on_likelihood") else False
+        self.finetune_on_sampling_mse_mse_mse_mse_mse = (
+            config.finetune_on_sampling_mse_mse_mse_mse_mse if hasattr(config, "finetune_on_sampling_mse_mse_mse_mse_mse") else False
+        )
+        self.finetune_num_points = config.finetune_num_points if hasattr(config, "finetune_num_points") else -1
 
         # # Save hyperparameters
         # self.save_hyperparameters()
@@ -1946,6 +1953,7 @@ class FIMSDE(AModel):
                     obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
                     obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
                 Optional keys:
+                    obs_values_clean (Tensor): observation values, without noise, for one-step-ahead likelihood loss. Shape: [B, P, T, D]
                     obs_mask (Tensor): mask for padded observations. == 1.0 if observed. Shape: [B, P, T, 1]
                     locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
                 Optional keys for loss calculations:
@@ -1962,6 +1970,10 @@ class FIMSDE(AModel):
                 if training == True or return_losses == True return (additionally):
                     losses (dict): training objective has key "loss", other keys are auxiliary for monitoring
         """
+        # for one step ahead likelihood loss
+        obs_times_clean = deepcopy(data["obs_times"])
+        obs_values_clean = data.get("obs_values_clean")
+
         # Instance normalization and appyling mask to observations
         obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats = self.preprocess_inputs(data, locations)
 
@@ -2072,17 +2084,17 @@ class FIMSDE(AModel):
             else:
                 short_time_transition_log_likelihood_loss_scale = 0.0
 
-            if "one_step_ahead_loss_scale" in schedulers.keys() and training is True:
-                one_step_ahead_loss_scale = schedulers.get("one_step_ahead_loss_scale")(step)
+            if "one_step_nll_loss_scale" in schedulers.keys() and training is True:
+                one_step_nll_loss_scale = schedulers.get("one_step_nll_loss_scale")(step)
 
             else:
-                one_step_ahead_loss_scale = 1.0
+                one_step_nll_loss_scale = 0.0
 
-            if "whole_path_loss_scale" in schedulers.keys() and training is True:
-                whole_path_loss_scale = schedulers.get("whole_path_loss_scale")(step)
+            if "sampling_mse_loss_scale" in schedulers.keys() and training is True:
+                sampling_mse_loss_scale = schedulers.get("sampling_mse_loss_scale")(step)
 
             else:
-                whole_path_loss_scale = 1.0
+                sampling_mse_loss_scale = 1.0
 
         else:
             loss_threshold = torch.inf
@@ -2091,8 +2103,8 @@ class FIMSDE(AModel):
             diffusion_loss_scale = 1.0
             kl_loss_scale = 0.0
             short_time_transition_log_likelihood_loss_scale = 0.0
-            one_step_ahead_loss_scale = 1.0
-            whole_path_loss_scale = 1.0
+            one_step_nll_loss_scale = 1.0
+            sampling_mse_loss_scale = 1.0
 
         # Returns
         if training is True:
@@ -2102,12 +2114,17 @@ class FIMSDE(AModel):
                     target_concepts,
                     states_norm_stats,
                     times_norm_stats,
+                    obs_times_clean,
+                    obs_values_clean,
+                    obs_mask,
+                    paths_encoding,
                     dimension_mask,
                     loss_threshold,
                     vector_field_max_norm,
                     drift_loss_scale,
                     diffusion_loss_scale,
                     kl_loss_scale,
+                    one_step_nll_loss_scale,
                     short_time_transition_log_likelihood_loss_scale,
                     drift_log_loss_scale_per_location,
                     diffusion_log_loss_scale_per_location,
@@ -2119,8 +2136,8 @@ class FIMSDE(AModel):
                     obs_values,
                     obs_mask,
                     paths_encoding,
-                    one_step_ahead_loss_scale,
-                    whole_path_loss_scale,
+                    one_step_nll_loss_scale,
+                    sampling_mse_loss_scale,
                     dimension_mask,
                 )
 
@@ -2136,12 +2153,17 @@ class FIMSDE(AModel):
                         target_concepts,
                         states_norm_stats,
                         times_norm_stats,
+                        obs_times_clean,
+                        obs_values_clean,
+                        obs_mask,
+                        paths_encoding,
                         dimension_mask,
                         loss_threshold,
                         vector_field_max_norm,
                         drift_loss_scale,
                         diffusion_loss_scale,
                         kl_loss_scale,
+                        one_step_nll_loss_scale,
                         short_time_transition_log_likelihood_loss_scale,
                         drift_log_loss_scale_per_location,
                         diffusion_log_loss_scale_per_location,
@@ -2152,8 +2174,8 @@ class FIMSDE(AModel):
                         obs_values,
                         obs_mask,
                         paths_encoding,
-                        one_step_ahead_loss_scale,
-                        whole_path_loss_scale,
+                        one_step_nll_loss_scale,
+                        sampling_mse_loss_scale,
                         dimension_mask,
                     )
 
@@ -2472,6 +2494,62 @@ class FIMSDE(AModel):
 
         return loss, filtered_loss_locations_perc, target_clipped_norm_perc
 
+    def one_step_ahead_loss(
+        self,
+        obs_times: Tensor,
+        obs_values_clean: Tensor,
+        obs_mask: Tensor,
+        dimension_mask: Tensor,
+        paths_encoding: Tensor,
+    ):
+        """
+        From locations of (clean) observation, compute the log-likelihood ob the next (clean) observation, given the estimated dynamics.
+
+        Args:
+            obs_times (Tensor): Normalized observation times. Shape: [B, P, T, 1].
+            obs_values_clean (Tensor): Unnoisy, but normalized, observations. Shape: [B, P, T, D].
+            obs_mask (Tensor): True indicates values are observed. Shape: [B, P, T, 1]
+            dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
+            paths_encoding (Tensor): Encoding of observed paths.
+
+        Returns
+            loss (Tensor): Shape: []
+        """
+
+        delta_tau = obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]
+        obs_values_source = obs_values_clean[:, :, :-1, :]
+        obs_values_target = obs_values_clean[:, :, 1:, :]
+
+        delta_tau = torch.flatten(delta_tau, start_dim=1, end_dim=2)
+        obs_values_source = torch.flatten(obs_values_source, start_dim=1, end_dim=2)
+        obs_values_target = torch.flatten(obs_values_target, start_dim=1, end_dim=2)
+
+        perm = torch.randperm(obs_values_target.shape[-2])[: self.one_step_ahead_loss_obs]
+
+        delta_tau = delta_tau[:, perm]
+        obs_values_source = obs_values_source[:, perm]
+        obs_values_target = obs_values_target[:, perm]
+
+        assert delta_tau.shape[:2] == obs_values_source.shape[:2] == obs_values_target.shape[:2]
+
+        dimension_mask = torch.broadcast_to(dimension_mask[:, 0, :][:, None, :], obs_values_target.shape)
+
+        estimated_concepts, _ = self.get_estimated_sde_concepts(
+            locations=obs_values_source, dimension_mask=dimension_mask, obs_mask=obs_mask[:, :, :-1], paths_encoding=paths_encoding
+        )
+
+        drift, diffusion = estimated_concepts.drift, estimated_concepts.diffusion
+        assert drift.shape == diffusion.shape == obs_values_target.shape
+        assert drift.shape[:2] == delta_tau.shape[:2]
+
+        one_step_ahead_nll = ((obs_values_target - obs_values_source - drift * delta_tau) ** 2) / (2 * diffusion**2 * delta_tau) + (
+            2 * torch.log(diffusion)
+        )
+
+        loss = one_step_ahead_nll.nanmean()  # nan at masked dimensions
+
+        return loss
+
     @torch.profiler.record_function("fimsde_train_loss")
     def loss(
         self,
@@ -2479,6 +2557,10 @@ class FIMSDE(AModel):
         target_concepts: SDEConcepts | None,
         states_norm_stats: Any,
         times_norm_stats: Any,
+        obs_times_clean: Tensor,
+        obs_values_clean: Tensor,
+        obs_mask: Tensor,
+        paths_encoding: Tensor,
         dimension_mask: Optional[Tensor] = None,
         loss_threshold: Optional[float] = None,
         vector_field_max_norm: Optional[float] = None,
@@ -2486,6 +2568,7 @@ class FIMSDE(AModel):
         diffusion_loss_scale: Optional[float] = 1.0,
         kl_loss_scale: Optional[float] = 0.0,
         short_time_transition_log_likelihood_loss_scale: Optional[float] = 0.0,
+        one_step_nll_loss_scale: Optional[float] = 0.0,
         drift_log_loss_scale_per_location: Optional[Tensor] = None,
         diffusion_log_loss_scale_per_location: Optional[Tensor] = None,
     ):
@@ -2497,6 +2580,9 @@ class FIMSDE(AModel):
             target_concepts (SDEConcepts ): Ground-truth, target SDEConcepts. Shape: [B, G, D]
             states_norm_stats (Any): Statistics used by self.states_norm for normalization.
             times_norm_stats (Any): Statistics used by self.times_norm for normalization.
+            obs_times/_values_clean (Tensor): Unprocessed, clean observations for one-step-ahead likelihood. Shape: [B, P, T, _]
+            obs_mask (Tensor): True indicates values are observed, for one-step-ahead likelihood. Shape: [B, P, T, 1]
+            paths_encoding (Tensor): Encoding of observed paths, or one-step-ahead loss.
             dimension_mask (Optional[Tensor]): Masks padded dimensions to ignore in loss computations. Shape: [B, G, D]
             loss_threshold (Optional[float]): If passed, set loss per location to 0 if above threshold.
             vector_field_max_norm (Optional[float]): If passed, clip norm of vector fields to this value
@@ -2566,6 +2652,14 @@ class FIMSDE(AModel):
             drift_log_loss_scale_per_location,
         )
 
+        if obs_values_clean is not None:
+            obs_times_clean = self.times_norm.normalization_map(obs_times_clean, times_norm_stats)
+            obs_values_clean = self.states_norm.normalization_map(obs_values_clean, states_norm_stats)
+            one_step_ahead_loss = self.one_step_ahead_loss(obs_times_clean, obs_values_clean, obs_mask, dimension_mask, paths_encoding)
+
+        else:
+            one_step_ahead_loss = torch.zeros_like(kl_loss)
+
         (
             drift_loss,
             drift_loss_above_threshold_or_nan_perc,
@@ -2611,6 +2705,7 @@ class FIMSDE(AModel):
             + diffusion_loss_scale * diffusion_loss
             + kl_loss_scale * kl_loss
             + short_time_transition_log_likelihood_loss_scale * short_time_trans_ll
+            # + one_step_nll_loss_scale * one_step_ahead_loss
             + learned_scale_add_loss_term_drift
             + learned_scale_add_loss_term_diffusion
         )
@@ -2620,6 +2715,7 @@ class FIMSDE(AModel):
             "L1_diffusion_loss": diffusion_loss,
             "L2_KL_loss": kl_loss,
             "L3_short_time_trans_log_likelihood_loss": short_time_trans_ll,
+            "L4_one_step_ahead_log_likelihood_loss": one_step_ahead_loss,
             "drift_loss_above_threshold_or_nan_perc": drift_loss_above_threshold_or_nan_perc,
             "diffusion_loss_above_threshold_or_nan_perc": diffusion_loss_above_threshold_or_nan_perc,
             "loss_threshold": loss_threshold,
@@ -2639,73 +2735,64 @@ class FIMSDE(AModel):
         obs_values: Tensor,
         obs_mask: Tensor,
         paths_encoding: Tensor,
-        one_step_ahead_loss_scale: float,
-        whole_path_loss_scale: float,
+        one_step_nll_loss_scale: float,
+        sampling_mse_loss_scale: float,
         dimension_mask: Optional[Tensor] = None,
     ):
         """
-        Compute finetuning losses (one-step ahead prediction and whole path prediction) at non-padded dimensions.
+        Compute finetuning losses (one-step-ahead negative log likelihood or few-step-ahead simulation MSE) at non-padded dimensions.
 
-        Args:
-            obs_times (Tensor): Time grid to sample paths on. Shape: [B, P, T, 1]
-            obs_values (Tensor): Values to extract initial state(s) and compare sample paths to. Shape: [B, P, T, D]
-            obs_mask (Tensor): True indicates values are observed. Shape: [B, P, T, 1]
-            paths_encoding (Tensor): Encoding for sampling paths. Shape: [B, P, T-1, H]
-            ...loss_scale (float): Factors to scale different loss terms.
+                Args:
+                    obs_times (Tensor): Time grid to sample paths on. Shape: [B, P, T, 1]
+                    obs_values (Tensor): Values to extract initial state(s) and compare sample paths to. Shape: [B, P, T, D]
+                    obs_mask (Tensor): True indicates values are observed. Shape: [B, P, T, 1]
+                    paths_encoding (Tensor): Encoding for sampling paths. Shape: [B, P, T-1, H]
+                    ...loss_scale (float): Factors to scale different loss terms.
 
-        Returns:
-            losses (dict):
-                total_loss (Tensor): Training objective. one_step_ahead_scale * one_step_ahead_loss + whole_path_scale * whole_path_loss
-                one_step_ahead_loss (Tensor): Simulate one step ahead and compute error.
-                whole_path_loss (Tensor): Simulate whole path from same initial state and compute error.
+                Returns:
+                    losses (dict):
+                        total_loss (Tensor): Training objective.  one_step_nll_loss_scale * one_step_nll + sampling_mse_loss_scale * sampling_mse
+                        one_step_nll (Tensor): NLL of ones-step-ahead prediction
+                        sampling_mse_loss (Tensor): MSE of few steps ahead simulated paths.
         """
         obs_times = obs_times.to(torch.float32)  # Todo: should be handled better
         obs_values = obs_values.to(torch.float32)  # Todo: should be handled better
         dimension_mask = dimension_mask.to(torch.float32)  # Todo: should be handled better
 
-        # one step ahead
         B, P, T, D = obs_values.shape
         assert paths_encoding.shape[:-1] == (B, P, T - 1)
         assert obs_times.shape == (B, P, T, 1)
 
-        initial_states = obs_values[:, :, :-1, :].reshape(B, -1, D)
-        target_states = obs_values[:, :, 1:, :].reshape(B, -1, D)
-        delta_tau = (obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]).reshape(B, -1, 1)
+        if self.finetune_on_likelihood is True:
+            initial_states = obs_values[:, :, :-1, :].reshape(B, -1, D)
+            target_states = obs_values[:, :, 1:, :].reshape(B, -1, D)
+            delta_tau = (obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]).reshape(B, -1, 1)
 
-        # multiple samples per state
-        initial_states = torch.repeat_interleave(initial_states, self.finetune_samples_count, dim=1)
-        target_states = torch.repeat_interleave(target_states, self.finetune_samples_count, dim=1)
-        delta_tau = torch.repeat_interleave(delta_tau, self.finetune_samples_count, dim=1)
+            if self.finetune_num_points is not -1:
+                perm = torch.randperm(initial_states.shape[-2])[: self.finetune_num_points]
+                initial_states = initial_states[:, perm, :]
+                target_states = target_states[:, perm, :]
+                delta_tau = delta_tau[:, perm, :]
 
-        if self.finetune_on_likelihood is False:
-            predicted_states = self._euler_step(
-                initial_states, delta_tau, self.finetune_em_steps, paths_encoding, obs_mask[:, :, :-1, :], dimension_mask
-            )
+            initial_states = torch.repeat_interleave(initial_states, self.finetune_samples_count, dim=1)
+            target_states = torch.repeat_interleave(target_states, self.finetune_samples_count, dim=1)
+            delta_tau = torch.repeat_interleave(delta_tau, self.finetune_samples_count, dim=1)
 
-            assert target_states.shape == predicted_states.shape
-
-            # add mask (currently does not really work for irregular grids)
-            one_step_ahead_mask = (obs_mask[:, :, 1:, :] * obs_mask[:, :, :-1, :] * dimension_mask[:, :, None, :]).reshape(B, -1, D)
-            one_step_ahead_mask = torch.repeat_interleave(one_step_ahead_mask, self.finetune_samples_count, dim=1)
-
-            # use MSE loss? can reuse location loss, as same shapes
-            assert one_step_ahead_mask.shape == target_states.shape
-            assert target_states.ndim == 3
-            one_step_ahead_loss = mse_at_locations(predicted_states, target_states, one_step_ahead_mask)  # [B, -1]
-
-        else:
             sde_concepts_at_initial_states, _ = self.get_estimated_sde_concepts(
                 initial_states, paths_encoding=paths_encoding, obs_mask=obs_mask[:, :, :-1, :], dimension_mask=dimension_mask
             )
 
             drift, diffusion = sde_concepts_at_initial_states.drift, sde_concepts_at_initial_states.diffusion
 
-            one_step_ahead_loss = ((target_states - initial_states - drift * delta_tau) ** 2) / (2 * diffusion**2 * delta_tau) + (
+            one_step_nll = ((target_states - initial_states - drift * delta_tau) ** 2) / (2 * diffusion**2 * delta_tau) + (
                 2 * torch.log(diffusion)
             )
+            one_step_nll = one_step_nll.mean()
 
-        # whole path
-        if self.finetune_only_on_one_step_ahead is False:
+        else:
+            one_step_nll = 0
+
+        if self.finetune_on_sampling_mse_mse_mse_mse_mse is False:
             target_states = obs_values[:, :, 1:, :]  # [B, P, T-1, D]
             initial_states = obs_values[:, :, 0, :]  # [B, P, D]
             delta_tau = obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]  # [B, P, T-1, 1]
@@ -2715,8 +2802,8 @@ class FIMSDE(AModel):
             target_states = torch.repeat_interleave(target_states, self.finetune_samples_count, dim=1)
             delta_tau = torch.repeat_interleave(delta_tau, self.finetune_samples_count, dim=1)
 
-            whole_path_mask = obs_mask[:, :, 1:, :] * obs_mask[:, :, :-1, :] * dimension_mask[:, :, None, :]
-            whole_path_mask = torch.repeat_interleave(whole_path_mask, self.finetune_samples_count, dim=1)
+            sampling_mse_mask = obs_mask[:, :, 1:, :] * obs_mask[:, :, :-1, :] * dimension_mask[:, :, None, :]
+            sampling_mse_mask = torch.repeat_interleave(sampling_mse_mask, self.finetune_samples_count, dim=1)
 
             predicted_states = [initial_states]
 
@@ -2730,29 +2817,25 @@ class FIMSDE(AModel):
 
             predicted_states = torch.stack(predicted_states, dim=-2)
 
-            # use MSE loss? can reuse location loss, after reshaping
             assert target_states.shape == predicted_states.shape
-            assert target_states.shape == whole_path_mask.shape
+            assert target_states.shape == sampling_mse_mask.shape
             assert target_states.ndim == 4
 
             target_states = target_states.reshape(B, -1, D)
             predicted_states = predicted_states.reshape(B, -1, D)
-            whole_path_mask = whole_path_mask.reshape(B, -1, D)
+            sampling_mse_mask = sampling_mse_mask.reshape(B, -1, D)
 
-            whole_path_loss = mse_at_locations(predicted_states, target_states, whole_path_mask)  # [B, -1]
+            sampling_mse = mse_at_locations(predicted_states, target_states, sampling_mse_mask)  # [B, -1]
 
         else:
-            whole_path_loss = torch.zeros_like(one_step_ahead_loss)
+            sampling_mse = 0
 
-        # gather losses
-        one_step_ahead_loss = one_step_ahead_loss.mean()
-        whole_path_loss = whole_path_loss.mean()
-        total_loss = one_step_ahead_loss_scale * one_step_ahead_loss + whole_path_loss_scale * whole_path_loss
+        total_loss = one_step_nll_loss_scale * one_step_nll + sampling_mse_loss_scale * sampling_mse
 
         losses = {
             "loss": total_loss,
-            "one_step_ahead_loss": one_step_ahead_loss,
-            "whole_path_loss": whole_path_loss,
+            "one_step_nll": one_step_nll,
+            "sampling_mse": sampling_mse,
         }
 
         return losses

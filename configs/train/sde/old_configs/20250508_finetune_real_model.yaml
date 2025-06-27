@@ -24,7 +24,7 @@ model:
 
   # finetune config
   finetune: true
-  finetune_only_on_one_step_ahead: true
+  finetune_on_sampling_mse: true
   finetune_samples_count: 1
   finetune_em_steps: 1
 
