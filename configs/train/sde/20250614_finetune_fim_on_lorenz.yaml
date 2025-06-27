@@ -35,7 +35,10 @@ dataset:
     obs_times: "obs_grid"
     obs_values: "noisy_obs_values"
 
-  paths_per_batch_element: 128
+  paths_per_batch_element:
+    train: 1024
+    test: 128
+    validation: 128
 
   json_paths:
     train: !!python/tuple [
@@ -57,7 +60,7 @@ trainer:
   precision: bf16mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
   # epochs: &epochs 500
   detect_anomaly: false
-  save_every: 10
+  save_every: 100
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -68,7 +71,7 @@ trainer:
 
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.LorenzEvaluationEpoch
-    plot_frequency: 10
+    plot_frequency: 100
     model_type: fimsde
 
   schedulers: !!python/tuple
