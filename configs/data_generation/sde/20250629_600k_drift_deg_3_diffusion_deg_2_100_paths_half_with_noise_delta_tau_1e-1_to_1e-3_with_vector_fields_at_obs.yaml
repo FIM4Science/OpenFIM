@@ -1,16 +1,40 @@
-experiment_name: 30k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise
+experiment_name: 600k_polynomials_drift_deg_3_diffusion_deg_2_100_paths_half_with_noise_delta_tau_1e-1_to_1e-3_with_vector_fields_at_obs
 dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
 
 integration:
-  method: "EulerMaruyama"
-  time_length: 10
-  steps_per_dt: 20
-  num_steps: 128
-  num_paths: 100
-  num_locations: 2048
-  chunk_size: 5000 # generate at one time so many realizations (to filter Nans)
-  reject_threshold: 100
-  stochastic: true
+  - label: "delta_tau_1e-1_100_paths_length_128"
+    percentage: 0.33333333
+    method: "EulerMaruyama"
+    time_step: 0.1
+    steps_per_dt: 15
+    num_steps: 127
+    num_paths: 100
+    num_locations: 2048
+    chunk_size: 20000 # generate at one time so many realizations (to filter Nans)
+    reject_threshold: 100
+    stochastic: true
+  - label: "delta_tau_1e-2_25_paths_length_512"
+    percentage: 0.33333333
+    method: "EulerMaruyama"
+    time_step: 0.01
+    steps_per_dt: 5
+    num_steps: 511
+    num_paths: 25
+    num_locations: 2048
+    chunk_size: 20000 # generate at one time so many realizations (to filter Nans)
+    reject_threshold: 100
+    stochastic: true
+  - label: "delta_tau_1e-3_12_paths_length_1024"
+    percentage: 0.33333333
+    method: "EulerMaruyama"
+    time_step: 0.001
+    steps_per_dt: 1
+    num_steps: 1023
+    num_paths: 12
+    num_locations: 2048
+    chunk_size: 20000 # generate at one time so many realizations (to filter Nans)
+    reject_threshold: 100
+    stochastic: true
 
 locations:
   type: regular_cube
@@ -22,8 +46,8 @@ train:
 
   ############ Clean #########################
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_1_clean_chunk_0
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_1_clean_chunk_0
+    num_realizations: 25000
     observed_dimension: &observed_dimension null
     state_dim: 1
     redo: &redo false
@@ -35,17 +59,11 @@ train:
       distribution:
         name: normal
         std: 1
-      # scale: &scale
-      #   sample_per_dimension: false
-      #   distribution: "uniform"
-      #   min: 0.0
-      #   max: 2.0
     diffusion_params: &diffusion_params
       uniform_degrees: true
       distribution:
         name: normal
         std: 1.0
-      # scale: *scale
     initial_state: &initial_state
       distribution: "normal"
       mean: 0.0
@@ -53,8 +71,8 @@ train:
       activation: null
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_1_clean_chunk_1
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_1_clean_chunk_1
+    num_realizations: 25000
     observed_dimension: null
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -68,8 +86,8 @@ train:
 
   ############ Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_1_add_10_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_1_add_10_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -87,8 +105,8 @@ train:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_1_drop_20_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_1_drop_20_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -104,10 +122,10 @@ train:
     initial_state: *initial_state
 
 
-  ############ Additive noise and Irregular grid #########################
+  # ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_1_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_1_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -121,12 +139,12 @@ train:
     initial_state: *initial_state
 
 
-  ####################### Dimension 2 ###########################################
+  # ####################### Dimension 2 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_2_clean_chunk_0
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_2_clean_chunk_0
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -138,8 +156,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_2_clean_chunk_1
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_2_clean_chunk_1
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -152,8 +170,8 @@ train:
 
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_2_clean_chunk_2
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_2_clean_chunk_2
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -165,8 +183,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_2_clean_chunk_3
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_2_clean_chunk_3
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -178,10 +196,10 @@ train:
     initial_state: *initial_state
 
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_2_add_10_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_2_add_10_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -194,8 +212,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_2_add_10_perc_chunk_1
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_2_add_10_perc_chunk_1
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -210,8 +228,8 @@ train:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_2_drop_20_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_2_drop_20_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -225,8 +243,8 @@ train:
 
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_2_drop_20_perc_chunk_1
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_2_drop_20_perc_chunk_1
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -240,8 +258,8 @@ train:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_2_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_2_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -255,8 +273,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_2_add_10_and_drop_20_perc_chunk_1
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_2_add_10_and_drop_20_perc_chunk_1
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -270,12 +288,12 @@ train:
     initial_state: *initial_state
 
 
-  ####################### Dimension 3 ###########################################
+  ##################### Dimension 3 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_3_clean_chunk_0
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_3_clean_chunk_0
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -287,8 +305,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_3_clean_chunk_1
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_3_clean_chunk_1
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -301,8 +319,8 @@ train:
 
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_3_clean_chunk_2
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_3_clean_chunk_2
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -314,8 +332,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_3_clean_chunk_3
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_3_clean_chunk_3
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -327,8 +345,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_3_clean_chunk_4
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_3_clean_chunk_4
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -340,8 +358,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 1250_train_dim_3_clean_chunk_5
-    num_realizations: 1250
+    data_bulk_name: 25k_train_dim_3_clean_chunk_5
+    num_realizations: 25000
     observed_dimension: *observed_dimension
     enforce_positivity: *enforce_positivity
     max_degree_drift: *max_degree_drift
@@ -352,24 +370,10 @@ train:
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_add_10_perc_chunk_0
-    num_realizations: 815
-    observed_dimension: *observed_dimension
-    state_dim: 3
-    redo: *redo
-    enforce_positivity: *enforce_positivity
-    max_degree_drift: *max_degree_drift
-    max_degree_diffusion: *max_degree_diffusion
-    observation_noise: *observation_noise
-    drift_params: *drift_params
-    diffusion_params: *diffusion_params
-    initial_state: *initial_state
-
-  - name: Polynomials
-    data_bulk_name: 815_train_dim_3_add_10_perc_chunk_1
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_add_10_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -382,8 +386,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_add_10_perc_chunk_2
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_add_10_perc_chunk_1
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -395,10 +399,24 @@ train:
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
-  ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_drop_20_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_add_10_perc_chunk_2
+    num_realizations: 16300
+    observed_dimension: *observed_dimension
+    state_dim: 3
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ########### Irregular grid #########################
+  - name: Polynomials
+    data_bulk_name: 16k_train_dim_3_drop_20_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -412,8 +430,8 @@ train:
 
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_drop_20_perc_chunk_1
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_drop_20_perc_chunk_1
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -426,8 +444,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_drop_20_perc_chunk_2
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_drop_20_perc_chunk_2
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -441,8 +459,8 @@ train:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -456,8 +474,8 @@ train:
     initial_state: *initial_state
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_add_10_and_drop_20_perc_chunk_1
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_add_10_and_drop_20_perc_chunk_1
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -472,8 +490,8 @@ train:
 
 
   - name: Polynomials
-    data_bulk_name: 815_train_dim_3_add_10_and_drop_20_perc_chunk_2
-    num_realizations: 815
+    data_bulk_name: 16k_train_dim_3_add_10_and_drop_20_perc_chunk_2
+    num_realizations: 16300
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -492,10 +510,10 @@ train:
 test:
   ####################### Dimension 1 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 250_test_dim_1_clean_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_test_dim_1_clean_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -506,10 +524,10 @@ test:
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 81_test_dim_1_add_10_perc_chunk_0
-    num_realizations: 81
+    data_bulk_name: 1_6k_test_dim_1_add_10_perc_chunk_0
+    num_realizations: 1630
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -523,8 +541,8 @@ test:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 81_test_dim_1_drop_20_perc_chunk_0
-    num_realizations: 81
+    data_bulk_name: 1_6k_test_dim_1_drop_20_perc_chunk_0
+    num_realizations: 1630
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -539,8 +557,8 @@ test:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 81_test_dim_1_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 81
+    data_bulk_name: 1_6k_test_dim_1_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 1630
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -556,10 +574,10 @@ test:
 
   ####################### Dimension 2 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 500_test_dim_2_clean_chunk_0
-    num_realizations: 500
+    data_bulk_name: 10k_test_dim_2_clean_chunk_0
+    num_realizations: 10000
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -571,10 +589,10 @@ test:
     initial_state: *initial_state
 
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 166_test_dim_2_add_10_perc_chunk_0
-    num_realizations: 166
+    data_bulk_name: 3_3k_test_dim_2_add_10_perc_chunk_0
+    num_realizations: 3330
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -590,8 +608,8 @@ test:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 166_test_dim_2_drop_20_perc_chunk_0
-    num_realizations: 166
+    data_bulk_name: 3_3k_test_dim_2_drop_20_perc_chunk_0
+    num_realizations: 3330
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -606,8 +624,8 @@ test:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 166_test_dim_2_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 166
+    data_bulk_name: 3_3k_test_dim_2_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 3330
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -624,10 +642,10 @@ test:
 
   ####################### Dimension 3 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 750_test_dim_3_clean_chunk_0
-    num_realizations: 750
+    data_bulk_name: 15k_test_dim_3_clean_chunk_0
+    num_realizations: 15000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -639,10 +657,10 @@ test:
     initial_state: *initial_state
 
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 250_test_dim_3_add_10_perc_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_test_dim_3_add_10_perc_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -657,8 +675,8 @@ test:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 250_test_dim_3_drop_20_perc_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_test_dim_3_drop_20_perc_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -672,8 +690,8 @@ test:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 250_test_dim_3_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_test_dim_3_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -691,10 +709,10 @@ test:
 validation:
   ####################### Dimension 1 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 250_validation_dim_1_clean_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_validation_dim_1_clean_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -705,10 +723,10 @@ validation:
     diffusion_params: *diffusion_params
     initial_state: *initial_state
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 81_validation_dim_1_add_10_perc_chunk_0
-    num_realizations: 81
+    data_bulk_name: 1_6k_validation_dim_1_add_10_perc_chunk_0
+    num_realizations: 1630
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -722,8 +740,8 @@ validation:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 81_validation_dim_1_drop_20_perc_chunk_0
-    num_realizations: 81
+    data_bulk_name: 1_6k_validation_dim_1_drop_20_perc_chunk_0
+    num_realizations: 1630
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -738,8 +756,8 @@ validation:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 81_validation_dim_1_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 81
+    data_bulk_name: 1_6k_validation_dim_1_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 1630
     observed_dimension: *observed_dimension
     state_dim: 1
     redo: *redo
@@ -755,10 +773,10 @@ validation:
 
   ####################### Dimension 2 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 500_validation_dim_2_clean_chunk_0
-    num_realizations: 500
+    data_bulk_name: 10k_validation_dim_2_clean_chunk_0
+    num_realizations: 10000
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -770,10 +788,10 @@ validation:
     initial_state: *initial_state
 
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 166_validation_dim_2_add_10_perc_chunk_0
-    num_realizations: 166
+    data_bulk_name: 3_3k_validation_dim_2_add_10_perc_chunk_0
+    num_realizations: 3330
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -789,8 +807,8 @@ validation:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 166_validation_dim_2_drop_20_perc_chunk_0
-    num_realizations: 166
+    data_bulk_name: 3_3k_validation_dim_2_drop_20_perc_chunk_0
+    num_realizations: 3330
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -805,8 +823,8 @@ validation:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 166_validation_dim_2_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 166
+    data_bulk_name: 3_3k_validation_dim_2_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 3330
     observed_dimension: *observed_dimension
     state_dim: 2
     redo: *redo
@@ -823,10 +841,10 @@ validation:
 
   ####################### Dimension 3 ###########################################
 
-  ############ Clean #########################
+  ########### Clean #########################
   - name: Polynomials
-    data_bulk_name: 750_validation_dim_3_clean_chunk_0
-    num_realizations: 750
+    data_bulk_name: 15k_validation_dim_3_clean_chunk_0
+    num_realizations: 15000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -838,10 +856,10 @@ validation:
     initial_state: *initial_state
 
 
-  ############ Additive Noise #########################
+  ########### Additive Noise #########################
   - name: Polynomials
-    data_bulk_name: 250_validation_dim_3_add_10_perc_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_validation_dim_3_add_10_perc_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -856,8 +874,8 @@ validation:
 
   ############ Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 250_validation_dim_3_drop_20_perc_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_validation_dim_3_drop_20_perc_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
@@ -871,8 +889,8 @@ validation:
 
   ############ Additive noise and Irregular grid #########################
   - name: Polynomials
-    data_bulk_name: 250_validation_dim_3_add_10_and_drop_20_perc_chunk_0
-    num_realizations: 250
+    data_bulk_name: 5k_validation_dim_3_add_10_and_drop_20_perc_chunk_0
+    num_realizations: 5000
     observed_dimension: *observed_dimension
     state_dim: 3
     redo: *redo
