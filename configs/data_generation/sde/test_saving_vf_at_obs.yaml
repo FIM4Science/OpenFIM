@@ -1,0 +1,92 @@
+
+experiment_name: test_save_obs_at_yaml
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  - label: "delta_tau_1e-1_100_paths_length_128"
+    percentage: 0.33333333
+    method: "EulerMaruyama"
+    time_step: 0.1
+    steps_per_dt: 25
+    num_steps: 127
+    num_paths: 100
+    num_locations: 2048
+    chunk_size: 100 # generate at one time so many realizations (to filter Nans)
+    reject_threshold: 100
+    stochastic: true
+
+locations:
+  type: regular_cube
+  extension_perc: 0.5
+
+train:
+
+  ####################### Dimension 1 ###########################################
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 25k_train_dim_1_clean_chunk_0
+    num_realizations: 1000
+    observed_dimension: &observed_dimension null
+    state_dim: 1
+    redo: &redo false
+    enforce_positivity: &enforce_positivity "clip"
+    max_degree_drift: &max_degree_drift 3
+    max_degree_diffusion: &max_degree_diffusion 2
+    drift_params: &drift_params
+      uniform_degrees: true
+      distribution:
+        name: normal
+        std: 1
+    diffusion_params: &diffusion_params
+      uniform_degrees: true
+      distribution:
+        name: normal
+        std: 1.0
+    initial_state: &initial_state
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: null
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 25k_train_dim_1_clean_chunk_1
+    num_realizations: 1000
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 25k_train_dim_1_clean_chunk_2
+    num_realizations: 1000
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  ############ Clean #########################
+  - name: Polynomials
+    data_bulk_name: 25k_train_dim_1_clean_chunk_3
+    num_realizations: 1000
+    observed_dimension: *observed_dimension
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state

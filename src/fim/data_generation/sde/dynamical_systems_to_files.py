@@ -53,29 +53,35 @@ def save_fimsdedatabatch_to_files(databatch: FIMSDEDatabatch, save_dir: Path) ->
     save_h5(databatch.obs_mask, save_dir / "obs_mask.h5")
 
 
-def save_dynamical_system_from_yaml(yaml_path: str | Path, labels_to_use: list[str], global_save_dir: str | Path, tr_save_dir="") -> None:
+def save_dynamical_system_from_yaml(
+    yaml_path: str | Path | dict, labels_to_use: list[str], global_save_dir: str | Path, tr_save_dir=""
+) -> None:
     """
     Generate dynamical systems from yaml and save them to disk.
 
     Args:
-        yaml_path (str | Path): Absolute or relative to project path.
+        yaml_path (str | Path | dict): Absolute or relative to project path, or content of a yaml.
         labels_to_use (list[str]): Which labels from yaml to generate and save.
         global_save_dir (str | Path): Absolute or relative to data path.
     """
-    # prepare paths
-    yaml_path = Path(yaml_path)
-    if not yaml_path.is_absolute():
-        yaml_path: Path = Path(project_path) / yaml_path
+    if isinstance(yaml_path, dict):
+        data_config = yaml_path
+
+    else:
+        # prepare paths
+        yaml_path = Path(yaml_path)
+        if not yaml_path.is_absolute():
+            yaml_path: Path = Path(project_path) / yaml_path
+
+        # load general config
+        with open(yaml_path, "r") as file:
+            data_config = yaml.safe_load(file)
 
     global_save_dir = Path(global_save_dir)
     if not global_save_dir.is_absolute():
         global_save_dir: Path = Path(data_path) / global_save_dir
 
     global_save_dir.mkdir(parents=True, exist_ok=True)
-
-    # load general config
-    with open(yaml_path, "r") as file:
-        data_config = yaml.safe_load(file)
 
     dataset_type = data_config["dataset_type"]
     all_integrator_params = data_config["integration"]
