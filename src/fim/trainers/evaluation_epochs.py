@@ -313,7 +313,7 @@ class HawkesEvaluationPlots(EvaluationEpoch):
         target_intensities: Tensor,
         predicted_intensities: Tensor,
         evaluation_times: Tensor,
-        max_num_marks: int,
+        num_marks: int,
         inference_path_idx: int = 0,
     ) -> dict:
         """
@@ -323,7 +323,7 @@ class HawkesEvaluationPlots(EvaluationEpoch):
             target_intensities: Target intensity values [B, M, P_inference, L_inference]
             predicted_intensities: Predicted intensity values [B, M, P_inference, L_inference]
             evaluation_times: Times at which intensities are evaluated [B, P_inference, L_inference]
-            max_num_marks: Maximum number of marks
+            num_marks: Number of marks to plot (avoids plotting zero functions)
             inference_path_idx: Which inference path to plot
 
         Returns:
@@ -337,14 +337,14 @@ class HawkesEvaluationPlots(EvaluationEpoch):
         eval_times = evaluation_times[0, inference_path_idx, :].detach().cpu()  # [L_inference]
 
         # Create individual plots for each mark
-        for mark_idx in range(max_num_marks):
+        for mark_idx in range(num_marks):
             fig, ax = plt.subplots(figsize=(10, 6))
 
             # Create scatter plots for target and predicted intensity for this mark
             ax.scatter(
                 eval_times,
                 target_int[mark_idx],
-                c="blue",
+                color="blue",
                 s=60,
                 alpha=0.7,
                 label=f"Target Mark {mark_idx}",
@@ -354,7 +354,7 @@ class HawkesEvaluationPlots(EvaluationEpoch):
             ax.scatter(
                 eval_times,
                 pred_int[mark_idx],
-                c="red",
+                color="red",
                 s=60,
                 alpha=0.7,
                 label=f"Predicted Mark {mark_idx}",
@@ -373,16 +373,16 @@ class HawkesEvaluationPlots(EvaluationEpoch):
         # Create combined plot with all marks
         fig_combined, ax_combined = plt.subplots(figsize=(12, 8))
 
-        colors = plt.cm.tab10(range(max_num_marks))
+        colors = plt.cm.tab10(range(num_marks))
         markers_target = ["o", "s", "D", "v", "^", "<", ">", "p", "*", "h"]
         markers_pred = ["^", "v", "X", "<", ">", "P", "d", "8", "H", "+"]
 
-        for mark_idx in range(max_num_marks):
+        for mark_idx in range(num_marks):
             # Use different markers for target vs predicted, same color for same mark
             ax_combined.scatter(
                 eval_times,
                 target_int[mark_idx],
-                c=colors[mark_idx],
+                color=colors[mark_idx],
                 s=60,
                 alpha=0.8,
                 marker=markers_target[mark_idx % len(markers_target)],
@@ -393,7 +393,7 @@ class HawkesEvaluationPlots(EvaluationEpoch):
             ax_combined.scatter(
                 eval_times,
                 pred_int[mark_idx],
-                c=colors[mark_idx],
+                color=colors[mark_idx],
                 s=40,
                 alpha=0.6,
                 marker=markers_pred[mark_idx % len(markers_pred)],
@@ -466,12 +466,17 @@ class HawkesEvaluationPlots(EvaluationEpoch):
         predicted_intensities = model_output["predicted_intensity_values"]  # [B, M, P_inference, L_inference]
         target_intensities = model_output["target_intensity_values"]  # [B, M, P_inference, L_inference]
 
+        # Get the actual number of marks from the batch
+        num_marks = batch.get("num_marks", self.model.max_num_marks)
+        if isinstance(num_marks, torch.Tensor):
+            num_marks = num_marks.item()
+
         # Create plots
         figures = self.create_intensity_plots(
             target_intensities,
             predicted_intensities,
             batch["intensity_evaluation_times"],
-            self.model.max_num_marks,
+            num_marks,
             self.inference_path_idx,
         )
 

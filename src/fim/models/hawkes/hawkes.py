@@ -163,6 +163,23 @@ class FIMHawkes(AModel):
         P_inference = x["inference_event_times"].shape[1]
 
         num_marks = x.get("num_marks", self.max_num_marks)
+        # The dataloader might provide `num_marks` as a tensor after collation. Convert
+        # it to a Python int so that downstream calls expecting an integer (e.g.
+        # `torch.arange`) work correctly. We assume that all items in the batch have
+        # the same number of marks, so we take the first element when a 1-D tensor is
+        # encountered.
+        if isinstance(num_marks, torch.Tensor):
+            if num_marks.ndim == 0:
+                num_marks = int(num_marks.item())
+            else:
+                num_marks = int(num_marks[0].item())
+
+        # Sanity-check that the model was initialised with a large enough mark vocabulary.
+        if num_marks > self.max_num_marks:
+            raise ValueError(
+                f"Batch contains {num_marks} marks, but the model was initialised with max_num_marks="
+                f"{self.max_num_marks}. Increase `max_num_marks` in the config or filter the dataset."
+            )
 
         if "context_seq_lengths" not in x:
             x["context_seq_lengths"] = torch.full((B, P_context), L, device=self.device)

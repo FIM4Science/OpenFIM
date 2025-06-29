@@ -16,18 +16,18 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
-      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
-      #- data/synthetic_data/hawkes/2D_small/train
+      # - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
+      - data/synthetic_data/hawkes/2D_small/val
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
-      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
-      #- data/synthetic_data/hawkes/2D_small/val
+      # - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
+      - data/synthetic_data/hawkes/2D_small/val
 
   loader_kwargs:
-    batch_size: 3
+    batch_size: 1
     num_workers: 8
-    test_batch_size: 3
+    test_batch_size: 1
 
     num_inference_paths: 5
 
@@ -154,7 +154,7 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.000001
+      lr: 0.00001
       weight_decay: 0.0001
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple
