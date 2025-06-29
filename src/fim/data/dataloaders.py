@@ -316,13 +316,23 @@ class HawkesDataLoader(BaseDataLoader):
 
             # Tensors whose second dimension is the number of marks (M) for Hawkes processes
             tensors_to_pad = dataset.field_name_for_dimension_grouping
+            # Ensure `tensors_to_pad` is always iterable to avoid runtime errors
+            if tensors_to_pad is None:
+                tensors_to_pad = []
+            elif isinstance(tensors_to_pad, str):
+                tensors_to_pad = [tensors_to_pad]
 
-            # Find the maximum number of marks in the current batch
+            # Find the maximum number of marks in the current batch. The mark dimension is
+            # always the FIRST dimension (index 0) for the Hawkes tensors we work with
+            # (e.g. [M], [M, L_char] or [M, M, L_char]). Using dim-0 works for both
+            # `kernel_functions` and `base_intensity_functions`.
             max_marks = 0
             for item in batch:
                 for key in tensors_to_pad:
                     if key in item:
-                        max_marks = max(max_marks, item[key].shape[1])
+                        tensor = item[key]
+                        mark_dim = tensor.shape[0]
+                        max_marks = max(max_marks, mark_dim)
                         break  # Move to next item once a mark-dependent tensor is found
 
             if max_marks > 0:
@@ -332,9 +342,9 @@ class HawkesDataLoader(BaseDataLoader):
                     current_marks = 0
                     for key in tensors_to_pad:
                         if key in item:
-                            current_marks = item[key].shape[1]
+                            current_marks = item[key].shape[0]
                             break
-                    item["num_marks"] = torch.tensor(current_marks, dtype=torch.long)
+                    item["num_marks"] = current_marks
 
                     # Pad the relevant tensors
                     pad_size = max_marks - current_marks
@@ -369,6 +379,21 @@ class HawkesDataLoader(BaseDataLoader):
             # ALWAYS apply inference path and time selection for all datasets BEFORE collating
             batch = self.select_inference_paths(batch)
             batch = self.select_inference_times(batch)
+
+            # Guarantee that every item contains the `num_marks` field. If it has not been
+            # created in the padding logic above (e.g. because the mark dimension was
+            # already consistent across the batch) we infer it directly from one of the
+            # mark-dependent tensors.
+            for item in batch:
+                if "num_marks" not in item:
+                    # Prefer kernel_functions -> base_intensity_functions
+                    if "kernel_functions" in item:
+                        item["num_marks"] = item["kernel_functions"].shape[0]
+                    elif "base_intensity_functions" in item:
+                        item["num_marks"] = item["base_intensity_functions"].shape[0]
+                    else:
+                        # As a final fallback, set to max_marks computed earlier (may be zero)
+                        item["num_marks"] = max_marks
 
             # Handle variable dimensions if needed
             if dataset.is_last_dim_varying:

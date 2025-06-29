@@ -166,7 +166,9 @@ if __name__ == "__main__":
         axs[1].plot(fim_no_finetuned_paths[i, :, 0], fim_no_finetuned_paths[i, :, 1], fim_no_finetuned_paths[i, :, 2], **fim_plot_config)
         axs[2].plot(fim_finetuned_paths[i, :, 0], fim_finetuned_paths[i, :, 1], fim_finetuned_paths[i, :, 2], **fim_finetuned_plot_config)
 
-    axs[1].scatter(fim_no_finetuned_paths[:, 0, 0], fim_no_finetuned_paths[:, 0, 1], fim_no_finetuned_paths[:, 0, 2], marker="o", c="red")
+    axs[1].scatter(
+        fim_no_finetuned_paths[:, 0, 0], fim_no_finetuned_paths[:, 0, 1], fim_no_finetuned_paths[:, 0, 2], marker="o", color="red"
+    )
 
     # # place right legend directly on top of the plot
     # plt.draw()
