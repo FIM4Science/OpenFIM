@@ -399,7 +399,17 @@ class HawkesDataLoader(BaseDataLoader):
             if dataset.is_last_dim_varying:
                 return self.__custom_var_dim_collate_fn(batch)
 
-            return default_collate(batch)
+            # Use torch default collate for the final step
+            collated = default_collate(batch)
+
+            # Collapse num_marks to a scalar so that downstream code can safely call
+            # `.item()` irrespective of batch size.
+            if "num_marks" in collated and isinstance(collated["num_marks"], torch.Tensor):
+                if collated["num_marks"].ndim > 0:
+                    # all values are identical, so just take the first element
+                    collated["num_marks"] = collated["num_marks"][0]
+
+            return collated
 
         return custom_collate
 
