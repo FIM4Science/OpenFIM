@@ -162,6 +162,8 @@ class FIMHawkes(AModel):
         B, P_context, L = x["context_event_times"].shape[:3]
         P_inference = x["inference_event_times"].shape[1]
 
+        num_marks = x.get("num_marks", self.max_num_marks)
+
         if "context_seq_lengths" not in x:
             x["context_seq_lengths"] = torch.full((B, P_context), L, device=self.device)
         if "inference_seq_lengths" not in x:
@@ -180,7 +182,7 @@ class FIMHawkes(AModel):
 
         # Get all query embeddings once
         # Shape: [B, M, P_inference, L_inference, D]
-        all_trunk_net_encodings = self._trunk_net_encoder_optimized(x)
+        all_trunk_net_encodings = self._trunk_net_encoder_optimized(x, num_marks)
 
         # --- Loop over each inference path to treat it as an independent problem ---
         all_time_dependent_encodings = []
@@ -226,7 +228,7 @@ class FIMHawkes(AModel):
                 x["inference_event_types"],
                 x["inference_seq_lengths"],
                 norm_constants,
-                x.get("num_marks", None),
+                num_marks=num_marks,
             )
             out["target_intensity_values"] = target_intensity_values
 
@@ -386,22 +388,22 @@ class FIMHawkes(AModel):
 
         return h.view(B, P, L, -1)
 
-    def _trunk_net_encoder_optimized(self, x: dict) -> Tensor:
+    def _trunk_net_encoder_optimized(self, x: dict, num_marks: int) -> Tensor:
         """Optimized trunk net encoding using cached one-hot encodings"""
         intensity_evaluation_times = x["intensity_evaluation_times"]
         B, P_inference, L_inference = intensity_evaluation_times.shape
 
         past_event_shifted_intensity_evaluation_times = self._get_past_event_shifted_intensity_evaluation_times(
-            intensity_evaluation_times, x["inference_event_times"]
+            intensity_evaluation_times, x["inference_event_times"], num_marks
         )
 
         # More efficient reshaping and encoding
         time_encodings = self.intensity_evaluation_time_encoder(past_event_shifted_intensity_evaluation_times.reshape(-1, 1)).reshape(
-            B, self.max_num_marks, P_inference, L_inference, -1
+            B, num_marks, P_inference, L_inference, -1
         )
 
         # Use cached one-hot encodings for evaluation marks
-        marks = torch.arange(self.max_num_marks, device=intensity_evaluation_times.device)
+        marks = torch.arange(num_marks, device=intensity_evaluation_times.device)
         one_hot_eval_marks = self.mark_one_hot[marks]  # [M, max_num_marks]
         eval_mark_encodings = self.evaluation_mark_encoder(one_hot_eval_marks)  # [M, hidden_dim]
         mark_encodings = (
@@ -504,7 +506,7 @@ class FIMHawkes(AModel):
         inference_event_types: Tensor,
         inference_seq_lengths: Tensor,
         norm_constants: Tensor,
-        num_marks: Tensor = None,
+        num_marks: int,
     ):
         """
         Compute the target intensity values based on the formula:
@@ -529,8 +531,7 @@ class FIMHawkes(AModel):
                 Shape: [B, P].
             norm_constants (Tensor): The normalization constants.
                 Shape: [B].
-            num_marks (Tensor): The number of marks for each item in the batch.
-                Shape: [B].
+            num_marks (int): The number of marks for the batch.
 
         Returns:
             Tensor: The computed target intensity values, scaled for the normalized time domain.
@@ -539,7 +540,7 @@ class FIMHawkes(AModel):
         device = intensity_evaluation_times.device
         B, P, L_eval = intensity_evaluation_times.shape
         _, _, L_hist, _ = inference_event_times.shape
-        D = self.max_num_marks
+        D = num_marks
 
         # --- START: MODIFICATION ---
         # The input times are normalized. We must denormalize them to use with the
@@ -560,7 +561,9 @@ class FIMHawkes(AModel):
 
         # Loop over batch items because kernel/base functions are heterogeneous Python objects.
         for b in range(B):
-            actual_marks_b = num_marks[b].item() if num_marks is not None else len(base_intensity_functions_list[b])
+            # The number of marks can vary per sample in the ground truth data.
+            # Use the length of the provided function list for this sample.
+            actual_marks_b = len(base_intensity_functions_list[b])
 
             # Extract original-scale data for the current batch item
             eval_times_b = intensity_evaluation_times_orig[b]  # Use original times
@@ -608,7 +611,9 @@ class FIMHawkes(AModel):
 
         return target_intensity_values_normalized
 
-    def _get_past_event_shifted_intensity_evaluation_times(self, intensity_evaluation_times: Tensor, inference_event_times: Tensor):
+    def _get_past_event_shifted_intensity_evaluation_times(
+        self, intensity_evaluation_times: Tensor, inference_event_times: Tensor, num_marks: int
+    ):
         """
         Computes the time elapsed since the last event for each evaluation time.
 
@@ -637,7 +642,7 @@ class FIMHawkes(AModel):
         """
         # Get dimensions. This function is a method of FIMHawkes, so it has access to self.
         B, P, L_eval = intensity_evaluation_times.shape
-        M = self.max_num_marks
+        M = num_marks
 
         # Squeeze the last dimension of event times for easier broadcasting.
         # Shape: [B, P, L_hist]
