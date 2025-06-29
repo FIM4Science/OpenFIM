@@ -16,18 +16,18 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
+      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
       # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
-      - data/synthetic_data/hawkes/2D_small/val
+      # - data/synthetic_data/hawkes/2D_small/val
     validation: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
+      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
       # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
-      - data/synthetic_data/hawkes/2D_small/val
+      # - data/synthetic_data/hawkes/2D_small/val
 
   loader_kwargs:
-    batch_size: 1
+    batch_size: 3
     num_workers: 8
-    test_batch_size: 1
+    test_batch_size: 3
 
     num_inference_paths: 5
 
@@ -60,7 +60,7 @@ model:
   normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
 
-  max_num_marks: &max_num_marks 3
+  max_num_marks: &max_num_marks 2
   hidden_dim: &hidden_dim 64
 
   hidden_act: &hidden_act
