@@ -493,6 +493,8 @@ class FIMHawkes(AModel):
             "mae_loss": mae_loss,
         }
 
+    # In hawkes.py
+
     def compute_target_intensity_values(
         self,
         kernel_functions_list: list,
@@ -518,98 +520,93 @@ class FIMHawkes(AModel):
             base_intensity_functions_list (list): A list of shape [B, D] containing
                 the callable base intensity functions μ_i.
             intensity_evaluation_times (Tensor): The times `t` to evaluate the intensity at.
-                Shape: [B, P, L_eval].
+                Shape: [B, P, L_eval]. These are NORMALIZED.
             inference_event_times (Tensor): The historical event timestamps t_jk.
-                Shape: [B, P, L_hist, 1].
+                Shape: [B, P, L_hist, 1]. These are NORMALIZED.
             inference_event_types (Tensor): The historical event types `j`.
                 Shape: [B, P, L_hist, 1].
             inference_seq_lengths (Tensor): The actual length of each historical sequence.
                 Shape: [B, P].
             norm_constants (Tensor): The normalization constants.
-                Shape: [B, 1].
+                Shape: [B].
+            num_marks (Tensor): The number of marks for each item in the batch.
+                Shape: [B].
 
         Returns:
-            Tensor: The computed target intensity values. Shape: [B, D, P, L_eval],
-                    where D is the number of marks.
+            Tensor: The computed target intensity values, scaled for the normalized time domain.
+                    Shape: [B, D, P, L_eval], where D is the number of marks.
         """
         device = intensity_evaluation_times.device
         B, P, L_eval = intensity_evaluation_times.shape
         _, _, L_hist, _ = inference_event_times.shape
         D = self.max_num_marks
 
+        # --- START: MODIFICATION ---
+        # The input times are normalized. We must denormalize them to use with the
+        # original kernel and base intensity functions.
+        norm_constants_eval = norm_constants.view(B, 1, 1)
+        norm_constants_hist = norm_constants.view(B, 1, 1, 1)
+
+        intensity_evaluation_times_orig = intensity_evaluation_times * norm_constants_eval
+        inference_event_times_orig = inference_event_times * norm_constants_hist
+        # --- END: MODIFICATION ---
+
         # Ensure tensors are 3D for easier processing by removing the trailing dimension
-        event_times = inference_event_times.squeeze(-1)  # Shape: [B, P, L_hist]
-        event_types = inference_event_types.squeeze(-1)  # Shape: [B, P, L_hist]
+        event_times = inference_event_times_orig.squeeze(-1)  # Use original times
+        event_types = inference_event_types.squeeze(-1)
 
         # The final output tensor, matching the model's prediction shape [B, M, P, L_eval]
-        # where M (self.max_num_marks) is D.
         total_intensity = torch.zeros(B, D, P, L_eval, device=device)
 
         # Loop over batch items because kernel/base functions are heterogeneous Python objects.
-        # The operations inside this loop are vectorized over paths (P) and time dimensions.
         for b in range(B):
-            # Get the actual number of marks for this batch item
             actual_marks_b = num_marks[b].item() if num_marks is not None else len(base_intensity_functions_list[b])
 
-            # Extract data for the current batch item for clarity
-            eval_times_b = intensity_evaluation_times[b]  # [P, L_eval]
-            hist_times_b = event_times[b]  # [P, L_hist]
-            hist_types_b = event_types[b]  # [P, L_hist]
-            seq_lengths_b = inference_seq_lengths[b]  # [P]
+            # Extract original-scale data for the current batch item
+            eval_times_b = intensity_evaluation_times_orig[b]  # Use original times
+            hist_times_b = event_times[b]  # Use original times
+            hist_types_b = event_types[b]
+            seq_lengths_b = inference_seq_lengths[b]
 
-            # --- Calculate Summed Kernel Term ---
-            # Shape: [P, L_eval, L_hist]. Element (p, l, k) is eval_times[p,l] - hist_times[p,k]
+            # --- Calculate Summed Kernel Term (in original time scale) ---
             delta_t_b = eval_times_b.unsqueeze(-1) - hist_times_b.unsqueeze(-2)
 
-            # Mask for causality: t_jk < t  (historical event time < evaluation time).
-            # Use a small epsilon for strict inequality to handle floating point issues.
-            causality_mask_b = delta_t_b > 1e-9  # [P, L_eval, L_hist]
-
-            # Mask for padding: only consider historical events within the actual sequence length.
+            causality_mask_b = delta_t_b > 1e-9
             hist_indices = torch.arange(L_hist, device=device).view(1, L_hist)
-            padding_mask_b = hist_indices < seq_lengths_b.unsqueeze(-1)  # [P, L_hist]
-
-            # Combine causality and padding masks. Broadcast padding_mask from [P,1,L_hist] to [P,L_eval,L_hist].
+            padding_mask_b = hist_indices < seq_lengths_b.unsqueeze(-1)
             valid_history_mask_b = causality_mask_b & padding_mask_b.unsqueeze(1)
 
-            # Initialize the intensity with the baseline values - only for actual marks
+            # Initialize with baseline values
             for i in range(actual_marks_b):
                 mu_func_b_i = base_intensity_functions_list[b][i]
-                # Assuming mu_func can take a [P, L_eval] tensor and return a tensor of the same shape.
-                total_intensity[b, i, :, :] = mu_func_b_i(eval_times_b)
+                total_intensity[b, i, :, :] = mu_func_b_i(eval_times_b)  # Pass original times
 
-            # Accumulate kernel influences by iterating over target (i) and source (j) marks - only for actual marks
+            # Accumulate kernel influences
             for i in range(actual_marks_b):
                 for j in range(actual_marks_b):
                     phi_func_b_ij = kernel_functions_list[b][i][j]
-
-                    # Mask for events of source type j. Broadcast from [P,1,L_hist] to [P,L_eval,L_hist].
                     source_mark_mask_b = (hist_types_b == j).unsqueeze(1)
-
-                    # Final mask for this (i, j) pair's contribution.
                     final_mask_b = valid_history_mask_b & source_mark_mask_b
 
                     if not torch.any(final_mask_b):
                         continue
 
-                    # Evaluate the kernel function only on the valid (t - t_jk) values.
                     delta_t_to_eval = delta_t_b[final_mask_b]
-                    kernel_values = phi_func_b_ij(delta_t_to_eval)
+                    kernel_values = phi_func_b_ij(delta_t_to_eval)  # Pass original time deltas
 
-                    # Place the computed kernel values back into a structured tensor and sum over the history axis.
                     kernel_contribution = torch.zeros_like(delta_t_b)
                     kernel_contribution[final_mask_b] = kernel_values
-
-                    # Sum over the history dimension (k) to get the total influence on each evaluation time.
-                    summed_kernel_values = kernel_contribution.sum(dim=-1)  # Shape: [P, L_eval]
-
-                    # Add the summed influence to the total intensity for the target mark i.
+                    summed_kernel_values = kernel_contribution.sum(dim=-1)
                     total_intensity[b, i, :, :] += summed_kernel_values
 
-        # Apply the non-negativity constraint from the max(0, ...) in the formula.
-        target_intensity_values = torch.relu(total_intensity)
+        # Apply non-negativity constraint
+        target_intensity_values_orig = torch.relu(total_intensity)
 
-        return target_intensity_values
+        # Re-normalize the final intensity to match the model's output space (λ'(t') = c * λ(t))
+        norm_constants_final = norm_constants.view(B, 1, 1, 1)
+        target_intensity_values_normalized = target_intensity_values_orig * norm_constants_final
+
+        return target_intensity_values_normalized
 
     def _get_past_event_shifted_intensity_evaluation_times(self, intensity_evaluation_times: Tensor, inference_event_times: Tensor):
         """
