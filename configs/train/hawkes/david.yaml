@@ -57,7 +57,7 @@ dataset:
 
 model:
   model_type: fimhawkes
-  normalize_times: true
+  normalize_times: false
   normalize_by_max_time: false # Otherwise normalize by the delta times
 
   max_num_marks: &max_num_marks 2
