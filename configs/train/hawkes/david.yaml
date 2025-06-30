@@ -123,7 +123,7 @@ model:
 trainer:
   name: Trainer
   debug_iterations: null
-  precision: bf16mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: &epochs 5000
   detect_anomaly: false
   save_every: 10

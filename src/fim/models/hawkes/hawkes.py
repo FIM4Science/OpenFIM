@@ -125,6 +125,8 @@ class FIMHawkes(AModel):
         inference_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
         self.inference_ts_encoder = create_class_instance(inference_ts_encoder.pop("name"), inference_ts_encoder)
 
+        self.input_layernorm = torch.nn.LayerNorm(self.hidden_dim)
+
         self.functional_attention = AttentionOperator(embed_dim=self.hidden_dim, out_features=self.hidden_dim, **functional_attention)
 
         intensity_decoder["in_features"] = self.hidden_dim
@@ -392,6 +394,8 @@ class FIMHawkes(AModel):
         # Fused addition
         path = time_enc + delta_time_enc + state_enc
 
+        path = self.input_layernorm(path)
+
         # Approach: Use the original mask logic but make PyTorch handle it properly
         # The key insight is that the original combined both causal and padding masks
         # We need to create the exact same combined mask but handle the head dimension properly
@@ -403,6 +407,12 @@ class FIMHawkes(AModel):
         positions = torch.arange(L, device=self.device).unsqueeze(0)  # (1, L)
         seq_lengths_flat = x[f"{type}_seq_lengths"].view(B * P)  # (B*P,)
         key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)  # (B*P, L)
+
+        # This prevents them from contributing to the LayerNorm statistics inside the encoder,
+        # which is the source of the unstable gradients in the backward pass.
+        path = path.view(B * P, L, -1)
+        path.masked_fill_(key_padding_mask.unsqueeze(-1), 0.0)
+        path = path.view(B, P, L, -1)
 
         # 3. For now, let's use the simpler approach that should be functionally equivalent
         # The causal mask handles temporal dependencies, key_padding_mask handles sequence lengths
