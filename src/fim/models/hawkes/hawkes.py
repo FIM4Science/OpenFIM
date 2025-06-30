@@ -484,6 +484,8 @@ class FIMHawkes(AModel):
 
     def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
         out["predicted_intensity_values"] = out["predicted_intensity_values"] / norm_constants.view(-1, 1, 1, 1)
+        if "target_intensity_values" in out:
+            out["target_intensity_values"] = out["target_intensity_values"] / norm_constants.view(-1, 1, 1, 1)
         if "log_predicted_intensity_values_var" in out:
             out["log_predicted_intensity_values_var"] = out["log_predicted_intensity_values_var"] - torch.log(norm_constants).view(
                 -1, 1, 1, 1
