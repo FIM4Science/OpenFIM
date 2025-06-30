@@ -192,6 +192,8 @@ class FIMHawkes(AModel):
 
         if self.normalize_times:
             norm_constants = self._normalize_input_times(x)
+        else:
+            norm_constants = torch.ones(B, device=self.device)
 
         # Encode all sequences once
         sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
