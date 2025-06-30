@@ -276,21 +276,25 @@ class FIMHawkes(AModel):
         # Select encoding from encodings_per_event_mark from event_types
         state_enc = encodings_per_event_mark[x["event_types"].reshape(-1).int()].reshape(B, P, L, -1)
         path = time_enc + delta_time_enc + state_enc
-        mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-        mask = mask.repeat(B, P, 1, 1)
+        # Approach: Use the original mask logic but make PyTorch handle it properly
+        # The key insight is that the original combined both causal and padding masks
+        # We need to create the exact same combined mask but handle the head dimension properly
 
-        positions = torch.arange(L, device=self.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # (1, 1, L, 1)
+        # 1. Create base causal mask [L, L]
+        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
 
-        # if self.training:
-        # Expand seq_lengths to (B, P, 1, 1) and compare with positions to create padding mask
-        padding_mask = positions >= x["seq_lengths"].unsqueeze(-1).unsqueeze(-1)  # (B, P, L, 1)
-        padding_mask = padding_mask.expand(-1, -1, -1, L)  # (B, P, L, L)
+        # 2. Create padding mask [B*P, L] for keys
+        positions = torch.arange(L, device=self.device).unsqueeze(0)  # (1, L)
+        seq_lengths_flat = x["seq_lengths"].view(B * P)  # (B*P,)
+        key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)  # (B*P, L)
 
-        # Combine causal mask with padding mask
-        mask = mask | padding_mask
-        padding_mask = None
-
-        h = self.ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
+        # 3. For now, let's use the simpler approach that should be functionally equivalent
+        # The causal mask handles temporal dependencies, key_padding_mask handles sequence lengths
+        h = self.ts_encoder(
+            path.view(B * P, L, -1),
+            mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
+            src_key_padding_mask=key_padding_mask,  # 2D key padding mask
+        )
 
         return h.view(B, P, L, -1)
 
@@ -388,20 +392,32 @@ class FIMHawkes(AModel):
         # Fused addition
         path = time_enc + delta_time_enc + state_enc
 
-        # Use original mask creation (exactly as in original method)
-        mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-        mask = mask.repeat(B, P, 1, 1)
+        # Approach: Use the original mask logic but make PyTorch handle it properly
+        # The key insight is that the original combined both causal and padding masks
+        # We need to create the exact same combined mask but handle the head dimension properly
 
-        positions = torch.arange(L, device=self.device).unsqueeze(0).unsqueeze(0).unsqueeze(-1)  # (1, 1, L, 1)
-        padding_mask = positions >= x[f"{type}_seq_lengths"].unsqueeze(-1).unsqueeze(-1)  # (B, P, L, 1)
-        padding_mask = padding_mask.expand(-1, -1, -1, L)  # (B, P, L, L)
-        mask = mask | padding_mask
-        padding_mask = None
+        # 1. Create base causal mask [L, L]
+        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
 
+        # 2. Create padding mask [B*P, L] for keys
+        positions = torch.arange(L, device=self.device).unsqueeze(0)  # (1, L)
+        seq_lengths_flat = x[f"{type}_seq_lengths"].view(B * P)  # (B*P,)
+        key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)  # (B*P, L)
+
+        # 3. For now, let's use the simpler approach that should be functionally equivalent
+        # The causal mask handles temporal dependencies, key_padding_mask handles sequence lengths
         if type == "context":
-            h = self.context_ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
+            h = self.context_ts_encoder(
+                path.view(B * P, L, -1),
+                mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
+                src_key_padding_mask=key_padding_mask,  # 2D key padding mask
+            )
         elif type == "inference":
-            h = self.inference_ts_encoder(path.view(B * P, L, -1), mask=mask.view(B * P, L, L), is_causal=True)
+            h = self.inference_ts_encoder(
+                path.view(B * P, L, -1),
+                mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
+                src_key_padding_mask=key_padding_mask,  # 2D key padding mask
+            )
         else:
             raise ValueError(f"Invalid type: {type}")
 
