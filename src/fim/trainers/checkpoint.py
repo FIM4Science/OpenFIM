@@ -157,9 +157,9 @@ class TrainCheckpoint:
             validation_stats (dict): Validation statistics.
         """
         best_metric = self.train_config.trainer.best_metric
-        if validation_stats[best_metric] < self.best_model_flag["val_metric"]:
+        if validation_stats["losses"][best_metric] < self.best_model_flag["val_metric"]:
             if self.rank == 0:
-                msg = f"Current model with {best_metric} of {validation_stats[best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
+                msg = f"Current model with {best_metric} of {validation_stats['losses'][best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
                 self.__logger.info(msg)
 
             self._save_best_model(epoch)
