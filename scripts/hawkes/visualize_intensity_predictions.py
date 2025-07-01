@@ -33,17 +33,11 @@ def load_data_from_dir(dir_path: Path) -> dict:
 
 def create_evaluation_times(inference_event_times, inference_seq_lengths, num_eval_points=200):
     """
-    Create evaluation times using only a dense grid for smooth plotting.
+    Create evaluation times using both a dense grid and actual event times.
 
-    IMPORTANT: This function intentionally does NOT include actual event times in the
-    evaluation grid. Including event times would cause spurious correlations between
-    different marks because:
-    1. All marks would be evaluated exactly at event times
-    2. The model's attention mechanism would cause cross-contamination
-    3. All marks would show spikes at event times regardless of the actual event type
-
-    Instead, we use a regular grid like the dataloader does during training, which
-    allows each mark's intensity to be evaluated independently.
+    This function combines:
+    1. A dense regular grid for smooth plotting
+    2. Actual event times for precise evaluation at event occurrences
 
     Args:
         inference_event_times: Event times tensor [B, P_inference, L, 1]
@@ -51,12 +45,16 @@ def create_evaluation_times(inference_event_times, inference_seq_lengths, num_ev
         num_eval_points: Number of evaluation points in the dense grid
 
     Returns:
-        evaluation_times_batch: Regular grid of evaluation times [B, P_inference, num_eval_points]
+        evaluation_times_batch: Combined evaluation times [B, P_inference, max_combined_points]
     """
     B, P_inference, L, _ = inference_event_times.shape
     device = inference_event_times.device
 
-    evaluation_times_batch = torch.zeros(B, P_inference, num_eval_points, device=device)
+    # Estimate maximum number of combined points (dense grid + event times)
+    max_seq_len = inference_seq_lengths.max().item() if inference_seq_lengths.numel() > 0 else 0
+    max_combined_points = num_eval_points + max_seq_len
+
+    evaluation_times_batch = torch.zeros(B, P_inference, max_combined_points, device=device)
 
     for b in range(B):
         for p in range(P_inference):
@@ -68,10 +66,25 @@ def create_evaluation_times(inference_event_times, inference_seq_lengths, num_ev
             if max_time <= 0:
                 continue
 
-            # Create only a dense grid, do NOT include actual event times
-            # This prevents cross-contamination between marks
+            # Create dense grid
             dense_grid = torch.linspace(0.0, max_time, num_eval_points, device=device)
-            evaluation_times_batch[b, p, :] = dense_grid
+
+            # Get actual event times for this path
+            actual_event_times = inference_event_times[b, p, :seq_len, 0]
+
+            # Combine dense grid and actual event times
+            combined_times = torch.cat([dense_grid, actual_event_times])
+
+            # Remove duplicates and sort
+            combined_times_unique = torch.unique(combined_times, sorted=True)
+
+            # Store in the batch tensor (pad with zeros if necessary)
+            num_unique = len(combined_times_unique)
+            if num_unique <= max_combined_points:
+                evaluation_times_batch[b, p, :num_unique] = combined_times_unique
+            else:
+                # Truncate if too many points (shouldn't happen with our allocation)
+                evaluation_times_batch[b, p, :] = combined_times_unique[:max_combined_points]
 
     return evaluation_times_batch
 
@@ -128,6 +141,20 @@ def prepare_batch_for_model(data_sample, inference_path_idx=0, num_eval_points=2
     model_data["intensity_evaluation_times"] = create_evaluation_times(
         model_data["inference_event_times"], model_data["inference_seq_lengths"], num_eval_points=num_eval_points
     )
+
+    # Print info about evaluation times
+    eval_times = model_data["intensity_evaluation_times"]
+    for p in range(eval_times.shape[1]):
+        valid_times = eval_times[0, p][eval_times[0, p] > 0]
+        print(f"Path {p}: {len(valid_times)} evaluation points (dense grid + event times)")
+        if len(valid_times) > 0:
+            print(f"  Time range: {valid_times[0].item():.3f} to {valid_times[-1].item():.3f}")
+            # Count how many are likely event times (close to actual events)
+            if p < model_data["inference_event_times"].shape[1]:
+                seq_len = model_data["inference_seq_lengths"][0, p].item()
+                actual_events = model_data["inference_event_times"][0, p, :seq_len, 0]
+                event_count = len(actual_events)
+                print(f"  Includes {event_count} actual event times plus {len(valid_times) - event_count} dense grid points")
 
     for key in ["kernel_functions", "base_intensity_functions"]:
         if key in data_sample:
