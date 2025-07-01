@@ -161,6 +161,12 @@ class FIMHawkes(AModel):
                 - "intensity": Tensor representing the predicted intensity. [B, P_inference, L_inference, M]
                 - "losses" (optional): Tensor representing the calculated losses, if the required keys are present in `x`.
         """
+        # Add half of the event times of the inference paths to the intensity evaluation times
+        L_inference = x["inference_event_times"].shape[2]
+        x["intensity_evaluation_times"] = torch.cat(
+            [x["intensity_evaluation_times"], x["inference_event_times"][:, :, : L_inference // 3, 0]], dim=2
+        )
+
         B, P_context, L = x["context_event_times"].shape[:3]
         P_inference = x["inference_event_times"].shape[1]
 
