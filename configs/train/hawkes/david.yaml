@@ -25,11 +25,11 @@ dataset:
       # - data/synthetic_data/hawkes/2D_small/val
 
   loader_kwargs:
-    batch_size: 3
+    batch_size: 1
     num_workers: 8
-    test_batch_size: 3
+    test_batch_size: 1
 
-    num_inference_paths: 5
+    num_inference_paths: 2
 
     # Training settings - variable paths and sequence lengths
     variable_num_of_paths: false
