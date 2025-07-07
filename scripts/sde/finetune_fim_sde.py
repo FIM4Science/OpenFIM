@@ -34,10 +34,13 @@ def finetune_fim(
     seed: int,
     exp_name: str,
     train_data_label: str,
-    samples_count: int,
     detach_diffusion: bool,
     likelihood: bool,
+    sampling_mse: bool,
     num_points: int,
+    samples_count: int,
+    samples_steps: int,
+    em_steps: int,
     sample_paths: bool,
     epochs: int,
     lr: int,
@@ -71,17 +74,23 @@ def finetune_fim(
     model.finetune = True
     model.config.finetune = True
 
-    model.finetune_on_sampling_mse_mse = True
-    model.config.finetune_on_sampling_mse_mse = True
-
     model.finetune_samples_count = samples_count
     model.config.finetune_samples_count = samples_count
+
+    model.finetune_samples_steps = samples_steps
+    model.config.finetune_samples_steps = samples_steps
+
+    model.finetune_em_steps = em_steps
+    model.config.finetune_em_steps = em_steps
 
     model.finetune_detach_diffusion = detach_diffusion
     model.config.finetune_detach_diffusion = detach_diffusion
 
     model.finetune_on_likelihood = likelihood
     model.config.finetune_on_likelihood = likelihood
+
+    model.finetune_on_sampling_mse = sampling_mse
+    model.config.finetune_on_sampling_mse = sampling_mse
 
     model.finetune_num_points = num_points
     model.config.finetune_num_points = num_points
@@ -159,9 +168,12 @@ if __name__ == "__main__":
     @click.option("--seed", "seed", type=int, required=True)
     @click.option("--exp-name", "exp_name", type=str, required=True)
     @click.option("--train-data-label", "train_data_label", type=str, required=True)
-    @click.option("--samples-count", "samples_count", type=int, required=False, default=1)
     @click.option("--detach-diffusion", "detach_diffusion", type=bool, required=False, default=False)
-    @click.option("--likelihood", "likelihood", type=bool, required=False, default=True)
+    @click.option("--likelihood", "likelihood", type=bool, required=False, default=False)
+    @click.option("--sampling-mse", "sampling_mse", type=bool, required=False, default=False)
+    @click.option("--samples-count", "samples_count", type=int, required=False, default=1)
+    @click.option("--samples-steps", "samples_steps", type=int, required=False, default=1)
+    @click.option("--em-steps", "em_steps", type=int, required=False, default=1)
     @click.option("--num-points", "num_points", type=int, required=False, default=-1)
     @click.option("--sample-paths", "sample_paths", type=bool, required=False, default=True)
     @click.option("--epochs", "epochs", type=int, required=False, default=500)
