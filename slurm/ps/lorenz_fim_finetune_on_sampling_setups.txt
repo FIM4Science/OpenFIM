@@ -1,0 +1,1 @@
+torchrun --nproc_per_node=1 --master-port=29728 scripts/sde/finetune_fim_sde.py --exp-name=fim_finetune_on_sampling_1024_points_200_epochs_lr_1e-5 --config=configs/train/sde/20250614_finetune_fim_on_lorenz.yaml --seed=0 --sampling-mse=True --num-points=32 --samples-count=2 --samples-steps=4 --em-steps=5 --train-data-label=neural_sde_paper --epochs=200 --lr=0.00001
