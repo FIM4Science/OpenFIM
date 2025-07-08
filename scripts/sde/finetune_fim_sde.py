@@ -43,7 +43,8 @@ def finetune_fim(
     em_steps: int,
     sample_paths: bool,
     epochs: int,
-    lr: int,
+    lr: float,
+    weight_decay: float,
     train_from_scratch: bool,
 ) -> None:
     """
@@ -58,6 +59,7 @@ def finetune_fim(
 
     optimizer = config["optimizers"][0]["optimizer_d"]
     optimizer["lr"] = lr
+    optimizer["weight_decay"] = weight_decay
     config["optimizers"] = ({"optimizer_d": optimizer},)
 
     config["trainer"]["epochs"] = epochs
@@ -178,6 +180,7 @@ if __name__ == "__main__":
     @click.option("--sample-paths", "sample_paths", type=bool, required=False, default=True)
     @click.option("--epochs", "epochs", type=int, required=False, default=500)
     @click.option("--lr", "lr", type=float, required=False, default=1e-5)
+    @click.option("--weight-decay", "weight_decay", type=float, required=False, default=0.0)
     @click.option("--train-from-scratch", "train_from_scratch", type=bool, required=False, default=False)
     def cli(**kwargs):
         finetune_fim(test_data_setups, **kwargs)

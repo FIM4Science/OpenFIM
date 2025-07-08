@@ -170,7 +170,8 @@ if __name__ == "__main__":
     dataset_descr = "lorenz_system_metrics_tables"
 
     # How to name experiments
-    experiment_descr = "latent_sde_vs_fim_finetune_and_fim_retrain_from_scratch"
+    # experiment_descr = "fim_finetune_on_NLL_and_from_scratch_with_weight_decay"
+    experiment_descr = "fim_finetune_on_sampling"
 
     metrics = ["mmd", "mse_drift", "mse_diffusion"]
 
@@ -195,45 +196,131 @@ if __name__ == "__main__":
         },
     }
 
-    base_path = Path(
-        "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250701_latent_sde_and_fim_with_vector_fields"
-    )
+    ### Finetuned on Sampling
 
-    lat_sde_context_1_base_path = base_path / "07011432_latent_sde_context_1_with_vector_fields/model_paths"
-    lat_sde_context_100_base_path = base_path / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
-    fim_epochs_200_500_base_path = base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
-    fim_epochs_1000_2000_base_path = base_path / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
-    fim_no_training_base_path = base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+    evaluation_base_path = Path("/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation")
+    sampling_base_path = evaluation_base_path / "20250709_fim_finetune_on_sampling"
+    lat_sde_context_100_base_path = (
+        evaluation_base_path
+        / "20250701_latent_sde_and_fim_with_vector_fields"
+        / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
+    )
+    fim_epochs_1000_2000_base_path = (
+        evaluation_base_path
+        / "20250701_latent_sde_and_fim_with_vector_fields"
+        / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
+    )
+    fim_no_training_base_path = (
+        evaluation_base_path
+        / "20250701_latent_sde_and_fim_with_vector_fields"
+        / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+    )
 
     models_jsons = {
         "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
-        "fim_train_from_scratch_epochs_5000_lr_1e-5": fim_no_training_base_path
-        / "fim_train_from_scratch_lr_1e-5_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_200_lr_1e-5": fim_epochs_200_500_base_path
-        / "fim_finetune_200_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_500_lr_1e-5": fim_epochs_200_500_base_path
-        / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
+        "fim_currently_training": sampling_base_path / "fim_currently_training_train_data_neural_sde_paper.json",
+        "fim_finetune_on_NLL_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
         / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_2000_lr_1e-5": fim_epochs_1000_2000_base_path
-        / "fim_finetune_2000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_200_lr_1e-6": fim_epochs_200_500_base_path
-        / "fim_finetune_200_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_500_lr_1e-6": fim_epochs_200_500_base_path
-        / "fim_finetune_500_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_1000_lr_1e-6": fim_epochs_1000_2000_base_path
-        / "fim_finetune_1000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-        "fim_finetune_epochs_2000_lr_1e-6": fim_epochs_1000_2000_base_path
-        / "fim_finetune_2000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-        "lat_sde_context_1": lat_sde_context_1_base_path / "lat_sde_context_1_train_data_neural_sde_paper.json",
-        "lat_sde_context_100": lat_sde_context_100_base_path / "lat_sde_context_100_train_data_neural_sde_paper.json",
-        "lat_sde_latent_3_context_1": lat_sde_context_1_base_path / "lat_sde_latent_3_context_1_train_data_neural_sde_paper.json",
-        "lat_sde_latent_3_context_100": lat_sde_context_100_base_path / "lat_sde_latent_3_context_100_train_data_neural_sde_paper.json",
-        "lat_sde_latent_3_no_proj_context_1": lat_sde_context_1_base_path
-        / "lat_sde_latent_3_no_proj_context_1_train_data_neural_sde_paper.json",
         "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
         / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_500_epochs_1_sample_1_step_ahead_1_em_step": sampling_base_path
+        / "07071245_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_1_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_1_em_step_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_500_epochs_10_samples_1_step_ahead_1_em_step": sampling_base_path
+        / "07071252_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_10_samples_1_step_ahead_1_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_10_samples_1_step_ahead_1_em_step_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_500_epochs_1_sample_10_step_ahead_1_em_step": sampling_base_path
+        / "07071308_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_10_step_ahead_1_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_10_step_ahead_1_em_step_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_500_epochs_1_sample_1_step_ahead_10_em_step": sampling_base_path
+        / "07071324_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_500_epochs_1_sample_5_step_ahead_5_em_step": sampling_base_path
+        / "07071357_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_500_epochs_1_sample_5_step_ahead_5_em_step_detach_diffusion": sampling_base_path
+        / "07071420_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_detach_diffusion/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_detach_diffusion_train_data_neural_sde_paper.json",
+        "fim_retrain_from_scratch_on_sampling_1_sample_1_step_ahead_10_em_step": sampling_base_path
+        / "07081819_fim_finetune_on_sampling_1024_points_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_retrain_from_scratch/model_paths/fim_finetune_on_sampling_1024_points_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_retrain_from_scratch_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_100_epochs_1_sample_5_step_ahead_5_em_step": sampling_base_path
+        / "fim_1_sample_5_steps_ahead_5_em_steps_epoch_100_train_data_neural_sde_paper.json",
+        "fim_finetune_on_sampling_200_epochs_1_sample_5_step_ahead_5_em_step": sampling_base_path
+        / "fim_1_sample_5_steps_ahead_5_em_steps_epoch_200_train_data_neural_sde_paper.json",
     }
+
+    ### With Weight decay
+    # evaluation_base_path = Path("/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation")
+    # weigh_decay_base_path = evaluation_base_path / "20250701_latent_sde_and_fim_with_vector_fields"
+    # lat_sde_context_100_base_path = (
+    #     evaluation_base_path
+    #     / "20250701_latent_sde_and_fim_with_vector_fields"
+    #     / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
+    # )
+    # fim_epochs_1000_2000_base_path = (
+    #     evaluation_base_path
+    #     / "20250701_latent_sde_and_fim_with_vector_fields"
+    #     / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
+    # )
+    # fim_no_training_base_path = (
+    #     evaluation_base_path
+    #     / "20250701_latent_sde_and_fim_with_vector_fields"
+    #     / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+    # )
+    #
+    # models_jsons = {
+    #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
+    #     / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+    #     "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
+    #     / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
+    #     "fim_finetune_1000_epochs_lr_1e-5_weight_decay_1e-4": weigh_decay_base_path
+    #     / "07081716_fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-4/model_paths/fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-4_train_data_neural_sde_paper.json",
+    #     "fim_finetune_1000_epochs_lr_1e-5_weight_decay_1e-3": weigh_decay_base_path
+    #     / "07081731_fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3/model_paths/fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3_train_data_neural_sde_paper.json",
+    #     "fim_finetune_5000_epochs_lr_1e-5_weight_decay_1e-4": weigh_decay_base_path
+    #     / "07081731_fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3/model_paths/fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3_train_data_neural_sde_paper.json",
+    #     "fim_retrain_from_scratch_5000_epochs_lr_1e-5_weight_decay_1e-4": weigh_decay_base_path
+    #     / "07081913_fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-4_from_scratch/model_paths/fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-4_from_scratch_train_data_neural_sde_paper.json",
+    #     "fim_retrain_from_scratch_5000_epochs_lr_1e-5_weight_decay_1e-5": weigh_decay_base_path
+    #     / "07081922_fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-5_from_scratch/model_paths/fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-5_from_scratch_train_data_neural_sde_paper.json",
+    # }
+
+    #### Finetuned on NLL
+
+    # base_path = Path(
+    #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250701_latent_sde_and_fim_with_vector_fields"
+    # )
+    #
+    # lat_sde_context_1_base_path = base_path / "07011432_latent_sde_context_1_with_vector_fields/model_paths"
+    # lat_sde_context_100_base_path = base_path / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
+    # fim_epochs_200_500_base_path = base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
+    # fim_epochs_1000_2000_base_path = base_path / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
+    # fim_no_training_base_path = base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+    #
+    # models_jsons = {
+    #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
+    #     "fim_train_from_scratch_epochs_5000_lr_1e-5": fim_no_training_base_path
+    #     / "fim_train_from_scratch_lr_1e-5_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_200_lr_1e-5": fim_epochs_200_500_base_path
+    #     / "fim_finetune_200_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_500_lr_1e-5": fim_epochs_200_500_base_path
+    #     / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
+    #     / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_2000_lr_1e-5": fim_epochs_1000_2000_base_path
+    #     / "fim_finetune_2000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_200_lr_1e-6": fim_epochs_200_500_base_path
+    #     / "fim_finetune_200_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_500_lr_1e-6": fim_epochs_200_500_base_path
+    #     / "fim_finetune_500_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_1000_lr_1e-6": fim_epochs_1000_2000_base_path
+    #     / "fim_finetune_1000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+    #     "fim_finetune_epochs_2000_lr_1e-6": fim_epochs_1000_2000_base_path
+    #     / "fim_finetune_2000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
+    #     "lat_sde_context_1": lat_sde_context_1_base_path / "lat_sde_context_1_train_data_neural_sde_paper.json",
+    #     "lat_sde_context_100": lat_sde_context_100_base_path / "lat_sde_context_100_train_data_neural_sde_paper.json",
+    #     "lat_sde_latent_3_context_1": lat_sde_context_1_base_path / "lat_sde_latent_3_context_1_train_data_neural_sde_paper.json",
+    #     "lat_sde_latent_3_context_100": lat_sde_context_100_base_path / "lat_sde_latent_3_context_100_train_data_neural_sde_paper.json",
+    #     "lat_sde_latent_3_no_proj_context_1": lat_sde_context_1_base_path
+    #     / "lat_sde_latent_3_no_proj_context_1_train_data_neural_sde_paper.json",
+    #     "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
+    #     / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
+    # }
 
     only_use_loaded_evaluations = False
 

@@ -371,74 +371,85 @@ if __name__ == "__main__":
     dataset_descr = "lorenz_system_vf_and_paths_evaluation"
 
     # How to name experiments
-    experiment_descr = "latent_sde_context_1_with_vector_fields"
-
+    # experiment_descr = "latent_sde_context_1_with_vector_fields"
+    experiment_descr = "fim_sample_at_early_epochs"
     model_dicts = {
-        # ("fim_model_C_at_139_epochs_no_finetuning", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
-        #     "checkpoint_name": "epoch-139",
-        # },
-        # ("lat_sde_context_1", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_context_size_1_06-16-2219/checkpoints",
-        #     "checkpoint_name": "epoch-4999",
-        # },
-        ("lat_sde_context_100", "neural_sde_paper"): {
-            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_context_size_100_06-16-2219/checkpoints",
-            "checkpoint_name": "epoch-4999",
+        ("fim_1_sample_5_steps_ahead_5_em_steps_epoch_100", "neural_sde_paper"): {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250708_lorenz_fim_finetuning_on_sampling_mse/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_07-07-1325/checkpoints/",
+            "checkpoint_name": "epoch-99",
         },
-        # ("lat_sde_latent_3_context_1", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_context_size_1_06-16-2219/checkpoints",
-        #     "checkpoint_name": "epoch-4999",
-        # },
-        ("lat_sde_latent_3_context_100", "neural_sde_paper"): {
-            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_context_size_100_06-16-2219/checkpoints",
-            "checkpoint_name": "epoch-4999",
+        ("fim_1_sample_5_steps_ahead_5_em_steps_epoch_200", "neural_sde_paper"): {
+            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250708_lorenz_fim_finetuning_on_sampling_mse/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_07-07-1325/checkpoints/",
+            "checkpoint_name": "epoch-199",
         },
-        # ("lat_sde_latent_3_no_proj_context_1", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_no_lin_proj_context_size_1_06-16-2230/checkpoints",
-        #     "checkpoint_name": "epoch-4999",
-        # },
-        ("lat_sde_latent_3_no_proj_context_100", "neural_sde_paper"): {
-            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_no_lin_proj_context_size_100_06-16-2219/checkpoints",
-            "checkpoint_name": "epoch-4999",
-        },
-        # ("fim_finetune_1000_epochs_lr_1e-5", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_1000_epochs_lr_1e-5_06-27-0540/checkpoints",
-        #     "checkpoint_name": "epoch-999",
-        # },
-        # ("fim_finetune_1000_epochs_lr_1e-6", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_1000_epochs_lr_1e-6_06-27-0818/checkpoints",
-        #     "checkpoint_name": "epoch-999",
-        # },
-        # ("fim_finetune_2000_epochs_lr_1e-5", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_2000_epochs_lr_1e-5_06-27-0831/checkpoints",
-        #     "checkpoint_name": "epoch-1999",
-        # },
-        # ("fim_finetune_2000_epochs_lr_1e-6", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_2000_epochs_lr_1e-6_06-27-0910/checkpoints",
-        #     "checkpoint_name": "epoch-1999",
-        # },
-        # ("fim_finetune_200_epochs_lr_1e-5", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_200_epochs_lr_1e-5_06-27-0535/checkpoints",
-        #     "checkpoint_name": "epoch-199",
-        # },
-        # ("fim_finetune_200_epochs_lr_1e-6", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_200_epochs_lr_1e-6_06-27-0814/checkpoints",
-        #     "checkpoint_name": "epoch-199",
-        # },
-        # ("fim_finetune_500_epochs_lr_1e-5", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_500_epochs_lr_1e-5_06-27-0803/checkpoints",
-        #     "checkpoint_name": "epoch-499",
-        # },
-        # ("fim_finetune_500_epochs_lr_1e-6", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_finetune_1024_paths_1024_points_500_epochs_lr_1e-6_06-27-0600/checkpoints",
-        #     "checkpoint_name": "epoch-499",
-        # },
-        # ("fim_train_from_scratch_lr_1e-5", "neural_sde_paper"): {
-        #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetunings_all_1024_paths/fim_train_from_scratch_1024_paths_1024_points_20000_epochs_lr_1e-5_07-01-1202/checkpoints",
-        #     "checkpoint_name": "epoch-4999",
-        # },
     }
+
+    # model_dicts = {
+    #     # ("fim_model_C_at_139_epochs_no_finetuning", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/",
+    #     #     "checkpoint_name": "epoch-139",
+    #     # },
+    #     # ("lat_sde_context_1", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_context_size_1_06-16-2219/checkpoints",
+    #     #     "checkpoint_name": "epoch-4999",
+    #     # },
+    #     # ("lat_sde_context_100", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_context_size_100_06-16-2219/checkpoints",
+    #     #     "checkpoint_name": "epoch-4999",
+    #     # },
+    #     # ("lat_sde_latent_3_context_1", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_context_size_1_06-16-2219/checkpoints",
+    #     #     "checkpoint_name": "epoch-4999",
+    #     # },
+    #     # ("lat_sde_latent_3_context_100", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_context_size_100_06-16-2219/checkpoints",
+    #     #     "checkpoint_name": "epoch-4999",
+    #     # },
+    #     # ("lat_sde_latent_3_no_proj_context_1", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_no_lin_proj_context_size_1_06-16-2230/checkpoints",
+    #     #     "checkpoint_name": "epoch-4999",
+    #     # },
+    #     # ("lat_sde_latent_3_no_proj_context_100", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250617_lorenz_latent_sde_paper_setup/latent_sde_paper_model_latent_size_3_no_lin_proj_context_size_100_06-16-2219/checkpoints",
+    #     #     "checkpoint_name": "epoch-4999",
+    #     # },
+    #     # ("fim_finetune_1000_epochs_lr_1e-5", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_1000_epochs_lr_1e-5_06-27-0540/checkpoints",
+    #     #     "checkpoint_name": "epoch-999",
+    #     # },
+    #     # ("fim_finetune_1000_epochs_lr_1e-6", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_1000_epochs_lr_1e-6_06-27-0818/checkpoints",
+    #     #     "checkpoint_name": "epoch-999",
+    #     # },
+    #     # ("fim_finetune_2000_epochs_lr_1e-5", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_2000_epochs_lr_1e-5_06-27-0831/checkpoints",
+    #     #     "checkpoint_name": "epoch-1999",
+    #     # },
+    #     # ("fim_finetune_2000_epochs_lr_1e-6", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_2000_epochs_lr_1e-6_06-27-0910/checkpoints",
+    #     #     "checkpoint_name": "epoch-1999",
+    #     # },
+    #     # ("fim_finetune_200_epochs_lr_1e-5", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_200_epochs_lr_1e-5_06-27-0535/checkpoints",
+    #     #     "checkpoint_name": "epoch-199",
+    #     # },
+    #     # ("fim_finetune_200_epochs_lr_1e-6", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_200_epochs_lr_1e-6_06-27-0814/checkpoints",
+    #     #     "checkpoint_name": "epoch-199",
+    #     # },
+    #     # ("fim_finetune_500_epochs_lr_1e-5", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_500_epochs_lr_1e-5_06-27-0803/checkpoints",
+    #     #     "checkpoint_name": "epoch-499",
+    #     # },
+    #     # ("fim_finetune_500_epochs_lr_1e-6", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_finetune_1024_paths_1024_points_500_epochs_lr_1e-6_06-27-0600/checkpoints",
+    #     #     "checkpoint_name": "epoch-499",
+    #     # },
+    #     # ("fim_train_from_scratch_lr_1e-5", "neural_sde_paper"): {
+    #     #     "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250627_lorenz_fim_finetuning_on_nll/fim_train_from_scratch_1024_paths_1024_points_20000_epochs_lr_1e-5_07-01-1202/checkpoints",
+    #     #     "checkpoint_name": "epoch-4999",
+    #     # },
+    # }
 
     neural_sde_paper_path = Path(
         "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/"
