@@ -1202,6 +1202,7 @@ class FIMSDEConfig(PretrainedConfig):
         learnable_loss_scale_mlp (dict): Default is None
         data_delta_t (float): Fine grid delta t of data generation.
         one_step_ahead_loss_obs (int): Subsample observations for one step ahead train loss to reduce computational load.
+        num_locations_on_path (int | None): If int is passed, compute vector field loss also on this many locations on paths.
         divide_drift_loss_by_diffusion (bool): Default is True
         num_epochs (int): Number of epochs. Default is 2.
         learning_rate (float): Learning rate. Default is 1.0e-5.
@@ -1258,6 +1259,7 @@ class FIMSDEConfig(PretrainedConfig):
         learnable_loss_scale_mlp=None,  # Todo: remove, we use None
         data_delta_t: float = 0.003906,  # 10 / 128 / 20
         one_step_ahead_loss_obs: int = 1,
+        num_locations_on_path: int | None = None,
         num_epochs: int = 2,  # training variables (MAYBE SEPARATED LATER)  Todo: remove
         learning_rate: float = 1.0e-5,  # Todo: remove
         weight_decay: float = 1.0e-4,  # Todo: remove
@@ -1313,6 +1315,7 @@ class FIMSDEConfig(PretrainedConfig):
         self.learnable_loss_scale_mlp = learnable_loss_scale_mlp
         self.data_delta_t = data_delta_t
         self.one_step_ahead_loss_obs = one_step_ahead_loss_obs
+        self.num_locations_on_path = num_locations_on_path
         # training variables
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
@@ -1373,6 +1376,7 @@ class FIMSDE(AModel):
         self.learnable_loss_scale_mlp = config.learnable_loss_scale_mlp if hasattr(config, "learnable_loss_scale_mlp") else None
         self.data_delta_t = config.data_delta_t if hasattr(config, "data_delta_t") else None
         self.one_step_ahead_loss_obs = config.one_step_ahead_loss_obs if hasattr(config, "one_step_ahead_loss_obs") else 1
+        self.num_locations_on_path = config.num_locations_on_path if hasattr(config, "num_locations_on_path") else None
         self.ablation_feature_no_X = config.ablation_feature_no_X if hasattr(config, "ablation_feature_no_X") else False
         self.ablation_feature_no_dX = config.ablation_feature_no_dX if hasattr(config, "ablation_feature_no_dX") else False
         self.ablation_feature_no_dX_2 = config.ablation_feature_no_dX_2 if hasattr(config, "ablation_feature_no_dX_2") else False
@@ -1953,12 +1957,13 @@ class FIMSDE(AModel):
                     obs_values (Tensor): observation values. optionally with noise. Shape: [B, P, T, D]
                     obs_times (Tensor): observation times of obs_values. Shape: [B, P, T, 1]
                 Optional keys:
-                    obs_values_clean (Tensor): observation values, without noise, for one-step-ahead likelihood loss. Shape: [B, P, T, D]
                     obs_mask (Tensor): mask for padded observations. == 1.0 if observed. Shape: [B, P, T, 1]
                     locations (Tensor): where to evaluate the drift and diffusion function. Shape: [B, G, D]
                 Optional keys for loss calculations:
                     drift/diffusion_at_locations (Tensor): ground-truth concepts at locations. Shape: [B, G, D]
                     dimension_mask (Tensor): 0 at padded dimensions of ground-truth data at locations. Shape: [B, G, D]
+                    obs_values_clean (Tensor): observation values, without noise, for one-step-ahead likelihood loss or locations on path. Shape: [B, P, T, D]
+                    drift/diffusion_at_obs_values (Tensor): ground-truth concepts at clean obs values. Shape: [B, P, T, D]
                 where B: batch size P: number of paths T: number of time steps G: location grid size D: dimensions
 
             locations (Optional[Tensor]): If passed, is prioritized over data.locations. Shape: [B, G, D]
@@ -1970,9 +1975,41 @@ class FIMSDE(AModel):
                 if training == True or return_losses == True return (additionally):
                     losses (dict): training objective has key "loss", other keys are auxiliary for monitoring
         """
-        # for one step ahead likelihood loss
+        # for one step ahead likelihood loss or locations on path
         obs_times_clean = deepcopy(data["obs_times"])
         obs_values_clean = data.get("obs_values_clean")
+        drift_at_obs_values = data.get("drift_at_obs_values")
+        diffusion_at_obs_values = data.get("diffusion_at_obs_values")
+
+        # add locations on paths to locations during training
+        if (
+            obs_values_clean is not None
+            and drift_at_obs_values is not None
+            and diffusion_at_obs_values is not None
+            and self.num_locations_on_path is not None
+        ):
+            obs_values_clean = torch.flatten(obs_values_clean, start_dim=1, end_dim=2)  # [B, P * T, D]
+            drift_at_obs_values = torch.flatten(drift_at_obs_values, start_dim=1, end_dim=2)  # [B, P * T, D]
+            diffusion_at_obs_values = torch.flatten(diffusion_at_obs_values, start_dim=1, end_dim=2)  # [B, P * T, D]
+
+            assert obs_values_clean.shape == drift_at_obs_values.shape == diffusion_at_obs_values.shape
+            perm = torch.randperm(obs_values_clean.shape[1])[: self.num_locations_on_path]
+
+            obs_values_clean = obs_values_clean[:, perm, :]
+            drift_at_obs_values = drift_at_obs_values[:, perm, :]
+            diffusion_at_obs_values = diffusion_at_obs_values[:, perm, :]
+
+            data["locations"] = torch.concatenate([data["locations"], obs_values_clean], dim=1)
+            data["drift_at_locations"] = torch.concatenate([data["drift_at_locations"], drift_at_obs_values], dim=1)
+            data["diffusion_at_locations"] = torch.concatenate([data["diffusion_at_locations"], diffusion_at_obs_values], dim=1)
+
+            data["dimension_mask"] = torch.concatenate(
+                [
+                    data["dimension_mask"],
+                    torch.repeat_interleave(data["dimension_mask"][:, 0, :][:, None, :], repeats=self.num_locations_on_path, dim=1),
+                ],
+                dim=1,
+            )
 
         # Instance normalization and appyling mask to observations
         obs_times, obs_values, obs_mask, locations, states_norm_stats, times_norm_stats = self.preprocess_inputs(data, locations)
@@ -2652,16 +2689,58 @@ class FIMSDE(AModel):
             drift_log_loss_scale_per_location,
         )
 
-        if obs_values_clean is not None:
-            obs_times_clean = self.times_norm.normalization_map(obs_times_clean, times_norm_stats)
-            obs_values_clean = self.states_norm.normalization_map(obs_values_clean, states_norm_stats)
-            one_step_ahead_loss = self.one_step_ahead_loss(obs_times_clean, obs_values_clean, obs_mask, dimension_mask, paths_encoding)
+        # if obs_values_clean is not None:
+        #     obs_times_clean = self.times_norm.normalization_map(obs_times_clean, times_norm_stats)
+        #     obs_values_clean = self.states_norm.normalization_map(obs_values_clean, states_norm_stats)
+        #     one_step_ahead_loss = self.one_step_ahead_loss(obs_times_clean, obs_values_clean, obs_mask, dimension_mask, paths_encoding)
+        #
+        # else:
+        #     one_step_ahead_loss = torch.zeros_like(kl_loss)
+
+        if self.num_locations_on_path is not None:
+            estimated_drift_on_path = estimated_concepts.drift[:, -self.num_locations_on_path :]
+            estimated_diffusion_on_path = estimated_concepts.diffusion[:, -self.num_locations_on_path :]
+            target_drift_on_path = target_concepts.drift[:, -self.num_locations_on_path :]
+            target_diffusion_on_path = target_concepts.diffusion[:, -self.num_locations_on_path :]
+            dimension_mask_on_path = dimension_mask[:, -self.num_locations_on_path :]
+            drift_log_loss_scale_per_path_location = drift_log_loss_scale_per_location[:, -self.num_locations_on_path :]
+            diffusion_log_loss_scale_per_path_location = diffusion_log_loss_scale_per_location[:, -self.num_locations_on_path :]
+
+            estimated_concepts.drift = estimated_concepts.drift[:, : -self.num_locations_on_path]
+            estimated_concepts.diffusion = estimated_concepts.diffusion[:, : -self.num_locations_on_path]
+            target_concepts.drift = target_concepts.drift[:, : -self.num_locations_on_path]
+            target_concepts.diffusion = target_concepts.diffusion[:, : -self.num_locations_on_path]
+            dimension_mask = dimension_mask[:, : -self.num_locations_on_path]
+            drift_log_loss_scale_per_location = drift_log_loss_scale_per_location[:, : -self.num_locations_on_path]
+            diffusion_log_loss_scale_per_location = diffusion_log_loss_scale_per_location[:, : -self.num_locations_on_path]
+
+            drift_loss_at_path, _, _ = self.vector_field_loss(
+                estimated_drift_on_path,
+                None,
+                target_drift_on_path,
+                dimension_mask_on_path,
+                loss_threshold,
+                vector_field_max_norm,
+                target_diffusion=target_diffusion_on_path if self.divide_drift_loss_by_diffusion is True else None,
+                log_loss_scale_per_location=drift_log_loss_scale_per_path_location,
+            )
+
+            diffusion_loss_at_path, _, _ = self.vector_field_loss(
+                estimated_diffusion_on_path,
+                None,
+                target_diffusion_on_path,
+                dimension_mask_on_path,
+                loss_threshold,
+                vector_field_max_norm,
+                log_loss_scale_per_location=diffusion_log_loss_scale_per_path_location,
+            )
 
         else:
-            one_step_ahead_loss = torch.zeros_like(kl_loss)
+            drift_loss_at_path = None
+            diffusion_loss_at_path = None
 
         (
-            drift_loss,
+            drift_loss_at_locations,
             drift_loss_above_threshold_or_nan_perc,
             drift_target_above_max_norm,
         ) = self.vector_field_loss(
@@ -2675,7 +2754,7 @@ class FIMSDE(AModel):
             log_loss_scale_per_location=drift_log_loss_scale_per_location,
         )
         (
-            diffusion_loss,
+            diffusion_loss_at_locations,
             diffusion_loss_above_threshold_or_nan_perc,
             diffusion_target_above_max_norm,
         ) = self.vector_field_loss(
@@ -2699,6 +2778,17 @@ class FIMSDE(AModel):
             learned_scale_add_loss_term_drift = learned_scale_add_loss_term_drift / 2
             learned_scale_add_loss_term_diffusion = learned_scale_add_loss_term_diffusion / 2
 
+        if drift_loss_at_path is not None:
+            drift_loss = drift_loss_at_path + drift_loss_at_locations
+            diffusion_loss = diffusion_loss_at_path + diffusion_loss_at_locations
+
+        else:
+            drift_loss = drift_loss_at_locations
+            diffusion_loss = diffusion_loss_at_locations
+
+            drift_loss_at_path = 0
+            diffusion_loss_at_path = 0
+
         # assemble losses
         total_loss = (
             drift_loss_scale * drift_loss
@@ -2712,10 +2802,14 @@ class FIMSDE(AModel):
         losses = {
             "loss": total_loss,
             "L1_drift_loss": drift_loss,
+            "L1_drift_loss_at_locations": drift_loss_at_locations,
+            "L1_drift_loss_at_path": drift_loss_at_path,
             "L1_diffusion_loss": diffusion_loss,
+            "L1_diffusion_loss_at_locations": diffusion_loss_at_locations,
+            "L1_diffusion_loss_at_path": diffusion_loss_at_path,
             "L2_KL_loss": kl_loss,
             "L3_short_time_trans_log_likelihood_loss": short_time_trans_ll,
-            "L4_one_step_ahead_log_likelihood_loss": one_step_ahead_loss,
+            # "L4_one_step_ahead_log_likelihood_loss": one_step_ahead_loss,
             "drift_loss_above_threshold_or_nan_perc": drift_loss_above_threshold_or_nan_perc,
             "diffusion_loss_above_threshold_or_nan_perc": diffusion_loss_above_threshold_or_nan_perc,
             "loss_threshold": loss_threshold,

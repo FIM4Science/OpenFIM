@@ -45,6 +45,8 @@ def save_fimsdedatabatch_to_files(databatch: FIMSDEDatabatch, save_dir: Path) ->
     save_h5(databatch.locations, save_dir / "locations.h5")
     save_h5(databatch.drift_at_locations, save_dir / "drift_at_locations.h5")
     save_h5(databatch.diffusion_at_locations, save_dir / "diffusion_at_locations.h5")
+    save_h5(databatch.drift_at_obs_values, save_dir / "drift_at_obs_values.h5")
+    save_h5(databatch.diffusion_at_obs_values, save_dir / "diffusion_at_obs_values.h5")
     save_h5(torch.ones_like(databatch.locations), save_dir / "dimension_mask.h5")
 
     if not hasattr(databatch, "obs_mask") or databatch.obs_mask is None:

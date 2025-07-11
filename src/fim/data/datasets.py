@@ -690,6 +690,9 @@ class FIMSDEDatabatch:
     diffusion_at_locations: Tensor | np.ndarray
     locations: Tensor | np.ndarray
 
+    drift_at_obs_values: Tensor | np.ndarray
+    diffusion_at_obs_values: Tensor | np.ndarray
+
     obs_mask: Tensor | np.ndarray = None
 
     diffusion_parameters: Tensor | np.ndarray = None

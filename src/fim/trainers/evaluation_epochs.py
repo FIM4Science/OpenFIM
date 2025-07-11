@@ -231,6 +231,11 @@ class SDEEvaluationPlots(EvaluationEpoch):
 
                 example_of_dim: dict = optree.tree_map(lambda x: x.to(self.model.device), example_of_dim)
 
+                # don't need vector fields on paths
+                example_of_dim.pop("obs_values_clean", None)
+                example_of_dim.pop("drift_at_obs_values", None)
+                example_of_dim.pop("diffusion_at_obs_values", None)
+
                 # get concepts and samples from example_of_dim
                 with torch.no_grad():
                     with torch.amp.autocast(
