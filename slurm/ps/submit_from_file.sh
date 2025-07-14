@@ -13,7 +13,7 @@ exec 3<"$file_with_cmds" # open in file descriptor 3 (0-2 are reserved for stdin
 itr=1
 while IFS= read -r line <&3; do
 	echo "Started in ${itr}: $line"
-	srun_params="--mem=32GB -c 16 --partition=GPU1 --gres=gpu:1 --export ALL \
+	srun_params="--mem=32GB -c 16 --partition=GPU1 --gres=gpu:nvidia_a100-sxm4-80gb:1 --export ALL \
     --container-name='sde_torch_23_12' --container-image=nvcr.io/ml2r/interactive_pytorch:23.12-py3 --container-workdir=$HOME \
     --mail-user=seifner@iai.uni-bonn.de --mail-type=ALL \
     -e ~/slurm_logs/${stripped_filename}-${itr}-%j.err \

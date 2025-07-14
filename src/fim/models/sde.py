@@ -1220,7 +1220,8 @@ class FIMSDEConfig(PretrainedConfig):
         number_of_time_steps_pipeline (int): Number of time steps in the pipeline. Default is 128.
         evaluate_with_unnormalized_heads (bool): Evaluate with unnormalized heads. Default is True.
         finetune (bool): Indicates fintuning on the observations. Default is False.
-        finetune_on_sampling_mse (bool): Indicates finetuning only on one-step-ahead prediction. Default is True.
+        finetune_on_sampling_mse (bool): Indicates finetuning by comparing samples from model to observations with MSE. Default is True.
+        finetune_on_sampling_nll (bool): Indicates finetuning sampling from model, but using Gaussian NLL of the last EM step. Default is True.
         finetune_samples_count (int): Number of samples to generate for finetuning. Default is 1.
         finetune_samples_steps (int): Number of steps to generate from each intitial state for finetuning. Default is 1.
         finetune_em_steps (int): Number of EM steps between two observations for finetuning. Default is 1.
@@ -1283,6 +1284,7 @@ class FIMSDEConfig(PretrainedConfig):
         finetune_detach_diffusion: bool = False,
         finetune_on_likelihood: bool = False,
         finetune_on_sampling_mse: bool = False,
+        finetune_on_sampling_nll: bool = False,
         finetune_num_points: int = -1,
         **kwargs,
     ):
@@ -1343,6 +1345,7 @@ class FIMSDEConfig(PretrainedConfig):
         self.finetune_detach_diffusion = finetune_detach_diffusion
         self.finetune_on_likelihood = finetune_on_likelihood
         self.finetune_on_sampling_mse = finetune_on_sampling_mse
+        self.finetune_on_sampling_nll = finetune_on_sampling_nll
         self.finetune_num_points = finetune_num_points
         super().__init__(**kwargs)
 
@@ -1392,6 +1395,7 @@ class FIMSDE(AModel):
         self.finetune_detach_diffusion = config.finetune_detach_diffusion if hasattr(config, "finetune_detach_diffusion") else False
         self.finetune_on_likelihood = config.finetune_on_likelihood if hasattr(config, "finetune_on_likelihood") else False
         self.finetune_on_sampling_mse = config.finetune_on_sampling_mse if hasattr(config, "finetune_on_sampling_mse") else False
+        self.finetune_on_sampling_nll = config.finetune_on_sampling_nll if hasattr(config, "finetune_on_sampling_nll") else False
         self.finetune_num_points = config.finetune_num_points if hasattr(config, "finetune_num_points") else -1
 
         # # Save hyperparameters
@@ -2084,7 +2088,15 @@ class FIMSDE(AModel):
                 dimension_mask = torch.ones_like(estimated_concepts.drift, dtype=bool)
 
             else:
-                dimension_mask = torch.ones_like(obs_values[:, 0, 0, :][:, None, :])
+                # dimension_mask = torch.ones_like(obs_values[:, 0, 0, :][:, None, :])
+                dimension_mask = torch.ones_like(data.get("obs_values")[:, 0, 0, :][:, None, :])
+                if dimension_mask.shape[-1] != self.config.max_dimension:
+                    missing_dims = self.config.max_dimension - data.get("obs_values").shape[-1]
+
+                    mask_pad = torch.broadcast_to(
+                        torch.zeros_like(dimension_mask[..., 0][..., None]), dimension_mask.shape[:-1] + (missing_dims,)
+                    )
+                    dimension_mask = torch.concatenate([dimension_mask, mask_pad], dim=-1)
 
         if schedulers is not None:
             if "loss_threshold" in schedulers.keys() and training is True:
@@ -2135,6 +2147,11 @@ class FIMSDE(AModel):
             else:
                 sampling_mse_loss_scale = 1.0
 
+            if "sampling_nll_loss_scale" in schedulers.keys() and training is True:
+                sampling_nll_loss_scale = schedulers.get("sampling_nll_loss_scale")(step)
+
+            else:
+                sampling_nll_loss_scale = 1.0
         else:
             loss_threshold = torch.inf
             vector_field_max_norm = torch.inf
@@ -2144,6 +2161,7 @@ class FIMSDE(AModel):
             short_time_transition_log_likelihood_loss_scale = 0.0
             one_step_nll_loss_scale = 1.0
             sampling_mse_loss_scale = 1.0
+            sampling_nll_loss_scale = 1.0
 
         # Returns
         if training is True:
@@ -2177,6 +2195,7 @@ class FIMSDE(AModel):
                     obs_mask,
                     one_step_nll_loss_scale,
                     sampling_mse_loss_scale,
+                    sampling_nll_loss_scale,
                     dimension_mask,
                 )
 
@@ -2215,6 +2234,7 @@ class FIMSDE(AModel):
                         obs_mask,
                         one_step_nll_loss_scale,
                         sampling_mse_loss_scale,
+                        sampling_nll_loss_scale,
                         dimension_mask,
                     )
 
@@ -2833,6 +2853,7 @@ class FIMSDE(AModel):
         obs_mask: Tensor,
         one_step_nll_loss_scale: float,
         sampling_mse_loss_scale: float,
+        sampling_nll_loss_scale: float,
         dimension_mask: Optional[Tensor] = None,
     ):
         """
@@ -2865,15 +2886,18 @@ class FIMSDE(AModel):
             initial_states = obs_values[:, :, :-1, :].reshape(B, -1, D)
             target_states = obs_values[:, :, 1:, :].reshape(B, -1, D)
             delta_tau = (obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]).reshape(B, -1, 1)
+            obs_mask_valid_steps = (obs_mask[:, :, :-1, :] + obs_mask[:, :, 1:, :]).reshape(B, -1, 1)
 
             if self.finetune_num_points is not -1:
                 perm = torch.randperm(initial_states.shape[-2])[: self.finetune_num_points]
                 initial_states = initial_states[:, perm, :]
                 target_states = target_states[:, perm, :]
+                obs_mask_valid_steps = obs_mask_valid_steps[:, perm, :]
                 delta_tau = delta_tau[:, perm, :]
 
             initial_states = torch.repeat_interleave(initial_states, self.finetune_samples_count, dim=1)
             target_states = torch.repeat_interleave(target_states, self.finetune_samples_count, dim=1)
+            obs_mask_valid_steps = torch.repeat_interleave(obs_mask_valid_steps, self.finetune_samples_count, dim=1)
             delta_tau = torch.repeat_interleave(delta_tau, self.finetune_samples_count, dim=1)
 
             sde_concepts_at_initial_states, _ = self.get_estimated_sde_concepts(
@@ -2885,12 +2909,12 @@ class FIMSDE(AModel):
             one_step_nll = ((target_states - initial_states - drift * delta_tau) ** 2) / (2 * diffusion**2 * delta_tau) + (
                 2 * torch.log(diffusion)
             )
-            one_step_nll = one_step_nll.mean()
+            one_step_nll = torch.nanmean(torch.where(obs_mask_valid_steps.bool(), one_step_nll, torch.nan))
 
         else:
             one_step_nll = 0
 
-        if self.finetune_on_sampling_mse is True:
+        if self.finetune_on_sampling_mse is True or self.finetune_on_sampling_nll is True:
             initial_states = obs_values[:, :, 0, :]  # [B, P, D]
 
             obs_patches = obs_values.unfold(dimension=-2, size=self.finetune_samples_steps + 1, step=1)  # [B, P, T-(steps+1), D, steps+1]
@@ -2898,18 +2922,26 @@ class FIMSDE(AModel):
             initial_states = obs_patches[:, :, :, 0, :]  # [B, P, T - (steps + 1), D]
             target_states = obs_patches[:, :, :, 1:, :]  # [B, P, T - (steps + 1), steps, D]
 
+            obs_mask_valid_steps = obs_mask.unfold(
+                dimension=-2, size=self.finetune_samples_steps + 1, step=1
+            )  # [B, P, T-(steps+1), 1, steps+1]
+            obs_mask_valid_steps = torch.transpose(obs_mask_valid_steps, -1, -2)  # [B, P, T - (steps+1), steps+1, 1]
+            obs_mask_valid_steps = obs_mask_valid_steps[..., :-1, :] * obs_mask_valid_steps[..., 1:, :]  # [B, P, T - (steps + 1), steps, D]
+
             times_patches = obs_times.unfold(dimension=-2, size=self.finetune_samples_steps + 1, step=1)  # [B, P, T-(steps+1), 1, steps+1]
             times_patches = torch.transpose(times_patches, -1, -2)  # [B, P, T-(steps+1), steps+1, 1]
             delta_tau = times_patches[..., 1:, :] - times_patches[..., :-1, :]  # [B, P, T - (steps + 1), steps, 1]
 
             initial_states = torch.flatten(initial_states, start_dim=1, end_dim=2)  # [B, -1, D]
             target_states = torch.flatten(target_states, start_dim=1, end_dim=2)  # [B, -1, steps, D]
+            obs_mask_valid_steps = torch.flatten(obs_mask_valid_steps, start_dim=1, end_dim=2)  # [B, -1, steps, D]
             delta_tau = torch.flatten(delta_tau, start_dim=1, end_dim=2)  # [B, -1, steps, D]
 
             if self.finetune_num_points is not -1:
                 perm = torch.randperm(initial_states.shape[1])[: self.finetune_num_points]
                 initial_states = initial_states[:, perm]
                 target_states = target_states[:, perm]
+                obs_mask_valid_steps = obs_mask_valid_steps[:, perm]
                 delta_tau = delta_tau[:, perm]
 
             initial_states = torch.repeat_interleave(initial_states, self.finetune_samples_count, dim=1)
@@ -2919,11 +2951,12 @@ class FIMSDE(AModel):
             dimension_mask = torch.broadcast_to(dimension_mask[:, 0, :][:, None, None, :], target_states.shape)
 
             predicted_states = []
+            last_step_before_prediction = []
             current_states = initial_states
 
             for t in range(self.finetune_samples_steps):
                 delta_tau_ = delta_tau[:, :, t]
-                current_states = self._euler_step(
+                current_states, last_states = self._euler_step(
                     current_states,
                     delta_tau_,
                     self.finetune_em_steps,
@@ -2931,30 +2964,81 @@ class FIMSDE(AModel):
                     obs_mask[:, :, :-1, :],
                     dimension_mask[:, :, 0, :],
                 )
-                predicted_states.append(current_states)
+                if self.finetune_on_sampling_mse is True:
+                    predicted_states.append(current_states)
 
-            predicted_states = torch.stack(predicted_states, dim=-2)
+                if self.finetune_on_sampling_nll:
+                    last_step_before_prediction.append(last_states)
 
-            assert target_states.shape == predicted_states.shape
-            assert target_states.shape == dimension_mask.shape
+            if self.finetune_on_sampling_mse is True:
+                predicted_states = torch.stack(predicted_states, dim=-2)
+                assert target_states.shape == predicted_states.shape
+                predicted_states = predicted_states.reshape(B, -1, D)
+
+            if self.finetune_on_sampling_nll is True:
+                last_step_before_prediction = torch.stack(last_step_before_prediction, dim=-2)
+                assert target_states.shape == last_step_before_prediction.shape
+                last_step_before_prediction = last_step_before_prediction.reshape(B, -1, D)
+
+            assert target_states.shape[:-1] == dimension_mask.shape[:-1] == obs_mask_valid_steps.shape[:-1]
             assert target_states.ndim == 4
-
             target_states = target_states.reshape(B, -1, D)
-            predicted_states = predicted_states.reshape(B, -1, D)
+
+            obs_mask_valid_steps = obs_mask_valid_steps.reshape(B, -1, 1)
             dimension_mask = dimension_mask.reshape(B, -1, D)
 
-            sampling_mse = mse_at_locations(predicted_states, target_states, dimension_mask)  # [B, -1]
-            sampling_mse = sampling_mse.mean()
+            location_mask = dimension_mask * obs_mask_valid_steps
+
+            if self.finetune_on_sampling_mse is True:
+                sampling_mse = mse_at_locations(predicted_states, target_states, location_mask)  # [B, -1]
+                sampling_mse = sampling_mse.mean()
+
+            else:
+                sampling_mse = 0
+
+            if self.finetune_on_sampling_nll is True:
+                sde_concepts, _ = self.get_estimated_sde_concepts(
+                    last_step_before_prediction,
+                    paths_encoding=paths_encoding,
+                    obs_mask=obs_mask[:, :, :-1, :],
+                    dimension_mask=dimension_mask,
+                )
+                drift, diffusion = sde_concepts.drift, sde_concepts.diffusion
+
+                em_delta_t = delta_tau / self.finetune_em_steps
+                em_delta_t = em_delta_t.reshape(B, -1, 1)
+
+                assert drift.shape == diffusion.shape == target_states.shape == last_step_before_prediction.shape == location_mask.shape
+
+                # clip diffusion=0, em_delta_t=0, they are masked below
+                diffusion = torch.clip(diffusion, min=1e-10)
+                em_delta_t = torch.clip(em_delta_t, min=1e-10)
+
+                sampling_nll = ((target_states - last_step_before_prediction - drift * em_delta_t) ** 2) / (
+                    2 * diffusion**2 * em_delta_t
+                ) + (2 * torch.log(diffusion))
+
+                assert sampling_nll.shape == drift.shape
+
+                sampling_nll = sampling_nll * location_mask
+                sampling_nll = sampling_nll.sum() / location_mask.sum()
+
+            else:
+                sampling_nll = 0
 
         else:
             sampling_mse = 0
+            sampling_nll = 0
 
-        total_loss = one_step_nll_loss_scale * one_step_nll + sampling_mse_loss_scale * sampling_mse
+        total_loss = (
+            one_step_nll_loss_scale * one_step_nll + sampling_mse_loss_scale * sampling_mse + sampling_nll_loss_scale * sampling_nll
+        )
 
         losses = {
             "loss": total_loss,
             "one_step_nll": one_step_nll,
             "sampling_mse": sampling_mse,
+            "sampling_nll": sampling_nll,
         }
 
         return losses
@@ -2970,9 +3054,11 @@ class FIMSDE(AModel):
     ):
         assert current_states.shape[:-1] == delta_tau.shape[:-1]
 
+        last_states = current_states
         current_states = current_states.to(torch.float32)  # Todo: should be handled better
 
         for _ in range(solver_granularity):
+            last_states = current_states
             sde_concepts, _ = self.get_estimated_sde_concepts(
                 current_states, paths_encoding=paths_encoding, obs_mask=obs_mask, dimension_mask=dimension_mask
             )
@@ -2988,8 +3074,9 @@ class FIMSDE(AModel):
             current_states = current_states + drift_increment + diffusion_increment  # [B, I, D]
 
         assert current_states.shape[:-1] == delta_tau.shape[:-1]
+        assert last_states.shape[:-1] == delta_tau.shape[:-1]
 
-        return current_states
+        return current_states, last_states
 
     def metric(self, y: Any, y_target: Any) -> Dict:
         return super().metric(y, y_target)

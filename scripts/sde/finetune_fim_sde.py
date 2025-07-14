@@ -37,6 +37,7 @@ def finetune_fim(
     detach_diffusion: bool,
     likelihood: bool,
     sampling_mse: bool,
+    sampling_nll: bool,
     num_points: int,
     samples_count: int,
     samples_steps: int,
@@ -93,6 +94,9 @@ def finetune_fim(
 
     model.finetune_on_sampling_mse = sampling_mse
     model.config.finetune_on_sampling_mse = sampling_mse
+
+    model.finetune_on_sampling_nll = sampling_nll
+    model.config.finetune_on_sampling_nll = sampling_nll
 
     model.finetune_num_points = num_points
     model.config.finetune_num_points = num_points
@@ -173,6 +177,7 @@ if __name__ == "__main__":
     @click.option("--detach-diffusion", "detach_diffusion", type=bool, required=False, default=False)
     @click.option("--likelihood", "likelihood", type=bool, required=False, default=False)
     @click.option("--sampling-mse", "sampling_mse", type=bool, required=False, default=False)
+    @click.option("--sampling-nll", "sampling_nll", type=bool, required=False, default=False)
     @click.option("--samples-count", "samples_count", type=int, required=False, default=1)
     @click.option("--samples-steps", "samples_steps", type=int, required=False, default=1)
     @click.option("--em-steps", "em_steps", type=int, required=False, default=1)
