@@ -412,14 +412,29 @@ class FIMHawkes(AModel):
             )
             out["target_intensity_values"] = target_intensity_values
 
-            out["losses"] = self.loss(
-                intensity_fn,
-                out["target_intensity_values"],
-                x["inference_event_times"].squeeze(-1),
-                x["inference_event_types"].squeeze(-1),
+            # Compute target integrated intensities using high-precision Monte Carlo
+            target_integrated_intensity = self.compute_target_integrated_intensity(
+                kernel_functions_list,
+                base_intensity_functions_list,
+                x["intensity_evaluation_times"],
+                x["inference_event_times"],
+                x["inference_event_types"],
                 x["inference_seq_lengths"],
-                schedulers,
-                step,
+                norm_constants,
+                num_marks=num_marks,
+            )
+            out["target_integrated_intensity"] = target_integrated_intensity
+
+            out["losses"] = self.loss(
+                intensity_fn=intensity_fn,
+                target_intensity_values=out["target_intensity_values"],
+                target_integrated_intensity=out["target_integrated_intensity"],
+                event_times=x["inference_event_times"].squeeze(-1),
+                event_types=x["inference_event_types"].squeeze(-1),
+                seq_lengths=x["inference_seq_lengths"],
+                eval_times=x["intensity_evaluation_times"],
+                schedulers=schedulers,
+                step=step,
             )
 
         if self.normalize_times:
@@ -686,20 +701,20 @@ class FIMHawkes(AModel):
 
     def loss(
         self,
-        predicted_intensity: "PiecewiseHawkesIntensity",
+        intensity_fn: "PiecewiseHawkesIntensity",
         target_intensity_values: Tensor,
+        target_integrated_intensity: Tensor,
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
+        eval_times: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        """Computes the total loss as a weighted sum of MSE and Negative Log-Likelihood."""
-        # --- 1. MSE Loss ---
+        """Computes the total loss as a weighted sum of MSE, NLL, and integrated intensity loss."""
+        # --- 1. Intensity (L_lambda) Loss ---
         # Evaluate predicted intensity at the same points as the target for comparison.
-        eval_times = torch.linspace(0, event_times.max(), steps=target_intensity_values.shape[-1], device=self.device)
-        eval_times = eval_times.expand(target_intensity_values.shape[0], target_intensity_values.shape[2], -1)
-        predicted_intensity_values = predicted_intensity.evaluate(eval_times)
+        predicted_intensity_values = intensity_fn.evaluate(eval_times)
         mse_loss = torch.mean((predicted_intensity_values - target_intensity_values) ** 2)
         mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))  # For monitoring
 
@@ -707,15 +722,11 @@ class FIMHawkes(AModel):
         B, P, L = event_times.shape
 
         # a) Sum of log-intensities at event times
-        # Shape: [B, P, L] -> [B, 1, P, L] -> [B, M, P, L]
-        log_intensity_at_events = torch.log(predicted_intensity.evaluate(event_times))
+        log_intensity_at_events = torch.log(intensity_fn.evaluate(event_times))
 
         # We only care about the intensity of the mark that actually occurred.
-        # Create indices for gathering.
-        # event_types shape: [B, P, L] -> [B, 1, P, L]
         type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)
-        # Select the intensity for the specific event mark
-        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)  # [B,P,L]
+        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
 
         # Mask out padded events
         positions = torch.arange(L, device=self.device).view(1, 1, L)
@@ -725,25 +736,95 @@ class FIMHawkes(AModel):
         # b) Integral of intensity over the observation interval [0, T]
         t_start = torch.zeros(B, P, device=self.device)
         t_end = event_times.max(dim=2).values
-        integral_term = predicted_intensity.integral(t_start, t_end).sum()
+        integral_term = intensity_fn.integral(t_start=t_start, t_end=t_end).sum()
 
         # c) NLL calculation
-        # The loss is averaged over the number of sequences and the number of events
         num_events = seq_lengths.sum()
         nll_loss = (integral_term - log_likelihood_term) / num_events
 
-        # --- 3. Weighted Total Loss ---
-        loss_weights = self.config.loss_weights or {"mse": 1.0, "nll": 1.0}
-        total_loss = loss_weights.get("mse", 1.0) * mse_loss + loss_weights.get("nll", 1.0) * nll_loss
+        # --- 3. Integrated Intensity (L_A) Loss ---
+        # a) Predicted integrated intensity up to each evaluation time
+        predicted_integrated_intensity = intensity_fn.integral(t_end=eval_times)
+
+        # b) Compute MSE between predicted and the pre-computed high-precision target
+        integrated_intensity_loss = torch.mean((predicted_integrated_intensity - target_integrated_intensity) ** 2)
+
+        # --- 4. Weighted Total Loss ---
+        loss_weights = self.config.loss_weights
+        total_loss = (
+            loss_weights.get("mse") * mse_loss
+            + loss_weights.get("nll") * nll_loss
+            + loss_weights.get("integrated_intensity") * integrated_intensity_loss
+        )
 
         return {
             "loss": total_loss,
             "mse_loss": mse_loss,
             "nll_loss": nll_loss,
+            "integrated_intensity_loss": integrated_intensity_loss,
             "mae_loss": mae_loss,
         }
 
-    # In hawkes.py
+    def compute_target_integrated_intensity(
+        self,
+        kernel_functions_list: list,
+        base_intensity_functions_list: list,
+        intensity_evaluation_times: Tensor,
+        inference_event_times: Tensor,
+        inference_event_types: Tensor,
+        inference_seq_lengths: Tensor,
+        norm_constants: Tensor,
+        num_marks: int,
+        num_samples: int = 100,
+    ):
+        """
+        Computes the ground-truth integrated intensity Λ(t) = ∫λ(s)ds from 0 to t
+        for each t in `intensity_evaluation_times` using high-precision Monte Carlo integration.
+        """
+        B, P, L_eval = intensity_evaluation_times.shape
+        device = intensity_evaluation_times.device
+
+        # 1. Generate random time samples for integration for each interval [0, t]
+        # Shape: [B, P, L_eval, num_samples]
+        rand_for_sampling = torch.rand(B, P, L_eval, num_samples, device=device)
+
+        # Shape of t_end: [B, P, L_eval] -> [B, P, L_eval, 1] for broadcasting
+        t_end = intensity_evaluation_times.unsqueeze(-1)
+
+        # Create samples in [0, t_end] for each t_end
+        # Shape: [B, P, L_eval, num_samples]
+        time_samples = rand_for_sampling * t_end
+
+        # 2. Evaluate the ground-truth intensity λ(s) at these sample points.
+        # The `compute_target_intensity_values` function expects time inputs of shape [B, P, L_points].
+        # We flatten the L_eval and num_samples dimensions to comply.
+        time_samples_flat = time_samples.reshape(B, P, L_eval * num_samples)
+
+        intensity_at_samples_flat = self.compute_target_intensity_values(
+            kernel_functions_list,
+            base_intensity_functions_list,
+            time_samples_flat,  # Pass the dense samples here
+            inference_event_times,
+            inference_event_types,
+            inference_seq_lengths,
+            norm_constants,
+            num_marks,
+        )
+        # Result shape: [B, M, P, L_eval * num_samples]
+
+        # 3. Reshape back and perform Monte Carlo estimation
+        # Reshape to: [B, M, P, L_eval, num_samples]
+        intensity_at_samples = intensity_at_samples_flat.reshape(B, num_marks, P, L_eval, num_samples)
+
+        # Average the intensity values for each interval
+        # Shape: [B, M, P, L_eval]
+        mean_intensity = intensity_at_samples.mean(dim=-1)
+
+        # Integral ≈ (t_end - t_start) * mean_intensity. Here t_start is 0.
+        # Shape of t_end: [B, P, L_eval] -> [B, 1, P, L_eval] for broadcasting
+        integral_estimate = mean_intensity * intensity_evaluation_times.unsqueeze(1)
+
+        return integral_estimate
 
     def compute_target_intensity_values(
         self,
