@@ -43,7 +43,7 @@ dataset:
     min_sequence_len: 10
     max_sequence_len: 250
 
-    num_inference_times: 10 # Number of times at which to evaluate the intensity function per inference path
+    num_inference_times: 50 # Number of times at which to evaluate the intensity function per inference path
 
   dataset_kwargs:
     files_to_load:
@@ -112,6 +112,28 @@ model:
     projection:
       name: fim.models.blocks.base.MLP
       hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
+  # New attention configurations for the paper architecture
+  context_self_attention:
+    num_heads: 4
+    dropout: 0.1
+    batch_first: true
+
+  # Separate decoders for Hawkes parameters
+  mu_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    hidden_act: *hidden_act
+
+  alpha_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    hidden_act: *hidden_act
+
+  beta_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    hidden_act: *hidden_act
 
   intensity_decoder:
     name: fim.models.blocks.base.MLP
