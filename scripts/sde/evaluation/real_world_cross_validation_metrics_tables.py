@@ -217,7 +217,8 @@ if __name__ == "__main__":
     # How to name experiments
     # experiment_descr = "fim_checkpoints_vs_BISDE"
     # experiment_descr = "fim_and_BISDE_vs_ablation_models"
-    experiment_descr = "fim_vs_bisde_neurips_table"
+    # experiment_descr = "fim_vs_bisde_neurips_table"
+    experiment_descr = "post_neurips_table_vm_vs_fim_location_at_obs_vs_bisde"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
@@ -310,6 +311,9 @@ if __name__ == "__main__":
         "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
             "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
         ),
+        "FIM (half locations at observations) (07-14-1850) Epoch 139": Path(
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250716_post_neurips_evaluations/real_world_cross_validation_vf_and_paths_evaluation/07161232_fim_location_at_obs_no_finetuning/model_paths.json"
+        ),
     }
 
     datasets_to_evaluate: list[str] = [
@@ -349,6 +353,7 @@ if __name__ == "__main__":
         # "FIM fixed Softmax dim., 05-03-2033, Epoch 100",
         # "FIM fixed Softmax dim., 05-03-2033, Epoch 125",
         "FIM fixed Softmax dim., 05-03-2033, Epoch 138",
+        "FIM (half locations at observations) (07-14-1850) Epoch 139",
     ]
     datasets_order = datasets_to_evaluate
     precision = 3
