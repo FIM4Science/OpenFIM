@@ -100,41 +100,61 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
     def forward(self, query_times: Tensor) -> Tensor:  # type: ignore[override]
         return self.evaluate(query_times)
 
-    def integral(self, t_start: Tensor, t_end: Tensor, num_samples: int = 100) -> Tensor:
+    def integral(self, t_end: Tensor, t_start: Tensor | None = None, num_samples: int = 100) -> Tensor:
         r"""Estimate the integral of \lambda from ``t_start`` to ``t_end`` via Monte-Carlo.
 
         A simple Monte-Carlo estimator is used:
             \int_{t_start}^{t_end} \lambda(t) dt \approx (t_end - t_start) * MEAN(\lambda(t_samples))
         where t_samples are drawn uniformly from [t_start, t_end].
 
+        This method supports broadcasting for ``t_start`` and ``t_end``. For example,
+        to compute the integrated intensity \int_0^t \lambda(s) ds for multiple t,
+        pass ``t_end`` with shape [B, P, L_eval] and ``t_start=None``.
+
         Args:
-            t_start (Tensor): The start of the integration interval. Shape: [B, P].
-            t_end (Tensor): The end of the integration interval. Shape: [B, P].
+            t_end (Tensor): The end of the integration interval(s).
+                Can be e.g. [B, P] or [B, P, L_eval].
+            t_start (Tensor | None): The start of the integration interval(s).
+                If None, defaults to 0. Must be broadcastable to ``t_end.shape``.
             num_samples (int): The number of samples for the Monte-Carlo estimation.
 
         Returns:
-            Tensor: The estimated integral for each mark. Shape: [B, M, P].
+            Tensor: The estimated integral for each mark. Shape is [B, M, *t_end.shape[1:]].
         """
-        B, P = t_end.shape
         device = t_end.device
+        if t_start is None:
+            t_start = torch.zeros_like(t_end)
 
-        # Generate uniform random samples in [0, 1]
-        # Shape: [B, P, num_samples]
-        random_samples = torch.rand(B, P, num_samples, device=device)
+        # We will add a sample dimension at the end
+        # Shape: [*t_end.shape, num_samples]
+        random_samples = torch.rand(*t_end.shape, num_samples, device=device)
 
         # Scale samples to be in [t_start, t_end]
-        # t_start and t_end have shape [B, P], need to unsqueeze for broadcasting
-        interval_len = (t_end - t_start).unsqueeze(2)  # [B, P, 1]
-        t_samples = t_start.unsqueeze(2) + random_samples * interval_len  # [B, P, num_samples]
+        # t_start and t_end are broadcastable.
+        interval_len = t_end - t_start
+        # Add a dimension to t_start and interval_len for broadcasting with random_samples
+        t_samples = t_start.unsqueeze(-1) + random_samples * interval_len.unsqueeze(-1)
+
+        # To call evaluate, we need to flatten the evaluation and sample dimensions
+        # Original shape: [B, P, (L_eval), num_samples]
+        # Target shape for evaluate: [B, P, L_eval * num_samples]
+        B, P, *rest = t_samples.shape
+        num_total_samples = t_samples.shape[2:].numel()
+        t_samples_flat = t_samples.reshape(B, P, num_total_samples)
 
         # Evaluate intensity at the sampled times
-        # The evaluate method expects query_times of shape [B, P, L_eval]
-        intensity_at_samples = self.evaluate(t_samples)  # [B, M, P, num_samples]
+        intensity_at_samples_flat = self.evaluate(t_samples_flat)  # [B, M, P, num_total_samples]
 
-        # Compute the mean intensity over the samples
-        mean_intensity = intensity_at_samples.mean(dim=3)  # [B, M, P]
+        # Reshape back to include the original evaluation and sample dimensions
+        # Target shape: [B, M, P, (L_eval), num_samples]
+        _, M, _, _ = self.mu.shape
+        intensity_at_samples = intensity_at_samples_flat.reshape(B, M, P, *t_end.shape[2:], num_samples)
+
+        # Compute the mean intensity over the samples (the last dimension)
+        mean_intensity = intensity_at_samples.mean(dim=-1)  # [B, M, P, (L_eval)]
 
         # Multiply by interval length to get the integral estimate
-        integral_estimate = mean_intensity * interval_len.squeeze(2).unsqueeze(1)  # [B, M, P]
+        # interval_len has shape [B, P, (L_eval)], needs unsqueezing at dim 1 for marks
+        integral_estimate = mean_intensity * interval_len.unsqueeze(1)
 
         return integral_estimate
