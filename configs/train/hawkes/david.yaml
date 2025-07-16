@@ -25,7 +25,7 @@ dataset:
       # - data/synthetic_data/hawkes/2D_small/val
 
   loader_kwargs:
-    batch_size: 1
+    batch_size: 4
     num_workers: 8
     test_batch_size: 1
 
@@ -59,6 +59,10 @@ model:
   model_type: fimhawkes
   normalize_times: false
   normalize_by_max_time: false # Otherwise normalize by the delta times
+
+  loss_weights:
+    mse: 0.001
+    nll: 1.0
 
   max_num_marks: &max_num_marks 2
   hidden_dim: &hidden_dim 64

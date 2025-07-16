@@ -37,6 +37,7 @@ class FIMHawkesConfig(PretrainedConfig):
         normalize_times: bool = True,
         normalize_by_max_time: bool = True,
         thinning: dict = None,
+        loss_weights: dict = None,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
@@ -57,6 +58,7 @@ class FIMHawkesConfig(PretrainedConfig):
         self.intensity_decoder = intensity_decoder
         self.hidden_dim = hidden_dim
         self.thinning = thinning
+        self.loss_weights = loss_weights
         if "model_type" in kwargs:
             del kwargs["model_type"]
         super().__init__(model_type=self.model_type, **kwargs)
@@ -411,8 +413,11 @@ class FIMHawkes(AModel):
             out["target_intensity_values"] = target_intensity_values
 
             out["losses"] = self.loss(
-                out["predicted_intensity_values"],
+                intensity_fn,
                 out["target_intensity_values"],
+                x["inference_event_times"].squeeze(-1),
+                x["inference_event_types"].squeeze(-1),
+                x["inference_seq_lengths"],
                 schedulers,
                 step,
             )
@@ -681,21 +686,60 @@ class FIMHawkes(AModel):
 
     def loss(
         self,
-        predicted_intensity_values: Tensor,
+        predicted_intensity: "PiecewiseHawkesIntensity",
         target_intensity_values: Tensor,
+        event_times: Tensor,
+        event_types: Tensor,
+        seq_lengths: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        assert target_intensity_values.shape == predicted_intensity_values.shape
+        """Computes the total loss as a weighted sum of MSE and Negative Log-Likelihood."""
+        # --- 1. MSE Loss ---
+        # Evaluate predicted intensity at the same points as the target for comparison.
+        eval_times = torch.linspace(0, event_times.max(), steps=target_intensity_values.shape[-1], device=self.device)
+        eval_times = eval_times.expand(target_intensity_values.shape[0], target_intensity_values.shape[2], -1)
+        predicted_intensity_values = predicted_intensity.evaluate(eval_times)
+        mse_loss = torch.mean((predicted_intensity_values - target_intensity_values) ** 2)
+        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))  # For monitoring
 
-        # Compute the MSE loss
-        loss = torch.mean((predicted_intensity_values - target_intensity_values) ** 2)
+        # --- 2. Negative Log-Likelihood (NLL) Loss ---
+        B, P, L = event_times.shape
 
-        # Compute the MAE loss
-        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+        # a) Sum of log-intensities at event times
+        # Shape: [B, P, L] -> [B, 1, P, L] -> [B, M, P, L]
+        log_intensity_at_events = torch.log(predicted_intensity.evaluate(event_times))
+
+        # We only care about the intensity of the mark that actually occurred.
+        # Create indices for gathering.
+        # event_types shape: [B, P, L] -> [B, 1, P, L]
+        type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)
+        # Select the intensity for the specific event mark
+        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)  # [B,P,L]
+
+        # Mask out padded events
+        positions = torch.arange(L, device=self.device).view(1, 1, L)
+        mask = positions < seq_lengths.unsqueeze(2)
+        log_likelihood_term = (log_lambda_at_event_m * mask).sum()
+
+        # b) Integral of intensity over the observation interval [0, T]
+        t_start = torch.zeros(B, P, device=self.device)
+        t_end = event_times.max(dim=2).values
+        integral_term = predicted_intensity.integral(t_start, t_end).sum()
+
+        # c) NLL calculation
+        # The loss is averaged over the number of sequences and the number of events
+        num_events = seq_lengths.sum()
+        nll_loss = (integral_term - log_likelihood_term) / num_events
+
+        # --- 3. Weighted Total Loss ---
+        loss_weights = self.config.loss_weights or {"mse": 1.0, "nll": 1.0}
+        total_loss = loss_weights.get("mse", 1.0) * mse_loss + loss_weights.get("nll", 1.0) * nll_loss
 
         return {
-            "loss": loss,
+            "loss": total_loss,
+            "mse_loss": mse_loss,
+            "nll_loss": nll_loss,
             "mae_loss": mae_loss,
         }
 
