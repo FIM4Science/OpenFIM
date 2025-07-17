@@ -412,18 +412,19 @@ class FIMHawkes(AModel):
             )
             out["target_intensity_values"] = target_intensity_values
 
-            # Compute target integrated intensities using high-precision Monte Carlo
-            target_integrated_intensity = self.compute_target_integrated_intensity(
-                kernel_functions_list,
-                base_intensity_functions_list,
-                x["intensity_evaluation_times"],
-                x["inference_event_times"],
-                x["inference_event_types"],
-                x["inference_seq_lengths"],
-                norm_constants,
-                num_marks=num_marks,
-            )
-            out["target_integrated_intensity"] = target_integrated_intensity
+            # # Compute target integrated intensities using high-precision Monte Carlo
+            # target_integrated_intensity = self.compute_target_integrated_intensity(
+            #     kernel_functions_list,
+            #     base_intensity_functions_list,
+            #     x["intensity_evaluation_times"],
+            #     x["inference_event_times"],
+            #     x["inference_event_types"],
+            #     x["inference_seq_lengths"],
+            #     norm_constants,
+            #     num_marks=num_marks,
+            # )
+            # out["target_integrated_intensity"] = target_integrated_intensity
+            out["target_integrated_intensity"] = torch.zeros_like(out["target_intensity_values"])
 
             out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
@@ -744,7 +745,8 @@ class FIMHawkes(AModel):
 
         # --- 3. Integrated Intensity (L_A) Loss ---
         # a) Predicted integrated intensity up to each evaluation time
-        predicted_integrated_intensity = intensity_fn.integral(t_end=eval_times)
+        # predicted_integrated_intensity = intensity_fn.integral(t_end=eval_times)
+        predicted_integrated_intensity = torch.zeros_like(target_integrated_intensity)
 
         # b) Compute MSE between predicted and the pre-computed high-precision target
         integrated_intensity_loss = torch.mean((predicted_integrated_intensity - target_integrated_intensity) ** 2)
