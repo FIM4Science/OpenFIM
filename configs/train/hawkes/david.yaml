@@ -43,7 +43,7 @@ dataset:
     min_sequence_len: 10
     max_sequence_len: 250
 
-    num_inference_times: 50 # Number of times at which to evaluate the intensity function per inference path
+    num_inference_times: 2000 # Number of times at which to evaluate the intensity function per inference path
 
   dataset_kwargs:
     files_to_load:
@@ -62,7 +62,7 @@ model:
 
   loss_weights:
     mse: 0.01
-    integrated_intensity: 0.001
+    integrated_intensity: 0.0
     nll: 1.0
 
   max_num_marks: &max_num_marks 2
@@ -181,7 +181,7 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.00001
+      lr: 0.0001
       weight_decay: 0.0001
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple

@@ -11,7 +11,7 @@ from fim.models.hawkes import FIMHawkes
 
 
 ### Run via:
-# CUDA_VISIBILE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py --checkpoint "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_06-30-1916/checkpoints/best-model"  --dataset "data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/test" --sample_idx 4 --path_idx 0
+# CUDA_VISIBILE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py --checkpoint "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-16-1816/checkpoints/best-model"  --dataset "data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/test" --sample_idx 4 --path_idx 0
 
 
 def load_data_from_dir(dir_path: Path) -> dict:
@@ -31,18 +31,18 @@ def load_data_from_dir(dir_path: Path) -> dict:
     return tensors
 
 
-def create_evaluation_times(inference_event_times, inference_seq_lengths, num_eval_points=200):
+def create_evaluation_times(inference_event_times, inference_seq_lengths, num_points_between_events=10):
     """
-    Create evaluation times using both a dense grid and actual event times.
+    Create evaluation times using actual event times and uniformly spaced points between consecutive events.
 
     This function combines:
-    1. A dense regular grid for smooth plotting
-    2. Actual event times for precise evaluation at event occurrences
+    1. Actual event times for precise evaluation at event occurrences
+    2. Uniformly spaced points between each consecutive pair of events for smooth plotting
 
     Args:
         inference_event_times: Event times tensor [B, P_inference, L, 1]
         inference_seq_lengths: Sequence lengths [B, P_inference]
-        num_eval_points: Number of evaluation points in the dense grid
+        num_points_between_events: Number of uniformly spaced points between consecutive events
 
     Returns:
         evaluation_times_batch: Combined evaluation times [B, P_inference, max_combined_points]
@@ -50,9 +50,10 @@ def create_evaluation_times(inference_event_times, inference_seq_lengths, num_ev
     B, P_inference, L, _ = inference_event_times.shape
     device = inference_event_times.device
 
-    # Estimate maximum number of combined points (dense grid + event times)
+    # Estimate maximum number of combined points (events + points between events)
     max_seq_len = inference_seq_lengths.max().item() if inference_seq_lengths.numel() > 0 else 0
-    max_combined_points = num_eval_points + max_seq_len
+    # Each interval between events gets num_points_between_events points, plus all event times
+    max_combined_points = max_seq_len + (max_seq_len - 1) * num_points_between_events + num_points_between_events
 
     evaluation_times_batch = torch.zeros(B, P_inference, max_combined_points, device=device)
 
@@ -62,18 +63,53 @@ def create_evaluation_times(inference_event_times, inference_seq_lengths, num_ev
             if seq_len == 0:
                 continue
 
-            max_time = inference_event_times[b, p, seq_len - 1, 0].item()
-            if max_time <= 0:
-                continue
-
-            # Create dense grid
-            dense_grid = torch.linspace(0.0, max_time, num_eval_points, device=device)
-
             # Get actual event times for this path
             actual_event_times = inference_event_times[b, p, :seq_len, 0]
 
-            # Combine dense grid and actual event times
-            combined_times = torch.cat([dense_grid, actual_event_times])
+            if seq_len == 1:
+                # If only one event, just use that event time and some points before it
+                max_time = actual_event_times[0].item()
+                if max_time > 0:
+                    # Add some points before the first event
+                    before_first = torch.linspace(0.0, max_time * 0.95, num_points_between_events, device=device)
+                    combined_times = torch.cat([before_first, actual_event_times])
+                else:
+                    combined_times = actual_event_times
+            else:
+                # Multiple events: create points between consecutive events
+                all_times = [torch.tensor([0.0], device=device)]  # Start from time 0
+
+                for i in range(seq_len):
+                    if i == 0:
+                        # Points between 0 and first event
+                        if actual_event_times[0] > 0:
+                            between_points = torch.linspace(
+                                0.0, actual_event_times[0].item(), num_points_between_events + 1, device=device
+                            )[1:-1]  # Exclude endpoints
+                            if len(between_points) > 0:
+                                all_times.append(between_points)
+                    else:
+                        # Points between consecutive events
+                        start_time = actual_event_times[i - 1].item()
+                        end_time = actual_event_times[i].item()
+                        if end_time > start_time:
+                            between_points = torch.linspace(start_time, end_time, num_points_between_events + 1, device=device)[
+                                1:-1
+                            ]  # Exclude endpoints
+                            if len(between_points) > 0:
+                                all_times.append(between_points)
+
+                    # Add the actual event time
+                    all_times.append(actual_event_times[i : i + 1])
+
+                # Add some points after the last event
+                last_time = actual_event_times[-1].item()
+                if last_time > 0:
+                    after_last = torch.linspace(last_time, last_time * 1.05, num_points_between_events + 1, device=device)[1:]
+                    all_times.append(after_last)
+
+                # Combine all times
+                combined_times = torch.cat(all_times)
 
             # Remove duplicates and sort
             combined_times_unique = torch.unique(combined_times, sorted=True)
@@ -89,7 +125,7 @@ def create_evaluation_times(inference_event_times, inference_seq_lengths, num_ev
     return evaluation_times_batch
 
 
-def prepare_batch_for_model(data_sample, inference_path_idx=0, num_eval_points=200):
+def prepare_batch_for_model(data_sample, inference_path_idx=0, num_points_between_events=10):
     """
     Prepare a single data sample for the model by splitting into context and inference paths.
     Uses all paths except the specified inference path for context.
@@ -139,14 +175,14 @@ def prepare_batch_for_model(data_sample, inference_path_idx=0, num_eval_points=2
     }
 
     model_data["intensity_evaluation_times"] = create_evaluation_times(
-        model_data["inference_event_times"], model_data["inference_seq_lengths"], num_eval_points=num_eval_points
+        model_data["inference_event_times"], model_data["inference_seq_lengths"], num_points_between_events=num_points_between_events
     )
 
     # Print info about evaluation times
     eval_times = model_data["intensity_evaluation_times"]
     for p in range(eval_times.shape[1]):
         valid_times = eval_times[0, p][eval_times[0, p] > 0]
-        print(f"Path {p}: {len(valid_times)} evaluation points (dense grid + event times)")
+        print(f"Path {p}: {len(valid_times)} evaluation points (events + points between events)")
         if len(valid_times) > 0:
             print(f"  Time range: {valid_times[0].item():.3f} to {valid_times[-1].item():.3f}")
             # Count how many are likely event times (close to actual events)
@@ -154,7 +190,7 @@ def prepare_batch_for_model(data_sample, inference_path_idx=0, num_eval_points=2
                 seq_len = model_data["inference_seq_lengths"][0, p].item()
                 actual_events = model_data["inference_event_times"][0, p, :seq_len, 0]
                 event_count = len(actual_events)
-                print(f"  Includes {event_count} actual event times plus {len(valid_times) - event_count} dense grid points")
+                print(f"  Includes {event_count} actual event times plus {len(valid_times) - event_count} points between events")
 
     for key in ["kernel_functions", "base_intensity_functions"]:
         if key in data_sample:
@@ -171,6 +207,7 @@ def prepare_batch_for_model(data_sample, inference_path_idx=0, num_eval_points=2
 def plot_intensity_comparison(model_output, model_data, save_path="intensity_comparison.png", path_idx=0):
     """
     Create vertically stacked plots comparing predicted and ground truth intensities.
+    Uses scatter marks for events and smooth lines for intensity functions.
     """
     predicted_intensities = model_output["predicted_intensity_values"].detach().cpu().numpy()
 
@@ -226,7 +263,8 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             eval_times_p = np.array([0.0])
             pred_intensity_p_m = np.array([0.0])
 
-        ax.plot(eval_times_p, pred_intensity_p_m, "b-", linewidth=1.5, label="Predicted Intensity", alpha=0.9)
+        # Plot smooth lines for intensity functions
+        ax.plot(eval_times_p, pred_intensity_p_m, "b-", linewidth=2, label="Predicted Intensity", alpha=0.8)
 
         if target_intensities is not None:
             target_intensity_p_m = target_intensities[b, m, p]
@@ -238,53 +276,59 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             else:
                 target_intensity_p_m = np.array([0.0])
 
-            ax.plot(eval_times_p, target_intensity_p_m, "r--", linewidth=1.5, label="Ground Truth Intensity", alpha=0.9)
+            ax.plot(eval_times_p, target_intensity_p_m, "r--", linewidth=2, label="Ground Truth Intensity", alpha=0.8)
 
-        # Plot event markers on the x-axis
-        y_min, y_max = ax.get_ylim()
-        marker_y_pos = y_min - 0.05 * (y_max - y_min)  # Place markers slightly below the axis
-
+        # Plot event scatter marks prominently
         # Events of the current mark
         events_this_mark = all_event_times[all_event_types == m]
         if len(events_this_mark) > 0:
-            ax.plot(
+            # Get intensity values at event times for this mark
+            event_intensities = []
+            for event_time in events_this_mark:
+                # Find closest evaluation time to get intensity value
+                closest_idx = np.argmin(np.abs(eval_times_p - event_time))
+                event_intensities.append(pred_intensity_p_m[closest_idx])
+
+            ax.scatter(
                 events_this_mark,
-                np.full_like(events_this_mark, marker_y_pos),
-                "o",
-                color="green",
-                markersize=6,
+                event_intensities,
+                s=100,
+                c="green",
+                marker="o",
                 label=f"Events (Mark {m})",
-                clip_on=False,
                 zorder=10,
+                edgecolors="darkgreen",
+                linewidth=1.5,
+                alpha=0.9,
             )
 
-        # Events of other marks
+        # Events of other marks (smaller markers)
         events_other_marks = all_event_times[all_event_types != m]
         if len(events_other_marks) > 0:
-            ax.plot(
-                events_other_marks,
-                np.full_like(events_other_marks, marker_y_pos),
-                "x",
-                color="gray",
-                markersize=5,
-                alpha=0.7,
-                label="Events (Other Marks)",
-                clip_on=False,
-                zorder=5,
+            # Get intensity values at other event times
+            other_event_intensities = []
+            for event_time in events_other_marks:
+                # Find closest evaluation time to get intensity value
+                closest_idx = np.argmin(np.abs(eval_times_p - event_time))
+                other_event_intensities.append(pred_intensity_p_m[closest_idx])
+
+            ax.scatter(
+                events_other_marks, other_event_intensities, s=60, c="gray", marker="x", label="Events (Other Marks)", zorder=8, alpha=0.7
             )
 
-        ax.set_ylabel("Intensity")
-        ax.set_title(f"Intensity Function for Mark {m}")
+        ax.set_ylabel("Intensity", fontsize=12)
+        ax.set_title(f"Intensity Function for Mark {m}", fontsize=14, fontweight="bold")
 
         # Create a clean legend
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
-        ax.legend(by_label.values(), by_label.keys())
+        ax.legend(by_label.values(), by_label.keys(), fontsize=10)
 
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
         ax.set_ylim(bottom=0)
 
-    axes[-1].set_xlabel("Time")
+    axes[-1].set_xlabel("Time", fontsize=12)
+    plt.suptitle(f"Hawkes Process Intensity Functions - Path {path_idx}", fontsize=16, fontweight="bold")
     fig.tight_layout(rect=[0, 0.03, 1, 0.97])  # Adjust for suptitle
 
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
@@ -338,7 +382,7 @@ def main(args):
             single_sample_data[key] = value[sample_idx]
 
     try:
-        model_data = prepare_batch_for_model(single_sample_data, args.path_idx)
+        model_data = prepare_batch_for_model(single_sample_data, args.path_idx, num_points_between_events=10)
     except ValueError as e:
         print(f"Error preparing batch: {e}")
         return
@@ -355,7 +399,7 @@ def main(args):
 
     print(f"Model output keys: {list(model_output.keys())}")
 
-    save_path = "intensity_comparison.png"
+    save_path = f"intensity_comparison_sample_{sample_idx}_path_{args.path_idx}.png"
     plot_intensity_comparison(model_output, model_data, save_path, path_idx=args.path_idx)
 
 
@@ -364,7 +408,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_06-30-1453/checkpoints/best-model",
+        default="results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-16-1816/checkpoints/best-model",
         help="Path to the model checkpoint directory.",
     )
     parser.add_argument(
