@@ -372,17 +372,151 @@ if __name__ == "__main__":
 
     # How to name experiments
     # experiment_descr = "latent_sde_context_1_with_vector_fields"
-    experiment_descr = "fim_sample_at_early_epochs"
+    # experiment_descr = "fim_finetune_vs_retrain_on_sampling_convergence_speed"
+    experiment_descr = "fim_location_at_obs_no_finetuning"
+
     model_dicts = {
-        ("fim_1_sample_5_steps_ahead_5_em_steps_epoch_100", "neural_sde_paper"): {
-            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250708_lorenz_fim_finetuning_on_sampling_mse/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_07-07-1325/checkpoints/",
-            "checkpoint_name": "epoch-99",
-        },
-        ("fim_1_sample_5_steps_ahead_5_em_steps_epoch_200", "neural_sde_paper"): {
-            "checkpoint_dir": "/cephfs/users/seifner/repos/FIM/saved_results/20250708_lorenz_fim_finetuning_on_sampling_mse/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_07-07-1325/checkpoints/",
-            "checkpoint_name": "epoch-199",
+        ("fim_locs_at_obs_no_finetuning", "neural_sde_paper"): {
+            "checkpoint_dir": "/cephfs_projects/foundation_models/models/FIMSDE/Post_NeurIPS_models/600k_32_locations_at_observations_32_locations_randomly_07-14-1850/checkpoints",
+            "checkpoint_name": "epoch-139",
         },
     }
+
+    # ## Convergence speed of sampling finetuning vs retraining
+    # conv_speed_base_dir = Path(
+    #     "/cephfs/users/seifner/repos/FIM/saved_results/20250715_lorenz_fim_finetune_on_sampling_convergence_speed_comparison/"
+    # )
+    # fim_finetune_sampling_mse_checkpoint = (
+    #     conv_speed_base_dir
+    #     / "fim_finetune_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_07-14-1425/checkpoints"
+    # )
+    # fim_finetune_sampling_nll_checkpoint = (
+    #     conv_speed_base_dir
+    #     / "fim_finetune_on_sampling_nll_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_07-14-1702/checkpoints"
+    # )
+    # fim_retrain_sampling_mse_checkpoint = (
+    #     conv_speed_base_dir
+    #     / "fim_from_scratch_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_07-14-1947/checkpoints"
+    # )
+    # fim_retrain_sampling_nll_checkpoint = (
+    #     conv_speed_base_dir
+    #     / "fim_from_scratch_on_sampling_nll_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_07-14-2222/checkpoints"
+    # )
+    #
+    # model_dicts = {
+    #     ("fim_finetune_sample_mse_epoch_50", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-49",
+    #     },
+    #     ("fim_finetune_sample_mse_epoch_100", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-99",
+    #     },
+    #     ("fim_finetune_sample_mse_epoch_200", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-199",
+    #     },
+    #     ("fim_finetune_sample_mse_epoch_500", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-499",
+    #     },
+    #     ("fim_finetune_sample_mse_epoch_1000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-999",
+    #     },
+    #     ("fim_finetune_sample_mse_epoch_2000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-1999",
+    #     },
+    #     ("fim_finetune_sample_mse_epoch_5000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-4999",
+    #     },
+    #     ("fim_finetune_sample_nll_epoch_50", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-49",
+    #     },
+    #     ("fim_finetune_sample_nll_epoch_100", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-99",
+    #     },
+    #     ("fim_finetune_sample_nll_epoch_200", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-199",
+    #     },
+    #     ("fim_finetune_sample_nll_epoch_500", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-499",
+    #     },
+    #     ("fim_finetune_sample_nll_epoch_1000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-999",
+    #     },
+    #     ("fim_finetune_sample_nll_epoch_2000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-1999",
+    #     },
+    #     ("fim_finetune_sample_nll_epoch_5000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_finetune_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-4999",
+    #     },
+    #     ("fim_retrain_sample_mse_epoch_50", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-49",
+    #     },
+    #     ("fim_retrain_sample_mse_epoch_100", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-99",
+    #     },
+    #     ("fim_retrain_sample_mse_epoch_200", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-199",
+    #     },
+    #     ("fim_retrain_sample_mse_epoch_500", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-499",
+    #     },
+    #     ("fim_retrain_sample_mse_epoch_1000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-999",
+    #     },
+    #     ("fim_retrain_sample_mse_epoch_2000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-1999",
+    #     },
+    #     ("fim_retrain_sample_mse_epoch_5000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_mse_checkpoint,
+    #         "checkpoint_name": "epoch-4999",
+    #     },
+    #     ("fim_retrain_sample_nll_epoch_50", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-49",
+    #     },
+    #     ("fim_retrain_sample_nll_epoch_100", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-99",
+    #     },
+    #     ("fim_retrain_sample_nll_epoch_200", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-199",
+    #     },
+    #     ("fim_retrain_sample_nll_epoch_500", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-499",
+    #     },
+    #     ("fim_retrain_sample_nll_epoch_1000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-999",
+    #     },
+    #     ("fim_retrain_sample_nll_epoch_2000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-1999",
+    #     },
+    #     ("fim_retrain_sample_nll_epoch_5000", "neural_sde_paper"): {
+    #         "checkpoint_dir": fim_retrain_sampling_nll_checkpoint,
+    #         "checkpoint_name": "epoch-4999",
+    #     },
+    # }
 
     # model_dicts = {
     #     # ("fim_model_C_at_139_epochs_no_finetuning", "neural_sde_paper"): {
