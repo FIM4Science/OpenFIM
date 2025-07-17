@@ -974,7 +974,7 @@ class JsonSDEDataset(torch.utils.data.IterableDataset):
     def __init__(
         self,
         batch_size: int,
-        json_paths: Path | Paths,
+        json_paths: Path | Paths | dict,
         keys_to_load: dict,
         paths_per_batch_element: int | None = None,
         **kwargs,
@@ -987,47 +987,55 @@ class JsonSDEDataset(torch.utils.data.IterableDataset):
 
         self.data = self.__load_data(json_paths, keys_to_load, paths_per_batch_element)
 
-    def __load_data(self, json_paths: Path | Paths, keys_to_load: dict, paths_per_batch_element: int | None) -> dict:
+    def __load_data(self, data: Path | Paths | dict | list[dict], keys_to_load: dict, paths_per_batch_element: int | None) -> dict:
         """
         Load dicts from jsons (all containing keys_to_load as keys), concatenate their Tensor values along first dimension.
 
         Args:
-            json_paths (Path | Paths): (List of) Path to jsons containing dicts with Tensor values.
+            data (Path | Paths | dict | list[dict]): (List of) Path to jsons containing dicts with Tensor values or dicts.
             keys_to_load (dict): Keys to load from dicts in jsons. Rename loaded keys to the corresponding values in keys_to_load.
             paths_per_batch_element (int): Group loaded paths into batch eleemnts with this many paths for easier FIM processing.
         """
-        if not isinstance(json_paths, list):
-            json_paths: Paths = [json_paths]
+        if not isinstance(data, list):
+            data = [data]
 
         data: list[dict] = torch.utils._pytree.tree_map(
-            partial(self._load_dict_from_json, keys_to_load=keys_to_load, paths_per_batch_element=paths_per_batch_element), json_paths
+            partial(self._load_dict_from_json, keys_to_load=keys_to_load, paths_per_batch_element=paths_per_batch_element), data
         )
         data: dict = torch.utils._pytree.tree_map(lambda *x: torch.concatenate(x, dim=0), *data)  # tuple of length 1
 
         return data[0]
 
     @staticmethod
-    def _load_dict_from_json(json_path: Path, keys_to_load: dict, paths_per_batch_element: int | None = None) -> dict:
+    def _load_dict_from_json(data, keys_to_load: dict, paths_per_batch_element: int | None = None) -> dict:
         """
         Load dict with Tensor values from json.
         Extract relevant keys and (optionally) add a specific path dimension for FIM processing.
         """
-        json_path: Path = pathlib.Path(json_path)  # to be sure
-        if not json_path.is_absolute():
-            json_path = pathlib.Path(data_path) / json_path
+        if isinstance(data, Path):
+            data: Path = pathlib.Path(data)  # to be sure
+            if not data.is_absolute():
+                data = pathlib.Path(data_path) / data
 
-        assert json_path.exists(), f"{json_path} does not exist."
+            assert data.exists(), f"{data} does not exist."
 
-        data: dict = json.load(open(json_path, "r"))
+            data: dict = json.load(open(data, "r"))
+
+        elif isinstance(data, dict):
+            data: dict = data
+
+        else:
+            raise ValueError(f"Must pass Path or dict, got {type(data)}.")
+
         data: dict = {key: Tensor(value) if isinstance(value, list) else value for key, value in data.items()}
 
         assert all(json_key in data.keys() for json_key in keys_to_load.values()), (
-            f"Json {json_path} has keys {data.keys()} and does not contain all keys to load {keys_to_load}."
+            f"Dict has keys {data.keys()} and does not contain all keys to load {keys_to_load}."
         )
         data: dict = {renamed_key: data[json_key] for renamed_key, json_key in keys_to_load.items()}
 
         assert all(isinstance(value, Tensor) for value in data.values()), (
-            f"Can only load Tensors, got types {(type(value) for value in data.values())} in json {json_path}."
+            f"Can only load Tensors, got types {(type(value) for value in data.values())} in json {data}."
         )
 
         if paths_per_batch_element is not None:

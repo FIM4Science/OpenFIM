@@ -3,13 +3,12 @@
 # pylint: disable=missing-module-docstring
 # pylint: disable=missing-class-docstring
 # pylint: disable=missing-function-docstring
-import json
 import logging
-import re
 import warnings
 from pathlib import Path
 
 import click
+import finetune_helpers
 import numpy as np
 import torch
 from evaluation.lorenz_system_paths_evaluation import evaluate_all_models
@@ -28,24 +27,12 @@ warnings.filterwarnings("ignore", module="matplotlib")
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 
 
-def sample_paths_from_trained_model(trainer: Trainer, exp_name: str, train_data_label: str, test_data_setups: dict) -> None:
+def sample_lorenz_paths_from_trained_model(trainer: Trainer, exp_name: str, train_data_label: str, test_data_setups: dict) -> None:
     """
     Sample Paths from trained model based on some test data.
     """
     checkpoint_dir = Path(project_path) / trainer.checkpointer.checkpoint_dir
-
-    epoch_numbers = []
-    for checkpoint_name in [item.name for item in checkpoint_dir.iterdir() if item.is_dir()]:
-        match = re.match(r"^epoch-(\d+)$", checkpoint_name)
-        if match:
-            epoch_numbers.append(int(match.group(1)))
-    last_epoch = f"epoch-{max(epoch_numbers)}"
-
-    # add model type to config json because somehow this is not saved
-    config_path = checkpoint_dir / last_epoch / "config.json"
-    config = json.load(open(config_path, "r"))
-    config["model_type"] = trainer.model.config.model_type
-    json.dump(config, open(config_path, "w"))
+    last_epoch = finetune_helpers.get_last_epoch(checkpoint_dir)
 
     model_dicts = {(exp_name, train_data_label): {"checkpoint_dir": checkpoint_dir, "checkpoint_name": last_epoch}}
 
@@ -126,7 +113,7 @@ def train_latent_sde(
     trainer.train()
 
     if sample_paths is True:
-        sample_paths_from_trained_model(trainer, exp_name, train_data_label, test_data_setups)
+        sample_lorenz_paths_from_trained_model(trainer, exp_name, train_data_label, test_data_setups)
 
 
 if __name__ == "__main__":
