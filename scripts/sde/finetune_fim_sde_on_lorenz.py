@@ -44,6 +44,7 @@ def finetune_fim(
     em_steps: int,
     sample_paths: bool,
     epochs: int,
+    save_every: int,
     lr: float,
     weight_decay: float,
     train_from_scratch: bool,
@@ -64,6 +65,7 @@ def finetune_fim(
     config["optimizers"] = ({"optimizer_d": optimizer},)
 
     config["trainer"]["epochs"] = epochs
+    config["trainer"]["save_every"] = save_every
 
     model_path = "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/epoch-139"
 
@@ -184,6 +186,7 @@ if __name__ == "__main__":
     @click.option("--num-points", "num_points", type=int, required=False, default=-1)
     @click.option("--sample-paths", "sample_paths", type=bool, required=False, default=True)
     @click.option("--epochs", "epochs", type=int, required=False, default=500)
+    @click.option("--save-every", "save_every", type=int, required=False, default=100)
     @click.option("--lr", "lr", type=float, required=False, default=1e-5)
     @click.option("--weight-decay", "weight_decay", type=float, required=False, default=0.0)
     @click.option("--train-from-scratch", "train_from_scratch", type=bool, required=False, default=False)

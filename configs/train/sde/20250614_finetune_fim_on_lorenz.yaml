@@ -60,7 +60,7 @@ trainer:
   precision: bf16mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
   # epochs: &epochs 500
   detect_anomaly: false
-  save_every: 100
+  save_every: 50
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
