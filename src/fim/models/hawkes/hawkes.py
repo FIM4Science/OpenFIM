@@ -38,6 +38,7 @@ class FIMHawkesConfig(PretrainedConfig):
         normalize_by_max_time: bool = True,
         thinning: dict = None,
         loss_weights: dict = None,
+        uncertainty_decoder: dict = None,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
@@ -59,6 +60,7 @@ class FIMHawkesConfig(PretrainedConfig):
         self.hidden_dim = hidden_dim
         self.thinning = thinning
         self.loss_weights = loss_weights
+        self.uncertainty_decoder = uncertainty_decoder
         if "model_type" in kwargs:
             del kwargs["model_type"]
         super().__init__(model_type=self.model_type, **kwargs)
@@ -116,6 +118,10 @@ class FIMHawkes(AModel):
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
         alpha_decoder = copy.deepcopy(self.config.alpha_decoder)
         beta_decoder = copy.deepcopy(self.config.beta_decoder)
+        # Optional uncertainty decoder – if none is provided we fall back to a simple linear layer.
+        uncertainty_decoder_cfg = (
+            copy.deepcopy(self.config.uncertainty_decoder) if getattr(self.config, "uncertainty_decoder", None) is not None else None
+        )
         self.hidden_dim = self.config.hidden_dim
         self.normalize_times = self.config.normalize_times
 
@@ -159,6 +165,23 @@ class FIMHawkes(AModel):
         beta_decoder["in_features"] = self.hidden_dim
         beta_decoder["out_features"] = 1
         self.beta_decoder = create_class_instance(beta_decoder.pop("name"), beta_decoder)
+
+        # ------------------------------------------------------------------
+        # φ_u  –  per-sample log-variance head
+        # ------------------------------------------------------------------
+        if uncertainty_decoder_cfg is not None:
+            uncertainty_decoder_cfg["in_features"] = self.hidden_dim
+            uncertainty_decoder_cfg["out_features"] = 1
+            self.uncertainty_decoder = create_class_instance(uncertainty_decoder_cfg.pop("name"), uncertainty_decoder_cfg)
+        else:
+            # Default: a single linear projection to one log-variance value
+            self.uncertainty_decoder = torch.nn.Linear(self.hidden_dim, 1)
+
+        # ------------------------------------------------------------------
+        # Global task-uncertainty scalars
+        # ------------------------------------------------------------------
+        self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1))
+        self.omega_nll = torch.nn.Parameter(torch.zeros(1))
 
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
@@ -383,6 +406,34 @@ class FIMHawkes(AModel):
         beta = torch.nn.functional.softplus(raw_params[..., 0])
 
         # ------------------------------------------------------------------
+        # Predict per-sample log-variance u_{λ,τ,m}
+        # We detach h_final to avoid back-propagating through the shared encoder,
+        # ensuring gradients only flow into the uncertainty head.
+        # ------------------------------------------------------------------
+        combined_enc_detached = combined_enc.detach()  # Detach to avoid gradients to shared encoder
+
+        u_event_flat = self.uncertainty_decoder(combined_enc_detached.reshape(-1, self.hidden_dim))  # [...,1]
+        u_event = u_event_flat.view(B, num_marks, P_inference, L)  # [B,M,P,L]
+
+        # Map event-level uncertainties to evaluation times τ by selecting the last event
+        # preceding each τ for the same path (implementation of T_k*(τ)).
+        eval_times = x["intensity_evaluation_times"]  # [B,P,L_eval]
+        event_times_path = x["inference_event_times"].squeeze(-1)  # [B,P,L]
+
+        idx_range = torch.arange(L, device=self.device)
+
+        # Compute mask identifying events occurring before each evaluation time
+        before_mask = event_times_path.unsqueeze(2) < eval_times.unsqueeze(-1)  # [B,P,L_eval,L]
+        idx_range_broadcast = idx_range.view(1, 1, 1, L)
+        idx_masked = torch.where(before_mask, idx_range_broadcast, torch.full_like(idx_range_broadcast, -1))
+        last_event_idx = idx_masked.max(dim=-1).values  # [B,P,L_eval]
+        last_event_idx = last_event_idx.clamp(min=0)  # Replace -1 (no past event) by 0
+
+        # Gather u values corresponding to last event before τ
+        last_event_idx_expanded = last_event_idx.unsqueeze(1).expand(-1, num_marks, -1, -1)  # [B,M,P,L_eval]
+        u_eval = torch.gather(u_event, dim=3, index=last_event_idx_expanded)  # [B,M,P,L_eval]
+
+        # ------------------------------------------------------------------
         # Build piece-wise intensity object and evaluate at requested times
         # ------------------------------------------------------------------
         event_times = x["inference_event_times"].squeeze(-1)  # [B,P,L]
@@ -393,6 +444,7 @@ class FIMHawkes(AModel):
         out = {
             "predicted_intensity_values": predicted_intensity_values,
             "intensity_function": intensity_fn,
+            "log_predicted_intensity_values_var": u_eval,
         }
 
         if "kernel_functions" in x:
@@ -434,6 +486,7 @@ class FIMHawkes(AModel):
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
                 eval_times=x["intensity_evaluation_times"],
+                uncertainty_values=u_eval,
                 schedulers=schedulers,
                 step=step,
             )
@@ -709,63 +762,76 @@ class FIMHawkes(AModel):
         event_types: Tensor,
         seq_lengths: Tensor,
         eval_times: Tensor,
+        uncertainty_values: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        """Computes the total loss as a weighted sum of MSE, NLL, and integrated intensity loss."""
-        # --- 1. Intensity (L_lambda) Loss ---
-        # Evaluate predicted intensity at the same points as the target for comparison.
-        predicted_intensity_values = intensity_fn.evaluate(eval_times)
-        mse_loss = torch.mean((predicted_intensity_values - target_intensity_values) ** 2)
-        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))  # For monitoring
+        """Hybrid uncertainty-weighted loss .
 
-        # --- 2. Negative Log-Likelihood (NLL) Loss ---
+        L_total = L_NLL + exp(-ω_λ) * L_λ,balanced + ω_λ
+        where L_λ,balanced incorporates heteroscedastic uncertainty on a per-sample basis.
+        """
+        # --- 1. Predicted intensity ---
+        predicted_intensity_values = intensity_fn.evaluate(eval_times)
+        squared_error = (predicted_intensity_values - target_intensity_values) ** 2
+
+        # --- 2. Balanced Intensity Regression Loss  ---
+        # L_λ,balanced = E[ exp(-u) * (error^2) + u ]
+        lambda_balanced_loss = torch.mean(torch.exp(-uncertainty_values) * squared_error + uncertainty_values)
+
+        # For logging – plain MSE & MAE.
+        mse_loss = torch.mean(squared_error)
+        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+
+        # --- 3. Negative Log-Likelihood Loss (normalised per path, mark, and event) ---
         B, P, L = event_times.shape
 
-        # a) Sum of log-intensities at event times
-        log_intensity_at_events = torch.log(intensity_fn.evaluate(event_times))
+        num_marks = intensity_fn.mu.shape[1]
 
-        # We only care about the intensity of the mark that actually occurred.
-        type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)
-        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
+        # a) Log-intensity at actual event times and marks
+        log_intensity_at_events = torch.log(intensity_fn.evaluate(event_times))  # [B,M,P,L]
+        type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)  # [B,1,P,L]
+        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)  # [B,P,L]
 
-        # Mask out padded events
+        # Mask out padded events and sum per path
         positions = torch.arange(L, device=self.device).view(1, 1, L)
-        mask = positions < seq_lengths.unsqueeze(2)
-        log_likelihood_term = (log_lambda_at_event_m * mask).sum()
+        valid_mask = positions < seq_lengths.unsqueeze(2)  # [B,P,L]
+        log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)  # [B,P]
 
-        # b) Integral of intensity over the observation interval [0, T]
+        # b) Integrated intensity per path & mark, then sum over marks
         t_start = torch.zeros(B, P, device=self.device)
-        t_end = event_times.max(dim=2).values
-        integral_term = intensity_fn.integral(t_start=t_start, t_end=t_end).sum()
+        t_end = event_times.max(dim=2).values  # [B,P]
+        integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end)  # [B,M,P]
+        integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B,P]
 
-        # c) NLL calculation
-        num_events = seq_lengths.sum()
-        nll_loss = (integral_term - log_likelihood_term) / num_events
+        # c) Per-path NLL and normalisation
+        nll_per_path = integral_sum_per_path - log_ll_per_path  # [B,P]
+        # Divide by (#events in path * #marks) for per-event & per-mark normalisation
+        nll_per_path_normalised = nll_per_path / num_marks
 
-        # --- 3. Integrated Intensity (L_A) Loss ---
-        # a) Predicted integrated intensity up to each evaluation time
-        # predicted_integrated_intensity = intensity_fn.integral(t_end=eval_times)
-        predicted_integrated_intensity = torch.zeros_like(target_integrated_intensity)
+        # d) Average across paths and batch
+        nll_loss = nll_per_path_normalised.mean()
 
-        # b) Compute MSE between predicted and the pre-computed high-precision target
-        integrated_intensity_loss = torch.mean((predicted_integrated_intensity - target_integrated_intensity) ** 2)
-
-        # --- 4. Weighted Total Loss ---
-        loss_weights = self.config.loss_weights
+        # --- 4. Hybrid Uncertainty Weighting ---
         total_loss = (
-            loss_weights.get("mse") * mse_loss
-            + loss_weights.get("nll") * nll_loss
-            + loss_weights.get("integrated_intensity") * integrated_intensity_loss
+            torch.exp(-self.omega_nll) * nll_loss
+            + self.omega_nll
+            + torch.exp(-self.omega_lambda_balanced) * lambda_balanced_loss
+            + self.omega_lambda_balanced
         )
 
-        return {
-            "loss": total_loss,
-            "mse_loss": mse_loss,
-            "nll_loss": nll_loss,
-            "integrated_intensity_loss": integrated_intensity_loss,
-            "mae_loss": mae_loss,
+        # Prepare a logging-friendly dictionary: tensors -> Python floats
+        losses_out = {
+            "loss": total_loss,  # keep tensor for downstream back-prop accounting
+            "nll_loss": nll_loss.detach().item(),
+            "lambda_balanced_loss": lambda_balanced_loss.detach().item(),
+            "mse_loss": mse_loss.detach().item(),
+            "mae_loss": mae_loss.detach().item(),
+            "omega_lambda_balanced": self.omega_lambda_balanced.detach().item(),
+            "omega_nll": self.omega_nll.detach().item(),
         }
+
+        return losses_out
 
     def compute_target_integrated_intensity(
         self,

@@ -16,12 +16,12 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
-      # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
+      - data/synthetic_data/hawkes/5k_2D_1k_paths_diag_only_old_params/train
+      - data/synthetic_data/hawkes/5k_3D_1k_paths_diag_only_old_params/train
       # - data/synthetic_data/hawkes/2D_small/val
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
-      # - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
+      - data/synthetic_data/hawkes/5k_2D_1k_paths_diag_only_old_params/val
+      - data/synthetic_data/hawkes/5k_3D_1k_paths_diag_only_old_params/val
       # - data/synthetic_data/hawkes/2D_small/val
 
   loader_kwargs:
@@ -57,15 +57,15 @@ dataset:
 
 model:
   model_type: fimhawkes
-  normalize_times: false
+  normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
 
   loss_weights:
-    mse: 0.01
+    mse: 0.0001
     integrated_intensity: 0.0
     nll: 1.0
 
-  max_num_marks: &max_num_marks 2
+  max_num_marks: &max_num_marks 3
   hidden_dim: &hidden_dim 64
 
   hidden_act: &hidden_act
@@ -181,7 +181,7 @@ trainer:
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
-      lr: 0.0001
+      lr: 0.00005
       weight_decay: 0.0001
       # gradient_norm_clipping: 10
       # schedulers: !!python/tuple
