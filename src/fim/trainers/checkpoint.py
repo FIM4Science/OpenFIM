@@ -121,10 +121,14 @@ class TrainCheckpoint:
         """
         is_best_model = False
         best_metric = self.train_config.trainer.best_metric
-        if validation_stats["losses"][best_metric] < self.best_model_flag["val_metric"]:
+        current_metric_value = validation_stats["losses"][best_metric]
+        if isinstance(current_metric_value, torch.Tensor):
+            current_metric_value = current_metric_value.item()
+
+        if current_metric_value < self.best_model_flag["val_metric"]:
             is_best_model = True
             if self.rank == 0:
-                msg = f"Current model with {best_metric} of {validation_stats['losses'][best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
+                msg = f"Current model with {best_metric} of {current_metric_value:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
                 self.__logger.info(msg)
             self._update_best_model_flag(train_stats, validation_stats)
 
@@ -157,9 +161,13 @@ class TrainCheckpoint:
             validation_stats (dict): Validation statistics.
         """
         best_metric = self.train_config.trainer.best_metric
-        if validation_stats["losses"][best_metric] < self.best_model_flag["val_metric"]:
+        current_metric_value = validation_stats["losses"][best_metric]
+        if isinstance(current_metric_value, torch.Tensor):
+            current_metric_value = current_metric_value.item()
+
+        if current_metric_value < self.best_model_flag["val_metric"]:
             if self.rank == 0:
-                msg = f"Current model with {best_metric} of {validation_stats['losses'][best_metric]:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
+                msg = f"Current model with {best_metric} of {current_metric_value:0.4f} has better performance than the current best model with {best_metric} of {self.best_model_flag['val_metric']:0.4f}"
                 self.__logger.info(msg)
 
             self._save_best_model(epoch)
@@ -271,10 +279,28 @@ class TrainCheckpoint:
             validation_stats (dict): Validation statistics.
         """
         best_metric = self.train_config.trainer.best_metric
-        self.best_model_flag["train_loss"] = train_stats["losses"]["loss"]
-        self.best_model_flag["val_loss"] = validation_stats["losses"]["loss"]
-        self.best_model_flag["train_metric"] = train_stats["losses"][best_metric]
-        self.best_model_flag["val_metric"] = validation_stats["losses"][best_metric]
+
+        # Convert tensor values to scalars before storing
+        train_loss = train_stats["losses"]["loss"]
+        if isinstance(train_loss, torch.Tensor):
+            train_loss = train_loss.item()
+
+        val_loss = validation_stats["losses"]["loss"]
+        if isinstance(val_loss, torch.Tensor):
+            val_loss = val_loss.item()
+
+        train_metric = train_stats["losses"][best_metric]
+        if isinstance(train_metric, torch.Tensor):
+            train_metric = train_metric.item()
+
+        val_metric = validation_stats["losses"][best_metric]
+        if isinstance(val_metric, torch.Tensor):
+            val_metric = val_metric.item()
+
+        self.best_model_flag["train_loss"] = train_loss
+        self.best_model_flag["val_loss"] = val_loss
+        self.best_model_flag["train_metric"] = train_metric
+        self.best_model_flag["val_metric"] = val_metric
 
     def load_checkpoint(self, checkpoint: Union[int, Literal["best-model", "last-epoch"]]) -> int:
         """
