@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -184,12 +185,49 @@ class TrainCheckpoint:
         # TODO: The state of the schedulers is not saved
         train_state = save_dir / "train-state-checkpoint.pth"
         self.__logger.info("Saving Model State: %s ...", save_dir)
-        self.model.save_pretrained(save_directory=save_dir)
+
+        # FIX: Ensure model_type is preserved in config before saving
+        if hasattr(self.model.config, "model_type") and self.model.config.model_type:
+            original_model_type = self.model.config.model_type
+        else:
+            # Fallback: extract from class name or training config
+            original_model_type = getattr(
+                self.model.config, "model_type", self.train_config.model.get("model_type", self.model.__class__.__name__.lower())
+            )
+
+        try:
+            # Try standard save_pretrained first
+            self.model.save_pretrained(save_directory=save_dir)
+        except Exception as e:
+            self.__logger.warning(f"save_pretrained failed: {e}")
+            self.__logger.info("Using fallback config saving method...")
+
+            # Fallback: Save config and weights separately (like FSDP version)
+            self.model.config.save_pretrained(save_dir)
+
+            # Save model weights as safetensors
+            from safetensors.torch import save_file
+
+            save_file(self.model.state_dict(), save_dir / "model.safetensors")
+
+        # Verify and fix config.json if needed
+        config_path = Path(save_dir) / "config.json"
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                saved_config = json.load(f)
+
+            # Ensure model_type is present
+            if "model_type" not in saved_config:
+                self.__logger.info(f"Adding missing model_type '{original_model_type}' to saved config")
+                saved_config["model_type"] = original_model_type
+                with open(config_path, "w") as f:
+                    json.dump(saved_config, f, indent=2)
+
         if push_to_hub and self.hub_model_id:
             self.__logger.info(f"Pushing Best Model to Huggingface Hub in Repo: {self.hub_model_id}")
             self.model.push_to_hub(self.hub_model_id, private=True, token=os.getenv("HF_TOKEN", None))
         state = {
-            "model_type": self.model.config.model_type,
+            "model_type": original_model_type,
             "last_epoch": epoch,
             "params": self.train_config.to_dict(),
             "checkpointer_state": self.state_dict(),
