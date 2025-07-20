@@ -8,14 +8,16 @@ import torch
 from tqdm import tqdm
 
 from fim.models.blocks import ModelFactory
+from fim.models.imputation import FIMImputationWindowedConfig
 from fim.utils.metrics import compute_metrics
 
 
-device_map = "cuda:0" if torch.cuda.is_available() else "cpu"
+# device_map = "cuda:0" if torch.cuda.is_available() else "cpu"
+device_map = "cpu"  # Use CPU for evaluation, change to "cuda:0" if GPU is available
 pca_component_count = 3
 
 model_config = {
-    "name": "FIM_imputation_windowed",
+    "model_type": FIMImputationWindowedConfig.model_type,
     "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
     # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
@@ -398,7 +400,7 @@ def evaluate_configuration(model, data, output_path, pca_params: Optional[tuple]
 
 
 if __name__ == "__main__":
-    model = ModelFactory.create(**model_config, device_map=device_map)
+    model = ModelFactory.create(model_config)
     model.to(device_map)
     model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
     output_dir_base = f"reports/FIMImputation/NavierStokes/{model_abbr}_overlap0-random_window-interpolated-10-30-soulution/"

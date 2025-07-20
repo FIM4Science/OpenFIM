@@ -408,7 +408,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
         self.min_iwindow_percentage = min_iwindow_percentage
         self.max_iwindow_percentage = max_iwindow_percentage
 
-        self.imputation_mask = Tensor(imputation_mask) if imputation_mask is not None else None
+        self.imputation_mask = torch.tensor(imputation_mask, dtype=torch.bool) if imputation_mask is not None else None
         if self.imputation_mask is not None:
             assert sum(self.imputation_mask) == 1, "Only one window can be masked out for imputation."
 
@@ -450,6 +450,7 @@ class TimeSeriesImputationDatasetTorch(TimeSeriesDatasetTorch):
 
     @staticmethod
     def collate_fn(batch, dataset):
+        mask = dataset.imputation_mask
         max_sequence_length = batch[0]["coarse_grid_grid"].size(1)
         iwindow_size = dataset._sample_iwindow_size(max_sequence_length)
         output = []

@@ -1,5 +1,6 @@
 import logging
 import math
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -59,38 +60,37 @@ class FIMODE(AModel):
         self._create_model()
 
     def _create_model(self):
+        config = deepcopy(self.config)
         if self.apply_normalization:
-            self.normalization_time = create_class_instance(self.config.normalization_time.pop("name"), self.config.normalization_time)
-            self.normalization_values = create_class_instance(
-                self.config.normalization_values.pop("name"), self.config.normalization_values
-            )
+            self.normalization_time = create_class_instance(config.normalization_time.pop("name"), config.normalization_time)
+            self.normalization_values = create_class_instance(config.normalization_values.pop("name"), config.normalization_values)
 
-        self.time_encoding = create_class_instance(self.config.time_encoding.pop("name"), self.config.time_encoding)
+        self.time_encoding = create_class_instance(config.time_encoding.pop("name"), config.time_encoding)
 
-        self.trunk_net = create_class_instance(self.config.trunk_net.pop("name"), self.config.trunk_net)
+        self.trunk_net = create_class_instance(config.trunk_net.pop("name"), config.trunk_net)
 
-        self.branch_net = create_class_instance(self.config.branch_net.pop("name"), self.config.branch_net)
+        self.branch_net = create_class_instance(config.branch_net.pop("name"), config.branch_net)
 
-        if self.config.combiner_net.get("in_features") != 2 * self.config.combiner_net.get("out_features"):
+        if config.combiner_net.get("in_features") != 2 * config.combiner_net.get("out_features"):
             raise ValueError("The number of input features for the combiner_net must be twice the number of output features (latent dim).")
 
-        self.combiner_net = create_class_instance(self.config.combiner_net.pop("name"), self.config.combiner_net)
+        self.combiner_net = create_class_instance(config.combiner_net.pop("name"), config.combiner_net)
 
-        self.vector_field_net = create_class_instance(self.config.vector_field_net.pop("name"), self.config.vector_field_net)
+        self.vector_field_net = create_class_instance(config.vector_field_net.pop("name"), config.vector_field_net)
 
-        self.init_cond_net = create_class_instance(self.config.init_cond_net.pop("name"), self.config.init_cond_net)
+        self.init_cond_net = create_class_instance(config.init_cond_net.pop("name"), config.init_cond_net)
 
-        match self.config.loss_configs.get("ode_solver"):
+        match config.loss_configs.get("ode_solver"):
             case "rk4":
                 from fim.models.utils import rk4
 
                 self.ode_solver = rk4
             case _:
-                raise ValueError(f"ODE solver {self.config.loss_configs.get('ode_solver')} not supported.")
+                raise ValueError(f"ODE solver {config.loss_configs.get('ode_solver')} not supported.")
 
-        self.loss_scale_drift = self.config.loss_configs.pop("loss_scale_drift")
-        self.loss_scale_init_cond = self.config.loss_configs.pop("loss_scale_init_cond")
-        self.loss_scale_unsuperv_loss = self.config.loss_configs.pop("loss_scale_unsuperv_loss")
+        self.loss_scale_drift = config.loss_configs.pop("loss_scale_drift")
+        self.loss_scale_init_cond = config.loss_configs.pop("loss_scale_init_cond")
+        self.loss_scale_unsuperv_loss = config.loss_configs.pop("loss_scale_unsuperv_loss")
 
     def forward(self, batch, schedulers: Optional[dict] = None, step: Optional[int] = None, training: bool = False) -> dict:
         """
