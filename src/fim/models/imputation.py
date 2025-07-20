@@ -1,101 +1,87 @@
 import logging
-from pathlib import Path
-from typing import Dict, Optional, Union
+from copy import deepcopy
+from typing import Dict, Optional
 
 import torch
-from transformers import BitsAndBytesConfig
+from transformers import AutoConfig, AutoModel, PretrainedConfig
 
-from fim.models.utils import load_model_from_checkpoint
 from fim.utils.helper import create_class_instance
 
 from ..data.utils import make_multi_dim, make_single_dim, repeat_for_dim
-from ..trainers.mixed_precision import is_bfloat_supported
 from ..utils.logging import RankLoggerAdapter
 from .blocks import AModel, ModelFactory
 from .blocks.normalization import MinMaxNormalization
 from .ode import FIMODE
 
 
+class FIMImputationConfig(PretrainedConfig):
+    """
+    Configuration class for FIMImputation model.
+    This class is used to define the configuration parameters for the FIMImputation model.
+    It inherits from PretrainedConfig and allows for easy serialization and deserialization.
+    """
+
+    model_type = "fim_imputation"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.fim_base = kwargs.get("fim_base", None)
+        self.psi_2 = kwargs.get("psi_2", {})
+        self.global_normalization_values = kwargs.get("global_normalization_values", {})
+        self.global_normalization_times = kwargs.get("global_normalization_times", {})
+        self.scale_feature_mapping = kwargs.get("scale_feature_mapping", {})
+        self.use_fim_normalization = kwargs.get("use_fim_normalization", True)
+        self.loss_configs = kwargs.get("loss_configs", {})
+
+
 class FIMImputation(AModel):
     """Imputation and forecasting model based on FIMODE."""
 
-    def __init__(
-        self,
-        fim_base: Union[Path, str],
-        psi_2: dict,
-        global_normalization_values: dict,
-        global_normalization_times: dict,
-        scale_feature_mapping: dict,
-        use_fim_normalization: bool,
-        loss_configs: dict,
-        load_in_8bit: bool = False,
-        load_in_4bit: bool = False,
-        use_bf16: bool = False,
-        device_map: Optional[str] = None,
-        resume: bool = False,
-        peft: Optional[dict] = None,
-        **kwargs,
-    ):
-        super(FIMImputation, self).__init__(**kwargs)
-        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
-        self._device_map = device_map
-        self._torch_dtype = None
-        self._quantization_config = None
-        self.resume = resume
-        self.peft = peft
-        if load_in_8bit and load_in_4bit:
-            raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
-        elif load_in_8bit or load_in_4bit:
-            self._quantization_config = BitsAndBytesConfig(
-                load_in_8bit=load_in_8bit,
-                load_in_4bit=load_in_4bit,
-            )
-            self._device_map = "auto"
-        if use_bf16 and is_bfloat_supported:
-            self._torch_dtype = torch.float16
+    config_class = FIMImputationConfig
 
-        self.use_fim_normalization = use_fim_normalization
+    def __init__(self, config: FIMImputationConfig, **kwargs):
+        super().__init__(config, **kwargs)
+        self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+        # self._device_map = device_map
+        # self._torch_dtype = None
+        # self._quantization_config = None
+        # self.resume = resume
+        # self.peft = peft
+        # if load_in_8bit and load_in_4bit:
+        #     raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
+        # elif load_in_8bit or load_in_4bit:
+        #     self._quantization_config = BitsAndBytesConfig(
+        #         load_in_8bit=load_in_8bit,
+        #         load_in_4bit=load_in_4bit,
+        #     )
+        #     self._device_map = "auto"
+        # if use_bf16 and is_bfloat_supported:
+        #     self._torch_dtype = torch.float16
+
         self.loc_normalize_locations = MinMaxNormalization()
 
-        self._create_model(
-            fim_base,
-            psi_2,
-            global_normalization_values,
-            global_normalization_times,
-            scale_feature_mapping,
-            loss_configs,
-        )
+        self._create_model()
 
-    def _create_model(
-        self,
-        fim_base: Union[Path, str],
-        psi_2: dict,
-        global_normalization_values: dict,
-        global_normalization_times: dict,
-        scale_feature_mapping: dict,
-        loss_configs: dict,
-    ):
-        self.fim_base: FIMODE = load_model_from_checkpoint(fim_base, module=FIMODE) if isinstance(fim_base, (Path, str)) else fim_base
+    def _create_model(self):
+        config = deepcopy(self.config)
+        self.fim_base = FIMODE.from_pretrained(config.fim_base)
+        # self.fim_base: FIMODE = load_model_from_checkpoint(config.fim_base, module=FIMODE)
 
-        self.fim_base.apply_normalization = self.use_fim_normalization
-
-        self.psi_2 = create_class_instance(
-            psi_2.pop("name"),
-            psi_2,
-        )
+        self.fim_base.apply_normalization = config.use_fim_normalization
+        self.psi_2 = create_class_instance(config.psi_2.pop("name"), config.psi_2)
 
         self.glob_normalize_values = create_class_instance(
-            global_normalization_values.pop("name"),
-            global_normalization_values,
+            config.global_normalization_values.pop("name"),
+            config.global_normalization_values,
         )
 
         self.glob_normalize_times = create_class_instance(
-            global_normalization_times.pop("name"),
-            global_normalization_times,
+            config.global_normalization_times.pop("name"),
+            config.global_normalization_times,
         )
 
-        self.scale_feature_mapping = create_class_instance(scale_feature_mapping.pop("name"), scale_feature_mapping)
-
+        self.scale_feature_mapping = create_class_instance(config.scale_feature_mapping.pop("name"), config.scale_feature_mapping)
+        loss_configs = self.config.loss_configs
         self.loss_scale_latent_embedding = loss_configs.get("loss_scale_latent_embedding", 1.0)
         self.loss_scale_drift = loss_configs.get("loss_scale_drift", 1.0)
         self.loss_scale_unsuperv_loss = loss_configs.get("loss_scale_unsuperv_loss", 1.0)
@@ -139,7 +125,7 @@ class FIMImputation(AModel):
 
         obs_mask_torn = obs_mask.view(B * wc, wlen, 1)
 
-        if self.use_fim_normalization:
+        if self.config.use_fim_normalization:
             (
                 obs_values_loc_normalized,  # [B*wc, wlen, 1]
                 obs_times_loc_normalized,  # [B*wc, wlen, 1]
@@ -240,7 +226,7 @@ class FIMImputation(AModel):
         # Denormalize
         ##
 
-        if self.use_fim_normalization:
+        if self.config.use_fim_normalization:
             drift_concepts_learnt = self.fim_base._renormalize_vector_field_params(
                 vector_field_concepts=drift_concepts_learnt,
                 normalization_parameters=loc_norm_params_locations,
@@ -481,22 +467,41 @@ class FIMImputation(AModel):
         return self.peft is not None and self.peft["method"] is not None
 
 
+class FIMImputationWindowedConfig(FIMImputationConfig):
+    """
+    Configuration class for FIMImputationWindowed model.
+    This class is used to define the configuration parameters for the FIMImputationWindowed model.
+    It inherits from FIMImputationConfig and allows for easy serialization and deserialization.
+    """
+
+    model_type = "fim_imputation_windowed"
+
+    def __init__(self, fim_imputation: str = None, denosing_model: dict = None, **kwargs):
+        super().__init__(**kwargs)
+        self.fim_imputation = fim_imputation
+        self.denoising_model = denosing_model
+
+
 class FIMImputationWindowed(AModel):
-    def __init__(self, fim_imputation: Union[str, Path, FIMImputation], denoising_model: Optional[dict] = None, **kwargs):
-        super(FIMImputationWindowed, self).__init__()
+    """Imputation model based on FIMImputation with windowed input."""
+
+    config_class = FIMImputationWindowedConfig
+
+    def __init__(self, config: FIMImputationWindowedConfig, **kwargs):
+        super(FIMImputationWindowed, self).__init__(config=config, **kwargs)
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
-        self._create_model(fim_imputation, denoising_model)
+        self._create_model()
 
-    def _create_model(self, fim_imputation: Union[str, Path, FIMImputation], denoising_model: dict):
-        if denoising_model is not None:
-            self.denoising_model = create_class_instance(denoising_model.pop("name"), denoising_model)
+    def _create_model(self):
+        config = deepcopy(self.config)
+        if config.denoising_model is not None:
+            self.denoising_model = create_class_instance(config.denoising_model.pop("name"), config.denoising_model)
         else:
             self.denoising_model = lambda x, mask: x
 
-        self.fim_imputation: FIMImputation = (
-            load_model_from_checkpoint(fim_imputation, module=FIMImputation) if isinstance(fim_imputation, (str, Path)) else fim_imputation
-        )
+        # self.fim_imputation: FIMImputation = load_model_from_checkpoint(config.fim_imputation, module=FIMImputation)
+        self.fim_imputation = FIMImputation.from_pretrained(config.fim_imputation)
 
     def forward(self, batch: dict, imputation_window_index: int = None) -> dict:
         """
@@ -615,5 +620,11 @@ class FIMImputationWindowed(AModel):
         raise NotImplementedError
 
 
-ModelFactory.register("FIM_imputation", FIMImputation)
-ModelFactory.register("FIM_imputation_windowed", FIMImputationWindowed)
+ModelFactory.register(FIMImputationConfig.model_type, FIMImputation)
+AutoConfig.register(FIMImputationConfig.model_type, FIMImputationConfig)
+AutoModel.register(FIMImputationConfig, FIMImputation)
+
+
+ModelFactory.register(FIMImputationWindowedConfig.model_type, FIMImputationWindowed)
+AutoConfig.register(FIMImputationWindowedConfig.model_type, FIMImputationWindowedConfig)
+AutoModel.register(FIMImputationWindowedConfig, FIMImputationWindowed)

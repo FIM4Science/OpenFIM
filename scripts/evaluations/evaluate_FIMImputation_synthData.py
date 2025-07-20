@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from fim.data.dataloaders import TimeSeriesDataLoaderTorch
-from fim.models.fim_imputation import FIMImputation
+from fim.models.imputation import FIMImputation
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.metrics import compute_metrics
 
@@ -34,13 +34,15 @@ def evaluate_one_configuration(model_checkpoint_path: str, dl: TimeSeriesDataLoa
     os.makedirs(output_path, exist_ok=True)
 
     model = load_model_from_checkpoint(model_checkpoint_path, module=FIMImputation, for_eval=True)
-
+    model = model.to(device)
+    model.eval()
     predictions = {}
     try:
         loader = dl.test_it
     except KeyError:
         loader = dl.train_it
     for id, batch in tqdm(enumerate(loader), desc=f"Evaluating {model_abbr}", total=len(loader)):
+        batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
         if id == 0:
             with torch.no_grad():
                 predictions = model(batch)["visualizations"]
@@ -53,6 +55,15 @@ def evaluate_one_configuration(model_checkpoint_path: str, dl: TimeSeriesDataLoa
                     for ki, vi in v.items():
                         predictions[k][ki] = torch.cat([predictions[k][ki], vi], dim=0)
 
+    def detach_and_cpu(obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.detach().cpu()
+        elif isinstance(obj, dict):
+            return {k: detach_and_cpu(v) for k, v in obj.items()}
+        else:
+            return obj
+
+    predictions = detach_and_cpu(predictions)
     torch.save(
         predictions,
         output_path + "predictions.pth",
@@ -84,7 +95,7 @@ if __name__ == "__main__":
         test_batch_size=batch_size,
         dataset_name="fim.data.datasets.TimeSeriesImputationDatasetTorch",
         output_fields=[""],
-        loader_kwargs={"num_workers": 8},
+        loader_kwargs={"num_workers": 0},
         dataset_kwargs={
             "output_fields_fimbase": [
                 "fine_grid_grid",
@@ -103,18 +114,25 @@ if __name__ == "__main__":
     )
 
     model_chkpts = [
+        "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth",
+        # "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth"
+        # "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50-experiment-seed-4_10-01-1333/checkpoints/best-model/model-checkpoint.pth"
+        # "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth"
         # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_3encBlocks_fp16-experiment-seed-10_09-08-2131/checkpoints/best-model/model-checkpoint.pth",
         # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1541/checkpoints/best-model/model-checkpoint.pth",
         # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1549/checkpoints/best-model/model-checkpoint.pth",
         # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
-        "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth"
+        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth"
         # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
     ]
     model_abbrs = [
+        # "4_10-01-1333"
+        # "09-26-2014",
+        "5w_MinMax",
         # "09-08-2131_epoch-_test",
         # "09-09-1541_epoch-_test",
         # "09-09-1549_epoch-_test",
-        "09-13-1636_epoch-369_test",
+        # "09-13-1636_epoch-369_test",
         # "09-13-1635_epoch-_test",
     ]
     for model_chkpt, model_abbr in zip(model_chkpts, model_abbrs):

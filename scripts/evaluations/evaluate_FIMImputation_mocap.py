@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from fim.models.blocks import ModelFactory
+from fim.models.imputation import FIMImputationWindowed, FIMImputationWindowedConfig
 from fim.utils.metrics import compute_metrics
 
 
@@ -13,13 +13,8 @@ device_map = "cuda:0" if torch.cuda.is_available() else "cpu"
 pca_component_count = 3
 
 model_config = {
-    "name": "FIM_imputation_windowed",
-    # "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
-    # "fim_imputation": "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth",
-    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50-experiment-seed-4_10-01-1333/checkpoints/best-model/model-checkpoint.pth",
-    # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
-    # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
-    # "fim_imputation": "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
+    "model_type": FIMImputationWindowedConfig.model_type,
+    "fim_imputation": "FIM4Science/fim-imputation",
     "denoising_model": None,
 }
 data_config = {
@@ -339,11 +334,8 @@ def evaluate_configuration(model, batch, output_path, pca_params: Optional[tuple
 
 
 if __name__ == "__main__":
-    model = ModelFactory.create(
-        **model_config,
-        device_map=device_map,
-    )
-    model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
+    model = FIMImputationWindowed.from_pretrained("FIM4Science/fim-windowed-imputation")
+    model_abbr = "hf"
     output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_trend_overlap0-random_window-interpolated-5-50-soulution/"
     os.makedirs(output_dir_base, exist_ok=True)
 
@@ -351,22 +343,4 @@ if __name__ == "__main__":
     batch_high_dim, batch_pca, pca_params = prepare_data(**data_config)
     evaluate_configuration(model, batch_pca, output_dir_base + "pca_", pca_params=pca_params)
     evaluate_configuration(model, batch_high_dim, output_dir_base + "high_dim_")
-
-    # visualize
-    # import matplotlib.pyplot as plt
-
-    # sample_id = 0
-    # dim = 0
-    # for w in range(4):
-    #     plt.scatter(
-    #         batch_high_dim["observation_times"][sample_id][w][:, dim].numpy(),
-    #         batch_high_dim["observation_values"][sample_id][w][:, dim].numpy(),
-    #         label=f"obs_{w}",
-    #     )
-    # plt.plot(
-    #     batch_high_dim["location_times"][sample_id][:, dim].numpy(),
-    #     batch_high_dim["target_sample_path"][sample_id][:, dim].numpy(),
-    #     label="target",
-    # )
-
-    # plt.show()
+    print("Evaluation completed. Results saved to:", output_dir_base)

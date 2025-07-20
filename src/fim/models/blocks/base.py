@@ -340,17 +340,14 @@ class EncoderBlock(Block):
         d_model: int,
         num_heads: int,
         dropout: float,
-        residual_mlp: dict,
+        residual_mlp: MLP,
         batch_first: bool = True,
     ):
         super(EncoderBlock, self).__init__()
 
         self.self_attn = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=batch_first)
         self.layer_norm1 = nn.LayerNorm(d_model)
-        self.residual_mlp = create_class_instance(
-            residual_mlp.pop("name"),
-            residual_mlp,
-        )
+        self.residual_mlp = residual_mlp
         self.layer_norm2 = nn.LayerNorm(d_model)
 
     def forward(self, x, padding_mask):

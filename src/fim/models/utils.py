@@ -164,13 +164,15 @@ def load_model_from_checkpoint(checkpoint_path: Union[str, Path], module: nn.Mod
 
     if (model_name := model_params.pop("name")) != "FIMODE" and model_name != "FIM_imputation":
         logger.warning("Not tested for anything but FIMODE and FIMImputation!")
-
-    model = module(**model_params)
+    if isinstance(model_params, dict):
+        model_params = module.config_class(**model_params)
+    logger.info(f"Loading model with parameters: {model_params}")
+    model = module(model_params)
 
     if torch.cuda.is_available():
-        checkpoint = torch.load(checkpoint_path)
+        checkpoint = torch.load(checkpoint_path, weights_only=False)
     else:
-        checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"), weights_only=False)
 
     model.load_state_dict(checkpoint["model_state"])
     logger.warn(f"Model loaded. last epoch: {checkpoint['last_epoch']}")
