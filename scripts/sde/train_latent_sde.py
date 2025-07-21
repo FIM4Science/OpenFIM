@@ -46,7 +46,7 @@ def sample_lorenz_paths_from_trained_model(trainer: Trainer, exp_name: str, trai
 
 def train_latent_sde(
     test_data_setups: dict,
-    config: Path,
+    base_config: Path,
     seed: int,
     exp_name: str,
     train_data_label: str,
@@ -66,7 +66,7 @@ def train_latent_sde(
     Optionally overwrite some configs manually.
     Sample paths from the trained model.
     """
-    config = load_yaml(config)
+    config = load_yaml(base_config)
     config["experiment"]["seed"] = seed
     config["experiment"]["name"] = exp_name
 
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     }
 
     @click.command()
-    @click.option("--config", "config", type=click.Path(exists=True), required=True)
+    @click.option("--base-config", "base_config", type=click.Path(exists=True), required=True)
     @click.option("--seed", "seed", type=int, required=True)
     @click.option("--exp-name", "exp_name", type=str, required=True)
     @click.option("--train-data-label", "train_data_label", type=str, required=True)

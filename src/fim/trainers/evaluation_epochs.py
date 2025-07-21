@@ -396,6 +396,80 @@ class LorenzEvaluationEpoch(EvaluationEpoch):
             return {"figures": figures}
 
 
+class RealWorldEvaluationEpoch(EvaluationEpoch):
+    def __init__(
+        self,
+        model,
+        dataloader,
+        loss_tracker,
+        debug_mode,
+        local_rank,
+        accel_type,
+        use_mixeprecision,
+        is_accelerator,
+        auto_cast_type,
+        **kwargs,
+    ):
+        super().__init__(
+            model, dataloader, loss_tracker, debug_mode, local_rank, accel_type, use_mixeprecision, is_accelerator, auto_cast_type
+        )
+
+        self.model_type = kwargs.get("model_type")
+
+        # which dataloader to take plotting data from
+        iterator_name: str = kwargs.get("iterator_name", "test")
+        if iterator_name == "validation":
+            self.dataloader = dataloader.validation_it
+        elif iterator_name == "test":
+            self.dataloader = dataloader.test_it
+        elif iterator_name == "evaluation":
+            self.dataloader = dataloader.evaluation_it
+
+        # how often to plot
+        self.plot_frequency: int = kwargs.get("plot_frequency", 1)
+
+    def __call__(self, epoch: int) -> dict:
+        if epoch % self.plot_frequency != 0:
+            return {}
+
+        else:
+            self.model.eval()
+
+            batch = next(iter(self.dataloader))
+            batch = optree.tree_map(lambda x: x.to(self.model.device).to(torch.bfloat16), batch)
+
+            with torch.no_grad():
+                with torch.amp.autocast(
+                    self.accel_type,
+                    enabled=self.use_mixeprecision and self.is_accelerator,
+                    dtype=self.auto_cast_type,
+                ):
+                    # get concepts and samples from example_of_dim
+                    estimated_concepts: SDEConcepts = self.model(batch, training=False)
+
+            locations = batch["locations"].to("cpu").to(torch.float32).squeeze()
+            drift = estimated_concepts.drift.detach().to("cpu").to(torch.float32).squeeze()[:, 0]  # dimension padded to 3
+            diffusion = estimated_concepts.diffusion.detach().to("cpu").to(torch.float32).squeeze()[:, 0]  # dimension padded to 3
+
+            figures = {}
+
+            fig = plt.Figure(figsize=(7, 5), dpi=300, tight_layout=True)
+            ax_drift = fig.add_axes(111)
+            ax_diffusion = ax_drift.twinx()  # instantiate a second Axes that shares the same x-axis
+
+            ax_drift.set_ylabel("Drift", color="r")
+            ax_drift.plot(locations, drift, color="r", label="Model Drift")
+
+            ax_diffusion.set_ylabel("Diffusion", color="tab:blue")
+            ax_diffusion.plot(locations, diffusion, color="tab:blue", label="Model Diffusion")
+
+            fig.legend()
+
+            figures["vector_fields"] = fig
+
+            return {"figures": figures}
+
+
 class HawkesEvaluationPlots(EvaluationEpoch):
     """
     Evaluation epoch class for Hawkes processes that creates TensorBoard plots

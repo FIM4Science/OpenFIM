@@ -218,7 +218,13 @@ if __name__ == "__main__":
     # experiment_descr = "fim_checkpoints_vs_BISDE"
     # experiment_descr = "fim_and_BISDE_vs_ablation_models"
     # experiment_descr = "fim_vs_bisde_neurips_table"
-    experiment_descr = "post_neurips_table_vm_vs_fim_location_at_obs_vs_bisde"
+    # experiment_descr = "post_neurips_table_vm_vs_fim_location_at_obs_vs_bisde"
+    # experiment_descr = "finetuning_on_one_step_ahead_one_em_step_sampling_nll_vs_mse"
+    # experiment_descr = "finetuning_sampling_nll_512_points"
+    # experiment_descr = "finetuning_sampling_nll_512_points_seed_1"
+    # experiment_descr = "finetune_sampling_nll_one_step_ahead_one_em_step_32_and_512_points_every_10_epochs"
+    # experiment_descr = "finetune_sampling_nll_one_step_ahead_one_em_step_nll_512_points_lr_1e_6"
+    experiment_descr = "finetune_sampling_nll_one_step_ahead_one_em_step_nll_512_points_lr_1e_6_every_10_epochs"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
@@ -301,19 +307,121 @@ if __name__ == "__main__":
     #     ),
     # }
 
+    # models_jsons = {
+    #     "BISDE(20250514, BISDE Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
+    #     ),
+    #     "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+    #     ),
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
+    #     ),
+    #     "FIM (half locations at observations) (07-14-1850) Epoch 139": Path(
+    #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250716_post_neurips_evaluations/real_world_cross_validation_vf_and_paths_evaluation/07161232_fim_location_at_obs_no_finetuning/model_paths.json"
+    #     ),
+    # }
+
+    finetune_base = Path("/cephfs/users/seifner/repos/FIM/evaluations/real_world_cross_validation_vf_and_paths_evaluation")
+    finetune_mse_base = finetune_base / "finetune_one_step_ahead_one_em_step_mse"
+    finetune_nll_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll"
+    finetune_nll_seed_1_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_seed_1"
+    finetune_nll_5_em_step_base = finetune_base / "finetune_one_step_ahead_five_em_step_nll"
+    finetune_nll_5_step_ahead_base = finetune_base / "finetune_five_step_ahead_one_em_step_nll"
+    finetune_nll_512_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points"
+    finetune_nll_512_seed_1_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_seed_1"
+    finetune_nll_512_every_10_epochs_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_every_10_epochs"
+    finetune_nll_32_every_10_epochs_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_32_points_every_10_epochs"
+    finetune_nll_512_lr_1e_6 = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6"
+    finetune_nll_512_lr_1e_6_every_10_epochs = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6_every_10_epochs"
+
     models_jsons = {
-        "BISDE(20250514, BISDE Library Functions)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
-        ),
-        "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+        "BISDE": Path(
             "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
         ),
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
+        "No Finetune": Path(
             "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
         ),
-        "FIM (half locations at observations) (07-14-1850) Epoch 139": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250716_post_neurips_evaluations/real_world_cross_validation_vf_and_paths_evaluation/07161232_fim_location_at_obs_no_finetuning/model_paths.json"
-        ),
+        # "Finetune Sample MSE, Epoch 50": finetune_mse_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample MSE, Epoch 100": finetune_mse_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample MSE, Epoch 200": finetune_mse_base / "combined_outputs_epoch_199.json",
+        # "Finetune Sample MSE, Epoch 500": finetune_mse_base / "combined_outputs_epoch_499.json",
+        # "Finetune Sample MSE, Epoch Best": finetune_mse_base / "combined_outputs_best_model.json",
+        # "Finetune Sample NLL, Epoch 50": finetune_nll_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, Epoch 100": finetune_nll_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, Epoch 200": finetune_nll_base / "combined_outputs_epoch_199.json",
+        # "Finetune Sample NLL, Epoch 500": finetune_nll_base / "combined_outputs_epoch_499.json",
+        # "Finetune Sample NLL, Epoch Best": finetune_nll_base / "combined_outputs_best_model.json",
+        # "Finetune Sample NLL, Seed 1, Epoch 50": finetune_nll_seed_1_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, Seed 1, Epoch 100": finetune_nll_seed_1_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, Seed 1, Epoch 200": finetune_nll_seed_1_base / "combined_outputs_epoch_199.json",
+        # "Finetune Sample NLL, Seed 1, Epoch 500": finetune_nll_seed_1_base / "combined_outputs_epoch_499.json",
+        # "Finetune Sample NLL, Seed 1, Epoch Best": finetune_nll_seed_1_base / "combined_outputs_best_model.json",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 50": finetune_nll_5_em_step_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 100": finetune_nll_5_em_step_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 200": finetune_nll_5_em_step_base / "combined_outputs_epoch_199.json",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 500": finetune_nll_5_em_step_base / "combined_outputs_epoch_499.json",
+        # "Finetune Sample NLL, 5 EM Step, Epoch Best": finetune_nll_5_em_step_base / "combined_outputs_best_model.json",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 50": finetune_nll_5_step_ahead_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 100": finetune_nll_5_step_ahead_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 200": finetune_nll_5_step_ahead_base / "combined_outputs_epoch_199.json",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 500": finetune_nll_5_step_ahead_base / "combined_outputs_epoch_499.json",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch Best": finetune_nll_5_step_ahead_base / "combined_outputs_best_model.json",
+        # "Finetune Sample NLL, 512 Points, Epoch 50": finetune_nll_512_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 512 Points, Epoch 100": finetune_nll_512_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, 512 Points, Epoch 200": finetune_nll_512_base / "combined_outputs_epoch_199.json",
+        # "Finetune Sample NLL, 512 Points, Epoch 500": finetune_nll_512_base / "combined_outputs_epoch_499.json",
+        # "Finetune Sample NLL, 512 Points, Epoch Best": finetune_nll_512_base / "combined_outputs_best_model.json",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 50": finetune_nll_seed_1_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 100": finetune_nll_seed_1_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 200": finetune_nll_seed_1_base / "combined_outputs_epoch_199.json",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 500": finetune_nll_seed_1_base / "combined_outputs_epoch_499.json",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch Best": finetune_nll_seed_1_base / "combined_outputs_best_model.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 10": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_9.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 20": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_19.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 30": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_29.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 40": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_39.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 50": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 60": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_59.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 70": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_69.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 80": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_79.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 90": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_89.json",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 100": finetune_nll_512_every_10_epochs_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 10": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_9.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 20": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_19.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 30": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_29.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 40": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_39.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 50": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 60": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_59.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 70": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_69.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 80": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_79.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 90": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_89.json",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 100": finetune_nll_32_every_10_epochs_base / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 50": finetune_nll_512_lr_1e_6 / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 100": finetune_nll_512_lr_1e_6 / "combined_outputs_epoch_99.json",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 200": finetune_nll_512_lr_1e_6 / "combined_outputs_epoch_199.json",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 500": finetune_nll_512_lr_1e_6 / "combined_outputs_epoch_499.json",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch Best": finetune_nll_512_lr_1e_6 / "combined_outputs_best_model.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 10": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_9.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 20": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_19.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 30": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_29.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 40": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_39.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 50": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_49.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 60": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_59.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 70": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_69.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 80": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_79.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 90": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_89.json",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 100": finetune_nll_512_lr_1e_6_every_10_epochs
+        / "combined_outputs_epoch_99.json",
     }
 
     datasets_to_evaluate: list[str] = [
@@ -333,27 +441,103 @@ if __name__ == "__main__":
 
     metric_evaluations_to_load: list[Path] = [
         # Path(
-        #     ".../metric_evaluations_jsons"
+        #     "/cephfs/users/seifner/repos/FIM/evaluations/real_world_cross_validation_metrics_tables/07231113_finetuning_samplings/metric_evaluations_jsons/"
+        #     "/cephfs/users/seifner/repos/FIM/evaluations/real_world_cross_validation_metrics_tables/07231447_finetuning_sampling_nll_512_points/metric_evaluations_jsons/"
         # ),
     ]
 
+    # models_order = [
+    #     # "FIM (05-03-2033)",
+    #     # "FIM (05-06-2300)",
+    #     # "BISDE(20250510, BISDE Library Functions)",
+    #     # "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+    #     "BISDE(20250514, BISDE Library Functions)",
+    #     "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+    #     # "FIM fixed linear Attn., 04-28-0941, Epoch 040",
+    #     # "FIM fixed linear Attn., 04-28-0941, Epoch 070",
+    #     # "FIM fixed linear Attn., 04-28-0941, Epoch 100",
+    #     # "FIM fixed linear Attn., 04-28-0941, Epoch 125",
+    #     # "FIM fixed Softmax dim., 05-03-2033, Epoch 040",
+    #     # "FIM fixed Softmax dim., 05-03-2033, Epoch 070",
+    #     # "FIM fixed Softmax dim., 05-03-2033, Epoch 100",
+    #     # "FIM fixed Softmax dim., 05-03-2033, Epoch 125",
+    #     "FIM fixed Softmax dim., 05-03-2033, Epoch 138",
+    #     "FIM (half locations at observations) (07-14-1850) Epoch 139",
+    # ]
+
     models_order = [
-        # "FIM (05-03-2033)",
-        # "FIM (05-06-2300)",
-        # "BISDE(20250510, BISDE Library Functions)",
-        # "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
-        "BISDE(20250514, BISDE Library Functions)",
-        "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
-        # "FIM fixed linear Attn., 04-28-0941, Epoch 040",
-        # "FIM fixed linear Attn., 04-28-0941, Epoch 070",
-        # "FIM fixed linear Attn., 04-28-0941, Epoch 100",
-        # "FIM fixed linear Attn., 04-28-0941, Epoch 125",
-        # "FIM fixed Softmax dim., 05-03-2033, Epoch 040",
-        # "FIM fixed Softmax dim., 05-03-2033, Epoch 070",
-        # "FIM fixed Softmax dim., 05-03-2033, Epoch 100",
-        # "FIM fixed Softmax dim., 05-03-2033, Epoch 125",
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 138",
-        "FIM (half locations at observations) (07-14-1850) Epoch 139",
+        "BISDE",
+        "No Finetune",
+        # "Finetune Sample MSE, Epoch 50",
+        # "Finetune Sample MSE, Epoch 100",
+        # "Finetune Sample MSE, Epoch 200",
+        # "Finetune Sample MSE, Epoch 500",
+        # "Finetune Sample MSE, Epoch Best",
+        # "Finetune Sample NLL, Epoch 50",
+        # "Finetune Sample NLL, Epoch 100",
+        # "Finetune Sample NLL, Epoch 200",
+        # "Finetune Sample NLL, Epoch 500",
+        # "Finetune Sample NLL, Epoch Best",
+        # "Finetune Sample NLL, Seed 1, Epoch 50",
+        # "Finetune Sample NLL, Seed 1, Epoch 100",
+        # "Finetune Sample NLL, Seed 1, Epoch 200",
+        # "Finetune Sample NLL, Seed 1, Epoch 500",
+        # "Finetune Sample NLL, Seed 1, Epoch Best",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 50",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 100",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 200",
+        # "Finetune Sample NLL, 5 EM Step, Epoch 500",
+        # "Finetune Sample NLL, 5 EM Step, Epoch Best",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 50",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 100",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 200",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch 500",
+        # "Finetune Sample NLL, 5 Step Ahead, Epoch Best",
+        # "Finetune Sample NLL, 512 Points, Epoch 50",
+        # "Finetune Sample NLL, 512 Points, Epoch 100",
+        # "Finetune Sample NLL, 512 Points, Epoch 200",
+        # "Finetune Sample NLL, 512 Points, Epoch 500",
+        # "Finetune Sample NLL, 512 Points, Epoch Best",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 50",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 100",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 200",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch 500",
+        # "Finetune Sample NLL, 512 Points, Seed 1, Epoch Best",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 10",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 20",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 30",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 40",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 50",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 60",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 70",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 80",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 90",
+        # "Finetune Sample NLL, 512 Points, Short, Epoch 100",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 10",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 20",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 30",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 40",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 50",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 60",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 70",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 80",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 90",
+        # "Finetune Sample NLL, 32 Points, Short, Epoch 100",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 50",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 100",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 200",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 500",
+        # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch Best",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 10",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 20",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 30",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 40",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 50",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 60",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 70",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 80",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 90",
+        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 100",
     ]
     datasets_order = datasets_to_evaluate
     precision = 3
