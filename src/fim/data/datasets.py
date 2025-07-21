@@ -8,7 +8,7 @@ import pathlib
 import random
 from collections import defaultdict, namedtuple
 from dataclasses import dataclass
-from functools import partial, reduce
+from functools import reduce
 from typing import Any, List, Optional, Union
 
 import h5py
@@ -999,10 +999,13 @@ class JsonSDEDataset(torch.utils.data.IterableDataset):
         if not isinstance(data, list):
             data = [data]
 
-        data: list[dict] = torch.utils._pytree.tree_map(
-            partial(self._load_dict_from_json, keys_to_load=keys_to_load, paths_per_batch_element=paths_per_batch_element), data
-        )
-        data: dict = torch.utils._pytree.tree_map(lambda *x: torch.concatenate(x, dim=0), *data)  # tuple of length 1
+        # data: list[dict] = torch.utils._pytree.tree_map(
+        #     partial(self._load_dict_from_json, keys_to_load=keys_to_load, paths_per_batch_element=paths_per_batch_element), data
+        # )
+        data: list[dict] = [self._load_dict_from_json(d, keys_to_load, paths_per_batch_element) for d in data]
+
+        if len(data) > 1:
+            data: dict = torch.utils._pytree.tree_map(lambda *x: torch.concatenate(x, dim=0), *data)  # tuple of length 1
 
         return data[0]
 

@@ -8,9 +8,6 @@ from typing import Optional
 import numpy as np
 import optree
 import torch
-from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
-    get_model_dicts_post_neurips_submission_checkpoint,
-)
 from tqdm import tqdm
 
 from fim import project_path
@@ -184,6 +181,10 @@ def _pprint_dict_with_shapes(d: dict) -> None:
 
 
 if __name__ == "__main__":
+    from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
+        get_model_dicts_post_neurips_submission_checkpoint,
+    )
+
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     dataset_descr = "real_world_cross_validation_vf_and_paths_evaluation"
 
