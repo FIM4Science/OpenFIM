@@ -77,35 +77,31 @@ class EventSampler(nn.Module):
 
         return bounds
 
-    def sample_exp_distribution(self, sample_rate):
-        """Sample an exponential distribution.
+    def sample_exp_distribution(self, sample_rate: torch.Tensor) -> torch.Tensor:
+        """
+        Draw samples from an exponential distribution using the inversion method.
 
         Args:
-            sample_rate (tensor): [batch_size, seq_len], intensity rate.
+            sample_rate (torch.Tensor): The rate parameter (lambda) of the exponential distribution.
+                                      Can be of shape [batch_size] or [batch_size, seq_len].
 
         Returns:
-            tensor: [batch_size, seq_len, num_exp], exp numbers at each event timestamp.
+            torch.Tensor: Samples from the exponential distribution.
         """
+        # Ensure sample_rate is at least 2D for consistent processing
+        if sample_rate.dim() == 1:
+            sample_rate = sample_rate.unsqueeze(-1)
 
         batch_size, seq_len = sample_rate.size()
 
-        # For fast approximation, we reuse the rnd for all samples
-        # [batch_size, seq_len, num_exp]
-        exp_numbers = torch.empty(size=[batch_size, seq_len, self.num_exp], dtype=sample_rate.dtype, device=self.device)
+        # Generate uniform random numbers
+        uniform_samples = torch.rand(batch_size, seq_len, self.num_exp, device=sample_rate.device)
 
-        # [batch_size, seq_len, num_exp]
-        # exp_numbers.exponential_(1.0)
-        exp_numbers.exponential_(1.0)
+        # Inverse transform sampling: -log(U) / lambda
+        # Add a small epsilon to prevent log(0)
+        exp_samples = -torch.log(uniform_samples + 1e-9) / (sample_rate.unsqueeze(-1) + 1e-9)
 
-        # [batch_size, seq_len, num_exp]
-        # exp_numbers = torch.tile(exp_numbers, [1, 1, self.num_sample, 1])
-
-        # [batch_size, seq_len, num_exp]
-        # div by sample_rate is equivalent to exp(sample_rate),
-        # see https://en.wikipedia.org/wiki/Exponential_distribution
-        exp_numbers = exp_numbers / sample_rate[:, :, None]
-
-        return exp_numbers
+        return exp_samples
 
     def sample_uniform_distribution(self, intensity_upper_bound):
         """Sample an uniform distribution
@@ -178,9 +174,14 @@ class EventSampler(nn.Module):
         Returns:
             tuple: next event time prediction and weight.
         """
+        # If only computing for the last step, slice the history here
+        if compute_last_step_only:
+            time_seq = time_seq[:, -1:]
+            time_delta_seq = time_delta_seq[:, -1:]
+            event_seq = event_seq[:, -1:]
+
         # 1. compute the upper bound of the intensity at each timestamp
-        # the last event has no label (no next event), so we drop it
-        # [batch_size, seq_len=max_len - 1]
+        # [batch_size, seq_len] (or [batch_size, 1] if last_step_only)
         intensity_upper_bound = self.compute_intensity_upper_bound(
             time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only
         )
