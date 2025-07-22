@@ -181,7 +181,9 @@ class FIMHawkes(AModel):
         # Global task-uncertainty scalars
         # ------------------------------------------------------------------
         self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1))
-        self.omega_nll = torch.nn.Parameter(torch.zeros(1))
+        # self.omega_nll = torch.nn.Parameter(torch.zeros(1))
+        # For now just set omega_nll to non-trainable 0 on the GPU
+        self.omega_nll = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
 
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
@@ -615,8 +617,18 @@ class FIMHawkes(AModel):
         time_enc = self.time_encoder(obs_grid_normalized)
         delta_time_enc = self.delta_time_encoder(x[f"{type}_delta_times"])
 
+        # Create padding mask before encoding marks
+        positions = torch.arange(L, device=self.device).unsqueeze(0)
+        seq_lengths_flat = x[f"{type}_seq_lengths"].view(B * P)
+        key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)
+        key_padding_mask_flat = key_padding_mask.view(-1)
+
         # More efficient mark encoding using cached one-hot matrix
         event_types_flat = x[f"{type}_event_types"].reshape(-1).long()
+        # Clamp event types to avoid out-of-bounds access with padding tokens.
+        # The padded values will be zeroed out later using the mask.
+        event_types_flat[key_padding_mask_flat] = 0
+
         # Use cached one-hot matrix instead of computing it each time
         one_hot_marks = self.mark_one_hot[event_types_flat]  # [B*P*L, max_num_marks]
         mark_encodings = self.mark_encoder(one_hot_marks)  # [B*P*L, hidden_dim]
@@ -633,11 +645,6 @@ class FIMHawkes(AModel):
 
         # 1. Create base causal mask [L, L]
         causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-
-        # 2. Create padding mask [B*P, L] for keys
-        positions = torch.arange(L, device=self.device).unsqueeze(0)  # (1, L)
-        seq_lengths_flat = x[f"{type}_seq_lengths"].view(B * P)  # (B*P,)
-        key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)  # (B*P, L)
 
         # This prevents them from contributing to the LayerNorm statistics inside the encoder,
         # which is the source of the unstable gradients in the backward pass.
@@ -1166,62 +1173,190 @@ class FIMHawkes(AModel):
 
         return final_mask
 
-    # def predict_one_step_at_every_event(self, batch: dict, intensity_fn: Callable):
-    #     """One-step prediction for every event in the sequence.
+    def predict_next_event(self, batch: dict) -> Dict[str, Tensor]:
+        """
+        Perform next-event prediction for a batch of sequences from the test set.
 
-    #     Code taken from https://github.com/ant-research/EasyTemporalPointProcess/blob/main/easy_tpp/model/torch_model/torch_basemodel.py
-    #     Args:
-    #         batch (dict): A dictionary containing the following keys:
-    #             - "event_times": Tensor representing the event times. [B, L]
-    #             - "delta_times": Tensor representing the delta times. [B, L]
-    #             - "event_types": Tensor representing the event types. [B, L]
-    #             - "seq_lengths": Tensor representing the sequence lengths (which we use for masking). [B]
+        This is an OPTIMIZED version that avoids Python loops by batching all
+        prefixes of all paths into a single forward pass.
 
-    #     Returns:
-    #         tuple: tensors of dtime and type prediction, [batch_size, seq_len].
-    #     """
-    #     time_seq = batch["event_times"]
-    #     time_delta_seq = batch["delta_times"]
-    #     event_seq = batch["event_types"]
+        Args:
+            batch (dict): A dictionary containing the input tensors from the EasyTPP dataloader.
+                          Expected keys:
+                          - "event_times": Tensor of shape [B, P, L, 1]
+                          - "event_types": Tensor of shape [B, P, L, 1]
+                          - "seq_lengths": Tensor of shape [B, P]
+                          Where B is batch size (usually 1 for this task), P is the number of paths,
+                          and L is the sequence length.
 
-    #     # remove the last event, as the prediction based on the last event has no label
-    #     # note: the first dts is 0
-    #     # [batch_size, seq_len]
-    #     time_seq, time_delta_seq, event_seq = time_seq[:, :-1], time_delta_seq[:, :-1], event_seq[:, :-1]
+        Returns:
+            dict: A dictionary containing the aggregated predictions for all paths.
+                  - "predicted_event_dtimes": Predicted inter-event times [P, L-1].
+                  - "predicted_event_types": Predicted event types [P, L-1].
+        """
+        B, P, L, _ = batch["event_times"].shape
+        device = self.device
 
-    #     # [batch_size, seq_len]
-    #     # dtime_boundary = torch.max(time_delta_seq * self.event_sampler.dtime_max, time_delta_seq + self.event_sampler.dtime_max)
+        if B > 1:
+            self.logger.warning(f"Prediction is designed for B=1, but got B={B}. Processing B=0 only.")
+            # Slicing to handle B>1 case, though the logic below assumes B=1 for simplicity
+            for key in batch:
+                batch[key] = batch[key][:1]
 
-    #     # [batch_size, seq_len, num_sample]
-    #     accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
-    #         time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only=False
-    #     )
+        # We will make predictions for prefixes of length 1 to L-1.
+        prefix_lengths = torch.arange(1, L, device=device)
+        num_prefixes = L - 1
 
-    #     # We should condition on each accepted time to sample event mark, but not conditioned on the expected event time.
-    #     # 1. Use all accepted_dtimes to get intensity.
-    #     # [batch_size, seq_len, num_sample, num_marks]
-    #     intensities_at_times = intensity_fn(accepted_dtimes, time_seq)
+        # 1. Construct the batch of all prefixes for all paths
+        # The new batch dimension will be P * num_prefixes
 
-    #     # 2. Normalize the intensity over last dim and then compute the weighted sum over the `num_sample` dimension.
-    #     # Each of the last dimension is a categorical distribution over all marks.
-    #     # [batch_size, seq_len, num_sample, num_marks]
-    #     intensities_normalized = intensities_at_times / intensities_at_times.sum(dim=-1, keepdim=True)
+        # Expand paths and prefixes to create all combinations
+        # Paths: [P, L, 1] -> [P, 1, L, 1] -> [P, num_prefixes, L, 1]
+        # Prefixes: [num_prefixes] -> [1, num_prefixes, 1, 1]
 
-    #     # 3. Compute weighted sum of distributions and then take argmax.
-    #     # [batch_size, seq_len, num_marks]
-    #     intensities_weighted = torch.einsum("...s,...sm->...m", weights, intensities_normalized)
+        # Create a mask to select elements for each prefix
+        # Shape: [num_prefixes, L] where mask[i, j] is true if j < prefix_lengths[i]
+        positions = torch.arange(L, device=device).unsqueeze(0)
+        prefix_mask = positions < prefix_lengths.unsqueeze(1)  # [num_prefixes, L]
 
-    #     # [batch_size, seq_len, num_marks]
-    #     types_pred = torch.argmax(intensities_weighted, dim=-1)
+        # Expand data and mask to create the inference batch
+        # New shape: [P, num_prefixes, L, 1]
+        inference_times_expanded = batch["event_times"].squeeze(0).unsqueeze(1).expand(-1, num_prefixes, -1, -1)
+        inference_types_expanded = batch["event_types"].squeeze(0).unsqueeze(1).expand(-1, num_prefixes, -1, -1)
 
-    #     # [batch_size, seq_len]
-    #     dtimes_pred = torch.sum(accepted_dtimes * weights, dim=-1)  # compute the expected next event time
-    #     return {
-    #         "predicted_event_times": dtimes_pred,
-    #         "predicted_event_types": types_pred,
-    #         "predicted_intensities": intensities_at_times,
-    #         "predicted_dtimes": accepted_dtimes,
-    #     }
+        # Apply the mask. We use 0 as a padding value.
+        # Shape: [P * num_prefixes, L, 1]
+        inference_times_batched = (inference_times_expanded * prefix_mask.view(1, num_prefixes, L, 1)).reshape(P * num_prefixes, L, 1)
+        inference_types_batched = (inference_types_expanded * prefix_mask.view(1, num_prefixes, L, 1)).reshape(P * num_prefixes, L, 1)
+        inference_lengths_batched = prefix_lengths.repeat(P)  # [P * num_prefixes]
+
+        # 2. Prepare the context for each prefix
+        # For each of the `num_prefixes` for a path `p`, the context is the same: all other paths.
+        context_indices = [torch.arange(p, device=device) for p in range(P)]
+        context_masks = [(idx != p_idx) for p_idx, idx in enumerate(context_indices)]
+
+        context_times_list = []
+        context_types_list = []
+        context_lengths_list = []
+
+        for p_idx in range(P):
+            mask = context_masks[p_idx]
+            # Context for path p_idx is all other paths
+            # Shape: [1, P-1, L, 1]
+            ctx_times = batch["event_times"][:, mask, ...]
+            ctx_types = batch["event_types"][:, mask, ...]
+            ctx_lengths = batch["seq_lengths"][:, mask]
+
+            # Repeat this context for each prefix of path p_idx
+            # Shape: [num_prefixes, P-1, L, 1]
+            context_times_list.append(ctx_times.expand(num_prefixes, -1, -1, -1))
+            context_types_list.append(ctx_types.expand(num_prefixes, -1, -1, -1))
+            context_lengths_list.append(ctx_lengths.expand(num_prefixes, -1))
+
+        # Concatenate into a single context batch
+        # Shape: [P * num_prefixes, P-1, L, 1]
+        context_times_batched = torch.cat(context_times_list, dim=0)
+        context_types_batched = torch.cat(context_types_list, dim=0)
+        context_lengths_batched = torch.cat(context_lengths_list, dim=0)
+
+        # 3. Assemble the final input dictionary for the single forward pass
+        x_batched = {
+            "context_event_times": context_times_batched,
+            "context_event_types": context_types_batched,
+            "context_seq_lengths": context_lengths_batched,
+            "inference_event_times": inference_times_batched.unsqueeze(1),  # Add P_inf=1 dim
+            "inference_event_types": inference_types_batched.unsqueeze(1),
+            "inference_seq_lengths": inference_lengths_batched.unsqueeze(1),
+            "intensity_evaluation_times": torch.zeros(P * num_prefixes, 1, 1, device=device),
+        }
+
+        # 4. Single, batched forward pass
+        with torch.no_grad():
+            model_out = self.forward(x_batched)
+
+        # intensity_obj is now a "batched" object, containing parameters for all prefixes
+        # mu/alpha/beta shapes: [P*num_prefixes, M, 1, L]
+        intensity_obj = model_out["intensity_function"]
+
+        # 5. Batched prediction using the sampler
+
+        # Sampler needs history times and deltas
+        hist_times = x_batched["inference_event_times"].squeeze(1).squeeze(-1)  # [P*num_prefixes, L]
+        hist_dtimes = torch.zeros_like(hist_times)
+        hist_dtimes[:, 1:] = hist_times[:, 1:] - hist_times[:, :-1]
+        hist_types = x_batched["inference_event_types"].squeeze(1).squeeze(-1)
+
+        # Create the wrapper for the batched intensity object
+        def intensity_fn_for_sampler(query_times, history_times_ignored):
+            # query_times shape: [P*num_prefixes, 1, num_samples]
+            b_size, _, n_samples = query_times.shape
+            query_times_reshaped = query_times.reshape(b_size, 1, n_samples)
+            intensity_per_mark = intensity_obj.evaluate(query_times_reshaped)  # [B', M, 1, n_samples]
+            total_intensity = intensity_per_mark.sum(dim=1)  # [B', 1, n_samples]
+            return total_intensity
+
+        # The sampler needs to be called for each prefix length. We can't fully batch this part
+        # because the sampler itself isn't designed to handle ragged histories efficiently.
+        # However, we can call it on batches of the *same prefix length*.
+
+        all_dtime_preds = []
+        all_type_preds = []
+
+        for i in range(num_prefixes):
+            # Select the batch indices corresponding to the current prefix length (i+1)
+            # These are indices 0, num_prefixes, 2*num_prefixes, ... for i=0
+            # and 1, num_prefixes+1, ... for i=1, etc.
+            batch_indices = torch.arange(i, P * num_prefixes, num_prefixes, device=device)
+
+            current_len = i + 1
+
+            # We need to provide the sampler with a view of the history up to the current length
+            # The sampler expects [Batch, SeqLen]
+            time_seq_for_sampler = hist_times[batch_indices, :current_len]
+            dtime_seq_for_sampler = hist_dtimes[batch_indices, :current_len]
+            type_seq_for_sampler = hist_types[batch_indices, :current_len]
+
+            # The intensity object needs to be sliced for the current batch
+            sliced_intensity_obj = PiecewiseHawkesIntensity(
+                event_times=intensity_obj.event_times[batch_indices, :, :current_len].squeeze(1),
+                mu=intensity_obj.mu[batch_indices, :, :, :current_len].squeeze(2),
+                alpha=intensity_obj.alpha[batch_indices, :, :, :current_len].squeeze(2),
+                beta=intensity_obj.beta[batch_indices, :, :, :current_len].squeeze(2),
+            )
+
+            def sliced_intensity_fn(query_times, hist_ignored):
+                b, _, n_s = query_times.shape
+                q_reshaped = query_times.view(b, 1, n_s)
+                intensity_per_mark = sliced_intensity_obj.evaluate(q_reshaped)
+                return intensity_per_mark.sum(dim=1)
+
+            accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
+                time_seq=time_seq_for_sampler,
+                time_delta_seq=dtime_seq_for_sampler,
+                event_seq=type_seq_for_sampler,
+                intensity_fn=sliced_intensity_fn,
+                compute_last_step_only=True,
+            )  # [P, 1, num_samples]
+
+            dtime_pred = torch.sum(accepted_dtimes * weights, dim=-1).squeeze(-1)  # [P]
+
+            t_last = time_seq_for_sampler[:, -1]  # [P]
+            predicted_time = t_last + dtime_pred  # [P]
+
+            intensities_at_pred_time = sliced_intensity_obj.evaluate(predicted_time.view(P, 1, 1))  # [P, M, 1, 1]
+            type_pred = torch.argmax(intensities_at_pred_time.squeeze(), dim=1)  # [P]
+
+            all_dtime_preds.append(dtime_pred)
+            all_type_preds.append(type_pred)
+
+        # Transpose and stack to get shape [P, L-1]
+        final_dtimes = torch.stack(all_dtime_preds, dim=1)
+        final_types = torch.stack(all_type_preds, dim=1)
+
+        return {
+            "predicted_event_dtimes": final_dtimes,
+            "predicted_event_types": final_types,
+        }
 
 
 ModelFactory.register(FIMHawkesConfig.model_type, FIMHawkes)
