@@ -29,6 +29,7 @@ from ..data.datasets import (
     FIMSDEDatabatch,
     FIMSDEDatabatchTuple,
     FIMSDEDataset,
+    HawkesDataset,
     HeterogeneousFIMSDEDataset,
     HFDataset,
     PaddedFIMSDEDataset,
@@ -273,13 +274,11 @@ class HawkesDataLoader(BaseDataLoader):
         self.num_inference_times = loader_kwargs.pop("num_inference_times", 1)
         self.variable_num_of_paths = loader_kwargs.pop("variable_num_of_paths", False)
 
-        self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", False)
+        # Per-dataset configuration for variable_sequence_lens
+        self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", {})
+
         self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
-
-        self.num_kernel_evaluation_points = loader_kwargs.pop("num_kernel_evaluation_points", None)
-
-        self.is_bulk_model = loader_kwargs.pop("is_bulk_model", False)
 
         self.current_minibatch_index = 0
         super().__init__(dataset_kwargs, loader_kwargs)
@@ -291,7 +290,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         self.path = path
         for name, paths in path.items():
-            self.dataset[name] = FIMDataset(paths, **dataset_kwargs)
+            self.dataset[name] = HawkesDataset(paths, **dataset_kwargs)
             if self.variable_num_of_paths and name == "train":
                 self.num_paths_for_batch = get_path_counts(
                     len(self.dataset[name]),
@@ -305,23 +304,112 @@ class HawkesDataLoader(BaseDataLoader):
 
         self._init_dataloaders(self.dataset)
 
-    def _get_collate_fn(self, dataset_name: str, dataset: FIMDataset) -> Union[None, callable]:
-        if not self.variable_num_of_paths or dataset_name != "train":
-            if dataset.is_last_dim_varying:
-                return self.__custom_var_dim_collate_fn
-            return default_collate
-
+    def _get_collate_fn(self, dataset_name: str, dataset: HawkesDataset) -> Union[None, callable]:
         def custom_collate(batch):
-            batch = self.var_path_collate_fn(batch)
+            # Apply variable path selection only for training data when enabled
+            if self.variable_num_of_paths and dataset_name == "train":
+                batch = self.var_path_collate_fn(batch)
 
-            if self.variable_sequence_lens:
+            # Apply variable sequence lengths only when enabled for this dataset
+            if self.variable_sequence_lens.get(dataset_name, False):
                 batch = self.custom_hawkes_collate_fun(batch)
+
+            # Tensors whose second dimension is the number of marks (M) for Hawkes processes
+            tensors_to_pad = dataset.field_name_for_dimension_grouping
+            # Ensure `tensors_to_pad` is always iterable to avoid runtime errors
+            if tensors_to_pad is None:
+                tensors_to_pad = []
+            elif isinstance(tensors_to_pad, str):
+                tensors_to_pad = [tensors_to_pad]
+
+            # Find the maximum number of marks in the current batch. The mark dimension is
+            # always the FIRST dimension (index 0) for the Hawkes tensors we work with
+            # (e.g. [M], [M, L_char] or [M, M, L_char]). Using dim-0 works for both
+            # `kernel_functions` and `base_intensity_functions`.
+            max_marks = 0
+            for item in batch:
+                for key in tensors_to_pad:
+                    if key in item:
+                        tensor = item[key]
+                        mark_dim = tensor.shape[0]
+                        max_marks = max(max_marks, mark_dim)
+                        break  # Move to next item once a mark-dependent tensor is found
+
+            if max_marks > 0:
+                for item in batch:
+                    # Store the original number of marks for this item
+                    # Use a default of 0 if no mark-dependent tensors are present
+                    current_marks = 0
+                    for key in tensors_to_pad:
+                        if key in item:
+                            current_marks = item[key].shape[0]
+                            break
+                    item["num_marks"] = current_marks
+
+                    # Pad the relevant tensors
+                    pad_size = max_marks - current_marks
+                    if pad_size > 0:
+                        for key in tensors_to_pad:
+                            if key in item:
+                                tensor = item[key]
+                                # Create a padding tensor with the correct trailing dimensions
+                                # For Hawkes: pad the second dimension (marks dimension)
+                                pad_shape = (tensor.shape[0], pad_size) + tensor.shape[2:]
+                                padding = torch.zeros(pad_shape, dtype=tensor.dtype, device=tensor.device)
+                                item[key] = torch.cat([tensor, padding], dim=1)
+
+            # Ensure seq_lengths exists for all items (needed for inference path selection)
+            for item in batch:
+                if "event_times" in item and "seq_lengths" not in item:
+                    # Create default seq_lengths based on the actual length of event_times
+                    P, L = item["event_times"].shape[:2]
+                    # For each path, find the actual sequence length (assuming padded with zeros or -1)
+                    seq_lengths = []
+                    for p in range(P):
+                        # Find first zero or negative value to determine actual length
+                        times = item["event_times"][p]
+                        non_zero_mask = times > 0
+                        if non_zero_mask.any():
+                            seq_len = non_zero_mask.sum().item()
+                        else:
+                            seq_len = 1  # At least one event
+                        seq_lengths.append(seq_len)
+                    item["seq_lengths"] = torch.tensor(seq_lengths, dtype=torch.long)
+
+            # ALWAYS apply inference path and time selection for all datasets BEFORE collating
             batch = self.select_inference_paths(batch)
             batch = self.select_inference_times(batch)
+
+            # Guarantee that every item contains the `num_marks` field. If it has not been
+            # created in the padding logic above (e.g. because the mark dimension was
+            # already consistent across the batch) we infer it directly from one of the
+            # mark-dependent tensors.
+            for item in batch:
+                if "num_marks" not in item:
+                    # Prefer kernel_functions -> base_intensity_functions
+                    if "kernel_functions" in item:
+                        item["num_marks"] = item["kernel_functions"].shape[0]
+                    elif "base_intensity_functions" in item:
+                        item["num_marks"] = item["base_intensity_functions"].shape[0]
+                    else:
+                        # As a final fallback, set to max_marks computed earlier (may be zero)
+                        item["num_marks"] = max_marks
+
+            # Handle variable dimensions if needed
             if dataset.is_last_dim_varying:
                 return self.__custom_var_dim_collate_fn(batch)
 
-            return default_collate(batch)
+            # Use torch default collate for the final step
+            collated = default_collate(batch)
+
+            # Collapse num_marks to a scalar so that downstream code can safely call
+            # `.item()` irrespective of batch size.
+            if "num_marks" in collated and isinstance(collated["num_marks"], torch.Tensor):
+                if collated["num_marks"].ndim > 0:
+                    # all values are identical, so just take the first element
+                    collated["num_marks"] = collated["num_marks"][0]
+
+            return collated
 
         return custom_collate
 

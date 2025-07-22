@@ -579,6 +579,8 @@ class TrainLogging:
             losses = batch_stats.get("losses")
         else:
             losses = batch_stats
+        # Ensure all scalar tensors are cast to Python floats for safe string formatting
+        losses = {k: (v.item() if isinstance(v, torch.Tensor) and v.numel() == 1 else v) for k, v in losses.items()}
         sb = " ".join([f"{k}: {v:.6f}" for k, v in losses.items()])
         self.file_logger.info("Epoch %s - %s - Minibatch %s: %s", epoch, step_type.upper(), batch_id, sb)
         if self.rank == 0:
@@ -598,7 +600,12 @@ class TrainLogging:
             return
 
         def generate_log(stats: dict) -> str:
-            return " ".join([f"{k}: {v:.6f}" for k, v in stats.items()])
+            formatted_stats = []
+            for k, v in stats.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.item()
+                formatted_stats.append(f"{k}: {v:.6f}")
+            return " ".join(formatted_stats)
 
         train_log = generate_log(train_stats["losses"])
         self.file_logger.info("Epoch %d - TRAIN: %s", epoch, train_log)
