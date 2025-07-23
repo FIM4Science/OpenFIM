@@ -26,7 +26,7 @@ MODEL_CHECKPOINT_PATH = "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
 # If False: Load from local path
-USE_EASYTPP = True
+USE_EASYTPP = False
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
 DATASET_IDENTIFIER = "easytpp/retweet"
@@ -205,6 +205,11 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
             inf_times_padded[0, 0, :prefix_len, 0] = prefix_times
             inf_types_padded[0, 0, :prefix_len, 0] = prefix_types
 
+            # Pad *after* the prefix with +inf so that these indices are guaranteed
+            # to be treated as "future" events by the intensity implementation and
+            # never influence the sampler.
+            inf_times_padded[0, 0, prefix_len:, 0] = float("inf")
+
             inf_lengths = torch.tensor([[prefix_len]], device=device)
 
             x = {
@@ -220,10 +225,15 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
             model_out = model.forward(x)
             intensity_obj = model_out["intensity_function"]
 
-            hist_times = x["inference_event_times"].squeeze(0).squeeze(-1)
+            # Extract only the *real* history up to `prefix_len` so the sampler and
+            # subsequent calculations ignore the +inf padding.
+            hist_times_full = x["inference_event_times"].squeeze(0).squeeze(-1)
+            hist_times = hist_times_full[:, :prefix_len]
+
             hist_dtimes = torch.zeros_like(hist_times)
             hist_dtimes[:, 1:] = hist_times[:, 1:] - hist_times[:, :-1]
-            hist_types = x["inference_event_types"].squeeze(0).squeeze(-1)
+
+            hist_types = x["inference_event_types"].squeeze(0).squeeze(-1)[:, :prefix_len]
 
             def intensity_fn_for_sampler(query_times, hist_ignored):
                 intensity_per_mark = intensity_obj.evaluate(query_times)
@@ -279,6 +289,13 @@ def main():
     model.to(device)
     print("Model loaded successfully.")
 
+    # The sampler's estimate of the intensity's upper bound is critical.
+    # A low sampling resolution (`num_samples_boundary`) can lead to a poor
+    # estimate, causing high rejection rates. We increase it here for a more
+    # robust bound.
+    model.event_sampler.num_samples_boundary = 50
+    print(f"Updated sampler num_samples_boundary to {model.event_sampler.num_samples_boundary}")
+
     # 2. Load context and inference data
     if USE_EASYTPP:
         print(f"Loading and preprocessing dataset from Hugging Face Hub: {DATASET_IDENTIFIER}...")
@@ -313,6 +330,13 @@ def main():
     sampler_cap = float(max_dtime_train) * 1.2  # 20 % safety margin
     model.event_sampler.dtime_max = sampler_cap
     print(f"Updated sampler dtime_max to {sampler_cap:.2f}")
+
+    # Lower the over-sampling factor to avoid overly conservative
+    # intensity bounds that cause massive rejection and thus the
+    # fallback to `dtime_max`.  A value only slightly above 1 is
+    # sufficient here.
+    model.event_sampler.over_sample_rate = 1.2
+    print(f"Set sampler over_sample_rate to {model.event_sampler.over_sample_rate:.1f}")
 
     max_context_len = max(len(seq) for seq in context_data_raw["time_since_start"]) if CONTEXT_SIZE > 0 else 0
 

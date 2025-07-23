@@ -47,11 +47,6 @@ class EventSampler(nn.Module):
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
     def compute_intensity_upper_bound(self, time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only):
-        # logger.critical(f'time_seq: {time_seq}')
-        # logger.critical(f'time_delta_seq: {time_delta_seq}')
-        # logger.critical(f'event_seq: {event_seq}')
-        # logger.critical(f'intensity_fn: {intensity_fn}')
-        # logger.critical(f'compute_last_step_only: {compute_last_step_only}')
         """Compute the upper bound of intensity at each event timestamp.
 
         Args:
@@ -62,17 +57,23 @@ class EventSampler(nn.Module):
         Returns:
             tensor: [batch_size, seq_len]
         """
+        time_deltas_for_bound = torch.linspace(start=1e-5, end=self.dtime_max, steps=self.num_samples_boundary, device=self.device)
 
-        # [1, 1, num_samples_boundary]
-        time_for_bound_sampled = torch.linspace(start=0.0, end=1.0, steps=self.num_samples_boundary, device=self.device)[None, None, :]
+        # Reshape for broadcasting.
+        # Shape: [1, 1, num_samples_boundary]
+        time_deltas_for_bound = time_deltas_for_bound.view(1, 1, -1)
 
-        # [batch_size, seq_len, num_samples_boundary]
-        dtime_for_bound_sampled = time_delta_seq[:, :, None] * time_for_bound_sampled
+        # We need to compute absolute times to query the intensity function.
+        # `time_seq` contains the absolute time of each event in the history.
+        # Shape of `time_seq`: [batch_size, seq_len]
+        # Shape of `query_times`: [batch_size, seq_len, num_samples_boundary]
+        query_times = time_seq.unsqueeze(-1) + time_deltas_for_bound
 
-        # [batch_size, seq_len, num_samples_boundary, event_num]
-        intensities_for_bound = intensity_fn(dtime_for_bound_sampled.cumsum(dim=-2), time_seq)
+        intensities_for_bound = intensity_fn(query_times, time_seq)
 
-        # [batch_size, seq_len]
+        # `intensities_for_bound` is expected to have shape [B, L, T, M] where L is
+        # seq_len, T is num_samples_boundary and M is num_marks.
+        # Sum over marks (M), find max over sampled times (T).
         bounds = intensities_for_bound.sum(dim=-1).max(dim=-1)[0] * self.over_sample_rate
 
         return bounds
