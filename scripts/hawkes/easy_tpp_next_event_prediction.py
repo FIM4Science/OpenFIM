@@ -31,7 +31,7 @@ USE_EASYTPP = False
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
 # This variable selects which of the N_samples to use (0-indexed)
-SAMPLE_INDEX = 2
+SAMPLE_INDEX = 0
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
 DATASET_IDENTIFIER = "easytpp/retweet"
@@ -296,11 +296,11 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
             # Expected next-event inter-arrival time
             dtime_pred = torch.sum(delta_samples * weights, dim=-1).squeeze()
 
-            t_last = hist_times[0, prefix_len - 1]
-            predicted_time = t_last + dtime_pred
-
-            intensities_at_pred_time = intensity_obj.evaluate(predicted_time.view(1, 1, 1))
-            type_pred = torch.argmax(intensities_at_pred_time.squeeze())
+            intensities_at_samples = intensity_obj.evaluate(accepted_dtimes)
+            total_intensity_at_samples = intensities_at_samples.sum(dim=1, keepdim=True)
+            probabilities_at_samples = intensities_at_samples / (total_intensity_at_samples + 1e-9)
+            expected_probabilities = torch.sum(probabilities_at_samples * weights.unsqueeze(1), dim=-1)
+            type_pred = torch.argmax(expected_probabilities.squeeze())
 
             current_path_dtime_preds.append(dtime_pred.item())
             current_path_type_preds.append(type_pred.item())
@@ -435,21 +435,20 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
             # Expected next-event inter-arrival time
             dtime_pred = torch.sum(delta_samples * weights, dim=-1).squeeze()
 
-            t_last = hist_times[0, prefix_len - 1]
-            predicted_time = t_last + dtime_pred
-
-            # Get ground truth intensities at predicted time for type prediction
-            target_intensities = model.compute_target_intensity_values(
+            gt_intensities_at_samples = model.compute_target_intensity_values(
                 kernel_functions_list,
                 base_intensity_functions_list,
-                predicted_time.view(1, 1, 1),  # [B, P, 1]
-                x["inference_event_times"][:, :, :prefix_len, :],  # [B, P, prefix_len, 1]
-                x["inference_event_types"][:, :, :prefix_len, :],  # [B, P, prefix_len, 1]
-                torch.tensor([[prefix_len]], device=device),  # [B, P]
+                accepted_dtimes,
+                x["inference_event_times"][:, :, :prefix_len, :],
+                x["inference_event_types"][:, :, :prefix_len, :],
+                torch.tensor([[prefix_len]], device=device),
                 norm_constants,
                 num_marks=NUM_EVENT_TYPES,
             )
-            type_pred = torch.argmax(target_intensities.squeeze())
+            total_gt_intensity = gt_intensities_at_samples.sum(dim=1, keepdim=True)
+            gt_probabilities_at_samples = gt_intensities_at_samples / (total_gt_intensity + 1e-9)
+            expected_gt_probabilities = torch.sum(gt_probabilities_at_samples * weights.unsqueeze(1), dim=-1)
+            type_pred = torch.argmax(expected_gt_probabilities.squeeze())
 
             current_path_dtime_preds.append(dtime_pred.item())
             current_path_type_preds.append(type_pred.item())
