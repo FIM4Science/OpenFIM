@@ -1,3 +1,12 @@
+"""
+Next Event Prediction Script for FIM-Hawkes Models
+
+Usage:
+- Set USE_EASYTPP=True for HuggingFace datasets
+- Set USE_EASYTPP=False and LOCAL_DATASET_PATH for local datasets
+- Adjust CONTEXT_SIZE and INFERENCE_SIZE based on your memory constraints
+"""
+
 import json
 from pathlib import Path
 
@@ -14,13 +23,20 @@ from tqdm import tqdm
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
 MODEL_CHECKPOINT_PATH = "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-20-1027/checkpoints/epoch-89"
 
-# Set the Hugging Face dataset identifier.
+# Flag to control dataset source
+# If True: Load from EasyTPP HuggingFace repository
+# If False: Load from local path
+USE_EASYTPP = True
+
+# Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
 DATASET_IDENTIFIER = "easytpp/retweet"
+
+# Set the local dataset path (used only if USE_EASYTPP=False).
+LOCAL_DATASET_PATH = "/cephfs/users/berghaus/FoundationModels/FIM/data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params"
 
 # Set the number of event types for the chosen dataset.
 NUM_EVENT_TYPES = 3
 
-# --- New Configuration Options ---
 # Maximum number of sequences from the training set to use as context.
 CONTEXT_SIZE = 1000
 
@@ -39,6 +55,86 @@ except ImportError:
 # This part is crucial for loading the model correctly
 FIMHawkesConfig.register_for_auto_class()
 FIMHawkes.register_for_auto_class("AutoModel")
+
+
+def load_local_dataset(dataset_path: str, split: str):
+    """
+    Load local dataset from PyTorch tensor files.
+
+    Args:
+        dataset_path: Path to the dataset directory
+        split: Dataset split ("train", "val", or "test")
+
+    Returns:
+        Dictionary containing dataset in a format compatible with HuggingFace datasets
+    """
+    split_path = Path(dataset_path) / split
+    if not split_path.exists():
+        raise FileNotFoundError(f"Split directory not found: {split_path}")
+
+    # Load tensor files
+    event_times = torch.load(split_path / "event_times.pt")  # [N_processes, P_trajectories, K_events, 1]
+    event_types = torch.load(split_path / "event_types.pt")  # [N_processes, P_trajectories, K_events, 1]
+    seq_lengths = torch.load(split_path / "seq_lengths.pt")  # [N_processes, P_trajectories]
+
+    # Reshape to flatten the processes and trajectories dimensions
+    N, P, K = event_times.shape[:3]
+    total_sequences = N * P
+
+    # Flatten and squeeze the last dimension if it exists
+    if event_times.dim() == 4:
+        event_times_flat = event_times.squeeze(-1).reshape(total_sequences, K)
+        event_types_flat = event_types.squeeze(-1).reshape(total_sequences, K)
+    else:
+        event_times_flat = event_times.reshape(total_sequences, K)
+        event_types_flat = event_types.reshape(total_sequences, K)
+
+    seq_lengths_flat = seq_lengths.reshape(total_sequences)
+
+    # Convert to list format compatible with HuggingFace datasets
+    time_since_start = []
+    time_since_last_event = []
+    type_event = []
+    seq_len = []
+
+    for i in range(total_sequences):
+        actual_len = seq_lengths_flat[i].item()
+
+        # Extract actual sequence (up to actual_len)
+        times = event_times_flat[i, :actual_len].tolist()
+        types = event_types_flat[i, :actual_len].tolist()
+
+        # Calculate time deltas
+        deltas = [0.0] + [times[j] - times[j - 1] for j in range(1, len(times))]
+
+        time_since_start.append(times)
+        time_since_last_event.append(deltas)
+        type_event.append(types)
+        seq_len.append(actual_len)
+
+    return {
+        "time_since_start": time_since_start,
+        "time_since_last_event": time_since_last_event,
+        "type_event": type_event,
+        "seq_len": seq_len,
+    }
+
+
+def load_local_dataset_subset(dataset_dict, size):
+    """
+    Extract a subset from the loaded local dataset.
+
+    Args:
+        dataset_dict: Dictionary containing the full dataset
+        size: Number of sequences to extract
+
+    Returns:
+        Dictionary containing the subset
+    """
+    if size >= len(dataset_dict["seq_len"]):
+        return dataset_dict
+
+    return {key: values[:size] for key, values in dataset_dict.items()}
 
 
 def load_fimhawkes_with_proper_weights(checkpoint_path: str) -> FIMHawkes:
@@ -183,14 +279,23 @@ def main():
     model.to(device)
     print("Model loaded successfully.")
 
-    # 2. Load context and inference data from Hugging Face
-    print(f"Loading and preprocessing dataset from Hugging Face Hub: {DATASET_IDENTIFIER}...")
-    train_dataset = load_dataset(DATASET_IDENTIFIER, split="train")
-    test_dataset = load_dataset(DATASET_IDENTIFIER, split="test")
+    # 2. Load context and inference data
+    if USE_EASYTPP:
+        print(f"Loading and preprocessing dataset from Hugging Face Hub: {DATASET_IDENTIFIER}...")
+        train_dataset = load_dataset(DATASET_IDENTIFIER, split="train")
+        test_dataset = load_dataset(DATASET_IDENTIFIER, split="test")
 
-    # Select a subset for context and inference based on configuration
-    context_data_raw = train_dataset[:CONTEXT_SIZE]
-    inference_data_raw = test_dataset[:INFERENCE_SIZE]
+        # Select a subset for context and inference based on configuration
+        context_data_raw = train_dataset[:CONTEXT_SIZE]
+        inference_data_raw = test_dataset[:INFERENCE_SIZE]
+    else:
+        print(f"Loading and preprocessing local dataset from: {LOCAL_DATASET_PATH}...")
+        train_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "train")
+        test_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "test")
+
+        # Select a subset for context and inference based on configuration
+        context_data_raw = load_local_dataset_subset(train_dataset_dict, CONTEXT_SIZE)
+        inference_data_raw = load_local_dataset_subset(test_dataset_dict, INFERENCE_SIZE)
 
     # 3. Prepare the fixed context batch (on-the-fly)
     # This batch will be cached and reused for all inference sequences.
@@ -200,7 +305,11 @@ def main():
     # Adjust the sampler's dtime_max to match the time scale of the dataset and avoid artificial truncation.
     # ------------------------------------------------------------------
 
-    max_dtime_train = max(max(seq) for seq in train_dataset["time_since_last_event"]) if CONTEXT_SIZE > 0 else 1.0
+    if USE_EASYTPP:
+        max_dtime_train = max(max(seq) for seq in train_dataset["time_since_last_event"]) if CONTEXT_SIZE > 0 else 1.0
+    else:
+        max_dtime_train = max(max(seq) for seq in train_dataset_dict["time_since_last_event"]) if CONTEXT_SIZE > 0 else 1.0
+
     sampler_cap = float(max_dtime_train) * 1.2  # 20 % safety margin
     model.event_sampler.dtime_max = sampler_cap
     print(f"Updated sampler dtime_max to {sampler_cap:.2f}")
