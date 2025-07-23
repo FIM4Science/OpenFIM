@@ -439,9 +439,14 @@ class FIMHawkes(AModel):
         # Build piece-wise intensity object and evaluate at requested times
         # ------------------------------------------------------------------
         event_times = x["inference_event_times"].squeeze(-1)  # [B,P,L]
-        intensity_fn = PiecewiseHawkesIntensity(event_times, mu, alpha, beta)
+        # If the model operates on normalised time, retain the normalisation
+        # constants so that the returned intensity function can be evaluated on
+        # the *original* time scale by downstream consumers.
+        norm_consts_for_intensity = norm_constants if self.normalize_times else None
+        intensity_fn = PiecewiseHawkesIntensity(event_times, mu, alpha, beta, norm_consts_for_intensity)
 
-        predicted_intensity_values = intensity_fn.evaluate(x["intensity_evaluation_times"])  # [B,M,P,L_eval]
+        # Since we're passing normalized times from the model, use normalized_times=True
+        predicted_intensity_values = intensity_fn.evaluate(x["intensity_evaluation_times"], normalized_times=True)
 
         out = {
             "predicted_intensity_values": predicted_intensity_values,
@@ -779,7 +784,9 @@ class FIMHawkes(AModel):
         where L_λ,balanced incorporates heteroscedastic uncertainty on a per-sample basis.
         """
         # --- 1. Predicted intensity ---
-        predicted_intensity_values = intensity_fn.evaluate(eval_times)
+        # Since eval_times are already normalized from the model, use normalized_times=True
+        predicted_intensity_values = intensity_fn.evaluate(eval_times, normalized_times=True)
+
         squared_error = (predicted_intensity_values - target_intensity_values) ** 2
 
         # --- 2. Balanced Intensity Regression Loss  ---
@@ -796,7 +803,10 @@ class FIMHawkes(AModel):
         num_marks = intensity_fn.mu.shape[1]
 
         # a) Log-intensity at actual event times and marks
-        log_intensity_at_events = torch.log(intensity_fn.evaluate(event_times))  # [B,M,P,L]
+        # Since event_times are already normalized from the model, use normalized_times=True
+        intensity_at_events = intensity_fn.evaluate(event_times, normalized_times=True)
+        log_intensity_at_events = torch.log(intensity_at_events)  # [B,M,P,L]
+
         type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)  # [B,1,P,L]
         log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)  # [B,P,L]
 
@@ -807,8 +817,9 @@ class FIMHawkes(AModel):
 
         # b) Integrated intensity per path & mark, then sum over marks
         t_start = torch.zeros(B, P, device=self.device)
+
         t_end = event_times.max(dim=2).values  # [B,P]
-        integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end)  # [B,M,P]
+        integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end, normalized_times=True)  # [B,M,P]
         integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B,P]
 
         # c) Per-path NLL and normalisation
@@ -1317,11 +1328,18 @@ class FIMHawkes(AModel):
             type_seq_for_sampler = hist_types[batch_indices, :current_len]
 
             # The intensity object needs to be sliced for the current batch
+            # Preserve the normalisation constants for the sliced object (if any)
+            if hasattr(intensity_obj, "norm_constants") and intensity_obj.norm_constants is not None:
+                sliced_norm_consts = intensity_obj.norm_constants[batch_indices]
+            else:
+                sliced_norm_consts = None
+
             sliced_intensity_obj = PiecewiseHawkesIntensity(
                 event_times=intensity_obj.event_times[batch_indices, :, :current_len].squeeze(1),
                 mu=intensity_obj.mu[batch_indices, :, :, :current_len].squeeze(2),
                 alpha=intensity_obj.alpha[batch_indices, :, :, :current_len].squeeze(2),
                 beta=intensity_obj.beta[batch_indices, :, :, :current_len].squeeze(2),
+                norm_constants=sliced_norm_consts,
             )
 
             def sliced_intensity_fn(query_times, hist_ignored):
