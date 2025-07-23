@@ -1338,7 +1338,12 @@ class FIMHawkes(AModel):
                 compute_last_step_only=True,
             )  # [P, 1, num_samples]
 
-            dtime_pred = torch.sum(accepted_dtimes * weights, dim=-1).squeeze(-1)  # [P]
+            # Convert absolute sampled times to inter-event times (delta t)
+            t_last_tensor = time_seq_for_sampler[:, -1:].unsqueeze(-1)  # [P, 1, 1]
+            delta_samples = accepted_dtimes - t_last_tensor
+            delta_samples = torch.clamp(delta_samples, min=0.0)  # Numerical safety
+
+            dtime_pred = torch.sum(delta_samples * weights, dim=-1).squeeze(-1)
 
             t_last = time_seq_for_sampler[:, -1]  # [P]
             predicted_time = t_last + dtime_pred  # [P]

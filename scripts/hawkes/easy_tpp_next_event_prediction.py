@@ -249,7 +249,17 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
                 compute_last_step_only=True,
             )
 
-            dtime_pred = torch.sum(accepted_dtimes * weights, dim=-1).squeeze()
+            # `accepted_dtimes` returned by the sampler are ABSOLUTE timestamps.  To obtain
+            # the inter-event time we need to subtract the timestamp of the last observed
+            # event (t_last).
+            t_last_tensor = hist_times[:, -1:].unsqueeze(-1)  # Shape compatible with accepted_dtimes
+            delta_samples = accepted_dtimes - t_last_tensor
+
+            # Robustness: fall back to `dtime_max` if, due to numerical issues, any delta becomes negative.
+            delta_samples = torch.clamp(delta_samples, min=0.0)
+
+            # Expected next-event inter-arrival time
+            dtime_pred = torch.sum(delta_samples * weights, dim=-1).squeeze()
 
             t_last = hist_times[0, prefix_len - 1]
             predicted_time = t_last + dtime_pred
@@ -332,10 +342,10 @@ def main():
     print(f"Updated sampler dtime_max to {sampler_cap:.2f}")
 
     # Lower the over-sampling factor to avoid overly conservative
-    # intensity bounds that cause massive rejection and thus the
-    # fallback to `dtime_max`.  A value only slightly above 1 is
-    # sufficient here.
-    model.event_sampler.over_sample_rate = 1.2
+    # Oversampling factor influences the intensity upper bound.  A larger value makes
+    # rejection sampling more likely to ACCEPT a draw (at the expense of a few more
+    # evaluations). We therefore revert to a safer default of 5.0.
+    model.event_sampler.over_sample_rate = 5.0
     print(f"Set sampler over_sample_rate to {model.event_sampler.over_sample_rate:.1f}")
 
     max_context_len = max(len(seq) for seq in context_data_raw["time_since_start"]) if CONTEXT_SIZE > 0 else 0
