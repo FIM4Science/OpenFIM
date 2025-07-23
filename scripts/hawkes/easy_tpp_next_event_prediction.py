@@ -28,6 +28,11 @@ MODEL_CHECKPOINT_PATH = "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM
 # If False: Load from local path
 USE_EASYTPP = False
 
+# Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
+# Local datasets have shape [N_samples, P_processes, K_events, 1]
+# This variable selects which of the N_samples to use (0-indexed)
+SAMPLE_INDEX = 2
+
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
 DATASET_IDENTIFIER = "easytpp/retweet"
 
@@ -73,23 +78,32 @@ def load_local_dataset(dataset_path: str, split: str):
         raise FileNotFoundError(f"Split directory not found: {split_path}")
 
     # Load tensor files
-    event_times = torch.load(split_path / "event_times.pt")  # [N_processes, P_trajectories, K_events, 1]
-    event_types = torch.load(split_path / "event_types.pt")  # [N_processes, P_trajectories, K_events, 1]
-    seq_lengths = torch.load(split_path / "seq_lengths.pt")  # [N_processes, P_trajectories]
+    event_times = torch.load(split_path / "event_times.pt")  # [N_samples, P_processes, K_events, 1]
+    event_types = torch.load(split_path / "event_types.pt")  # [N_samples, P_processes, K_events, 1]
+    seq_lengths = torch.load(split_path / "seq_lengths.pt")  # [N_samples, P_processes]
 
-    # Reshape to flatten the processes and trajectories dimensions
+    # Select only the specified sample index instead of flattening all samples
     N, P, K = event_times.shape[:3]
-    total_sequences = N * P
+    if SAMPLE_INDEX >= N:
+        raise ValueError(f"SAMPLE_INDEX ({SAMPLE_INDEX}) is out of bounds. Dataset has {N} samples (0-indexed).")
 
-    # Flatten and squeeze the last dimension if it exists
-    if event_times.dim() == 4:
-        event_times_flat = event_times.squeeze(-1).reshape(total_sequences, K)
-        event_types_flat = event_types.squeeze(-1).reshape(total_sequences, K)
+    # Extract the selected sample
+    event_times_sample = event_times[SAMPLE_INDEX]  # [P_processes, K_events, 1]
+    event_types_sample = event_types[SAMPLE_INDEX]  # [P_processes, K_events, 1]
+    seq_lengths_sample = seq_lengths[SAMPLE_INDEX]  # [P_processes]
+
+    # Now work with processes dimension only (P instead of N*P)
+    total_sequences = P
+
+    # Squeeze the last dimension if it exists
+    if event_times_sample.dim() == 3:
+        event_times_flat = event_times_sample.squeeze(-1)  # [P_processes, K_events]
+        event_types_flat = event_types_sample.squeeze(-1)  # [P_processes, K_events]
     else:
-        event_times_flat = event_times.reshape(total_sequences, K)
-        event_types_flat = event_types.reshape(total_sequences, K)
+        event_times_flat = event_times_sample  # [P_processes, K_events]
+        event_types_flat = event_types_sample  # [P_processes, K_events]
 
-    seq_lengths_flat = seq_lengths.reshape(total_sequences)
+    seq_lengths_flat = seq_lengths_sample  # [P_processes]
 
     # Convert to list format compatible with HuggingFace datasets
     time_since_start = []
@@ -317,6 +331,7 @@ def main():
         inference_data_raw = test_dataset[:INFERENCE_SIZE]
     else:
         print(f"Loading and preprocessing local dataset from: {LOCAL_DATASET_PATH}...")
+        print(f"Using sample index: {SAMPLE_INDEX}")
         train_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "train")
         test_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "test")
 
