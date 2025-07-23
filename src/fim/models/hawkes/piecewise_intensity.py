@@ -36,6 +36,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         mu: Tensor,
         alpha: Tensor,
         beta: Tensor,
+        norm_constants: Tensor | None = None,
     ) -> None:
         super().__init__()
 
@@ -46,19 +47,55 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         self.alpha = alpha  # [B, M, P, L]
         self.beta = beta  # [B, M, P, L]
 
-    def evaluate(self, query_times: Tensor) -> Tensor:
+        # Normalisation constants (one per batch element). If provided, they enable
+        # automatic conversion between the *normalised* internal time scale and
+        # the *original* time scale expected by the caller.  We deliberately do
+        # NOT denormalise the stored parameters – only the input times and
+        # output intensities are adjusted on-the-fly.
+        if norm_constants is not None:
+            # Register as buffer so it moves with .to(device) calls and is saved
+            # in state_dict, while remaining non-trainable.
+            self.register_buffer("norm_constants", norm_constants.view(-1))  # [B]
+        else:
+            self.norm_constants = None
+
+    def evaluate(self, query_times: Tensor, normalized_times: bool = False) -> Tensor:
         r"""Evaluate \lambda at ``query_times``.
 
-        query_times must have shape [B, P, L_eval].  The returned tensor has
-        shape [B, M, P, L_eval].
+        Args:
+            query_times (Tensor): Times at which to evaluate the intensity. Shape [B, P, L_eval].
+            normalized_times (bool, optional): If ``True``, the provided ``query_times`` are assumed
+                to already be on the *normalised* time axis (i.e. the same scale that the model
+                internally uses during training). If ``False`` (default), the times are treated as
+                *original* (unnormalised) and are automatically mapped onto the normalised axis when
+                ``self.norm_constants`` is available.
+
+        Returns:
+            Tensor: Intensity values with shape [B, M, P, L_eval]. When ``normalized_times=False``,
+                returns original-scale intensities. When ``normalized_times=True``, returns
+                normalized-scale intensities to avoid redundant conversions.
         """
         device = query_times.device
         B, P, L_eval = query_times.shape
         _, M, _, L = self.mu.shape
 
+        # ------------------------------------------------------------------
+        # 1) Optional time (de-)normalisation
+        # ------------------------------------------------------------------
+        if self.norm_constants is not None:
+            norm_consts = self.norm_constants.view(B, 1, 1)  # [B,1,1]
+            if normalized_times:
+                query_times_norm = query_times  # Already normalised
+            else:
+                # Map *original* times onto the normalised axis
+                query_times_norm = query_times / norm_consts
+        else:
+            # No normalisation constants stored – use times as-is
+            query_times_norm = query_times
+
         # Reshape and broadcast to compare each query time with all event times
         # per path: [B, P, L_eval, 1] vs [B, P, 1, L]
-        past_mask = self.event_times.unsqueeze(2) < query_times.unsqueeze(3)  # [B,P,L_eval,L]
+        past_mask = self.event_times.unsqueeze(2) < query_times_norm.unsqueeze(3)  # [B,P,L_eval,L]
 
         # Build indices tensor 0..L-1 for max operation
         idx = torch.arange(L, device=device, dtype=torch.long).view(1, 1, 1, L)
@@ -85,7 +122,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         # If no past event exists (last_idx == -1) we fallback to t_last = 0 so that
         # the intensity reduces to Softplus(mu) with delta_t = query_times.
         t_last = torch.where(last_idx.eq(-1), torch.zeros_like(t_last), t_last)
-        delta_t = query_times - t_last  # [B,P,L_eval]
+        delta_t = query_times_norm - t_last  # [B,P,L_eval]
         delta_t = delta_t.unsqueeze(1)  # -> [B,1,P,L_eval]
 
         # Piece-wise intensity formula
@@ -93,14 +130,21 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         base = mu_last + (alpha_last - mu_last) * exponent
         intensity = F.softplus(base)
 
+        # ------------------------------------------------------------------
+        # 2) Optional intensity de-normalisation (back to original scale)
+        # ------------------------------------------------------------------
+        if self.norm_constants is not None and not normalized_times:
+            # Only denormalize when caller expects original-scale outputs
+            intensity = intensity / self.norm_constants.view(B, 1, 1, 1)
+
         return intensity
 
     # Alias ``forward`` to ``evaluate`` so that the module can be called like a
     # regular function.
-    def forward(self, query_times: Tensor) -> Tensor:  # type: ignore[override]
-        return self.evaluate(query_times)
+    def forward(self, query_times: Tensor, normalized_times: bool = False) -> Tensor:  # type: ignore[override]
+        return self.evaluate(query_times, normalized_times=normalized_times)
 
-    def integral(self, t_end: Tensor, t_start: Tensor | None = None, num_samples: int = 100) -> Tensor:
+    def integral(self, t_end: Tensor, t_start: Tensor | None = None, num_samples: int = 100, normalized_times: bool = False) -> Tensor:
         r"""Estimate the integral of \lambda from ``t_start`` to ``t_end`` via Monte-Carlo.
 
         A simple Monte-Carlo estimator is used:
@@ -117,6 +161,9 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
             t_start (Tensor | None): The start of the integration interval(s).
                 If None, defaults to 0. Must be broadcastable to ``t_end.shape``.
             num_samples (int): The number of samples for the Monte-Carlo estimation.
+            normalized_times (bool, optional): If ``True``, the provided ``t_start`` and ``t_end``
+                are assumed to already be on the *normalised* time axis. If ``False`` (default),
+                they are treated as *original* (unnormalised) times.
 
         Returns:
             Tensor: The estimated integral for each mark. Shape is [B, M, *t_end.shape[1:]].
@@ -143,7 +190,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         t_samples_flat = t_samples.reshape(B, P, num_total_samples)
 
         # Evaluate intensity at the sampled times
-        intensity_at_samples_flat = self.evaluate(t_samples_flat)  # [B, M, P, num_total_samples]
+        intensity_at_samples_flat = self.evaluate(t_samples_flat, normalized_times=normalized_times)  # [B, M, P, num_total_samples]
 
         # Reshape back to include the original evaluation and sample dimensions
         # Target shape: [B, M, P, (L_eval), num_samples]
