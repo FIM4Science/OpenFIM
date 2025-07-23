@@ -195,6 +195,16 @@ def main():
     # 3. Prepare the fixed context batch (on-the-fly)
     # This batch will be cached and reused for all inference sequences.
     print("Preparing fixed context data...")
+
+    # ------------------------------------------------------------------
+    # Adjust the sampler's dtime_max to match the time scale of the dataset and avoid artificial truncation.
+    # ------------------------------------------------------------------
+
+    max_dtime_train = max(max(seq) for seq in train_dataset["time_since_last_event"]) if CONTEXT_SIZE > 0 else 1.0
+    sampler_cap = float(max_dtime_train) * 1.2  # 20 % safety margin
+    model.event_sampler.dtime_max = sampler_cap
+    print(f"Updated sampler dtime_max to {sampler_cap:.2f}")
+
     max_context_len = max(len(seq) for seq in context_data_raw["time_since_start"]) if CONTEXT_SIZE > 0 else 0
 
     context_batch = {
