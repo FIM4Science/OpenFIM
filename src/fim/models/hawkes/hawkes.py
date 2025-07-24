@@ -800,8 +800,6 @@ class FIMHawkes(AModel):
         # --- 3. Negative Log-Likelihood Loss (normalised per path, mark, and event) ---
         B, P, L = event_times.shape
 
-        num_marks = intensity_fn.mu.shape[1]
-
         # a) Log-intensity at actual event times and marks
         # Since event_times are already normalized from the model, use normalized_times=True
         intensity_at_events = intensity_fn.evaluate(event_times, normalized_times=True)
@@ -822,13 +820,18 @@ class FIMHawkes(AModel):
         integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end, normalized_times=True)  # [B,M,P]
         integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B,P]
 
-        # c) Per-path NLL and normalisation
+        # c) Per-path NLL
         nll_per_path = integral_sum_per_path - log_ll_per_path  # [B,P]
-        # Divide by (#events in path * #marks) for per-event & per-mark normalisation
-        nll_per_path_normalised = nll_per_path / num_marks
 
-        # d) Average across paths and batch
-        nll_loss = nll_per_path_normalised.mean()
+        # Sum the NLL across all paths and the batch to get the total NLL
+        total_nll = nll_per_path.sum()
+
+        # Sum the mask to get the total number of valid events in the batch
+        total_events = valid_mask.sum()
+
+        # d) Normalize by the total number of events in the batch
+        # Add a small epsilon to prevent division by zero
+        nll_loss = total_nll / (total_events + 1e-8)
 
         # --- 4. Hybrid Uncertainty Weighting ---
         total_loss = (
