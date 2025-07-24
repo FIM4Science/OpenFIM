@@ -1,7 +1,13 @@
-# Run via:
-# python scripts/hawkes/easytpp_fit.py data/synthetic_data/hawkes/10_2D_1k_paths_diag_only_large_scale --sample-idx 0 --model NHP --epochs 100 --batch-size 256
-
 """
+Run examples:
+  Local Hawkes dataset:
+    python scripts/hawkes/easytpp_fit.py \
+      data/synthetic_data/hawkes/10_2D_1k_paths_diag_only_large_scale \
+      --dataset-split train --sample-idx 0 --model NHP --epochs 100 --batch-size 256
+  HuggingFace EasyTPP dataset:
+    python scripts/hawkes/easytpp_fit.py easytpp/retweet \
+      --dataset-split train --model NHP --epochs 100 --batch-size 256
+
 Script to fit an EasyTPP model on either
 1. a *local* Hawkes dataset that is stored the way this repository produces it, i.e. a
    folder that contains the files
@@ -335,17 +341,26 @@ def main() -> None:  # noqa: D401
                 # are present.  The first sample of the train split should be enough.
                 ds = load_dataset(dataset_arg, split=args.dataset_split, streaming=False)
                 first_item = ds[0]
-                num_event_types = int(max(first_item["type_seqs"]) + 1)
+                # Determine number of event types from dataset fields
+                if "dim_process" in first_item:
+                    num_event_types = int(first_item["dim_process"])
+                elif "type_event" in first_item:
+                    num_event_types = int(max(first_item["type_event"]) + 1)
+                elif "type_seqs" in first_item:
+                    num_event_types = int(max(first_item["type_seqs"]) + 1)
+                else:
+                    # Fallback: guess 2 event types
+                    num_event_types = 2
             except Exception:  # pragma: no cover – robust against HF outages etc.
                 # Fallback:  guess 2 event types which is the most common case in our
                 # synthetic data.
                 num_event_types = 2
 
-            # Re-use the *same* id for the three splits.  EasyTPP takes the split name
-            # from the filename suffix (train/val/test) so we embed it here.
-            train_json = f"{dataset_arg}#train"
-            val_json = f"{dataset_arg}#val"
-            test_json = f"{dataset_arg}#test"
+            # Use the same HuggingFace dataset id for all splits; the runner API
+            # will call load_dataset with the appropriate split.
+            train_json = dataset_arg
+            val_json = dataset_arg
+            test_json = dataset_arg
 
         # ------------------------------------------------------------
         # Write YAML config and run EasyTPP.
