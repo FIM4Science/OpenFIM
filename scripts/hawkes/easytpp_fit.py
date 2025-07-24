@@ -199,60 +199,6 @@ def convert_local_dataset_to_json(base_dir: Path, split: str, sample_idx: int, t
     return json_path, sample_dict["num_event_types"]
 
 
-# -----------------------------------------------------------------------------
-# Configuration helper
-# -----------------------------------------------------------------------------
-
-
-EASYTPP_TEMPLATE = """
-pipeline_config_id: runner_config
-
-data:
-  easytpp:
-    data_format: json
-    train_dir: {train_json}
-    valid_dir: {val_json}
-    test_dir: {test_json}
-    data_specs:
-      num_event_types: {num_event_types}
-      pad_token_id: {pad_token_id}
-      padding_side: right
-
-{model_id}_train:
-  base_config:
-    stage: train
-    backend: torch
-    dataset_id: easytpp
-    runner_id: std_tpp
-    model_id: {model_id}
-    base_dir: {checkpoint_dir}
-  trainer_config:
-    batch_size: {batch_size}
-    max_epoch: {max_epoch}
-    shuffle: False
-    optimizer: adam
-    learning_rate: 1.e-3
-    valid_freq: 1
-    use_tfb: True
-    metrics: ['acc', 'rmse']
-    seed: 42
-    gpu: {gpu}
-  model_config:
-    hidden_size: 32
-    loss_integral_num_sample_per_step: 20
-    thinning:
-      num_seq: 10
-      num_sample: 1
-      num_exp: 500
-      look_ahead_time: 10
-      patience_counter: 5
-      over_sample_rate: 5
-      num_samples_boundary: 5
-      dtime_max: 5
-      num_step_gen: 1
-"""
-
-
 def write_training_config(
     *,
     train_json: Union[str, Path],
@@ -263,12 +209,63 @@ def write_training_config(
     epochs: int,
     batch_size: int,
     checkpoint_dir: Path,
+    sampler_dtime_max: float,  # <-- NEW ARGUMENT
+    sampler_num_samples_boundary: int,  # <-- NEW ARGUMENT
+    sampler_over_sample_rate: float,  # <-- NEW ARGUMENT
     gpu: int = -1,
 ) -> Path:
     """Render the YAML config file that EasyTPP expects."""
 
-    # +1 is a safety pad token id.  For two event types (0,1) token id 2 is used for
-    # padding etc.
+    # The template is now defined inside this function for clarity
+    EASYTPP_TEMPLATE = """
+    pipeline_config_id: runner_config
+
+    data:
+      easytpp:
+        data_format: json
+        train_dir: {train_json}
+        valid_dir: {val_json}
+        test_dir: {test_json}
+        data_specs:
+          num_event_types: {num_event_types}
+          pad_token_id: {pad_token_id}
+          padding_side: right
+
+    {model_id}_train:
+      base_config:
+        stage: train
+        backend: torch
+        dataset_id: easytpp
+        runner_id: std_tpp
+        model_id: {model_id}
+        base_dir: {checkpoint_dir}
+      trainer_config:
+        batch_size: {batch_size}
+        max_epoch: {max_epoch}
+        shuffle: False
+        optimizer: adam
+        learning_rate: 1.e-3
+        valid_freq: 1
+        use_tfb: True
+        metrics: ['acc', 'rmse']
+        seed: 42
+        gpu: {gpu}
+      model_config:
+        hidden_size: 32
+        loss_integral_num_sample_per_step: 20
+        thinning:
+          num_seq: 10
+          num_sample: 1
+          num_exp: 500
+          look_ahead_time: 10
+          patience_counter: 5
+          over_sample_rate: {sampler_over_sample_rate}
+          num_samples_boundary: {sampler_num_samples_boundary}
+          dtime_max: {sampler_dtime_max}
+          num_step_gen: 1
+    """
+
+    # +1 is a safety pad token id.
     pad_token_id = num_event_types
 
     rendered = EASYTPP_TEMPLATE.format(
@@ -282,15 +279,12 @@ def write_training_config(
         batch_size=batch_size,
         checkpoint_dir=checkpoint_dir,
         gpu=gpu,
+        sampler_dtime_max=sampler_dtime_max,
+        sampler_num_samples_boundary=sampler_num_samples_boundary,
+        sampler_over_sample_rate=sampler_over_sample_rate,
     )
 
-    # Ensure that the destination directory exists – otherwise writing the YAML
-    # file will fail and downstream loading of the config will raise a
-    # FileNotFoundError.  Creating the directory here avoids repeating this check
-    # at every call‐site of ``write_training_config`` and keeps the responsibility
-    # close to where the file is actually written.
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
     cfg_path = checkpoint_dir / f"easytpp_{model_id.lower()}_train.yaml"
     cfg_path.write_text(rendered)
     return cfg_path
@@ -320,6 +314,31 @@ def main() -> None:  # noqa: D401
     tmp_dir = Path(tempfile.mkdtemp(prefix="easytpp_data_"))
 
     try:
+        # ==================================================================
+        # Calculate dynamic sampler params after args are parsed for fair comparison
+        # ==================================================================
+        print("[INFO] Calculating dynamic sampler parameters for fair comparison...")
+        if dataset_path.exists():
+            # Logic to load local train split and find max dtime
+            train_sample_dict = _load_local_sample(dataset_path / "train", args.sample_idx)
+            # Add 'if seq' to handle potentially empty sequences gracefully
+            max_dtime_train = max(max(seq) for seq in train_sample_dict["time_since_last_event"] if seq)
+        else:
+            # Logic to load HF train split and find max dtime
+            from datasets import load_dataset
+
+            train_ds = load_dataset(dataset_arg, split="train")
+            max_dtime_train = max(max(seq) for seq in train_ds["time_since_last_event"] if seq)
+
+        # Harmonize sampler settings to match the FIM-Hawkes script
+        sampler_dtime_max = float(max_dtime_train) * 1.2  # 20% safety margin
+        sampler_num_samples_boundary = 50
+        sampler_over_sample_rate = 5.0
+        print(f"  - Set sampler dtime_max to {sampler_dtime_max:.4f}")
+        print(f"  - Set sampler num_samples_boundary to {sampler_num_samples_boundary}")
+        print(f"  - Set sampler over_sample_rate to {sampler_over_sample_rate:.1f}")
+        # ==================================================================
+
         if dataset_path.exists():
             # ------------------------------------------------------------
             # LOCAL DATASET  –  needs conversion.
@@ -388,6 +407,9 @@ def main() -> None:  # noqa: D401
             batch_size=args.batch_size,
             checkpoint_dir=args.output_dir,
             gpu=gpu_index,
+            sampler_dtime_max=sampler_dtime_max,
+            sampler_num_samples_boundary=sampler_num_samples_boundary,
+            sampler_over_sample_rate=sampler_over_sample_rate,
         )
 
         print(f"[INFO] EasyTPP config written to: {cfg_path}")
