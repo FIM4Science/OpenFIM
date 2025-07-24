@@ -31,13 +31,13 @@ USE_EASYTPP = False
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
 # This variable selects which of the N_samples to use (0-indexed)
-SAMPLE_INDEX = 0
+SAMPLE_INDEX = 1
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
 DATASET_IDENTIFIER = "easytpp/retweet"
 
 # Set the local dataset path (used only if USE_EASYTPP=False).
-LOCAL_DATASET_PATH = "/cephfs/users/berghaus/FoundationModels/FIM/data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params"
+LOCAL_DATASET_PATH = "/cephfs/users/berghaus/FoundationModels/FIM/data/synthetic_data/hawkes/10_2D_1k_paths_diag_only_large_scale"
 
 # Set the number of event types for the chosen dataset.
 NUM_EVENT_TYPES = 3
@@ -468,6 +468,79 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
     }
 
 
+def compute_baseline_predictions(context_data_raw, inference_data_raw):
+    """
+    Compute simple baseline predictions using majority mark and mean time.
+
+    Args:
+        context_data_raw: Raw context data dictionary
+        inference_data_raw: Raw inference data dictionary
+
+    Returns:
+        Dictionary containing baseline predictions for all inference sequences
+    """
+    # Compute majority mark from context data
+    all_types = []
+    all_dtimes = []
+
+    for i in range(len(context_data_raw["time_since_start"])):
+        seq_len = context_data_raw["seq_len"][i]
+        # Skip first event (no previous event to predict time from)
+        if seq_len > 1:
+            all_types.extend(context_data_raw["type_event"][i][1:seq_len])
+            all_dtimes.extend(context_data_raw["time_since_last_event"][i][1:seq_len])
+
+    if not all_types:
+        # Fallback if no data
+        majority_type = 0
+        mean_dtime = 1.0
+    else:
+        # Find majority type
+        type_counts = {}
+        for t in all_types:
+            type_counts[t] = type_counts.get(t, 0) + 1
+        majority_type = max(type_counts, key=type_counts.get)
+
+        # Compute mean inter-event time
+        mean_dtime = sum(all_dtimes) / len(all_dtimes)
+
+    print("Baseline statistics from context data:")
+    print(f"  Majority event type: {majority_type}")
+    print(f"  Mean inter-event time: {mean_dtime:.4f}")
+
+    # Generate baseline predictions for all inference sequences
+    baseline_dtime_preds = []
+    baseline_type_preds = []
+
+    for i in range(len(inference_data_raw["time_since_start"])):
+        seq_len = inference_data_raw["seq_len"][i]
+        max_pred_len = len(inference_data_raw["time_since_start"][i]) - 1
+
+        # Create predictions for this sequence
+        seq_dtime_preds = []
+        seq_type_preds = []
+
+        # Predict for each position (skip first event)
+        for j in range(1, seq_len):
+            seq_dtime_preds.append(mean_dtime)
+            seq_type_preds.append(majority_type)
+
+        # Pad to match expected length
+        while len(seq_dtime_preds) < max_pred_len:
+            seq_dtime_preds.append(0.0)
+            seq_type_preds.append(0)
+
+        baseline_dtime_preds.append(seq_dtime_preds)
+        baseline_type_preds.append(seq_type_preds)
+
+    return {
+        "predicted_event_dtimes": torch.tensor(baseline_dtime_preds, dtype=torch.float32),
+        "predicted_event_types": torch.tensor(baseline_type_preds, dtype=torch.long),
+        "majority_type": majority_type,
+        "mean_dtime": mean_dtime,
+    }
+
+
 def main():
     """
     Main function to load the model and dataset, and run the evaluation.
@@ -576,6 +649,15 @@ def main():
     if ground_truth_available:
         gt_total_mae, gt_total_sq_err, gt_total_acc, gt_total_events = 0, 0, 0, 0
 
+    # Initialize metrics for baseline predictions
+    baseline_total_mae, baseline_total_sq_err, baseline_total_acc, baseline_total_events = 0, 0, 0, 0
+
+    # Compute baseline predictions once for all sequences
+    print("\nComputing baseline predictions...")
+    baseline_predictions = compute_baseline_predictions(context_data_raw, inference_data_raw)
+    baseline_pred_dtimes = baseline_predictions["predicted_event_dtimes"]
+    baseline_pred_types = baseline_predictions["predicted_event_types"]
+
     # 4. Loop through inference sequences and perform next-event prediction
     with torch.no_grad():
         for i in tqdm(range(INFERENCE_SIZE), desc="Evaluating Inference Sequences"):
@@ -604,11 +686,15 @@ def main():
                 gt_pred_dtimes = gt_predictions["predicted_event_dtimes"].cpu()
                 gt_pred_types = gt_predictions["predicted_event_types"].cpu()
 
-            # d. Get ground truth for comparison
+            # d. Get baseline predictions for this sequence
+            baseline_seq_dtimes = baseline_pred_dtimes[i : i + 1]  # Keep batch dimension
+            baseline_seq_types = baseline_pred_types[i : i + 1]  # Keep batch dimension
+
+            # e. Get ground truth for comparison
             true_dtimes = inference_item["time_delta_seqs"].cpu()[:, 1:]
             true_types = inference_item["type_seqs"].cpu()[:, 1:]
 
-            # e. Calculate metrics for the current sequence
+            # f. Calculate metrics for the current sequence
             mask = torch.zeros_like(true_types, dtype=torch.bool)
             original_length = inference_item["seq_len"].item()
             if original_length > 1:
@@ -626,6 +712,16 @@ def main():
                 total_acc += acc
                 total_events += num_events_in_batch
 
+                # Baseline metrics
+                baseline_mae = torch.abs(baseline_seq_dtimes[mask] - true_dtimes[mask]).sum().item()
+                baseline_sq_err = ((baseline_seq_dtimes[mask] - true_dtimes[mask]) ** 2).sum().item()
+                baseline_acc = (baseline_seq_types[mask] == true_types[mask]).sum().item()
+
+                baseline_total_mae += baseline_mae
+                baseline_total_sq_err += baseline_sq_err
+                baseline_total_acc += baseline_acc
+                baseline_total_events += num_events_in_batch
+
                 # Ground truth metrics
                 if ground_truth_available:
                     gt_mae = torch.abs(gt_pred_dtimes[mask] - true_dtimes[mask]).sum().item()
@@ -642,10 +738,19 @@ def main():
     final_rmse = np.sqrt(total_sq_err / total_events) if total_events > 0 else 0
     final_acc = total_acc / total_events if total_events > 0 else 0
 
+    baseline_final_mae = baseline_total_mae / baseline_total_events if baseline_total_events > 0 else 0
+    baseline_final_rmse = np.sqrt(baseline_total_sq_err / baseline_total_events) if baseline_total_events > 0 else 0
+    baseline_final_acc = baseline_total_acc / baseline_total_events if baseline_total_events > 0 else 0
+
     print("\n" + "=" * 60)
     print("--- EVALUATION RESULTS ---")
     print(f"Dataset: {DATASET_IDENTIFIER if USE_EASYTPP else LOCAL_DATASET_PATH}")
     print(f"Total Events Evaluated: {total_events}")
+    print()
+    print("SIMPLE BASELINE (Majority Type + Mean Time):")
+    print(f"  Time Prediction MAE:       {baseline_final_mae:.4f}")
+    print(f"  Time Prediction RMSE:      {baseline_final_rmse:.4f}")
+    print(f"  Type Prediction Accuracy:  {baseline_final_acc:.4f}")
     print()
     print("MODEL PREDICTIONS:")
     print(f"  Time Prediction MAE:       {final_mae:.4f}")
@@ -672,6 +777,16 @@ def main():
         print(f"  MAE improvement:           {mae_improvement:+.1f}%")
         print(f"  RMSE improvement:          {rmse_improvement:+.1f}%")
         print(f"  Accuracy improvement:      {acc_improvement:+.1f}%")
+
+    print()
+    print("COMPARISON (Model vs Simple Baseline):")
+    baseline_mae_improvement = ((baseline_final_mae - final_mae) / baseline_final_mae * 100) if baseline_final_mae > 0 else 0
+    baseline_rmse_improvement = ((baseline_final_rmse - final_rmse) / baseline_final_rmse * 100) if baseline_final_rmse > 0 else 0
+    baseline_acc_improvement = ((final_acc - baseline_final_acc) / baseline_final_acc * 100) if baseline_final_acc > 0 else 0
+
+    print(f"  MAE improvement:           {baseline_mae_improvement:+.1f}%")
+    print(f"  RMSE improvement:          {baseline_rmse_improvement:+.1f}%")
+    print(f"  Accuracy improvement:      {baseline_acc_improvement:+.1f}%")
 
     print("=" * 60)
 

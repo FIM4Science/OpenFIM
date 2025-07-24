@@ -180,7 +180,7 @@ class FIMHawkes(AModel):
         # ------------------------------------------------------------------
         # Global task-uncertainty scalars
         # ------------------------------------------------------------------
-        self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1))
+        self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
         # self.omega_nll = torch.nn.Parameter(torch.zeros(1))
         # For now just set omega_nll to non-trainable 0 on the GPU
         self.omega_nll = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
