@@ -31,7 +31,7 @@ USE_EASYTPP = False
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
 # This variable selects which of the N_samples to use (0-indexed)
-SAMPLE_INDEX = 1
+SAMPLE_INDEX = 0
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
 DATASET_IDENTIFIER = "easytpp/retweet"

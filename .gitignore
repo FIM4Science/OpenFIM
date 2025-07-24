@@ -25,6 +25,7 @@ core.*
 env_config.env
 tags
 results
+checkpoints
 ./evaluations
 saved_evaluations
 evaluations
