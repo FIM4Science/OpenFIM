@@ -512,23 +512,21 @@ def compute_baseline_predictions(context_data_raw, inference_data_raw):
     baseline_dtime_preds = []
     baseline_type_preds = []
 
+    # Determine global maximum number of predictions (skip first event) across sequences
+    global_max_pred_len = max(len(seq) for seq in inference_data_raw["time_since_start"]) - 1
+
     for i in range(len(inference_data_raw["time_since_start"])):
         seq_len = inference_data_raw["seq_len"][i]
-        max_pred_len = len(inference_data_raw["time_since_start"][i]) - 1
 
-        # Create predictions for this sequence
-        seq_dtime_preds = []
-        seq_type_preds = []
+        # Create predictions for this sequence (skip first event)
+        seq_dtime_preds = [mean_dtime] * max(0, seq_len - 1)
+        seq_type_preds = [majority_type] * max(0, seq_len - 1)
 
-        # Predict for each position (skip first event)
-        for j in range(1, seq_len):
-            seq_dtime_preds.append(mean_dtime)
-            seq_type_preds.append(majority_type)
-
-        # Pad to match expected length
-        while len(seq_dtime_preds) < max_pred_len:
-            seq_dtime_preds.append(0.0)
-            seq_type_preds.append(0)
+        # Pad to match global expected prediction length
+        if len(seq_dtime_preds) < global_max_pred_len:
+            pad_len = global_max_pred_len - len(seq_dtime_preds)
+            seq_dtime_preds.extend([0.0] * pad_len)
+            seq_type_preds.extend([0] * pad_len)
 
         baseline_dtime_preds.append(seq_dtime_preds)
         baseline_type_preds.append(seq_type_preds)
@@ -713,9 +711,12 @@ def main():
                 total_events += num_events_in_batch
 
                 # Baseline metrics
-                baseline_mae = torch.abs(baseline_seq_dtimes[mask] - true_dtimes[mask]).sum().item()
-                baseline_sq_err = ((baseline_seq_dtimes[mask] - true_dtimes[mask]) ** 2).sum().item()
-                baseline_acc = (baseline_seq_types[mask] == true_types[mask]).sum().item()
+                # Baseline metrics (slice predictions to match true sequence length)
+                seq_pred_dtimes = baseline_seq_dtimes[:, : original_length - 1]
+                seq_pred_types = baseline_seq_types[:, : original_length - 1]
+                baseline_mae = torch.abs(seq_pred_dtimes[mask] - true_dtimes[mask]).sum().item()
+                baseline_sq_err = ((seq_pred_dtimes[mask] - true_dtimes[mask]) ** 2).sum().item()
+                baseline_acc = (seq_pred_types[mask] == true_types[mask]).sum().item()
 
                 baseline_total_mae += baseline_mae
                 baseline_total_sq_err += baseline_sq_err
