@@ -2946,6 +2946,7 @@ class FIMSDE(AModel):
 
             initial_states = torch.repeat_interleave(initial_states, self.finetune_samples_count, dim=1)
             target_states = torch.repeat_interleave(target_states, self.finetune_samples_count, dim=1)
+            obs_mask_valid_steps = torch.repeat_interleave(obs_mask_valid_steps, self.finetune_samples_count, dim=1)
             delta_tau = torch.repeat_interleave(delta_tau, self.finetune_samples_count, dim=1)
 
             dimension_mask = torch.broadcast_to(dimension_mask[:, 0, :][:, None, None, :], target_states.shape)
@@ -3005,6 +3006,9 @@ class FIMSDE(AModel):
                 )
                 drift, diffusion = sde_concepts.drift, sde_concepts.diffusion
 
+                if self.finetune_detach_diffusion is True:
+                    diffusion = diffusion.detach()
+
                 em_delta_t = delta_tau / self.finetune_em_steps
                 em_delta_t = em_delta_t.reshape(B, -1, 1)
 
@@ -3014,10 +3018,10 @@ class FIMSDE(AModel):
                 diffusion = torch.clip(diffusion, min=1e-10)
                 em_delta_t = torch.clip(em_delta_t, min=1e-10)
 
+                # remove later
                 sampling_nll = ((target_states - last_step_before_prediction - drift * em_delta_t) ** 2) / (
                     2 * diffusion**2 * em_delta_t
-                ) + (2 * torch.log(diffusion))
-
+                ) + torch.log(diffusion)
                 assert sampling_nll.shape == drift.shape
 
                 sampling_nll = sampling_nll * location_mask
