@@ -26,7 +26,7 @@ MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
 # If False: Load from local path
-USE_EASYTPP = True
+USE_EASYTPP = False
 
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
@@ -37,7 +37,7 @@ SAMPLE_INDEX = 0
 DATASET_IDENTIFIER = "easytpp/retweet"
 
 # Set the local dataset path (used only if USE_EASYTPP=False).
-LOCAL_DATASET_PATH = "/cephfs/users/berghaus/FoundationModels/FIM/data/synthetic_data/hawkes/10_2D_1k_paths_diag_only_large_scale"
+LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale"
 
 # Set the number of event types for the chosen dataset.
 NUM_EVENT_TYPES = 3
@@ -46,7 +46,7 @@ NUM_EVENT_TYPES = 3
 CONTEXT_SIZE = 1000
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = 2000
+INFERENCE_SIZE = 100
 # ===================================================================
 
 
@@ -68,7 +68,7 @@ def load_local_dataset(dataset_path: str, split: str):
 
     Args:
         dataset_path: Path to the dataset directory
-        split: Dataset split ("train", "val", or "test")
+        split: Dataset split ("context", "val", or "test")
 
     Returns:
         Dictionary containing dataset in a format compatible with HuggingFace datasets
@@ -576,7 +576,7 @@ def main():
     else:
         print(f"Loading and preprocessing local dataset from: {LOCAL_DATASET_PATH}...")
         print(f"Using sample index: {SAMPLE_INDEX}")
-        train_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "train")
+        train_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "context")
         test_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "test")
 
         # Select a subset for context and inference based on configuration
