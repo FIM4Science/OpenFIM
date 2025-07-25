@@ -161,7 +161,7 @@ def evaluate_fim_on_lorenz(
         initial_states=inference_initial_states,
         grid=inference_grid,
         mask=torch.ones_like(inference_grid),
-        solver_granularity=10,
+        solver_granularity=20,
     )  # [1, num_initial_states, T, 3]
 
     with torch.no_grad():

@@ -339,7 +339,7 @@ class LorenzEvaluationEpoch(EvaluationEpoch):
                             obs_times,
                             torch.ones_like(obs_times),
                             initial_states=obs_values[:, :, 0, :],
-                            solver_granularity=5,
+                            solver_granularity=10,
                         )
 
             # Create figure from paths
