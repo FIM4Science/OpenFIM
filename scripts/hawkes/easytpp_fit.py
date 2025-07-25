@@ -2,11 +2,11 @@
 Run examples:
   Local Hawkes dataset:
     python scripts/hawkes/easytpp_fit.py \
-      data/synthetic_data/hawkes/10_2D_1k_paths_diag_only_large_scale \
-      --dataset-split train --sample-idx 0 --model NHP --epochs 100 --batch-size 256
+      data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale \
+      --sample-idx 0 --model NHP --epochs 100 --batch-size 256
   HuggingFace EasyTPP dataset:
     python scripts/hawkes/easytpp_fit.py easytpp/retweet \
-      --dataset-split train --model NHP --epochs 100 --batch-size 256
+      --model NHP --epochs 100 --batch-size 256
 
 Script to fit an EasyTPP model on either
 1. a *local* Hawkes dataset that is stored the way this repository produces it, i.e. a
@@ -64,13 +64,6 @@ def parse_args() -> argparse.Namespace:  # noqa: D401
             "Either a local path that contains a Hawkes dataset in .pt format or the "
             "name of a HuggingFace dataset (e.g. 'FIM4Science/easytpp-synthetic-1d')."
         ),
-    )
-    parser.add_argument(
-        "--dataset-split",
-        type=str,
-        default="train",
-        choices=["train", "val", "validation", "test"],
-        help="Dataset split to use when the dataset argument points to a local folder.",
     )
     parser.add_argument(
         "--sample-idx",
@@ -201,6 +194,7 @@ def convert_local_dataset_to_json(base_dir: Path, split: str, sample_idx: int, t
 
 def write_training_config(
     *,
+    data_id: str,
     train_json: Union[str, Path],
     val_json: Union[str, Path],
     test_json: Union[str, Path],
@@ -221,7 +215,7 @@ def write_training_config(
     pipeline_config_id: runner_config
 
     data:
-      easytpp:
+      {data_id}:
         data_format: json
         train_dir: {train_json}
         valid_dir: {val_json}
@@ -235,7 +229,7 @@ def write_training_config(
       base_config:
         stage: train
         backend: torch
-        dataset_id: easytpp
+        dataset_id: {data_id}
         runner_id: std_tpp
         model_id: {model_id}
         base_dir: {checkpoint_dir}
@@ -269,6 +263,7 @@ def write_training_config(
     pad_token_id = num_event_types
 
     rendered = EASYTPP_TEMPLATE.format(
+        data_id=data_id,
         train_json=str(train_json),
         val_json=str(val_json),
         test_json=str(test_json),
@@ -313,14 +308,17 @@ def main() -> None:  # noqa: D401
     # Prepare a tmp directory that will hold the converted dataset and config.
     tmp_dir = Path(tempfile.mkdtemp(prefix="easytpp_data_"))
 
+    # For local datasets always use the "context" split; HF datasets use the built-in "train" split.
+    local_train_split = "context"
+
     try:
         # ==================================================================
         # Calculate dynamic sampler params after args are parsed for fair comparison
         # ==================================================================
         print("[INFO] Calculating dynamic sampler parameters for fair comparison...")
         if dataset_path.exists():
-            # Logic to load local train split and find max dtime
-            train_sample_dict = _load_local_sample(dataset_path / "train", args.sample_idx)
+            # Logic to load local train split (renamed to context) and find max dtime
+            train_sample_dict = _load_local_sample(dataset_path / local_train_split, args.sample_idx)
             # Add 'if seq' to handle potentially empty sequences gracefully
             max_dtime_train = max(max(seq) for seq in train_sample_dict["time_since_last_event"] if seq)
         else:
@@ -341,9 +339,9 @@ def main() -> None:  # noqa: D401
 
         if dataset_path.exists():
             # ------------------------------------------------------------
-            # LOCAL DATASET  –  needs conversion.
+            # LOCAL DATASET  –  needs conversion (train split renamed to context).
             # ------------------------------------------------------------
-            train_json, num_event_types = convert_local_dataset_to_json(dataset_path, "train", args.sample_idx, tmp_dir)
+            train_json, num_event_types = convert_local_dataset_to_json(dataset_path, local_train_split, args.sample_idx, tmp_dir)
             val_json, _ = convert_local_dataset_to_json(dataset_path, "val", args.sample_idx, tmp_dir)
             test_json, _ = convert_local_dataset_to_json(dataset_path, "test", args.sample_idx, tmp_dir)
 
@@ -358,7 +356,7 @@ def main() -> None:  # noqa: D401
 
                 # Trigger a tiny, light-weight loading to find out how many event types
                 # are present.  The first sample of the train split should be enough.
-                ds = load_dataset(dataset_arg, split=args.dataset_split, streaming=False)
+                ds = load_dataset(dataset_arg, split="train", streaming=False)
                 first_item = ds[0]
                 # Determine number of event types from dataset fields
                 if "dim_process" in first_item:
@@ -397,7 +395,10 @@ def main() -> None:  # noqa: D401
         except Exception:  # pragma: no cover – torch might be absent
             gpu_index = -1
 
+        # Choose data_id for logging clarity (local vs HF)
+        data_id = "hawkes_local" if dataset_path.exists() else "easytpp"
         cfg_path = write_training_config(
+            data_id=data_id,
             train_json=train_json,
             val_json=val_json,
             test_json=test_json,
