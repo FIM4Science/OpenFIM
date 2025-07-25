@@ -21,7 +21,7 @@ from tqdm import tqdm
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-23-1847/checkpoints/epoch-79"
+MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-23-1847/checkpoints/epoch-149"
 
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository

@@ -1,3 +1,11 @@
+"""
+CUDA_VISIBILE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py \
+--checkpoint "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-23-1847/checkpoints/epoch-149"  \
+--dataset "data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale/test" \
+--sample_idx 0 \
+--path_idx 0
+"""
+
 #!/usr/bin/env python
 import argparse
 import os
@@ -14,10 +22,6 @@ from fim.models.hawkes import FIMHawkes, FIMHawkesConfig
 # This fixes the from_pretrained method by ensuring proper config loading
 FIMHawkesConfig.register_for_auto_class()
 FIMHawkes.register_for_auto_class("AutoModel")
-
-
-### Run via:
-# CUDA_VISIBILE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py --checkpoint "/cephfs/users/berghaus/FoundationModels/FIM/results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-20-1027/checkpoints/epoch-89"  --dataset "data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/test" --sample_idx 1 --path_idx 0
 
 
 def load_data_from_dir(dir_path: Path) -> dict:
