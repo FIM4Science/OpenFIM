@@ -180,10 +180,10 @@ class FIMHawkes(AModel):
         # ------------------------------------------------------------------
         # Global task-uncertainty scalars
         # ------------------------------------------------------------------
-        self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
+        self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1))
         # self.omega_nll = torch.nn.Parameter(torch.zeros(1))
         # For now just set omega_nll to non-trainable 0 on the GPU
-        self.omega_nll = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
+        self.omega_nll = torch.nn.Parameter(torch.zeros(1))
 
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
@@ -778,24 +778,21 @@ class FIMHawkes(AModel):
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        """Hybrid uncertainty-weighted loss .
+        """Hybrid loss combining negative log-likelihood and symmetric mean absolute percentage error.
 
-        L_total = L_NLL + exp(-ω_λ) * L_λ,balanced + ω_λ
-        where L_λ,balanced incorporates heteroscedastic uncertainty on a per-sample basis.
+        L_total = exp(-ω_nll) * L_NLL + ω_nll
+                 + exp(-ω_lambda_balanced) * L_sMAPE + ω_lambda_balanced
         """
         # --- 1. Predicted intensity ---
         # Since eval_times are already normalized from the model, use normalized_times=True
         predicted_intensity_values = intensity_fn.evaluate(eval_times, normalized_times=True)
 
-        squared_error = (predicted_intensity_values - target_intensity_values) ** 2
-
-        # --- 2. Balanced Intensity Regression Loss  ---
-        # L_λ,balanced = E[ exp(-u) * (error^2) + u ]
-        lambda_balanced_loss = torch.mean(torch.exp(-uncertainty_values) * squared_error + uncertainty_values)
-
-        # For logging – plain MSE & MAE.
-        mse_loss = torch.mean(squared_error)
-        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+        # --- 2. Symmetric Mean Absolute Percentage Error ---
+        smape_loss = torch.mean(
+            2.0
+            * torch.abs(predicted_intensity_values - target_intensity_values)
+            / (torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8)
+        )
 
         # --- 3. Negative Log-Likelihood Loss (normalised per path, mark, and event) ---
         B, P, L = event_times.shape
@@ -833,11 +830,11 @@ class FIMHawkes(AModel):
         # Add a small epsilon to prevent division by zero
         nll_loss = total_nll / (total_events + 1e-8)
 
-        # --- 4. Hybrid Uncertainty Weighting ---
+        # --- 4. Hybrid weighting of sMAPE and NLL ---
         total_loss = (
             torch.exp(-self.omega_nll) * nll_loss
             + self.omega_nll
-            + torch.exp(-self.omega_lambda_balanced) * lambda_balanced_loss
+            + torch.exp(-self.omega_lambda_balanced) * smape_loss
             + self.omega_lambda_balanced
         )
 
@@ -845,9 +842,7 @@ class FIMHawkes(AModel):
         losses_out = {
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
             "nll_loss": nll_loss.detach().item(),
-            "lambda_balanced_loss": lambda_balanced_loss.detach().item(),
-            "mse_loss": mse_loss.detach().item(),
-            "mae_loss": mae_loss.detach().item(),
+            "smape_loss": smape_loss.detach().item(),
             "omega_lambda_balanced": self.omega_lambda_balanced.detach().item(),
             "omega_nll": self.omega_nll.detach().item(),
         }
