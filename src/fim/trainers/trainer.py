@@ -56,6 +56,9 @@ class Trainer:
         self.training_loss_tracker = TrainLossTracker()
         self.validation_loss_tracker = TrainLossTracker()
         self.evaluation_loss_tracker = TrainLossTracker()
+        self.validation_epoch_frequency = (
+            self.config.trainer.validation_epoch_frequency if hasattr(self.config.trainer, "validation_epoch_frequency") else 1
+        )
         self.max_steps = self.dataloader.n_train_batches * self.config.trainer.epochs // self.gradient_accumulation_steps
         self.steps_in_epoch = self.dataloader.n_train_batches // self.gradient_accumulation_steps
         self.schedulers: dict = create_schedulers(config.trainer.schedulers, self.max_steps, self.steps_in_epoch)
@@ -277,9 +280,12 @@ class Trainer:
             time_trace.stop_epoch()
 
             # validation step
-            time_trace.start_timer("Validation")
-            validation_epoch_stats = self._validation_epoch(epoch)
-            time_trace.stop_timer("Validation")
+            if epoch % self.validation_epoch_frequency == 0:
+                time_trace.start_timer("Validation")
+                validation_epoch_stats = self._validation_epoch(epoch)
+                time_trace.stop_timer("Validation")
+            else:
+                validation_epoch_stats = train_epoch_stats
 
             # evaluation step
             time_trace.start_timer("Evaluation")
