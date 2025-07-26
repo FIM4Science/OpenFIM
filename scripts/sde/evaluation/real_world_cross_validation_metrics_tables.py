@@ -224,7 +224,9 @@ if __name__ == "__main__":
     # experiment_descr = "finetuning_sampling_nll_512_points_seed_1"
     # experiment_descr = "finetune_sampling_nll_one_step_ahead_one_em_step_32_and_512_points_every_10_epochs"
     # experiment_descr = "finetune_sampling_nll_one_step_ahead_one_em_step_nll_512_points_lr_1e_6"
-    experiment_descr = "finetune_sampling_nll_one_step_ahead_one_em_step_nll_512_points_lr_1e_6_every_10_epochs"
+    # experiment_descr = "finetune_sampling_nll_one_step_ahead_one_em_step_nll_512_points_lr_1e_6_every_10_epochs"
+    # experiment_descr = "latentsde_MSE_10_subsplits_vs_NLL_100_subsplits"
+    experiment_descr = "finetune_sampling_nll_neurips_rebuttal_1_step_ahead_1_em_step_512_points"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
@@ -335,6 +337,14 @@ if __name__ == "__main__":
     finetune_nll_512_lr_1e_6 = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6"
     finetune_nll_512_lr_1e_6_every_10_epochs = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6_every_10_epochs"
 
+    latent_sde_MSE_train_subsplit_100_base = finetune_base / "latent_sde_latent_dim_4_context_dim_100_decoder_MSE_train_subsplits_100/"
+    latent_sde_NLL_train_subsplit_10_base = finetune_base / "latent_sde_latent_dim_4_context_dim_100_decoder_NLL_train_subsplits_10/"
+    latent_sde_NLL_train_len_40_base = finetune_base / "latent_sde_latent_dim_4_context_dim_100_decoder_NLL_len_train_subsplits_40/"
+
+    finetune_neurips_rebuttal_512_points_base = (
+        finetune_base / "finetune_for_neurips_rebuttal_one_step_ahead_one_em_step_nll_512_points_500_epochs"
+    )
+
     models_jsons = {
         "BISDE": Path(
             "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
@@ -402,26 +412,66 @@ if __name__ == "__main__":
         # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 200": finetune_nll_512_lr_1e_6 / "combined_outputs_epoch_199.json",
         # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 500": finetune_nll_512_lr_1e_6 / "combined_outputs_epoch_499.json",
         # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch Best": finetune_nll_512_lr_1e_6 / "combined_outputs_best_model.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 10": finetune_nll_512_lr_1e_6_every_10_epochs
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 10": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_9.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 20": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_19.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 30": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_29.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 40": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_39.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 50": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_49.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 60": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_59.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 70": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_69.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 80": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_79.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 90": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_89.json",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 100": finetune_nll_512_lr_1e_6_every_10_epochs
+        # / "combined_outputs_epoch_99.json",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 500": latent_sde_MSE_train_subsplit_100_base
+        # / "combined_outputs_epoch_499.json",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 1000": latent_sde_MSE_train_subsplit_100_base
+        # / "combined_outputs_epoch_999.json",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 2000": latent_sde_MSE_train_subsplit_100_base
+        # / "combined_outputs_epoch_1999.json",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 5000": latent_sde_MSE_train_subsplit_100_base
+        # / "combined_outputs_epoch_4999.json",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 500": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_499.json",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 1000": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_999.json",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 2000": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_1999.json",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 5000": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_4999.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 10": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_9.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 20": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 20": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_19.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 30": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 30": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_29.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 40": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 40": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_39.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 50": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 50": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_49.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 60": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 60": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_59.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 70": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 70": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_69.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 80": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 80": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_79.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 90": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 90": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_89.json",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 100": finetune_nll_512_lr_1e_6_every_10_epochs
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 100": finetune_neurips_rebuttal_512_points_base
         / "combined_outputs_epoch_99.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 200": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_199.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 500": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_499.json",
     }
 
     datasets_to_evaluate: list[str] = [
@@ -528,16 +578,36 @@ if __name__ == "__main__":
         # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 200",
         # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch 500",
         # "Finetune Sample NLL, 512 Points, lr 1e-6, Epoch Best",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 10",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 20",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 30",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 40",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 50",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 60",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 70",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 80",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 90",
-        "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 100",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 10",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 20",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 30",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 40",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 50",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 60",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 70",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 80",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 90",
+        # "Finetune Sample NLL, 512 Points, Short, lr 1e-6, Epoch 100",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 500",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 1000",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 2000",
+        # "LatentSDE, MSE objective, 100 train subsplits, Epoch 5000",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 500",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 1000",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 2000",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 5000",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 10",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 20",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 30",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 40",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 50",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 60",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 70",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 80",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 90",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 100",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 200",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 500",
     ]
     datasets_order = datasets_to_evaluate
     precision = 3

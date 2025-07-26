@@ -147,24 +147,36 @@ def get_cross_validation_splits(complete_path_data: dict, num_total_splits: int,
 
         # observations passed to models for inference
         if split == 0:
+            # keep copy of split sequences of train split
+            obs_times_at_train_split = obs_times_split[1:]
+            obs_values_at_train_split = obs_values_split[1:]
+
             # one continuous path after the validation split
-            obs_times_concat = np.concatenate(obs_times_split[1:], axis=-2)
-            obs_values_concat = np.concatenate(obs_values_split[1:], axis=-2)
+            obs_times_concat = np.concatenate(obs_times_at_train_split, axis=-2)
+            obs_values_concat = np.concatenate(obs_values_at_train_split, axis=-2)
 
             obs_times_separate = obs_times_concat
             obs_values_separate = obs_values_concat
             obs_mask_separate = np.ones_like(obs_values_separate)
 
         elif split == num_total_splits - 1:
+            # keep copy of split sequences of train split
+            obs_times_at_train_split = obs_times_split[:-1]
+            obs_values_at_train_split = obs_values_split[:-1]
+
             # one continuous path before the validation split
-            obs_times_concat = np.concatenate(obs_times_split[:-1], axis=-2)
-            obs_values_concat = np.concatenate(obs_values_split[:-1], axis=-2)
+            obs_times_concat = np.concatenate(obs_times_at_train_split, axis=-2)
+            obs_values_concat = np.concatenate(obs_values_at_train_split, axis=-2)
 
             obs_times_separate = obs_times_concat
             obs_values_separate = obs_values_concat
             obs_mask_separate = np.ones_like(obs_values_separate)
 
         else:
+            # keep copy of split sequences of train split
+            obs_times_at_train_split = obs_times_split[:split] + obs_times_split[split + 1 :]
+            obs_values_at_train_split = obs_values_split[:split] + obs_values_split[split + 1 :]
+
             # combine the paths before and after the validation split
             obs_times_before_val_split = np.concatenate(obs_times_split[:split], axis=-2)
             obs_values_before_val_split = np.concatenate(obs_values_split[:split], axis=-2)
@@ -208,6 +220,8 @@ def get_cross_validation_splits(complete_path_data: dict, num_total_splits: int,
                 "obs_mask_separate": obs_mask_separate.astype(bool),
                 "obs_times_concat": obs_times_concat,
                 "obs_values_concat": obs_values_concat,
+                "obs_times_split": np.concatenate(obs_times_at_train_split, axis=-3),
+                "obs_values_split": np.concatenate(obs_values_at_train_split, axis=-3),
                 "initial_states": initial_states,
                 "locations": complete_path_data.get("locations"),
                 "path_length_to_generate": M_,
@@ -246,7 +260,7 @@ if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     # set save paths
     save_dir = Path("processed/test")
-    subdir_label = "real_world_with_5_fold_cross_validation"
+    subdir_label = "real_world_with_5_fold_cross_validation_develop"
 
     if not save_dir.is_absolute():
         save_dir = Path(data_path) / save_dir

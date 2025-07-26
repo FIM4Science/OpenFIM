@@ -433,39 +433,95 @@ class RealWorldEvaluationEpoch(EvaluationEpoch):
             return {}
 
         else:
+            figures = {}
+
             self.model.eval()
 
             batch = next(iter(self.dataloader))
             batch = optree.tree_map(lambda x: x.to(self.model.device).to(torch.bfloat16), batch)
+            if self.model_type == "latentsde":
+                obs_times = batch["obs_times"].to(torch.float32)
+                obs_values = batch["obs_values"].to(torch.float32)
 
-            with torch.no_grad():
-                with torch.amp.autocast(
-                    self.accel_type,
-                    enabled=self.use_mixeprecision and self.is_accelerator,
-                    dtype=self.auto_cast_type,
-                ):
-                    # get concepts and samples from example_of_dim
-                    estimated_concepts: SDEConcepts = self.model(batch, training=False)
+                obs_values = obs_values[:10]  # reduce number of plotted paths
 
-            locations = batch["locations"].to("cpu").to(torch.float32).squeeze()
-            drift = estimated_concepts.drift.detach().to("cpu").to(torch.float32).squeeze()[:, 0]  # dimension padded to 3
-            diffusion = estimated_concepts.diffusion.detach().to("cpu").to(torch.float32).squeeze()[:, 0]  # dimension padded to 3
+                # bfloat16 casting ruins strictly increasing obs_times, but they are already normalized
+                obs_times = torch.linspace(0, 1, obs_times.shape[1], dtype=torch.float32)
 
-            figures = {}
+                with torch.no_grad():
+                    ctx, obs_times, _ = self.model.encode_inputs(obs_times, obs_values)
+                    posterior_initial_states, _, _ = self.model.sample_posterior_initial_condition(ctx[0])
+                    _, paths_post_init_cond = self.model.sample_from_prior_equation(posterior_initial_states, obs_times)
 
-            fig = plt.Figure(figsize=(7, 5), dpi=300, tight_layout=True)
-            ax_drift = fig.add_axes(111)
-            ax_diffusion = ax_drift.twinx()  # instantiate a second Axes that shares the same x-axis
+                    prior_initial_states = self.model.sample_prior_initial_condition(obs_values.shape[0])
+                    _, paths_prior_init_cond = self.model.sample_from_prior_equation(prior_initial_states, obs_times)
 
-            ax_drift.set_ylabel("Drift", color="r")
-            ax_drift.plot(locations, drift, color="r", label="Model Drift")
+                fig = plt.Figure(figsize=(7, 5), dpi=300, tight_layout=True)
+                ax = fig.add_axes(111)
 
-            ax_diffusion.set_ylabel("Diffusion", color="tab:blue")
-            ax_diffusion.plot(locations, diffusion, color="tab:blue", label="Model Diffusion")
+                obs_times = obs_times.to("cpu")
+                obs_values = obs_values.to("cpu")
+                paths_post_init_cond = paths_post_init_cond.to("cpu")
+                paths_prior_init_cond = paths_prior_init_cond.to("cpu")
 
-            fig.legend()
+                for path in range(paths_prior_init_cond.shape[0]):
+                    ax.plot(
+                        obs_times.squeeze(),
+                        obs_values[path].squeeze(),
+                        color="black",
+                        label="Observations" if path == 0 else None,
+                        linewidth=1,
+                    )
 
-            figures["vector_fields"] = fig
+                for path in range(paths_prior_init_cond.shape[0]):
+                    ax.plot(
+                        obs_times.squeeze(),
+                        paths_post_init_cond[path].squeeze(),
+                        color="#0072B2",
+                        label="Posterior Init. Cond." if path == 0 else None,
+                        linewidth=1,
+                    )
+
+                for path in range(paths_prior_init_cond.shape[0]):
+                    ax.plot(
+                        obs_times.squeeze(),
+                        paths_prior_init_cond[path].squeeze(),
+                        color="#CC79A7",
+                        label="Prior Init. Cond." if path == 0 else None,
+                        linewidth=1,
+                    )
+
+                fig.legend()
+
+                figures["paths"] = fig
+
+            elif self.model_type == "fimsde":
+                with torch.no_grad():
+                    with torch.amp.autocast(
+                        self.accel_type,
+                        enabled=self.use_mixeprecision and self.is_accelerator,
+                        dtype=self.auto_cast_type,
+                    ):
+                        # get concepts and samples from example_of_dim
+                        estimated_concepts: SDEConcepts = self.model(batch, training=False)
+
+                locations = batch["locations"].to("cpu").to(torch.float32).squeeze()
+                drift = estimated_concepts.drift.detach().to("cpu").to(torch.float32).squeeze()[:, 0]  # dimension padded to 3
+                diffusion = estimated_concepts.diffusion.detach().to("cpu").to(torch.float32).squeeze()[:, 0]  # dimension padded to 3
+
+                fig = plt.Figure(figsize=(7, 5), dpi=300, tight_layout=True)
+                ax_drift = fig.add_axes(111)
+                ax_diffusion = ax_drift.twinx()  # instantiate a second Axes that shares the same x-axis
+
+                ax_drift.set_ylabel("Drift", color="r")
+                ax_drift.plot(locations, drift, color="r", label="Model Drift")
+
+                ax_diffusion.set_ylabel("Diffusion", color="tab:blue")
+                ax_diffusion.plot(locations, diffusion, color="tab:blue", label="Model Diffusion")
+
+                fig.legend()
+
+                figures["vector_fields"] = fig
 
             return {"figures": figures}
 
