@@ -9,15 +9,12 @@ from pathlib import Path
 
 import click
 import finetune_helpers
-import numpy as np
-import torch
+import latent_sde_helpers
 from evaluation.lorenz_system_paths_evaluation import evaluate_all_models
 
 from fim import project_path
-from fim.data.dataloaders import DataLoaderFactory
-from fim.models.blocks import ModelFactory
-from fim.trainers.trainer import Trainer, TrainerFactory
-from fim.utils.helper import expand_params, load_yaml
+from fim.trainers.trainer import Trainer
+from fim.utils.helper import load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
 
@@ -47,19 +44,9 @@ def sample_lorenz_paths_from_trained_model(trainer: Trainer, exp_name: str, trai
 def train_latent_sde(
     test_data_setups: dict,
     base_config: Path,
-    seed: int,
     exp_name: str,
     train_data_label: str,
-    context_size: int,
-    hidden_size: int,
-    latent_size: int,
-    activation: str,
-    learn_projection: bool,
-    solver_dt: float,
-    kl_scale_end_step: int,
-    lr: float,
-    lr_gamma: float,
-    sample_paths: bool,
+    **extra_configs,
 ) -> None:
     """
     Train Latent SDE model from config file.
@@ -67,53 +54,11 @@ def train_latent_sde(
     Sample paths from the trained model.
     """
     config = load_yaml(base_config)
-    config["experiment"]["seed"] = seed
-    config["experiment"]["name"] = exp_name
+    config = latent_sde_helpers.add_extra_latentsde_configs(config, exp_name, **extra_configs)
 
-    if context_size is not None:
-        config["model"]["context_size"] = context_size
-    if hidden_size is not None:
-        config["model"]["hidden_size"] = hidden_size
-    if latent_size is not None:
-        config["model"]["latent_size"] = latent_size
-    if activation is not None:
-        config["model"]["activation"] = activation
-    if learn_projection is not None:
-        config["model"]["learn_projection"] = learn_projection
-    if solver_dt is not None:
-        config["model"]["solver_dt"] = solver_dt
-    if kl_scale_end_step is not None:
-        kl_scheduler = config["trainer"]["schedulers"][0]
-        kl_scheduler["end_step"] = kl_scale_end_step
-        config["trainer"]["schedulers"] = (kl_scheduler,)
-    if lr is not None:
-        optimizer = config["optimizers"][0]["optimizer_d"]
-        optimizer["lr"] = lr
-        config["optimizers"] = ({"optimizer_d": optimizer},)
-    if lr_gamma is not None:
-        optimizer = config["optimizers"][0]["optimizer_d"]
-        scheduler = optimizer["schedulers"][0]
-        lr_scheduler = scheduler["schedulers"][0]
-        lr_scheduler["gamma"] = lr_gamma
-        scheduler["schedulers"] = (lr_scheduler,)
-        optimizer["schedulers"] = (scheduler,)
-        config["optimizers"] = ({"optimizer_d": optimizer},)
+    trainer = latent_sde_helpers.train_latent_sde(config)
 
-    gs_config = expand_params(config)[0]
-
-    torch.manual_seed(int(gs_config.experiment.seed))
-    torch.cuda.manual_seed(int(gs_config.experiment.seed))
-    np.random.seed(int(gs_config.experiment.seed))
-    torch.cuda.empty_cache()
-
-    dataloader = DataLoaderFactory.create(**gs_config.dataset.to_dict())
-    model = ModelFactory.create(gs_config.model.to_dict())
-
-    trainer = TrainerFactory.create(gs_config.trainer.name, model=model, dataloader=dataloader, config=gs_config)
-    trainer.train()
-
-    if sample_paths is True:
-        sample_lorenz_paths_from_trained_model(trainer, exp_name, train_data_label, test_data_setups)
+    sample_lorenz_paths_from_trained_model(trainer, exp_name, train_data_label, test_data_setups)
 
 
 if __name__ == "__main__":
@@ -171,7 +116,6 @@ if __name__ == "__main__":
     @click.option("--kl-scale-end-step", "kl_scale_end_step", type=int, required=False, default=None)
     @click.option("--lr", "lr", type=float, default=None)
     @click.option("--lr-gamma", "lr_gamma", type=float, default=None)
-    @click.option("--sample-paths", "sample_paths", type=bool, required=False, default=True)
     def cli(**kwargs):
         train_latent_sde(test_data_setups, **kwargs)
 

@@ -36,7 +36,7 @@ def load_pretrained_model(model_path: str, train_from_scratch: bool) -> FIMSDE:
     return model
 
 
-def add_extra_configs(
+def add_extra_fimsde_configs(
     config: dict,
     model: FIMSDE,
     exp_name: str,

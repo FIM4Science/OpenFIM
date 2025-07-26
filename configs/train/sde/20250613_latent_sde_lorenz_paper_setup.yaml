@@ -52,17 +52,9 @@ dataset:
     obs_values: "noisy_obs_values"
 
   json_paths:
-    train: !!python/tuple [
-      /home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/train_data.json
-    ]
-
-    test: !!python/tuple [
-      /home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/validation_data.json
-    ]
-
-    validation: !!python/tuple [
-      /home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/validation_data.json
-    ]
+    train: /home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/train_data.json
+    test: /home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/validation_data.json
+    validation: /home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/validation_data.json
 
 
 trainer:

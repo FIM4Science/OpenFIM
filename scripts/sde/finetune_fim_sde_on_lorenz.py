@@ -40,7 +40,7 @@ def finetune_fim_on_lorenz(
     model = finetune_helpers.load_pretrained_model(model_path, train_from_scratch)
     base_config = load_yaml(base_config)
 
-    config, model = finetune_helpers.add_extra_configs(base_config, model, exp_name, **extra_configs)
+    config, model = finetune_helpers.add_extra_fimsde_configs(base_config, model, exp_name, **extra_configs)
 
     trainer = finetune_helpers.train_fimsde(model, config)
     finetune_helpers.add_model_type_to_checkpoints(trainer)
