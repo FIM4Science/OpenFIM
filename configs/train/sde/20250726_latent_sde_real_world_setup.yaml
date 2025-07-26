@@ -1,0 +1,100 @@
+experiment:
+  name:
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  # seed: 10
+  device_map: cuda # auto, cuda, cpu
+
+distributed:
+  enabled: false # true for multi gpu training
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD (data parallelism), HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED (decides how to split parameters along GPUs)
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+model:
+  model_type: &model_type latentsde
+
+  data_size: 1
+
+  hidden_size: 100 # paper: 100, github: 128
+  context_size: 100 # paper: 1, github: 64
+  latent_size: 4 # paper: 4, github: 4
+  activation: "sigmoid" # paper: sigmoid, github: softplus
+
+  learn_projection: True
+
+  solver_adjoint: False
+  solver_method: "euler"
+  solver_dt: 0.01 # paper: 0.01, github: 0.02
+
+  noise_std: 0.01 # paper: 0.01, github: 0.01
+
+dataset:
+  name: FIMSDEDataloaderIterableDataset
+
+  max_dim: 1
+
+  dataset_name:
+    train:  JsonSDEDataset
+    validation: JsonSDEDataset
+    test: JsonSDEDataset
+
+  batch_size:
+    train: 1024
+    validation: 128
+    test: 128
+
+  num_workers: 1
+
+  keys_to_load:
+    obs_times: "obs_times"
+    obs_values: "obs_values"
+
+  json_paths:
+    train: null
+    test: null
+    validation: null
+
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: null # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
+  epochs: &epochs 5000
+  detect_anomaly: false
+  save_every: 1000
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  # profiler:
+  #   num_batches: 40
+  #   trace_path: "/home/seifner/repos/FIM/results/profiler/trace.json"
+
+  validation_epoch_frequency: 5001
+
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.RealWorldEvaluationEpoch
+    plot_frequency: 300
+    model_type: *model_type
+
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.LinearScheduler
+      label: kl_scale
+      start_step: 0
+      end_step: 50 # paper: 50, github: 1000
+      start_value: 0
+      end_value: 1
+
+optimizers: !!python/tuple
+  - optimizer_d:
+      name: torch.optim.Adam
+      lr: &lr_rate 1.0e-2 # paper: 0.01, github: 0.01
+      schedulers: !!python/tuple
+        - name: torch.optim.lr_scheduler.SequentialLR
+          step_type: minibatch
+          schedulers: !!python/tuple
+            - name: torch.optim.lr_scheduler.ExponentialLR
+              gamma: 0.999 # paper: 0.999, github: 0.997
+          milestones: !!python/tuple []

@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore", module="matplotlib")
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 
 
-def finetune_fim_on_real_world_cross_entropy(
+def finetune_fim_on_real_world_cross_validation(
     model_path: str,
     inference_data_path: str,
     epochs_to_evaluate: list[int] | None,
@@ -154,7 +154,7 @@ if __name__ == "__main__":
             epochs_to_evaluate: list[str] = epochs_to_evaluate.split(",")
             epochs_to_evaluate = [f"epoch-{e}" for e in epochs_to_evaluate]
 
-        finetune_fim_on_real_world_cross_entropy(model_path, inference_data_path, epochs_to_evaluate, **kwargs)
+        finetune_fim_on_real_world_cross_validation(model_path, inference_data_path, epochs_to_evaluate, **kwargs)
 
     # pylint: disable=no-value-for-parameter
     cli()

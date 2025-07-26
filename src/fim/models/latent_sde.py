@@ -55,6 +55,7 @@ class LatentSDEConfig(PretrainedConfig):
         latent_size: int = 32,
         activation: str = "sigmoid",
         noise_std: float = 0.01,
+        mse_objective: bool = False,
         solver_adjoint: bool = False,
         solver_method: str = "euler",
         solver_dt: float = 0.02,
@@ -69,6 +70,7 @@ class LatentSDEConfig(PretrainedConfig):
         self.latent_size = latent_size
         self.activation = activation
         self.noise_std = noise_std
+        self.mse_objective = mse_objective
         self.solver_adjoint = solver_adjoint
         self.solver_method = solver_method
         self.solver_dt = solver_dt
@@ -280,14 +282,19 @@ class LatentSDE(AModel):
         qz0 = torch.distributions.Normal(loc=qz0_mean, scale=qz0_logstd.exp())
         pz0 = torch.distributions.Normal(loc=self.pz0_mean, scale=self.pz0_logstd.exp())
 
+        assert obs_values.shape == pred_values.shape
+        mse = ((obs_values - pred_values) ** 2).mean()
         nll = -pred_dist.log_prob(obs_values).sum(dim=(1, 2)).mean(dim=0)
+
+        rec_loss = mse if self.config.mse_objective is True else nll
+
         kl_init_cond = torch.distributions.kl_divergence(qz0, pz0).sum(dim=1).mean(dim=0)
         kl_path = log_ratio.sum(dim=1).mean(dim=0)
         kl = kl_init_cond + kl_path
 
-        loss = nll + kl_scale * kl
+        loss = rec_loss + kl_scale * kl
 
-        return {"loss": loss, "kl_init_cond": kl_init_cond, "kl_path": kl_path, "nll": nll, "kl_scale": kl_scale}
+        return {"loss": loss, "kl_init_cond": kl_init_cond, "kl_path": kl_path, "nll": nll, "mse": mse, "kl_scale": kl_scale}
 
     def encode_inputs(self, obs_times: Tensor, obs_values: Tensor):
         """

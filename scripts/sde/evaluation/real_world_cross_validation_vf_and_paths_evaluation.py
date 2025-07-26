@@ -23,7 +23,15 @@ from fim.utils.sde.evaluation import (
 )
 
 
-def get_real_world_data(all_data: list[dict], dataset: str, split: int, expected_num_total_splits: int) -> dict:
+def get_real_world_data(
+    all_data: list[dict],
+    dataset: str,
+    split: int,
+    expected_num_total_splits: int,
+    obs_times_key: str = "obs_times_separate",
+    obs_values_key: str = "obs_values_separate",
+    obs_mask_key: str = "obs_mask_separate",
+) -> dict:
     """
      From a list of all real world data, extract dataset split.
 
@@ -55,13 +63,13 @@ def get_real_world_data(all_data: list[dict], dataset: str, split: int, expected
             "num_total_splits": data["num_total_splits"],
             "delta_tau": data["delta_tau"],
             "transform": data["transform"],
-            "path_length_to_generate": data["path_length_to_generate"],
+            "path_length_to_generate": data.get("path_length_to_generate"),
             # FIM can be evaluated with (potentially) two paths, before and after the reference split
-            "obs_times": data["obs_times_separate"],
-            "obs_values": data["obs_values_separate"],
-            "obs_mask": data["obs_mask_separate"],
-            "locations": data["locations"],
-            "initial_states": data["initial_states"],
+            "obs_times": data[obs_times_key],
+            "obs_values": data[obs_values_key],
+            "obs_mask": data.get(obs_mask_key),
+            "locations": data.get("locations"),
+            "initial_states": data.get("initial_states"),
         }
 
         return return_data

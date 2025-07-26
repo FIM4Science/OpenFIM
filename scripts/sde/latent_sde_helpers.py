@@ -11,6 +11,8 @@ def add_extra_latentsde_configs(
     config: dict,
     exp_name: str,
     seed: int,
+    epochs: int,
+    save_every: int,
     context_size: int,
     hidden_size: int,
     latent_size: int,
@@ -20,10 +22,15 @@ def add_extra_latentsde_configs(
     kl_scale_end_step: int,
     lr: float,
     lr_gamma: float,
+    mse_objective: bool,
 ):
     config["experiment"]["seed"] = seed
     config["experiment"]["name"] = exp_name
 
+    if epochs is not None:
+        config["trainer"]["epochs"] = epochs
+    if save_every is not None:
+        config["trainer"]["save_every"] = save_every
     if context_size is not None:
         config["model"]["context_size"] = context_size
     if hidden_size is not None:
@@ -52,6 +59,8 @@ def add_extra_latentsde_configs(
         scheduler["schedulers"] = (lr_scheduler,)
         optimizer["schedulers"] = (scheduler,)
         config["optimizers"] = ({"optimizer_d": optimizer},)
+    if mse_objective is not None:
+        config["model"]["mse_objective"] = mse_objective
 
     return config
 
