@@ -1,0 +1,1 @@
+python3 scripts/sde/train_latent_sde_on_lorenz.py --base-config=configs/train/sde/20250613_latent_sde_lorenz_paper_setup.yaml --seed=0 --exp-name=latent_sde_paper_model_context_size_100 --train-data-label=neural_sde_paper --context-size=100
