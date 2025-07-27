@@ -713,6 +713,44 @@ class FIMHawkes(AModel):
         x["inference_delta_times"] = x["inference_delta_times"] * norm_constants.view(-1, 1, 1, 1)
         x["intensity_evaluation_times"] = x["intensity_evaluation_times"] * norm_constants.view(-1, 1, 1)
 
+    def _smape(self, predicted_intensity_values: Tensor, target_intensity_values: Tensor) -> Tensor:
+        """Symmetric Mean Absolute Percentage Error."""
+        return torch.mean(
+            2.0
+            * torch.abs(predicted_intensity_values - target_intensity_values)
+            / (torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8)
+        )
+
+    def _loglikelihood(
+        self,
+        intensity_fn: "PiecewiseHawkesIntensity",
+        event_times: Tensor,
+        event_types: Tensor,
+        seq_lengths: Tensor,
+    ) -> Tensor:
+        """Negative log-likelihood loss normalized by number of events."""
+        B, P, L = event_times.shape
+
+        intensity_at_events = intensity_fn.evaluate(event_times, normalized_times=True)
+        log_intensity_at_events = torch.log(intensity_at_events)
+
+        type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)
+        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
+
+        positions = torch.arange(L, device=self.device).view(1, 1, L)
+        valid_mask = positions < seq_lengths.unsqueeze(2)
+        log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)
+
+        t_start = torch.zeros(B, P, device=self.device)
+        t_end = event_times.max(dim=2).values
+        integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end, normalized_times=True)
+        integral_sum_per_path = integral_per_mark_path.sum(dim=1)
+
+        nll_per_path = integral_sum_per_path - log_ll_per_path
+        total_nll = nll_per_path.sum()
+        total_events = valid_mask.sum()
+        return total_nll / (total_events + 1e-8)
+
     def loss(
         self,
         intensity_fn: "PiecewiseHawkesIntensity",
@@ -735,47 +773,10 @@ class FIMHawkes(AModel):
         predicted_intensity_values = intensity_fn.evaluate(eval_times, normalized_times=True)
 
         # --- 2. Symmetric Mean Absolute Percentage Error ---
-        smape_loss = torch.mean(
-            2.0
-            * torch.abs(predicted_intensity_values - target_intensity_values)
-            / (torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8)
-        )
+        smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
 
-        # --- 3. Negative Log-Likelihood Loss (normalised per path, mark, and event) ---
-        B, P, L = event_times.shape
-
-        # a) Log-intensity at actual event times and marks
-        # Since event_times are already normalized from the model, use normalized_times=True
-        intensity_at_events = intensity_fn.evaluate(event_times, normalized_times=True)
-        log_intensity_at_events = torch.log(intensity_at_events)  # [B,M,P,L]
-
-        type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)  # [B,1,P,L]
-        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)  # [B,P,L]
-
-        # Mask out padded events and sum per path
-        positions = torch.arange(L, device=self.device).view(1, 1, L)
-        valid_mask = positions < seq_lengths.unsqueeze(2)  # [B,P,L]
-        log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)  # [B,P]
-
-        # b) Integrated intensity per path & mark, then sum over marks
-        t_start = torch.zeros(B, P, device=self.device)
-
-        t_end = event_times.max(dim=2).values  # [B,P]
-        integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end, normalized_times=True)  # [B,M,P]
-        integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B,P]
-
-        # c) Per-path NLL
-        nll_per_path = integral_sum_per_path - log_ll_per_path  # [B,P]
-
-        # Sum the NLL across all paths and the batch to get the total NLL
-        total_nll = nll_per_path.sum()
-
-        # Sum the mask to get the total number of valid events in the batch
-        total_events = valid_mask.sum()
-
-        # d) Normalize by the total number of events in the batch
-        # Add a small epsilon to prevent division by zero
-        nll_loss = total_nll / (total_events + 1e-8)
+        # --- 3. Negative Log-Likelihood Loss ---
+        nll_loss = self._loglikelihood(intensity_fn, event_times, event_types, seq_lengths)
 
         # --- 4. Hybrid weighting of sMAPE and NLL ---
         total_loss = self.loss_weights["nll"] * nll_loss + self.loss_weights["smape"] * smape_loss
