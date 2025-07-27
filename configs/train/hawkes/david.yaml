@@ -148,6 +148,10 @@ model:
 
   thinning: null
 
+  loss_weights:
+    nll: 1.0
+    smape: 10.0
+
 trainer:
   name: Trainer
   debug_iterations: null

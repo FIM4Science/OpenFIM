@@ -38,7 +38,6 @@ class FIMHawkesConfig(PretrainedConfig):
         normalize_by_max_time: bool = True,
         thinning: dict = None,
         loss_weights: dict = None,
-        uncertainty_decoder: dict = None,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
@@ -60,7 +59,6 @@ class FIMHawkesConfig(PretrainedConfig):
         self.hidden_dim = hidden_dim
         self.thinning = thinning
         self.loss_weights = loss_weights
-        self.uncertainty_decoder = uncertainty_decoder
         if "model_type" in kwargs:
             del kwargs["model_type"]
         super().__init__(model_type=self.model_type, **kwargs)
@@ -74,6 +72,7 @@ class FIMHawkes(AModel):
         max_num_marks (int): Maximum number of marks in the Hawkes process.
         normalize_by_max_time (bool): Whether to normalize the input times by the maximum time in the context sequences.
         thinning (dict): The thinning parameters.
+        loss_weights (dict): The loss weights.
         mark_encoder (dict): The mark encoder configuration.
         time_encoder (dict): The time encoder configuration.
         delta_time_encoder (dict): The delta time encoder configuration.
@@ -118,10 +117,6 @@ class FIMHawkes(AModel):
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
         alpha_decoder = copy.deepcopy(self.config.alpha_decoder)
         beta_decoder = copy.deepcopy(self.config.beta_decoder)
-        # Optional uncertainty decoder – if none is provided we fall back to a simple linear layer.
-        uncertainty_decoder_cfg = (
-            copy.deepcopy(self.config.uncertainty_decoder) if getattr(self.config, "uncertainty_decoder", None) is not None else None
-        )
         self.hidden_dim = self.config.hidden_dim
         self.normalize_times = self.config.normalize_times
 
@@ -166,25 +161,6 @@ class FIMHawkes(AModel):
         beta_decoder["out_features"] = 1
         self.beta_decoder = create_class_instance(beta_decoder.pop("name"), beta_decoder)
 
-        # ------------------------------------------------------------------
-        # φ_u  –  per-sample log-variance head
-        # ------------------------------------------------------------------
-        if uncertainty_decoder_cfg is not None:
-            uncertainty_decoder_cfg["in_features"] = self.hidden_dim
-            uncertainty_decoder_cfg["out_features"] = 1
-            self.uncertainty_decoder = create_class_instance(uncertainty_decoder_cfg.pop("name"), uncertainty_decoder_cfg)
-        else:
-            # Default: a single linear projection to one log-variance value
-            self.uncertainty_decoder = torch.nn.Linear(self.hidden_dim, 1)
-
-        # ------------------------------------------------------------------
-        # Global task-uncertainty scalars
-        # ------------------------------------------------------------------
-        self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1))
-        # self.omega_nll = torch.nn.Parameter(torch.zeros(1))
-        # For now just set omega_nll to non-trainable 0 on the GPU
-        self.omega_nll = torch.nn.Parameter(torch.zeros(1))
-
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
 
@@ -195,6 +171,8 @@ class FIMHawkes(AModel):
             self.event_sampler = EventSampler(**self.config.thinning)
         else:
             self.event_sampler = EventSampler(num_sample=1, num_exp=500, over_sample_rate=5, num_samples_boundary=5, dtime_max=5)
+
+        self.loss_weights = self.config.loss_weights
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         """
@@ -408,34 +386,6 @@ class FIMHawkes(AModel):
         beta = torch.nn.functional.softplus(raw_params[..., 0])
 
         # ------------------------------------------------------------------
-        # Predict per-sample log-variance u_{λ,τ,m}
-        # We detach h_final to avoid back-propagating through the shared encoder,
-        # ensuring gradients only flow into the uncertainty head.
-        # ------------------------------------------------------------------
-        combined_enc_detached = combined_enc.detach()  # Detach to avoid gradients to shared encoder
-
-        u_event_flat = self.uncertainty_decoder(combined_enc_detached.reshape(-1, self.hidden_dim))  # [...,1]
-        u_event = u_event_flat.view(B, num_marks, P_inference, L)  # [B,M,P,L]
-
-        # Map event-level uncertainties to evaluation times τ by selecting the last event
-        # preceding each τ for the same path (implementation of T_k*(τ)).
-        eval_times = x["intensity_evaluation_times"]  # [B,P,L_eval]
-        event_times_path = x["inference_event_times"].squeeze(-1)  # [B,P,L]
-
-        idx_range = torch.arange(L, device=self.device)
-
-        # Compute mask identifying events occurring before each evaluation time
-        before_mask = event_times_path.unsqueeze(2) < eval_times.unsqueeze(-1)  # [B,P,L_eval,L]
-        idx_range_broadcast = idx_range.view(1, 1, 1, L)
-        idx_masked = torch.where(before_mask, idx_range_broadcast, torch.full_like(idx_range_broadcast, -1))
-        last_event_idx = idx_masked.max(dim=-1).values  # [B,P,L_eval]
-        last_event_idx = last_event_idx.clamp(min=0)  # Replace -1 (no past event) by 0
-
-        # Gather u values corresponding to last event before τ
-        last_event_idx_expanded = last_event_idx.unsqueeze(1).expand(-1, num_marks, -1, -1)  # [B,M,P,L_eval]
-        u_eval = torch.gather(u_event, dim=3, index=last_event_idx_expanded)  # [B,M,P,L_eval]
-
-        # ------------------------------------------------------------------
         # Build piece-wise intensity object and evaluate at requested times
         # ------------------------------------------------------------------
         event_times = x["inference_event_times"].squeeze(-1)  # [B,P,L]
@@ -451,7 +401,6 @@ class FIMHawkes(AModel):
         out = {
             "predicted_intensity_values": predicted_intensity_values,
             "intensity_function": intensity_fn,
-            "log_predicted_intensity_values_var": u_eval,
         }
 
         if "kernel_functions" in x:
@@ -493,7 +442,6 @@ class FIMHawkes(AModel):
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
                 eval_times=x["intensity_evaluation_times"],
-                uncertainty_values=u_eval,
                 schedulers=schedulers,
                 step=step,
             )
@@ -774,7 +722,6 @@ class FIMHawkes(AModel):
         event_types: Tensor,
         seq_lengths: Tensor,
         eval_times: Tensor,
-        uncertainty_values: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
@@ -831,20 +778,16 @@ class FIMHawkes(AModel):
         nll_loss = total_nll / (total_events + 1e-8)
 
         # --- 4. Hybrid weighting of sMAPE and NLL ---
-        total_loss = (
-            torch.exp(-self.omega_nll) * nll_loss
-            + self.omega_nll
-            + torch.exp(-self.omega_lambda_balanced) * smape_loss
-            + self.omega_lambda_balanced
-        )
+        total_loss = self.loss_weights["nll"] * nll_loss + self.loss_weights["smape"] * smape_loss
+
+        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
 
         # Prepare a logging-friendly dictionary: tensors -> Python floats
         losses_out = {
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
             "nll_loss": nll_loss.detach().item(),
             "smape_loss": smape_loss.detach().item(),
-            "omega_lambda_balanced": self.omega_lambda_balanced.detach().item(),
-            "omega_nll": self.omega_nll.detach().item(),
+            "mae_loss": mae_loss.detach().item(),
         }
 
         return losses_out
