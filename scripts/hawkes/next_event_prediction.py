@@ -288,10 +288,13 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
             # the inter-event time we need to subtract the timestamp of the last observed
             # event (t_last).
             t_last_tensor = hist_times[:, -1:].unsqueeze(-1)  # Shape compatible with accepted_dtimes
-            delta_samples = accepted_dtimes - t_last_tensor
-
+            raw_delta_samples = accepted_dtimes - t_last_tensor
+            # Warn if sampler fell back to its max dtime
+            dtime_max = model.event_sampler.dtime_max
+            if (raw_delta_samples == dtime_max).any():
+                print(f"⚠️  Fallback to max dtime (dtime_max={dtime_max:.2f}) at prefix length {prefix_len}")
             # Robustness: fall back to `dtime_max` if, due to numerical issues, any delta becomes negative.
-            delta_samples = torch.clamp(delta_samples, min=0.0)
+            delta_samples = torch.clamp(raw_delta_samples, min=0.0)
 
             # Expected next-event inter-arrival time
             dtime_pred = torch.sum(delta_samples * weights, dim=-1).squeeze()
@@ -427,10 +430,13 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
             # the inter-event time we need to subtract the timestamp of the last observed
             # event (t_last).
             t_last_tensor = hist_times[:, -1:].unsqueeze(-1)  # Shape compatible with accepted_dtimes
-            delta_samples = accepted_dtimes - t_last_tensor
-
+            raw_delta_samples = accepted_dtimes - t_last_tensor
+            # Warn if sampler fell back to its max dtime
+            dtime_max = model.event_sampler.dtime_max
+            if (raw_delta_samples == dtime_max).any():
+                print(f"⚠️  Fallback to max dtime (dtime_max={dtime_max:.2f}) at prefix length {prefix_len}")
             # Robustness: fall back to `dtime_max` if, due to numerical issues, any delta becomes negative.
-            delta_samples = torch.clamp(delta_samples, min=0.0)
+            delta_samples = torch.clamp(raw_delta_samples, min=0.0)
 
             # Expected next-event inter-arrival time
             dtime_pred = torch.sum(delta_samples * weights, dim=-1).squeeze()
