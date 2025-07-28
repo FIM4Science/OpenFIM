@@ -26,7 +26,7 @@ from fim.utils.sde.evaluation import (
 )
 
 
-def get_system_data(all_systems_data: list[dict], system: str, tau: float, noise: float) -> dict:
+def get_system_data(all_systems_data: list[dict], system: str, tau: float, noise: float, observations_length: int = None) -> dict:
     """
      From a list of all systems data, extract data of system with tau inter-observation times and relative noise.
 
@@ -35,11 +35,17 @@ def get_system_data(all_systems_data: list[dict], system: str, tau: float, noise
         system (str): Name of system data to extract.
         tau (float): Inter-observation time of data to extract.
         noise (float): Relative additive noise added to observations of trajectories.
+        observations_length (int | None): Expected number of observations per trajectory.
 
     Return:
         data_of_system (dict): Keys: name, tau, obs_times, obs_values, locations, initial_states
     """
     data_of_system = [d for d in all_systems_data if (d["name"] == system and d["tau"] == tau and d["noise"] == noise)]
+
+    if observations_length is not None:
+        data_of_system = [
+            d for d in data_of_system if "observations_length" not in d.keys() or d.get("observations_length") == observations_length
+        ]
 
     # should contain exactly one data for each system and tau
     if len(data_of_system) == 1:
@@ -65,7 +71,6 @@ def get_system_data(all_systems_data: list[dict], system: str, tau: float, noise
 def evaluate_model(
     model: FIMSDE,
     dataset: dict,
-    sample_paths: Optional[bool],
     sample_paths_count: int,
     dt: float,
     sample_path_steps: int,
@@ -89,7 +94,7 @@ def evaluate_model(
     grid = (torch.arange(sample_path_steps) * dt).view(1, 1, -1, 1)
     grid = torch.broadcast_to(grid, (initial_states.shape[0], sample_paths_count, sample_path_steps, 1)).to(device)
 
-    if sample_paths is True:
+    with torch.no_grad():
         sample_paths, sample_paths_grid = fimsde_sample_paths_on_masked_grid(
             model,
             dataset,
@@ -99,18 +104,14 @@ def evaluate_model(
             solver_granularity=1,
         )
 
-        results.update(
-            {
-                "sample_paths": sample_paths,
-                "sample_paths_grid": sample_paths_grid,
-            }
-        )
-
         print("Sample path shape: ", sample_paths.shape)
 
-    # get vector fields at locations
-    estimated_concepts = model(dataset, training=False, return_losses=False)
-    results.update({"estimated_concepts": estimated_concepts})
+        sample_paths = sample_paths.detach().to("cpu")
+        sample_paths_grid = sample_paths_grid.detach().to("cpu")
+
+        # get vector fields at locations
+        estimated_concepts = model(dataset, training=False, return_losses=False)
+        estimated_concepts = optree.tree_map(lambda x: x.detach().to("cpu"), estimated_concepts, namespace="fimsde")
 
     # reduce outputs to dimensionality of original problem
     estimated_concepts.drift = estimated_concepts.drift[..., :D]
@@ -118,6 +119,7 @@ def evaluate_model(
     if "sample_paths" in results.keys():
         results["sample_paths"] = results["sample_paths"][..., :D]
 
+    results.update({"sample_paths": sample_paths, "sample_paths_grid": sample_paths_grid, "estimated_concepts": estimated_concepts})
     results = optree.tree_map(lambda x: x.detach().to("cpu"), results, namespace="fimsde")
 
     return results
@@ -127,7 +129,6 @@ def run_evaluations(
     to_evaluate: list[ModelEvaluation],
     model_map: ModelMap,
     dataloaders: dict,
-    sample_paths: bool,
     sample_paths_count: int,
     dt: float,
     sample_path_steps: int,
@@ -157,10 +158,89 @@ def run_evaluations(
         model: FIMSDE = model_map[evaluation.model_id]().to(torch.float)
         dataset = dataloaders[evaluation.dataloader_id]
 
-        evaluation.results = evaluate_model(model, dataset, sample_paths, sample_paths_count, dt, sample_path_steps, device=device)
+        evaluation.results = evaluate_model(model, dataset, sample_paths_count, dt, sample_path_steps, device=device)
         evaluations_with_results.append(evaluation)
 
     return evaluations_with_results
+
+
+def evaluate_all_models(
+    model_dicts: list[dict],
+    datasets: dict,
+    dt: float,
+    sample_paths_count: int,
+    sample_path_steps: int,
+    results_to_load: list,
+):
+    # Setup inits for models and dataloaders
+    model_map = model_map_from_dict(model_dicts)
+
+    # Load previous evaluations that don't need to be evaluated anymore
+    loaded_evaluations: list[ModelEvaluation] = load_evaluations(results_to_load)
+
+    # ######################################################################
+    # for eval in loaded_evaluations:  # backward compatability for evaluations without noise
+    #     system, stride, mmd_max_num_paths = eval.dataloader_id
+    #     eval.dataloader_id = (system.replace("_", " "), stride * 0.002, 0.0)
+    # ######################################################################
+
+    # Evaluate all models on all datasets
+    all_evaluations: list[ModelEvaluation] = [
+        ModelEvaluation(model_id, dataloader_id) for model_id, dataloader_id in itertools.product(model_dicts.keys(), datasets.keys())
+    ]
+    to_evaluate: list[ModelEvaluation] = [evaluation for evaluation in all_evaluations if evaluation not in loaded_evaluations]
+
+    # Create, run and save evaluations
+    evaluated: list[ModelEvaluation] = run_evaluations(to_evaluate, model_map, datasets, sample_paths_count, dt, sample_path_steps)
+
+    # remove loaded evaluations not needed
+    loaded_evaluations = [
+        eval for eval in loaded_evaluations if (eval.model_id, eval.dataloader_id) in itertools.product(model_dicts.keys(), datasets.keys())
+    ]
+
+    # Add loaded evaluations
+    all_evaluations: list[ModelEvaluation] = loaded_evaluations + evaluated
+
+    return all_evaluations
+
+
+def save_evaluations_as_jsons(all_evaluations: list[ModelEvaluation], evaluation_dir: Path):
+    model_outputs = []
+    for model_evaluation in all_evaluations:
+        name, tau, noise = model_evaluation.dataloader_id
+        name = name.replace("_", " ")
+
+        model_outputs.append(
+            {
+                "name": name,
+                "tau": tau,
+                "noise": noise,
+                "synthetic_paths": model_evaluation.results.get("sample_paths"),
+                "drift_at_locations": model_evaluation.results["estimated_concepts"].drift,
+                "diffusion_at_locations": model_evaluation.results["estimated_concepts"].diffusion,
+            }
+        )
+    print("Model outputs to save")
+    pprint(optree.tree_map(lambda x: x.shape if isinstance(x, torch.Tensor) else x, model_outputs))
+
+    assert len(model_dicts) == 1, "Only works for a single model right now"
+
+    def _check_finite(x):
+        if isinstance(x, torch.Tensor):
+            assert torch.torch.isfinite(x).all().item()
+
+    _check_finite(model_outputs)
+    model_outputs = optree.tree_map(lambda x: x.detach().to("cpu").numpy() if isinstance(x, torch.Tensor) else x, model_outputs)
+
+    # Convert to JSON
+    json_data = json.dumps(model_outputs, cls=NumpyEncoder)
+
+    # Write JSON data to a file
+    evaluation_dir.mkdir(exist_ok=True, parents=True)
+
+    file: Path = evaluation_dir / "model_paths.json"
+    with open(file, "w") as file:
+        file.write(json_data)
 
 
 if __name__ == "__main__":
@@ -195,7 +275,7 @@ if __name__ == "__main__":
 
     taus = [0.002, 0.01, 0.02, 0.2]
     noises = [0.0, 0.05, 0.1]
-    sample_paths = True
+    observations_lengths = [5000]
     sample_paths_count = 100
     dt = 0.002
     sample_path_steps = 500
@@ -212,82 +292,18 @@ if __name__ == "__main__":
     data = json.load(open(path_to_inference_data_json, "r"))
 
     datasets: dict = {
-        (system, tau, noise): get_system_data(data, system, tau, noise) for system in systems_to_load for tau in taus for noise in noises
+        (system, tau, noise): get_system_data(data, system, tau, noise, observations_length)
+        for system in systems_to_load
+        for tau in taus
+        for noise in noises
+        for observations_length in observations_lengths
     }
 
-    # Setup inits for models and dataloaders
-    model_map = model_map_from_dict(model_dicts)
-
-    # Load previous evaluations that don't need to be evaluated anymore
-    loaded_evaluations: list[ModelEvaluation] = load_evaluations(results_to_load)
-
-    ######################################################################
-    for eval in loaded_evaluations:  # backward compatability for evaluations without noise
-        system, stride, mmd_max_num_paths = eval.dataloader_id
-        eval.dataloader_id = (system.replace("_", " "), stride * 0.002, 0.0)
-    ######################################################################
-
-    # Evaluate all models on all datasets
-    all_evaluations: list[ModelEvaluation] = [
-        ModelEvaluation(model_id, dataloader_id) for model_id, dataloader_id in itertools.product(model_dicts.keys(), datasets.keys())
-    ]
-    to_evaluate: list[ModelEvaluation] = [evaluation for evaluation in all_evaluations if evaluation not in loaded_evaluations]
-
-    # Create, run and save evaluations
-    evaluated: list[ModelEvaluation] = run_evaluations(
-        to_evaluate, model_map, datasets, sample_paths, sample_paths_count, dt, sample_path_steps
-    )
-
-    # remove loaded evaluations not needed
-    loaded_evaluations = [
-        eval for eval in loaded_evaluations if (eval.model_id, eval.dataloader_id) in itertools.product(model_dicts.keys(), datasets.keys())
-    ]
-
-    # Add loaded evaluations
-    all_evaluations: list[ModelEvaluation] = loaded_evaluations + evaluated
+    all_evaluations = evaluate_all_models(model_dicts, datasets, dt, sample_paths_count, sample_path_steps, results_to_load)
     save_evaluations(all_evaluations, evaluation_dir / "model_evaluations")
 
-    # save sampled paths and vector field inferences
-    model_outputs = []
-    for model_evaluation in all_evaluations:
-        name, tau, noise = model_evaluation.dataloader_id
-        name = name.replace("_", " ")
-
-        model_outputs.append(
-            {
-                "name": name,
-                "tau": tau,
-                "noise": noise,
-                "synthetic_paths": model_evaluation.results.get("sample_paths"),
-                "drift_at_locations": model_evaluation.results["estimated_concepts"].drift,
-                "diffusion_at_locations": model_evaluation.results["estimated_concepts"].diffusion,
-            }
-        )
-
-    print("Model outputs to save")
-    pprint(optree.tree_map(lambda x: x.shape if isinstance(x, torch.Tensor) else x, model_outputs))
-
-    # save ground-truth drift and diffusion values
     if save_model_data is True:
-        assert len(model_dicts) == 1, "Only works for a single model right now"
-
-        def _check_finite(x):
-            if isinstance(x, torch.Tensor):
-                assert torch.torch.isfinite(x).all().item()
-
-        _check_finite(model_outputs)
-        model_outputs = optree.tree_map(lambda x: x.detach().to("cpu").numpy() if isinstance(x, torch.Tensor) else x, model_outputs)
-
-        # Convert to JSON
-        json_data = json.dumps(model_outputs, cls=NumpyEncoder)
-
-        # Write JSON data to a file
-        json_dir = evaluation_dir
-        json_dir.mkdir(exist_ok=True, parents=True)
-
-        file: Path = json_dir / "model_paths.json"
-        with open(file, "w") as file:
-            file.write(json_data)
+        save_evaluations_as_jsons(all_evaluations, evaluation_dir)
 
     # # Figures with subplot grid containing results from multiple equations per dataset
     # if sample_paths is True:
