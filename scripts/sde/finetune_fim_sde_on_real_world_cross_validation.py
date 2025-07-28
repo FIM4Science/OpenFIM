@@ -58,7 +58,7 @@ def finetune_fim_on_real_world_cross_validation(
     base_config["dataset"]["json_paths"]["validation"] = tensor_dataset  # have not splits available
 
     exp_name_with_dataset_split = f"{exp_name}_dataset_{dataset_label}_split_{split}"
-    config, model = finetune_helpers.add_extra_configs(base_config, model, exp_name_with_dataset_split, **extra_configs)
+    config, model = finetune_helpers.add_extra_fimsde_configs(base_config, model, exp_name_with_dataset_split, **extra_configs)
 
     trainer = finetune_helpers.train_fimsde(model, config)
     finetune_helpers.add_model_type_to_checkpoints(trainer)
