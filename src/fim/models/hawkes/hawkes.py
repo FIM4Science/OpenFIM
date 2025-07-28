@@ -429,28 +429,13 @@ class FIMHawkes(AModel):
             )
             out["target_intensity_values"] = target_intensity_values
 
-            # # Compute target integrated intensities using high-precision Monte Carlo
-            # target_integrated_intensity = self.compute_target_integrated_intensity(
-            #     kernel_functions_list,
-            #     base_intensity_functions_list,
-            #     x["intensity_evaluation_times"],
-            #     x["inference_event_times"],
-            #     x["inference_event_types"],
-            #     x["inference_seq_lengths"],
-            #     norm_constants,
-            #     num_marks=num_marks,
-            # )
-            # out["target_integrated_intensity"] = target_integrated_intensity
-            out["target_integrated_intensity"] = torch.zeros_like(out["target_intensity_values"])
-
             out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
+                predicted_intensity_values=out["predicted_intensity_values"],
                 target_intensity_values=out["target_intensity_values"],
-                target_integrated_intensity=out["target_integrated_intensity"],
                 event_times=event_times,
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
-                eval_times=eval_times,
                 schedulers=schedulers,
                 step=step,
             )
@@ -758,12 +743,11 @@ class FIMHawkes(AModel):
     def loss(
         self,
         intensity_fn: "PiecewiseHawkesIntensity",
+        predicted_intensity_values: Tensor,
         target_intensity_values: Tensor,
-        target_integrated_intensity: Tensor,
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
-        eval_times: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
@@ -771,17 +755,13 @@ class FIMHawkes(AModel):
 
         L_total = w_nll * L_NLL + w_smape * L_sMAPE
         """
-        # --- 1. Predicted intensity ---
-        # Since eval_times are already normalized from the model, use normalized_times=True
-        predicted_intensity_values = intensity_fn.evaluate(eval_times, normalized_times=True)
-
-        # --- 2. Symmetric Mean Absolute Percentage Error ---
+        # --- 1. Symmetric Mean Absolute Percentage Error ---
         smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
 
-        # --- 3. Negative Log-Likelihood Loss ---
+        # --- 2. Negative Log-Likelihood Loss ---
         nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
 
-        # --- 4. Hybrid weighting of sMAPE and NLL ---
+        # --- 3. Hybrid weighting of sMAPE and NLL ---
         total_loss = self.loss_weights["nll"] * nll_loss + self.loss_weights["smape"] * smape_loss
 
         mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
