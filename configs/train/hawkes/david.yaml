@@ -16,17 +16,12 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_1D_1k_paths_diag_only_old_params/train
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/train
-      - data/synthetic_data/hawkes/5k_3D_1k_paths_diag_only_old_params/train
-      # - data/synthetic_data/hawkes/2D_small/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1k_1D_1k_paths_diag_only_old_params/val
-      - data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/val
-      - data/synthetic_data/hawkes/5k_3D_1k_paths_diag_only_old_params/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
 
   loader_kwargs:
-    batch_size: 4
+    batch_size: 10
     num_workers: 8
     test_batch_size: 1
 
@@ -42,7 +37,8 @@ dataset:
       train: true          # Variable sequence lengths for training
       validation: false    # Fixed sequence lengths for consistent validation
     min_sequence_len: 10
-    max_sequence_len: 250
+    max_sequence_len: 100
+    full_len_ratio: 0.1 # Ratio of full length sequences to the total number of sequences
 
     num_inference_times: 2000 # Number of times at which to evaluate the intensity function per inference path
 
