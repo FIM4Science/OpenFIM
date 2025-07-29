@@ -226,6 +226,8 @@ class TrainCheckpoint:
         if push_to_hub and self.hub_model_id:
             self.__logger.info(f"Pushing Best Model to Huggingface Hub in Repo: {self.hub_model_id}")
             self.model.push_to_hub(self.hub_model_id, private=True, token=os.getenv("HF_TOKEN", None))
+        # Save model state dict for checkpoint loading
+        torch.save(self.model.state_dict(), Path(save_dir) / "model-checkpoint.pth")
         state = {
             "model_type": original_model_type,
             "last_epoch": epoch,
@@ -374,20 +376,42 @@ class TrainCheckpoint:
         return epoch
 
     def _load_model_state(self, checkpoint_path: Path):
-        model_checkpoint_path = checkpoint_path / "model-checkpoint.pth"
-        train_checkpoint_path = checkpoint_path / "train-state-checkpoint.pth"
-        self.__logger.info("Loading Model State: %s ...", model_checkpoint_path)
-        model_state = torch.load(model_checkpoint_path, weights_only=False)
-        train_checkpoint_state = torch.load(train_checkpoint_path, weights_only=False)
+        """Load model and training state, with fallbacks for older checkpoint formats."""
+        model_ckpt = checkpoint_path / "model-checkpoint.pth"
+        train_ckpt = checkpoint_path / "train-state-checkpoint.pth"
+        if model_ckpt.exists():
+            self.__logger.info("Loading Model State: %s", model_ckpt)
+            model_state = torch.load(model_ckpt, weights_only=False)
+        else:
+            # fallback for safetensors or HF save_pretrained directories
+            safetensors_ckpt = checkpoint_path / "model.safetensors"
+            if safetensors_ckpt.exists():
+                self.__logger.info("Loading Model State from safetensors: %s", safetensors_ckpt)
+                from safetensors.torch import load_file as _load_safetensors
+
+                model_state = _load_safetensors(safetensors_ckpt)
+            else:
+                hf_bin = checkpoint_path / "pytorch_model.bin"
+                if hf_bin.exists():
+                    self.__logger.info("Loading Model State from Huggingface bin: %s", hf_bin)
+                    model_state = torch.load(hf_bin, map_location="cpu")
+                else:
+                    raise FileNotFoundError(
+                        f"No model checkpoint found in {checkpoint_path}; looked for model-checkpoint.pth,"
+                        " model.safetensors or pytorch_model.bin"
+                    )
+        # load training state
+        self.__logger.info("Loading Training State: %s", train_ckpt)
+        train_state = torch.load(train_ckpt, weights_only=False)
 
         self.model.load_state_dict(model_state)
-        self.training_logger.load_state_dict(train_checkpoint_state["training_logger"])
-        self.train_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["training"])
-        self.validation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["validation"])
-        if "evaluation" in train_checkpoint_state["loss_trackers"].keys():  # old checkpoints might not have evaluation_loss_tracker
-            self.evaluation_loss_tracker.load_state_dict(train_checkpoint_state["loss_trackers"]["evaluation"])
-        self.load_state_dict(train_checkpoint_state["checkpointer_state"])
-        return int(train_checkpoint_state["last_epoch"]) + 1
+        self.training_logger.load_state_dict(train_state["training_logger"])
+        self.train_loss_tracker.load_state_dict(train_state["loss_trackers"]["training"])
+        self.validation_loss_tracker.load_state_dict(train_state["loss_trackers"]["validation"])
+        if "evaluation" in train_state["loss_trackers"]:
+            self.evaluation_loss_tracker.load_state_dict(train_state["loss_trackers"]["evaluation"])
+        self.load_state_dict(train_state["checkpointer_state"])
+        return int(train_state["last_epoch"]) + 1
 
     def _get_checkpoint_path(self, checkpoint: Union[int, Literal["best-model", "last-epoch"]]) -> Path:
         if checkpoint == "best-model":
