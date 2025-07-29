@@ -276,6 +276,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         # Per-dataset configuration for variable_sequence_lens
         self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", {})
+        self.full_len_ratio = loader_kwargs.pop("full_len_ratio", 0.0)
 
         self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
@@ -311,7 +312,7 @@ class HawkesDataLoader(BaseDataLoader):
                 batch = self.var_path_collate_fn(batch)
 
             # Apply variable sequence lengths only when enabled for this dataset
-            if self.variable_sequence_lens.get(dataset_name, False):
+            if self.variable_sequence_lens.get(dataset_name, False) and torch.rand(1) > self.full_len_ratio:
                 batch = self.custom_hawkes_collate_fun(batch)
 
             # Tensors whose second dimension is the number of marks (M) for Hawkes processes
