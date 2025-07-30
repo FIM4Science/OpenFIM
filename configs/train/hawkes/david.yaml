@@ -21,7 +21,7 @@ dataset:
       - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
 
   loader_kwargs:
-    batch_size: 10
+    batch_size: 5
     num_workers: 8
     test_batch_size: 1
 
@@ -56,11 +56,6 @@ model:
   model_type: fimhawkes
   normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
-
-  loss_weights:
-    mse: 0.0001
-    integrated_intensity: 0.0
-    nll: 1.0
 
   max_num_marks: &max_num_marks 3
   hidden_dim: &hidden_dim 64

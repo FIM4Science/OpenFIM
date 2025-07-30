@@ -3,10 +3,10 @@ Run examples:
   Local Hawkes dataset:
     python scripts/hawkes/easytpp_fit.py \
       data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale \
-      --sample-idx 0 --model NHP --epochs 100 --batch-size 256
+      --sample-idx 0 --model NHP --epochs 100 --batch-size 256 --max-num-events 100
   HuggingFace EasyTPP dataset:
     python scripts/hawkes/easytpp_fit.py easytpp/retweet \
-      --model NHP --epochs 100 --batch-size 256
+      --model NHP --epochs 100 --batch-size 256 --max-num-events 100
 
 Script to fit an EasyTPP model on either
 1. a *local* Hawkes dataset that is stored the way this repository produces it, i.e. a
@@ -95,6 +95,12 @@ def parse_args() -> argparse.Namespace:  # noqa: D401
         default=Path("checkpoints"),
         help="Directory where EasyTPP stores its checkpoints.",
     )
+    parser.add_argument(
+        "--max-num-events",
+        type=int,
+        default=100,
+        help="Maximum number of events per sequence; longer sequences will be truncated.",
+    )
 
     return parser.parse_args()
 
@@ -160,7 +166,13 @@ def _load_local_sample(sample_dir: Path, sample_idx: int) -> Dict[str, List[List
     }
 
 
-def convert_local_dataset_to_json(base_dir: Path, split: str, sample_idx: int, tmp_dir: Path) -> Path:
+def convert_local_dataset_to_json(
+    base_dir: Path,
+    split: str,
+    sample_idx: int,
+    tmp_dir: Path,
+    max_num_events: int | None = None,
+) -> Path:
     """Convert the given *split* of a local dataset to JSON-Lines format.
 
     Returns
@@ -174,6 +186,12 @@ def convert_local_dataset_to_json(base_dir: Path, split: str, sample_idx: int, t
         raise FileNotFoundError(f"Expected split directory '{sample_dir}' not found.")
 
     sample_dict = _load_local_sample(sample_dir, sample_idx)
+
+    # Truncate sequences longer than max_num_events if specified
+    if max_num_events is not None:
+        sample_dict["time_since_start"] = [seq[:max_num_events] for seq in sample_dict["time_since_start"]]
+        sample_dict["type_event"] = [seq[:max_num_events] for seq in sample_dict["type_event"]]
+        sample_dict["time_since_last_event"] = [seq[:max_num_events] for seq in sample_dict["time_since_last_event"]]
 
     json_path = tmp_dir / f"{split}.json"
     with json_path.open("w") as fh:
@@ -341,9 +359,27 @@ def main() -> None:  # noqa: D401
             # ------------------------------------------------------------
             # LOCAL DATASET  –  needs conversion (train split renamed to context).
             # ------------------------------------------------------------
-            train_json, num_event_types = convert_local_dataset_to_json(dataset_path, local_train_split, args.sample_idx, tmp_dir)
-            val_json, _ = convert_local_dataset_to_json(dataset_path, "val", args.sample_idx, tmp_dir)
-            test_json, _ = convert_local_dataset_to_json(dataset_path, "test", args.sample_idx, tmp_dir)
+            train_json, num_event_types = convert_local_dataset_to_json(
+                dataset_path,
+                local_train_split,
+                args.sample_idx,
+                tmp_dir,
+                args.max_num_events,
+            )
+            val_json, _ = convert_local_dataset_to_json(
+                dataset_path,
+                "val",
+                args.sample_idx,
+                tmp_dir,
+                args.max_num_events,
+            )
+            test_json, _ = convert_local_dataset_to_json(
+                dataset_path,
+                "test",
+                args.sample_idx,
+                tmp_dir,
+                args.max_num_events,
+            )
 
         else:
             # ------------------------------------------------------------
