@@ -480,6 +480,144 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
     }
 
 
+class GroundTruthIntensity:
+    def __init__(self, model, inference_sequence, context_batch, ground_truth_functions, num_marks, device):
+        self.model = model
+        self.device = device
+        self.num_marks = num_marks
+
+        # Combine context and inference data for normalization calculation
+        context_times = context_batch["time_seqs"].unsqueeze(0).unsqueeze(-1).to(self.device)
+        context_lengths = context_batch["seq_non_pad_mask"].sum(dim=1).unsqueeze(0).to(self.device)
+
+        self.x = {
+            "inference_event_times": inference_sequence["time_seqs"].unsqueeze(0).unsqueeze(-1).to(self.device),
+            "inference_event_types": inference_sequence["type_seqs"].unsqueeze(0).unsqueeze(-1).to(self.device),
+            "inference_seq_lengths": inference_sequence["seq_len"].unsqueeze(0).to(self.device),
+            "kernel_functions": ground_truth_functions["kernel_functions"].to(self.device),
+            "base_intensity_functions": ground_truth_functions["base_intensity_functions"].to(self.device),
+        }
+
+        self.kernel_functions_list, self.base_intensity_functions_list = model._decode_functions(
+            self.x["kernel_functions"], self.x["base_intensity_functions"]
+        )
+
+        # Compute normalization constants consistently with the model's forward pass
+        self.norm_constants = torch.ones(1, device=self.device)
+        if self.model.normalize_times:
+            if self.model.normalize_by_max_time:
+                if context_times.numel() > 0 and context_lengths.numel() > 0:
+                    batch_indices = torch.arange(1, device=self.device).view(-1, 1).expand(-1, context_times.size(1))
+                    path_indices = torch.arange(context_times.size(1), device=self.device).view(1, -1).expand(1, -1)
+                    # Ensure context_lengths is not empty and has the right dimensions
+                    valid_lengths = context_lengths[context_lengths > 0]
+                    if valid_lengths.numel() > 0:
+                        max_times = context_times[batch_indices, path_indices, valid_lengths - 1]
+                        if max_times.numel() > 0:
+                            self.norm_constants = max_times.amax(dim=[1, 2])
+            else:
+                if context_times.shape[2] > 1:
+                    masked_delta_times = torch.diff(context_times, dim=2)
+                    masked_delta_times = torch.cat([torch.zeros_like(masked_delta_times[:, :, :1]), masked_delta_times], dim=2)
+                    self.norm_constants = masked_delta_times.amax(dim=[1, 2, 3])
+
+        # Normalize inference times for GT calculation if model does
+        if self.model.normalize_times:
+            self.x["inference_event_times_norm"] = self.x["inference_event_times"] / self.norm_constants.view(-1, 1, 1, 1)
+        else:
+            self.x["inference_event_times_norm"] = self.x["inference_event_times"]
+
+    def evaluate(self, query_times, normalized_times=True):
+        return self.model.compute_target_intensity_values(
+            self.kernel_functions_list,
+            self.base_intensity_functions_list,
+            query_times,
+            self.x["inference_event_times_norm"],
+            self.x["inference_event_types"],
+            self.x["inference_seq_lengths"],
+            self.norm_constants,
+            self.num_marks,
+        )
+
+    def integral(self, t_start, t_end, normalized_times=True):
+        # Reshape t_end from [B, P] to [B, P, 1] for compatibility
+        t_end_reshaped = t_end.unsqueeze(-1)
+
+        integral_at_tend = self.model.compute_target_integrated_intensity(
+            self.kernel_functions_list,
+            self.base_intensity_functions_list,
+            t_end_reshaped,
+            self.x["inference_event_times_norm"],
+            self.x["inference_event_types"],
+            self.x["inference_seq_lengths"],
+            self.norm_constants,
+            self.num_marks,
+        )
+        # This function computes integral from 0 to t_end. _nll_loss provides t_start=0.
+        # The result will be [B, M, P, 1], we need to squeeze it for the loss function.
+        return integral_at_tend.squeeze(-1)
+
+
+def compute_nll(model, inference_sequence, context_batch, device, ground_truth_functions=None):
+    """
+    Compute the Negative Log-Likelihood for a given sequence for the model and ground truth.
+    """
+    results = {}
+
+    # --- Model NLL ---
+    context_times = context_batch["time_seqs"].unsqueeze(0).unsqueeze(-1).to(device)
+    context_types = context_batch["type_seqs"].unsqueeze(0).unsqueeze(-1).to(device)
+    context_lengths = context_batch["seq_non_pad_mask"].sum(dim=1).unsqueeze(0).to(device)
+
+    inf_times = inference_sequence["time_seqs"].unsqueeze(0).unsqueeze(-1).to(device)
+    inf_types = inference_sequence["type_seqs"].unsqueeze(0).unsqueeze(-1).to(device)
+    inf_lengths = inference_sequence["seq_len"].unsqueeze(0).to(device)
+
+    x = {
+        "context_event_times": context_times,
+        "context_event_types": context_types,
+        "context_seq_lengths": context_lengths,
+        "inference_event_times": inf_times,
+        "inference_event_types": inf_types,
+        "inference_seq_lengths": inf_lengths,
+        "intensity_evaluation_times": torch.zeros(1, 1, 1, device=device),  # Dummy
+    }
+
+    with torch.no_grad():
+        model_out = model.forward(x)
+
+    intensity_obj = model_out["intensity_function"]
+
+    event_times_for_nll = x["inference_event_times_norm"] if model.normalize_times else x["inference_event_times"]
+
+    model_nll = model._nll_loss(
+        intensity_fn=intensity_obj,
+        event_times=event_times_for_nll.squeeze(-1),
+        event_types=inf_types.squeeze(-1),
+        seq_lengths=inf_lengths,
+    ).item()
+    results["model_nll"] = model_nll
+
+    # --- Ground Truth NLL ---
+    if ground_truth_functions:
+        gt_intensity_obj = GroundTruthIntensity(
+            model, inference_sequence, context_batch, ground_truth_functions, model.config.max_num_marks, device
+        )
+
+        # Use normalized times for GT NLL calculation if model normalizes
+        event_times_for_gt_nll = gt_intensity_obj.x["inference_event_times_norm"]
+
+        gt_nll = model._nll_loss(
+            intensity_fn=gt_intensity_obj,
+            event_times=event_times_for_gt_nll.squeeze(-1),
+            event_types=inf_types.squeeze(-1),
+            seq_lengths=inf_lengths,
+        ).item()
+        results["gt_nll"] = gt_nll
+
+    return results
+
+
 def compute_baseline_predictions(context_data_raw, inference_data_raw):
     """
     Compute simple baseline predictions using majority mark and mean time.
@@ -693,10 +831,12 @@ def main():
 
     # Initialize metrics for model predictions
     total_mae, total_sq_err, total_acc, total_events = 0, 0, 0, 0
+    total_nll_model = 0
 
     # Initialize metrics for ground truth predictions if available
     if ground_truth_available:
         gt_total_mae, gt_total_sq_err, gt_total_acc, gt_total_events = 0, 0, 0, 0
+        total_nll_gt = 0
 
     # Initialize metrics for baseline predictions
     baseline_total_mae, baseline_total_sq_err, baseline_total_acc, baseline_total_events = 0, 0, 0, 0
@@ -785,10 +925,19 @@ def main():
                     gt_total_acc += gt_acc
                     gt_total_events += num_events_in_batch
 
+            # g. Calculate NLL for the current sequence
+            nll_results = compute_nll(
+                model, inference_item, context_batch, device, ground_truth_functions if ground_truth_available else None
+            )
+            total_nll_model += nll_results.get("model_nll", 0)
+            if ground_truth_available:
+                total_nll_gt += nll_results.get("gt_nll", 0)
+
     # 5. Report final results
     final_mae = total_mae / total_events if total_events > 0 else 0
     final_rmse = np.sqrt(total_sq_err / total_events) if total_events > 0 else 0
     final_acc = total_acc / total_events if total_events > 0 else 0
+    final_ll_model = -total_nll_model / INFERENCE_SIZE if INFERENCE_SIZE > 0 else 0
 
     baseline_final_mae = baseline_total_mae / baseline_total_events if baseline_total_events > 0 else 0
     baseline_final_rmse = np.sqrt(baseline_total_sq_err / baseline_total_events) if baseline_total_events > 0 else 0
@@ -808,17 +957,20 @@ def main():
     print(f"  Time Prediction MAE:       {final_mae:.4f}")
     print(f"  Time Prediction RMSE:      {final_rmse:.4f}")
     print(f"  Type Prediction Accuracy:  {final_acc:.4f}")
+    print(f"  Log-Likelihood:          {final_ll_model:.4f}")
 
     if ground_truth_available:
         gt_final_mae = gt_total_mae / gt_total_events if gt_total_events > 0 else 0
         gt_final_rmse = np.sqrt(gt_total_sq_err / gt_total_events) if gt_total_events > 0 else 0
         gt_final_acc = gt_total_acc / gt_total_events if gt_total_events > 0 else 0
+        final_ll_gt = -total_nll_gt / INFERENCE_SIZE if INFERENCE_SIZE > 0 else 0
 
         print()
         print("GROUND TRUTH BASELINE:")
         print(f"  Time Prediction MAE:       {gt_final_mae:.4f}")
         print(f"  Time Prediction RMSE:      {gt_final_rmse:.4f}")
         print(f"  Type Prediction Accuracy:  {gt_final_acc:.4f}")
+        print(f"  Log-Likelihood:          {final_ll_gt:.4f}")
 
         print()
         print("COMPARISON (Model vs Ground Truth):")
