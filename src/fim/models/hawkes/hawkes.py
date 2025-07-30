@@ -716,27 +716,60 @@ class FIMHawkes(AModel):
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
+        apply_log_c_correction: bool = False,  # <-- ADD THIS FLAG
     ) -> Tensor:
         """Negative log-likelihood loss normalized by number of events."""
         B, P, L = event_times.shape
 
-        intensity_at_events = intensity_fn.evaluate(event_times, normalized_times=True)
-        log_intensity_at_events = torch.log(intensity_at_events)
+        # --- 1. Calculate NLL in the Normalized Time Domain (NLL') ---
 
+        # Intensity and its log at event times
+        intensity_at_events = intensity_fn.evaluate(event_times, normalized_times=True)
+        log_intensity_at_events = torch.log(intensity_at_events + 1e-9)  # Add epsilon for stability
+
+        # Gather the log-intensity for the specific event type (mark) that occurred
         type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)
         log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
 
+        # Create a mask for all valid (non-padded) events
         positions = torch.arange(L, device=self.device).view(1, 1, L)
         valid_mask = positions < seq_lengths.unsqueeze(2)
+
+        # Sum of log-intensities for all valid events (Σ log(λ'(t'_i)))
         log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)
 
+        # Integral of intensity from 0 to T (∫ λ'(t') dt')
         t_start = torch.zeros(B, P, device=self.device)
-        t_end = event_times.max(dim=2).values
+        t_end_times = event_times.clone().squeeze(-1)
+        t_end_times[~valid_mask] = 0  # Mask out padded values to find the true max time
+        t_end = t_end_times.max(dim=2).values
         integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end, normalized_times=True)
         integral_sum_per_path = integral_per_mark_path.sum(dim=1)
 
-        nll_per_path = integral_sum_per_path - log_ll_per_path
-        total_nll = nll_per_path.sum()
+        # NLL' = ∫ λ'(t') dt' - Σ log(λ'(t'_i))
+        nll_prime_per_path = integral_sum_per_path - log_ll_per_path
+        total_nll_prime = nll_prime_per_path.sum()
+
+        total_nll = total_nll_prime  # Initialize with the normalized-scale NLL
+
+        # --- 2. Apply Correction for Time Scaling (if requested) ---
+        # The true NLL is related to the normalized-scale NLL (NLL') by:
+        # NLL = NLL' + N * log(c), where N is the event count and c is the normalization constant.
+        # This correction is crucial for evaluation but should be omitted during training
+        # to keep the loss scale consistent with the normalized model parameters.
+        if self.normalize_times and apply_log_c_correction and intensity_fn.norm_constants is not None:
+            # Number of events per batch item (N_b)
+            events_per_batch_item = valid_mask.sum(dim=[1, 2])  # Shape: [B]
+
+            # Normalization constants per batch item (c_b)
+            norm_constants = intensity_fn.norm_constants  # Shape: [B]
+
+            # Correction term: sum over batch { N_b * log(c_b) }
+            nll_correction = (events_per_batch_item * torch.log(norm_constants + 1e-9)).sum()
+
+            total_nll = total_nll_prime + nll_correction
+
+        # --- 3. Normalize by Event Count ---
         total_events = valid_mask.sum()
         return total_nll / (total_events + 1e-8)
 
