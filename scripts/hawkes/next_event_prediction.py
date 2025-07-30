@@ -51,7 +51,7 @@ INFERENCE_SIZE = 1
 # Only consider paths up to this length
 MAX_NUM_EVENTS = 100
 
-PLOT_INTENSITY_PREDICTIONS = True
+PLOT_INTENSITY_PREDICTIONS = False
 
 # ===================================================================
 
@@ -595,6 +595,7 @@ def compute_nll(model, inference_sequence, context_batch, device, ground_truth_f
         event_times=event_times_for_nll.squeeze(-1),
         event_types=inf_types.squeeze(-1),
         seq_lengths=inf_lengths,
+        apply_log_c_correction=True,
     ).item()
     results["model_nll"] = model_nll
 
@@ -612,6 +613,7 @@ def compute_nll(model, inference_sequence, context_batch, device, ground_truth_f
             event_times=event_times_for_gt_nll.squeeze(-1),
             event_types=inf_types.squeeze(-1),
             seq_lengths=inf_lengths,
+            apply_log_c_correction=True,
         ).item()
         results["gt_nll"] = gt_nll
 
