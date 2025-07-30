@@ -471,9 +471,9 @@ def main() -> None:  # noqa: D401
                 # ----------------------------------------------------
                 # Optional: Evaluate the trained model (next-event
                 # prediction) on the *test* split.  We reuse the *same*
-                # YAML file but change the stage to ``eval`` which tells
-                # EasyTPP to load the best checkpoint and compute the
-                # default metrics (RMSE, accuracy, …).
+                # configuration but run in VALIDATE phase to load the
+                # best checkpoint and compute the default metrics
+                # (RMSE, accuracy, …).
                 # ----------------------------------------------------
 
                 try:
@@ -482,7 +482,8 @@ def main() -> None:  # noqa: D401
                     print("[INFO] Starting EasyTPP evaluation (next-event prediction) …")
 
                     test_loader = runner._data_loader.test_loader()
-                    metrics = runner.run_one_epoch(test_loader, RunnerPhase.PREDICT)
+                    # Use VALIDATE phase here to ensure proper masking of padded events when computing metrics
+                    metrics = runner.run_one_epoch(test_loader, RunnerPhase.VALIDATE)
 
                     # Display standard metrics if present.
                     print("[INFO] Evaluation metrics:")
