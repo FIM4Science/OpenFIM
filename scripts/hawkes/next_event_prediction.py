@@ -46,10 +46,13 @@ NUM_EVENT_TYPES = 3
 CONTEXT_SIZE = 1000
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = 100
+INFERENCE_SIZE = 1
 
 # Only consider paths up to this length
 MAX_NUM_EVENTS = 100
+
+PLOT_INTENSITY_PREDICTIONS = True
+
 # ===================================================================
 
 
@@ -838,6 +841,44 @@ def main():
     print(f"  Accuracy improvement:      {baseline_acc_improvement:+.1f}%")
 
     print("=" * 60)
+
+    # Plot intensity predictions if requested
+    if PLOT_INTENSITY_PREDICTIONS:
+        print("\nPlotting intensity predictions...")
+        try:
+            from visualize_intensity_predictions import (
+                load_data_from_dir,
+                plot_intensity_comparison,
+                prepare_batch_for_model,
+            )
+        except ImportError:
+            print("⚠️  Visualization utilities not available. Skipping intensity plots.")
+        else:
+            if USE_EASYTPP:
+                print("⚠️  PLOT_INTENSITY_PREDICTIONS is only supported for local datasets (USE_EASYTPP=False).")
+            else:
+                dataset_dir = Path(LOCAL_DATASET_PATH) / "test"
+                data = load_data_from_dir(dataset_dir)
+                # Select the sample based on SAMPLE_INDEX
+                single_sample = {
+                    key: (value[SAMPLE_INDEX] if torch.is_tensor(value) else value[SAMPLE_INDEX]) for key, value in data.items()
+                }
+                try:
+                    model_data_vis = prepare_batch_for_model(single_sample, inference_path_idx=0, num_points_between_events=10)
+                except ValueError as e:
+                    print(f"⚠️  Could not prepare batch for intensity visualization: {e}")
+                else:
+                    # Move visualization batch to the same device as the model
+                    for key, val in model_data_vis.items():
+                        if torch.is_tensor(val):
+                            model_data_vis[key] = val.to(device)
+                    try:
+                        with torch.no_grad():
+                            model_output_vis = model(model_data_vis)
+                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_0.png"
+                        plot_intensity_comparison(model_output_vis, model_data_vis, save_path=save_path, path_idx=0)
+                    except Exception as e:
+                        print(f"⚠️  Intensity visualization failed: {e}")
 
 
 if __name__ == "__main__":
