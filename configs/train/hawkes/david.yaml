@@ -16,9 +16,13 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/train
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_base_intensity_exp_decay/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity_no_interactions/train
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1k_3D_1k_paths_diag_only_old_params/val
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_base_intensity_exp_decay/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity_no_interactions/val
 
   loader_kwargs:
     batch_size: 5

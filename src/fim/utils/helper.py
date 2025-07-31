@@ -775,7 +775,6 @@ def select_dimension_for_plot(
 def decode_byte_string(bytes_tensor: torch.Tensor) -> str:
     """
     Decodes a zero-padded byte tensor from any device (CPU or GPU) into a string.
-    This version avoids NumPy by using .tolist().
     """
     # Find indices of all non-zero elements. This works on both CPU and GPU.
     non_zero_indices = torch.nonzero(bytes_tensor, as_tuple=True)[0]
@@ -791,6 +790,4 @@ def decode_byte_string(bytes_tensor: torch.Tensor) -> str:
     byte_sequence = bytes_tensor[: last_idx + 1]
 
     # Convert the sliced tensor to a Python list of integers, then to bytes.
-    # .tolist() implicitly moves data from GPU to CPU.
-    # We add error handling for robustness during decoding.
     return bytes(byte_sequence.tolist()).decode("utf-8", errors="replace")
