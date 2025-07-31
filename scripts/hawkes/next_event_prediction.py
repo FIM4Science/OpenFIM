@@ -1009,7 +1009,55 @@ def main():
             print("⚠️  Visualization utilities not available. Skipping intensity plots.")
         else:
             if USE_EASYTPP:
-                print("⚠️  PLOT_INTENSITY_PREDICTIONS is only supported for local datasets (USE_EASYTPP=False).")
+                # Plot intensity predictions using CONTEXT_SIZE context paths and INFERENCE_SIZE inference paths
+                print("Plotting intensity predictions for EasyTPP dataset sample...")
+                # Combine context and inference sequences into one multi-path sample
+                all_times = context_data_raw["time_since_start"] + inference_data_raw["time_since_start"]
+                all_types = context_data_raw["type_event"] + inference_data_raw["type_event"]
+                all_lens = context_data_raw["seq_len"] + inference_data_raw["seq_len"]
+                # Pad sequences to equal length and build raw (unbatched) tensors
+                max_L = max(all_lens)
+                times_padded, types_padded = [], []
+                for t_seq, c_seq, L_seq in zip(all_times, all_types, all_lens):
+                    pad = max_L - L_seq
+                    times_padded.append(t_seq + [0.0] * pad)
+                    types_padded.append(c_seq + [0] * pad)
+                # Build sample tensors without leading batch dim; helper will add it
+                event_times = torch.tensor(times_padded, dtype=torch.float32).unsqueeze(-1)  # [P_paths, L, 1]
+                event_types = torch.tensor(types_padded, dtype=torch.long).unsqueeze(-1)  # [P_paths, L, 1]
+                seq_lengths = torch.tensor(all_lens, dtype=torch.long)  # [P_paths]
+                single_sample = {
+                    "event_times": event_times,
+                    "event_types": event_types,
+                    "seq_lengths": seq_lengths,
+                }
+                try:
+                    model_data_vis = prepare_batch_for_model(
+                        single_sample,
+                        inference_path_idx=len(context_data_raw),
+                        num_points_between_events=10,
+                    )
+                    # Ensure we plot all marks for EasyTPP data
+                    model_data_vis["num_marks"] = NUM_EVENT_TYPES
+                except ValueError as e:
+                    print(f"⚠️  Could not prepare EasyTPP context/inference sample: {e}")
+                else:
+                    # Move visualization batch to device
+                    for key, val in model_data_vis.items():
+                        if torch.is_tensor(val):
+                            model_data_vis[key] = val.to(device)
+                    try:
+                        with torch.no_grad():
+                            model_output_vis = model(model_data_vis)
+                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_0.png"
+                        plot_intensity_comparison(
+                            model_output_vis,
+                            model_data_vis,
+                            save_path=save_path,
+                            path_idx=0,
+                        )
+                    except Exception as e:
+                        print(f"⚠️  Intensity visualization failed: {e}")
             else:
                 dataset_dir = Path(LOCAL_DATASET_PATH) / "test"
                 data = load_data_from_dir(dataset_dir)
