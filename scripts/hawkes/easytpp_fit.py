@@ -3,10 +3,12 @@ Run examples:
   Local Hawkes dataset:
     python scripts/hawkes/easytpp_fit.py \
       data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale \
-      --sample-idx 0 --model NHP --epochs 100 --batch-size 256 --max-num-events 100
+      --sample-idx 0 --model NHP --epochs 100 --batch-size 256 \
+      --max-num-events 100 --num-train-paths 1000 --num-eval-paths 100
   HuggingFace EasyTPP dataset:
     python scripts/hawkes/easytpp_fit.py easytpp/retweet \
-      --model NHP --epochs 100 --batch-size 256 --max-num-events 100
+      --model NHP --epochs 100 --batch-size 256 \
+      --max-num-events 100 --num-train-paths 1000 --num-eval-paths 100
 
 Script to fit an EasyTPP model on either
 1. a *local* Hawkes dataset that is stored the way this repository produces it, i.e. a
@@ -101,6 +103,18 @@ def parse_args() -> argparse.Namespace:  # noqa: D401
         default=100,
         help="Maximum number of events per sequence; longer sequences will be truncated.",
     )
+    parser.add_argument(
+        "--num-train-paths",
+        type=int,
+        default=None,
+        help="Number of sequences (paths) to use for training (analogous to context paths).",
+    )
+    parser.add_argument(
+        "--num-eval-paths",
+        type=int,
+        default=None,
+        help="Number of sequences (paths) to use for evaluation (analogous to inference paths).",
+    )
 
     return parser.parse_args()
 
@@ -172,6 +186,7 @@ def convert_local_dataset_to_json(
     sample_idx: int,
     tmp_dir: Path,
     max_num_events: int | None = None,
+    num_paths: int | None = None,
 ) -> Path:
     """Convert the given *split* of a local dataset to JSON-Lines format.
 
@@ -193,6 +208,12 @@ def convert_local_dataset_to_json(
         sample_dict["type_event"] = [seq[:max_num_events] for seq in sample_dict["type_event"]]
         sample_dict["time_since_last_event"] = [seq[:max_num_events] for seq in sample_dict["time_since_last_event"]]
 
+    # Optionally select only a subset of paths (sequences)
+    if num_paths is not None:
+        sample_dict["time_since_start"] = sample_dict["time_since_start"][:num_paths]
+        sample_dict["type_event"] = sample_dict["type_event"][:num_paths]
+        sample_dict["time_since_last_event"] = sample_dict["time_since_last_event"][:num_paths]
+
     json_path = tmp_dir / f"{split}.json"
     with json_path.open("w") as fh:
         for idx in range(len(sample_dict["time_since_start"])):
@@ -208,6 +229,48 @@ def convert_local_dataset_to_json(
     # Also return the number of unique event types so that the caller can populate
     # the EasyTPP config accordingly.
     return json_path, sample_dict["num_event_types"]
+
+
+def convert_hf_dataset_to_json(
+    dataset_id: str,
+    split: str,
+    tmp_dir: Path,
+    max_num_events: int | None = None,
+    num_paths: int | None = None,
+) -> Path:
+    """Convert a HuggingFace EasyTPP dataset split to JSON-Lines, with optional slicing and truncation."""
+    from datasets import load_dataset
+
+    ds = load_dataset(dataset_id, split=split)
+    # Optionally subsample paths
+    if num_paths is not None:
+        count = min(len(ds), num_paths)
+        ds = ds.select(range(count))
+
+    json_path = tmp_dir / f"{split}.json"
+    with json_path.open("w") as fh:
+        for example in ds:
+            # Truncate sequences longer than max_num_events if specified
+            tss = example.get("time_since_start", [])
+            if max_num_events is not None:
+                tss = tss[:max_num_events]
+            tsl = example.get("time_since_last_event", [])
+            if max_num_events is not None:
+                tsl = tsl[:max_num_events]
+            tev = example.get("type_event") or example.get("type_seqs") or []
+            if max_num_events is not None:
+                tev = tev[:max_num_events]
+
+            record: Dict[str, Union[int, List]] = {
+                "time_since_start": tss,
+                "time_since_last_event": tsl,
+                "type_event": tev,
+            }
+            if "dim_process" in example:
+                record["dim_process"] = example["dim_process"]
+
+            fh.write(json.dumps(record) + "\n")
+    return json_path
 
 
 def write_training_config(
@@ -365,6 +428,7 @@ def main() -> None:  # noqa: D401
                 args.sample_idx,
                 tmp_dir,
                 args.max_num_events,
+                args.num_train_paths,
             )
             val_json, _ = convert_local_dataset_to_json(
                 dataset_path,
@@ -372,6 +436,7 @@ def main() -> None:  # noqa: D401
                 args.sample_idx,
                 tmp_dir,
                 args.max_num_events,
+                args.num_train_paths,
             )
             test_json, _ = convert_local_dataset_to_json(
                 dataset_path,
@@ -379,6 +444,7 @@ def main() -> None:  # noqa: D401
                 args.sample_idx,
                 tmp_dir,
                 args.max_num_events,
+                args.num_eval_paths,
             )
 
         else:
@@ -409,11 +475,19 @@ def main() -> None:  # noqa: D401
                 # synthetic data.
                 num_event_types = 2
 
-            # Use the same HuggingFace dataset id for all splits; the runner API
-            # will call load_dataset with the appropriate split.
-            train_json = dataset_arg
-            val_json = dataset_arg
-            test_json = dataset_arg
+            # Use the same HuggingFace dataset id for all splits unless slicing is requested.
+            if args.num_train_paths is not None:
+                train_json = convert_hf_dataset_to_json(dataset_arg, "train", tmp_dir, args.max_num_events, args.num_train_paths)
+                # Use same train split for validation when subsampling
+                val_json = train_json
+            else:
+                train_json = dataset_arg
+                val_json = dataset_arg
+
+            if args.num_eval_paths is not None:
+                test_json = convert_hf_dataset_to_json(dataset_arg, "test", tmp_dir, args.max_num_events, args.num_eval_paths)
+            else:
+                test_json = dataset_arg
 
         # ------------------------------------------------------------
         # Write YAML config and run EasyTPP.

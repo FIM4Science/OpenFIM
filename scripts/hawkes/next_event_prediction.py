@@ -26,7 +26,7 @@ MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
 # If False: Load from local path
-USE_EASYTPP = False
+USE_EASYTPP = True
 
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
@@ -46,7 +46,7 @@ NUM_EVENT_TYPES = 3
 CONTEXT_SIZE = 1000
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = 1
+INFERENCE_SIZE = 100
 
 # Only consider paths up to this length
 MAX_NUM_EVENTS = 100
@@ -749,40 +749,40 @@ def main():
 
     # Truncate sequences longer than MAX_NUM_EVENTS
     print(f"Truncating all sequences to at most {MAX_NUM_EVENTS} events...")
-    if USE_EASYTPP:
-        # Truncate each example in the HuggingFace dataset
-        def _truncate_example(example):
-            length = example.get("seq_len", len(example.get("time_since_start", [])))
-            trunc = min(length, MAX_NUM_EVENTS)
-            example["time_since_start"] = example["time_since_start"][:trunc]
-            example["time_since_last_event"] = example["time_since_last_event"][:trunc]
-            example["type_event"] = example["type_event"][:trunc]
-            example["seq_len"] = trunc
-            return example
 
+    def _truncate_example(example):
+        length = example.get("seq_len", len(example.get("time_since_start", [])))
+        trunc = min(length, MAX_NUM_EVENTS)
+        example["time_since_start"] = example["time_since_start"][:trunc]
+        example["time_since_last_event"] = example["time_since_last_event"][:trunc]
+        example["type_event"] = example["type_event"][:trunc]
+        example["seq_len"] = trunc
+        return example
+
+    def _truncate_batch(data_dict):
+        truncated = {"time_since_start": [], "time_since_last_event": [], "type_event": [], "seq_len": []}
+        for times, deltas, types, length in zip(
+            data_dict["time_since_start"],
+            data_dict["time_since_last_event"],
+            data_dict["type_event"],
+            data_dict["seq_len"],
+        ):
+            trunc = min(length, MAX_NUM_EVENTS)
+            truncated["time_since_start"].append(times[:trunc])
+            truncated["time_since_last_event"].append(deltas[:trunc])
+            truncated["type_event"].append(types[:trunc])
+            truncated["seq_len"].append(trunc)
+        # Preserve any ground truth functions
+        for key in ("kernel_functions", "base_intensity_functions"):
+            if key in data_dict:
+                truncated[key] = data_dict[key]
+        return truncated
+
+    # Apply truncation: use map for HuggingFace datasets if available, otherwise batch truncation
+    if hasattr(context_data_raw, "map"):
         context_data_raw = context_data_raw.map(_truncate_example)
         inference_data_raw = inference_data_raw.map(_truncate_example)
     else:
-        # Truncate lists in local dataset dicts
-        def _truncate_batch(data_dict):
-            truncated = {"time_since_start": [], "time_since_last_event": [], "type_event": [], "seq_len": []}
-            for times, deltas, types, length in zip(
-                data_dict["time_since_start"],
-                data_dict["time_since_last_event"],
-                data_dict["type_event"],
-                data_dict["seq_len"],
-            ):
-                trunc = min(length, MAX_NUM_EVENTS)
-                truncated["time_since_start"].append(times[:trunc])
-                truncated["time_since_last_event"].append(deltas[:trunc])
-                truncated["type_event"].append(types[:trunc])
-                truncated["seq_len"].append(trunc)
-            # Preserve any ground truth functions
-            for key in ("kernel_functions", "base_intensity_functions"):
-                if key in data_dict:
-                    truncated[key] = data_dict[key]
-            return truncated
-
         context_data_raw = _truncate_batch(context_data_raw)
         inference_data_raw = _truncate_batch(inference_data_raw)
 
