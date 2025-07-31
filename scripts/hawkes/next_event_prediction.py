@@ -46,7 +46,10 @@ NUM_EVENT_TYPES = 3
 CONTEXT_SIZE = 1000
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = 100
+INFERENCE_SIZE = 1
+
+# Number of points to use for log-likelihood evaluation
+NUM_INTEGRATION_POINTS = 5000
 
 # Only consider paths up to this length
 MAX_NUM_EVENTS = 100
@@ -596,6 +599,7 @@ def compute_nll(model, inference_sequence, context_batch, device, ground_truth_f
         event_types=inf_types.squeeze(-1),
         seq_lengths=inf_lengths,
         apply_log_c_correction=True,
+        num_integration_points=NUM_INTEGRATION_POINTS,
     ).item()
     results["model_nll"] = model_nll
 
@@ -614,6 +618,7 @@ def compute_nll(model, inference_sequence, context_batch, device, ground_truth_f
             event_types=inf_types.squeeze(-1),
             seq_lengths=inf_lengths,
             apply_log_c_correction=True,
+            num_integration_points=NUM_INTEGRATION_POINTS,
         ).item()
         results["gt_nll"] = gt_nll
 
