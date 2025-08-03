@@ -21,20 +21,20 @@ from tqdm import tqdm
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-29-1805/checkpoints/best-model"
+MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-31-1614/checkpoints/epoch-4999"
 
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
 # If False: Load from local path
 USE_EASYTPP = True
 
+# Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
+DATASET_IDENTIFIER = "easytpp/retweet"
+
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
 # This variable selects which of the N_samples to use (0-indexed)
 SAMPLE_INDEX = 0
-
-# Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
-DATASET_IDENTIFIER = "easytpp/retweet"
 
 # Set the local dataset path (used only if USE_EASYTPP=False).
 LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale"
@@ -54,7 +54,7 @@ NUM_INTEGRATION_POINTS = 5000
 # Only consider paths up to this length
 MAX_NUM_EVENTS = 100
 
-PLOT_INTENSITY_PREDICTIONS = False
+PLOT_INTENSITY_PREDICTIONS = True
 
 # ===================================================================
 

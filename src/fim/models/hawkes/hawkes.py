@@ -760,7 +760,10 @@ class FIMHawkes(AModel):
         log_intensity_at_events = torch.log(intensity_at_events + 1e-9)  # Add epsilon for stability
 
         # Gather the log-intensity for the specific event type (mark) that occurred
-        type_idx = event_types_for_ll.unsqueeze(1).expand(-1, 1, -1, -1)
+        # Clamp event types to avoid out-of-bounds access with padding tokens.
+        num_marks = log_intensity_at_events.shape[1]
+        event_types_for_ll_clamped = torch.clamp(event_types_for_ll, 0, num_marks - 1)
+        type_idx = event_types_for_ll_clamped.unsqueeze(1).expand(-1, 1, -1, -1)
         log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
 
         # Create a mask for all valid (non-padded) events in the SLICED sequences
