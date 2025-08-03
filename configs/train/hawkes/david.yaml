@@ -16,14 +16,15 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_3D_1k_paths_base_intensity_exp_decay/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_base_intensity_exp_decay/train
       - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity/train
       - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity_no_interactions/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_lognormal_base_intensity/train
     validation: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_3D_1k_paths_base_intensity_exp_decay/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_base_intensity_exp_decay/val
       - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity/val
       - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_intensity_no_interactions/val
-
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_lognormal_base_intensity/val
   loader_kwargs:
     batch_size: 5
     num_workers: 8
@@ -151,7 +152,7 @@ trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 5000
+  epochs: &epochs 100000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 4
