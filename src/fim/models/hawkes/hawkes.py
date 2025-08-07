@@ -1,6 +1,6 @@
 import copy
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import torch
 from torch import Tensor
@@ -38,7 +38,6 @@ class FIMHawkesConfig(PretrainedConfig):
         normalize_by_max_time: bool = True,
         thinning: dict = None,
         loss_weights: dict = None,
-        uncertainty_decoder: dict = None,
         **kwargs,
     ):
         self.max_num_marks = max_num_marks
@@ -60,7 +59,6 @@ class FIMHawkesConfig(PretrainedConfig):
         self.hidden_dim = hidden_dim
         self.thinning = thinning
         self.loss_weights = loss_weights
-        self.uncertainty_decoder = uncertainty_decoder
         if "model_type" in kwargs:
             del kwargs["model_type"]
         super().__init__(model_type=self.model_type, **kwargs)
@@ -74,6 +72,7 @@ class FIMHawkes(AModel):
         max_num_marks (int): Maximum number of marks in the Hawkes process.
         normalize_by_max_time (bool): Whether to normalize the input times by the maximum time in the context sequences.
         thinning (dict): The thinning parameters.
+        loss_weights (dict): The loss weights.
         mark_encoder (dict): The mark encoder configuration.
         time_encoder (dict): The time encoder configuration.
         delta_time_encoder (dict): The delta time encoder configuration.
@@ -118,10 +117,6 @@ class FIMHawkes(AModel):
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
         alpha_decoder = copy.deepcopy(self.config.alpha_decoder)
         beta_decoder = copy.deepcopy(self.config.beta_decoder)
-        # Optional uncertainty decoder – if none is provided we fall back to a simple linear layer.
-        uncertainty_decoder_cfg = (
-            copy.deepcopy(self.config.uncertainty_decoder) if getattr(self.config, "uncertainty_decoder", None) is not None else None
-        )
         self.hidden_dim = self.config.hidden_dim
         self.normalize_times = self.config.normalize_times
 
@@ -166,25 +161,6 @@ class FIMHawkes(AModel):
         beta_decoder["out_features"] = 1
         self.beta_decoder = create_class_instance(beta_decoder.pop("name"), beta_decoder)
 
-        # ------------------------------------------------------------------
-        # φ_u  –  per-sample log-variance head
-        # ------------------------------------------------------------------
-        if uncertainty_decoder_cfg is not None:
-            uncertainty_decoder_cfg["in_features"] = self.hidden_dim
-            uncertainty_decoder_cfg["out_features"] = 1
-            self.uncertainty_decoder = create_class_instance(uncertainty_decoder_cfg.pop("name"), uncertainty_decoder_cfg)
-        else:
-            # Default: a single linear projection to one log-variance value
-            self.uncertainty_decoder = torch.nn.Linear(self.hidden_dim, 1)
-
-        # ------------------------------------------------------------------
-        # Global task-uncertainty scalars
-        # ------------------------------------------------------------------
-        self.omega_lambda_balanced = torch.nn.Parameter(torch.zeros(1))
-        # self.omega_nll = torch.nn.Parameter(torch.zeros(1))
-        # For now just set omega_nll to non-trainable 0 on the GPU
-        self.omega_nll = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
-
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
 
@@ -195,6 +171,8 @@ class FIMHawkes(AModel):
             self.event_sampler = EventSampler(**self.config.thinning)
         else:
             self.event_sampler = EventSampler(num_sample=1, num_exp=500, over_sample_rate=5, num_samples_boundary=5, dtime_max=5)
+
+        self.loss_weights = self.config.loss_weights
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         """
@@ -247,8 +225,12 @@ class FIMHawkes(AModel):
         self._compute_delta_times_inplace(x, "context")
         self._compute_delta_times_inplace(x, "inference")
 
-        # Normalise input times if requested
-        norm_constants = self._normalize_input_times(x) if self.normalize_times else torch.ones(B, device=self.device)
+        # Normalise input times if requested (produce normalized copies, keep originals intact)
+        if self.normalize_times:
+            norm_constants, x_norm = self._normalize_input_times(x)
+            x.update(x_norm)
+        else:
+            norm_constants = torch.ones(B, device=self.device)
 
         # ------------------------------------------------------------------
         # Encoding of observations (context & target/inference)
@@ -408,45 +390,25 @@ class FIMHawkes(AModel):
         beta = torch.nn.functional.softplus(raw_params[..., 0])
 
         # ------------------------------------------------------------------
-        # Predict per-sample log-variance u_{λ,τ,m}
-        # We detach h_final to avoid back-propagating through the shared encoder,
-        # ensuring gradients only flow into the uncertainty head.
-        # ------------------------------------------------------------------
-        combined_enc_detached = combined_enc.detach()  # Detach to avoid gradients to shared encoder
-
-        u_event_flat = self.uncertainty_decoder(combined_enc_detached.reshape(-1, self.hidden_dim))  # [...,1]
-        u_event = u_event_flat.view(B, num_marks, P_inference, L)  # [B,M,P,L]
-
-        # Map event-level uncertainties to evaluation times τ by selecting the last event
-        # preceding each τ for the same path (implementation of T_k*(τ)).
-        eval_times = x["intensity_evaluation_times"]  # [B,P,L_eval]
-        event_times_path = x["inference_event_times"].squeeze(-1)  # [B,P,L]
-
-        idx_range = torch.arange(L, device=self.device)
-
-        # Compute mask identifying events occurring before each evaluation time
-        before_mask = event_times_path.unsqueeze(2) < eval_times.unsqueeze(-1)  # [B,P,L_eval,L]
-        idx_range_broadcast = idx_range.view(1, 1, 1, L)
-        idx_masked = torch.where(before_mask, idx_range_broadcast, torch.full_like(idx_range_broadcast, -1))
-        last_event_idx = idx_masked.max(dim=-1).values  # [B,P,L_eval]
-        last_event_idx = last_event_idx.clamp(min=0)  # Replace -1 (no past event) by 0
-
-        # Gather u values corresponding to last event before τ
-        last_event_idx_expanded = last_event_idx.unsqueeze(1).expand(-1, num_marks, -1, -1)  # [B,M,P,L_eval]
-        u_eval = torch.gather(u_event, dim=3, index=last_event_idx_expanded)  # [B,M,P,L_eval]
-
-        # ------------------------------------------------------------------
         # Build piece-wise intensity object and evaluate at requested times
         # ------------------------------------------------------------------
-        event_times = x["inference_event_times"].squeeze(-1)  # [B,P,L]
-        intensity_fn = PiecewiseHawkesIntensity(event_times, mu, alpha, beta)
+        # Select normalized or original inference event times for intensity function
+        if self.normalize_times:
+            event_times = x["inference_event_times_norm"].squeeze(-1)
+            eval_times = x["intensity_evaluation_times_norm"]
+        else:
+            event_times = x["inference_event_times"].squeeze(-1)
+            eval_times = x["intensity_evaluation_times"]
+        # If model used normalization, provide constants for downstream denormalization
+        norm_consts_for_intensity = norm_constants if self.normalize_times else None
+        intensity_fn = PiecewiseHawkesIntensity(event_times, mu, alpha, beta, norm_consts_for_intensity)
 
-        predicted_intensity_values = intensity_fn.evaluate(x["intensity_evaluation_times"])  # [B,M,P,L_eval]
+        # Evaluate using normalized times
+        predicted_intensity_values = intensity_fn.evaluate(eval_times, normalized_times=True)
 
         out = {
             "predicted_intensity_values": predicted_intensity_values,
             "intensity_function": intensity_fn,
-            "log_predicted_intensity_values_var": u_eval,
         }
 
         if "kernel_functions" in x:
@@ -454,11 +416,12 @@ class FIMHawkes(AModel):
             kernel_functions_list, base_intensity_functions_list = self._decode_functions(
                 x["kernel_functions"], x["base_intensity_functions"]
             )
+            # Compute target intensities using same normalized times
             target_intensity_values = self.compute_target_intensity_values(
                 kernel_functions_list,
                 base_intensity_functions_list,
-                x["intensity_evaluation_times"],
-                x["inference_event_times"],
+                x["intensity_evaluation_times_norm"] if self.normalize_times else x["intensity_evaluation_times"],
+                x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
                 x["inference_event_types"],
                 x["inference_seq_lengths"],
                 norm_constants,
@@ -466,35 +429,19 @@ class FIMHawkes(AModel):
             )
             out["target_intensity_values"] = target_intensity_values
 
-            # # Compute target integrated intensities using high-precision Monte Carlo
-            # target_integrated_intensity = self.compute_target_integrated_intensity(
-            #     kernel_functions_list,
-            #     base_intensity_functions_list,
-            #     x["intensity_evaluation_times"],
-            #     x["inference_event_times"],
-            #     x["inference_event_types"],
-            #     x["inference_seq_lengths"],
-            #     norm_constants,
-            #     num_marks=num_marks,
-            # )
-            # out["target_integrated_intensity"] = target_integrated_intensity
-            out["target_integrated_intensity"] = torch.zeros_like(out["target_intensity_values"])
-
             out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
+                predicted_intensity_values=out["predicted_intensity_values"],
                 target_intensity_values=out["target_intensity_values"],
-                target_integrated_intensity=out["target_integrated_intensity"],
-                event_times=x["inference_event_times"].squeeze(-1),
+                event_times=event_times,
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
-                eval_times=x["intensity_evaluation_times"],
-                uncertainty_values=u_eval,
                 schedulers=schedulers,
                 step=step,
             )
 
         if self.normalize_times:
-            self._denormalize_output(x, out, norm_constants)
+            self._denormalize_output(out, norm_constants)
 
         return out
 
@@ -550,10 +497,15 @@ class FIMHawkes(AModel):
         h = self.intensity_decoder(time_dependent_path_summary)
         return h.view(B, M, P_inference, L_inference)
 
-    def _normalize_input_times(self, x: dict) -> dict:
+    def _normalize_input_times(self, x: dict) -> Tuple[Tensor, Dict[str, Tensor]]:
         """
-        Normalize the input times either by the maximum time in the context sequences or by the maximum time in the delta times.
+        Compute normalization constants and normalized time tensors without mutating inputs.
+        Returns (norm_constants, normalized_times) where normalized_times is a dict with keys:
+            'context_event_times_norm', 'context_delta_times_norm',
+            'inference_event_times_norm', 'inference_delta_times_norm',
+            'intensity_evaluation_times_norm'.
         """
+        # Compute normalization constants as before
         if self.normalize_by_max_time:
             batch_indices = (
                 torch.arange(x["context_event_times"].size(0), device=x["context_event_times"].device)
@@ -571,30 +523,33 @@ class FIMHawkes(AModel):
             masked_delta_times = x["context_delta_times"].clone()
             B, P, L, _ = masked_delta_times.shape
 
-            # Remove last dimension if it's size 1
-            masked_delta_times = masked_delta_times.squeeze(-1)  # Now shape is (B, P, L)
+            masked_delta_times = masked_delta_times.squeeze(-1)  # (B, P, L)
+            positions = torch.arange(L, device=masked_delta_times.device).view(1, 1, L)
+            seq_lengths_expanded = x["context_seq_lengths"].unsqueeze(2)
 
-            # Create positions tensor
-            positions = torch.arange(L).view(1, 1, L).to(masked_delta_times.device)  # Shape: (1, 1, L)
+            # Create a mask for valid positions and flatten for median calculation
+            valid_mask = positions < seq_lengths_expanded
 
-            # Expand seq_lengths to match dimensions
-            seq_lengths_expanded = x["context_seq_lengths"].unsqueeze(2)  # Shape: (B, P, 1)
+            # Calculate median for each batch
+            norm_constants = torch.zeros(B, device=masked_delta_times.device)
+            for b in range(B):
+                batch_valid_times = masked_delta_times[b][valid_mask[b]]
+                if len(batch_valid_times) > 0:
+                    norm_constants[b] = torch.median(batch_valid_times)
+                else:
+                    norm_constants[b] = 1.0  # fallback if no valid times
 
-            # Create mask for invalid positions
-            mask = positions >= seq_lengths_expanded  # Shape: (B, P, L)
-
-            # Apply mask to set invalid positions to -inf
-            masked_delta_times[mask] = float("-inf")
-
-            # Compute the maximum over the sequence length dimension
-            norm_constants = masked_delta_times.amax(dim=[1, 2])
-        x["context_event_times"] = x["context_event_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["context_delta_times"] = x["context_delta_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["inference_event_times"] = x["inference_event_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["inference_delta_times"] = x["inference_delta_times"] / norm_constants.view(-1, 1, 1, 1)
-        x["intensity_evaluation_times"] = x["intensity_evaluation_times"] / norm_constants.view(-1, 1, 1)
-
-        return norm_constants
+        # Build normalized time tensors without altering original x
+        nc_view4 = norm_constants.view(-1, 1, 1, 1)
+        nc_view3 = norm_constants.view(-1, 1, 1)
+        normalized = {
+            "context_event_times_norm": x["context_event_times"] / nc_view4,
+            "context_delta_times_norm": x["context_delta_times"] / nc_view4,
+            "inference_event_times_norm": x["inference_event_times"] / nc_view4,
+            "inference_delta_times_norm": x["inference_delta_times"] / nc_view4,
+            "intensity_evaluation_times_norm": x["intensity_evaluation_times"] / nc_view3,
+        }
+        return norm_constants, normalized
 
     def _compute_delta_times_inplace(self, x: dict, type="context"):
         """Compute delta times more efficiently"""
@@ -606,16 +561,15 @@ class FIMHawkes(AModel):
 
     def _encode_observations_optimized(self, x: dict, type="context") -> Tensor:
         """Optimized observation encoding using cached one-hot encodings"""
-        if type == "context":
-            obs_grid_normalized = x[f"{type}_event_times"]
-        elif type == "inference":
-            obs_grid_normalized = x[f"{type}_event_times"]
-        else:
-            raise ValueError(f"Invalid type: {type}")
+        # Use normalized event times if available
+        et_key = f"{type}_event_times_norm" if (self.normalize_times and f"{type}_event_times_norm" in x) else f"{type}_event_times"
+        obs_grid_normalized = x[et_key]
         B, P, L = obs_grid_normalized.shape[:3]
 
         time_enc = self.time_encoder(obs_grid_normalized)
-        delta_time_enc = self.delta_time_encoder(x[f"{type}_delta_times"])
+        # Use normalized delta times if available
+        dt_key = f"{type}_delta_times_norm" if (self.normalize_times and f"{type}_delta_times_norm" in x) else f"{type}_delta_times"
+        delta_time_enc = self.delta_time_encoder(x[dt_key])
 
         # Create padding mask before encoding marks
         positions = torch.arange(L, device=self.device).unsqueeze(0)
@@ -746,7 +700,10 @@ class FIMHawkes(AModel):
         # [B * L_inf, M, D] -> [B, L_inf, M, D] -> [B, M, L_inf, D]
         return result.reshape(B, L_inference, M, D).permute(0, 2, 1, 3)
 
-    def _denormalize_output(self, x: dict, out: dict, norm_constants: Tensor) -> None:
+    def _denormalize_output(self, out: dict, norm_constants: Tensor) -> None:
+        """
+        Adjust output intensity values back to original time scale using normalization constants.
+        """
         out["predicted_intensity_values"] = out["predicted_intensity_values"] / norm_constants.view(-1, 1, 1, 1)
         if "target_intensity_values" in out:
             out["target_intensity_values"] = out["target_intensity_values"] / norm_constants.view(-1, 1, 1, 1)
@@ -754,88 +711,138 @@ class FIMHawkes(AModel):
             out["log_predicted_intensity_values_var"] = out["log_predicted_intensity_values_var"] - torch.log(norm_constants).view(
                 -1, 1, 1, 1
             )
-        x["context_event_times"] = x["context_event_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["context_delta_times"] = x["context_delta_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["inference_event_times"] = x["inference_event_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["inference_delta_times"] = x["inference_delta_times"] * norm_constants.view(-1, 1, 1, 1)
-        x["intensity_evaluation_times"] = x["intensity_evaluation_times"] * norm_constants.view(-1, 1, 1)
+
+    def _smape(self, predicted_intensity_values: Tensor, target_intensity_values: Tensor) -> Tensor:
+        """Symmetric Mean Absolute Percentage Error."""
+        return torch.mean(
+            2.0
+            * torch.abs(predicted_intensity_values - target_intensity_values)
+            / (torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8)
+        )
+
+    def _nll_loss(
+        self,
+        intensity_fn: "PiecewiseHawkesIntensity",
+        event_times: Tensor,
+        event_types: Tensor,
+        seq_lengths: Tensor,
+        apply_log_c_correction: bool = False,
+        num_integration_points: int = 100,
+    ) -> Tensor:
+        """
+        Negative log-likelihood loss normalized by number of events.
+
+        Args:
+            num_integration_points (int): number of Monte Carlo samples for integral estimation.
+        """
+        B, P, L = event_times.shape
+
+        # Create a mask for all valid (non-padded) events in the original sequence
+        original_positions = torch.arange(L, device=self.device).view(1, 1, L)
+        original_valid_mask = original_positions < seq_lengths.unsqueeze(2)
+
+        # Integral of intensity from 0 to T (∫ λ'(t') dt')
+        t_start = torch.zeros(B, P, device=self.device)
+        t_end_times = event_times.clone().squeeze(-1)
+        t_end_times[~original_valid_mask] = 0  # Mask out padded values to find the true max time
+        t_end = t_end_times.max(dim=2).values
+        integral_per_mark_path = intensity_fn.integral(
+            t_start=t_start,
+            t_end=t_end,
+            num_samples=num_integration_points,
+            normalized_times=True,
+        )
+        integral_sum_per_path = integral_per_mark_path.sum(dim=1)
+
+        # To align with EasyTPP, we exclude the first event from the log-likelihood's summation term.
+        # The model is evaluated on its ability to predict events t_1, ..., t_N given t_0.
+        event_times_for_ll = event_times[:, :, 1:]
+        event_types_for_ll = event_types[:, :, 1:]
+
+        # Adjust sequence lengths for the sliced view. A sequence of length L has L-1 events to evaluate.
+        seq_lengths_for_ll = (seq_lengths - 1).clamp(min=0)
+        L_eval = L - 1
+
+        # --- 1. Calculate NLL' Summation Term in the Normalized Time Domain ---
+
+        # Intensity and its log at event times (from the second event onwards)
+        intensity_at_events = intensity_fn.evaluate(event_times_for_ll, normalized_times=True)
+        log_intensity_at_events = torch.log(intensity_at_events + 1e-9)  # Add epsilon for stability
+
+        # Gather the log-intensity for the specific event type (mark) that occurred
+        # Clamp event types to avoid out-of-bounds access with padding tokens.
+        num_marks = log_intensity_at_events.shape[1]
+        event_types_for_ll_clamped = torch.clamp(event_types_for_ll, 0, num_marks - 1)
+        type_idx = event_types_for_ll_clamped.unsqueeze(1).expand(-1, 1, -1, -1)
+        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
+
+        # Create a mask for all valid (non-padded) events in the SLICED sequences
+        positions = torch.arange(L_eval, device=self.device).view(1, 1, L_eval)
+        valid_mask = positions < seq_lengths_for_ll.unsqueeze(2)
+
+        # Sum of log-intensities for all valid events (Σ log(λ'(t'_i))) from i=1 to N
+        log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)
+
+        # NLL' = ∫ λ'(t') dt' - Σ log(λ'(t'_i))
+        nll_prime_per_path = integral_sum_per_path - log_ll_per_path
+        total_nll_prime = nll_prime_per_path.sum()
+
+        total_nll = total_nll_prime  # Initialize with the normalized-scale NLL
+
+        # --- 2. Apply Correction for Time Scaling (if requested) ---
+        # The true NLL is related to the normalized-scale NLL (NLL') by:
+        # NLL = NLL' + N * log(c), where N is the event count and c is the normalization constant.
+        # This correction is crucial for evaluation but should be omitted during training
+        # to keep the loss scale consistent with the normalized model parameters.
+        if self.normalize_times and apply_log_c_correction and intensity_fn.norm_constants is not None:
+            # Number of events per batch item (N_b), using the corrected event count (excluding the first event)
+            events_per_batch_item = valid_mask.sum(dim=[1, 2])  # Shape: [B]
+
+            # Normalization constants per batch item (c_b)
+            norm_constants = intensity_fn.norm_constants  # Shape: [B]
+
+            # Correction term: sum over batch { N_b * log(c_b) }
+            nll_correction = (events_per_batch_item * torch.log(norm_constants + 1e-9)).sum()
+
+            total_nll = total_nll_prime + nll_correction
+
+        # --- 3. Normalize by Event Count ---
+        # The total number of events is now based on the sliced sequences
+        total_events = valid_mask.sum()
+        return total_nll / (total_events + 1e-8)
 
     def loss(
         self,
         intensity_fn: "PiecewiseHawkesIntensity",
+        predicted_intensity_values: Tensor,
         target_intensity_values: Tensor,
-        target_integrated_intensity: Tensor,
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
-        eval_times: Tensor,
-        uncertainty_values: Tensor,
         schedulers: dict = None,
         step: int = None,
     ) -> dict:
-        """Hybrid uncertainty-weighted loss .
+        """Hybrid loss combining negative log-likelihood and symmetric mean absolute percentage error.
 
-        L_total = L_NLL + exp(-ω_λ) * L_λ,balanced + ω_λ
-        where L_λ,balanced incorporates heteroscedastic uncertainty on a per-sample basis.
+        L_total = w_nll * L_NLL + w_smape * L_sMAPE
         """
-        # --- 1. Predicted intensity ---
-        predicted_intensity_values = intensity_fn.evaluate(eval_times)
-        squared_error = (predicted_intensity_values - target_intensity_values) ** 2
+        # --- 1. Symmetric Mean Absolute Percentage Error ---
+        smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
 
-        # --- 2. Balanced Intensity Regression Loss  ---
-        # L_λ,balanced = E[ exp(-u) * (error^2) + u ]
-        lambda_balanced_loss = torch.mean(torch.exp(-uncertainty_values) * squared_error + uncertainty_values)
+        # --- 2. Negative Log-Likelihood Loss ---
+        nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
 
-        # For logging – plain MSE & MAE.
-        mse_loss = torch.mean(squared_error)
+        # --- 3. Hybrid weighting of sMAPE and NLL ---
+        total_loss = self.loss_weights["nll"] * nll_loss + self.loss_weights["smape"] * smape_loss
+
         mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
-
-        # --- 3. Negative Log-Likelihood Loss (normalised per path, mark, and event) ---
-        B, P, L = event_times.shape
-
-        num_marks = intensity_fn.mu.shape[1]
-
-        # a) Log-intensity at actual event times and marks
-        log_intensity_at_events = torch.log(intensity_fn.evaluate(event_times))  # [B,M,P,L]
-        type_idx = event_types.unsqueeze(1).expand(-1, 1, -1, -1)  # [B,1,P,L]
-        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)  # [B,P,L]
-
-        # Mask out padded events and sum per path
-        positions = torch.arange(L, device=self.device).view(1, 1, L)
-        valid_mask = positions < seq_lengths.unsqueeze(2)  # [B,P,L]
-        log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)  # [B,P]
-
-        # b) Integrated intensity per path & mark, then sum over marks
-        t_start = torch.zeros(B, P, device=self.device)
-        t_end = event_times.max(dim=2).values  # [B,P]
-        integral_per_mark_path = intensity_fn.integral(t_start=t_start, t_end=t_end)  # [B,M,P]
-        integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B,P]
-
-        # c) Per-path NLL and normalisation
-        nll_per_path = integral_sum_per_path - log_ll_per_path  # [B,P]
-        # Divide by (#events in path * #marks) for per-event & per-mark normalisation
-        nll_per_path_normalised = nll_per_path / num_marks
-
-        # d) Average across paths and batch
-        nll_loss = nll_per_path_normalised.mean()
-
-        # --- 4. Hybrid Uncertainty Weighting ---
-        total_loss = (
-            torch.exp(-self.omega_nll) * nll_loss
-            + self.omega_nll
-            + torch.exp(-self.omega_lambda_balanced) * lambda_balanced_loss
-            + self.omega_lambda_balanced
-        )
 
         # Prepare a logging-friendly dictionary: tensors -> Python floats
         losses_out = {
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
             "nll_loss": nll_loss.detach().item(),
-            "lambda_balanced_loss": lambda_balanced_loss.detach().item(),
-            "mse_loss": mse_loss.detach().item(),
+            "smape_loss": smape_loss.detach().item(),
             "mae_loss": mae_loss.detach().item(),
-            "omega_lambda_balanced": self.omega_lambda_balanced.detach().item(),
-            "omega_nll": self.omega_nll.detach().item(),
         }
 
         return losses_out
@@ -1317,11 +1324,18 @@ class FIMHawkes(AModel):
             type_seq_for_sampler = hist_types[batch_indices, :current_len]
 
             # The intensity object needs to be sliced for the current batch
+            # Preserve the normalisation constants for the sliced object (if any)
+            if hasattr(intensity_obj, "norm_constants") and intensity_obj.norm_constants is not None:
+                sliced_norm_consts = intensity_obj.norm_constants[batch_indices]
+            else:
+                sliced_norm_consts = None
+
             sliced_intensity_obj = PiecewiseHawkesIntensity(
                 event_times=intensity_obj.event_times[batch_indices, :, :current_len].squeeze(1),
                 mu=intensity_obj.mu[batch_indices, :, :, :current_len].squeeze(2),
                 alpha=intensity_obj.alpha[batch_indices, :, :, :current_len].squeeze(2),
                 beta=intensity_obj.beta[batch_indices, :, :, :current_len].squeeze(2),
+                norm_constants=sliced_norm_consts,
             )
 
             def sliced_intensity_fn(query_times, hist_ignored):
@@ -1338,7 +1352,12 @@ class FIMHawkes(AModel):
                 compute_last_step_only=True,
             )  # [P, 1, num_samples]
 
-            dtime_pred = torch.sum(accepted_dtimes * weights, dim=-1).squeeze(-1)  # [P]
+            # Convert absolute sampled times to inter-event times (delta t)
+            t_last_tensor = time_seq_for_sampler[:, -1:].unsqueeze(-1)  # [P, 1, 1]
+            delta_samples = accepted_dtimes - t_last_tensor
+            delta_samples = torch.clamp(delta_samples, min=0.0)  # Numerical safety
+
+            dtime_pred = torch.sum(delta_samples * weights, dim=-1).squeeze(-1)
 
             t_last = time_seq_for_sampler[:, -1]  # [P]
             predicted_time = t_last + dtime_pred  # [P]

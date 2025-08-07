@@ -276,6 +276,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         # Per-dataset configuration for variable_sequence_lens
         self.variable_sequence_lens = loader_kwargs.pop("variable_sequence_lens", {})
+        self.full_len_ratio = loader_kwargs.pop("full_len_ratio", 0.0)
 
         self.min_sequence_len = loader_kwargs.pop("min_sequence_len", None)
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
@@ -311,7 +312,7 @@ class HawkesDataLoader(BaseDataLoader):
                 batch = self.var_path_collate_fn(batch)
 
             # Apply variable sequence lengths only when enabled for this dataset
-            if self.variable_sequence_lens.get(dataset_name, False):
+            if self.variable_sequence_lens.get(dataset_name, False) and torch.rand(1) > self.full_len_ratio:
                 batch = self.custom_hawkes_collate_fun(batch)
 
             # Tensors whose second dimension is the number of marks (M) for Hawkes processes
@@ -499,21 +500,49 @@ class HawkesDataLoader(BaseDataLoader):
 
     def select_inference_times(self, batch_data: List[dict]):
         """
-        Sample random times within the intervals of the inference paths up to their sequence lengths.
+        Sample inference evaluation times by distributing points across each inter-event interval
+        of every inference path.  The total number of samples (num_inference_times) is split as evenly
+        as possible among the intervals (seq_len - 1); any remainder is assigned one extra point
+        in the first intervals.
         """
         for item in batch_data:
             if "inference_event_times" not in item:
                 continue
-            # Create tensor for inference evaluation times
-            item["intensity_evaluation_times"] = torch.zeros(
-                self.num_inference_paths, self.num_inference_times, dtype=item["inference_event_times"].dtype
-            )
-            for i in range(self.num_inference_paths):
-                max_time = item["inference_event_times"][i, item["inference_seq_lengths"][i] - 1]
-                # Sample random times
-                item["intensity_evaluation_times"][i] = torch.rand(self.num_inference_times) * max_time
-                # Sort times in ascending order
-                item["intensity_evaluation_times"][i] = torch.sort(item["intensity_evaluation_times"][i])[0]
+            # Prepare output tensor for evaluation times [P_inference, num_inference_times]
+            P = self.num_inference_paths
+            T = self.num_inference_times
+            dtype = item["inference_event_times"].dtype
+            item["intensity_evaluation_times"] = torch.zeros(P, T, dtype=dtype)
+            for i in range(P):
+                ev_times = item["inference_event_times"][i]
+                seq_len = (
+                    item["inference_seq_lengths"][i].item()
+                    if isinstance(item["inference_seq_lengths"], torch.Tensor)
+                    else item["inference_seq_lengths"][i]
+                )
+                # Clamp seq_len to not exceed the actual tensor size
+                seq_len = min(seq_len, ev_times.shape[0])
+                # Number of intervals between successive events
+                intervals = max(seq_len - 1, 0)
+                if intervals <= 0:
+                    # Fallback to uniform sampling up to the last event time
+                    max_t = ev_times[seq_len - 1] if seq_len > 0 else 0
+                    samples = torch.rand(T, dtype=dtype) * max_t
+                else:
+                    # Distribute samples per interval (up to remainder)
+                    base = T // intervals
+                    rem = T % intervals
+                    counts = [base + 1 if j < rem else base for j in range(intervals)]
+                    parts: List[Tensor] = []
+                    for j, cnt in enumerate(counts):
+                        if cnt <= 0:
+                            continue
+                        start = ev_times[j]
+                        end = ev_times[j + 1]
+                        parts.append(torch.rand(cnt, dtype=dtype) * (end - start) + start)
+                    samples = torch.cat(parts) if parts else torch.empty(0, dtype=dtype)
+                # Sort samples in ascending order
+                item["intensity_evaluation_times"][i] = torch.sort(samples)[0]
         return batch_data
 
     def __fetch_path_count_for_minibatch(self):

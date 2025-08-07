@@ -16,32 +16,40 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/5k_2D_1k_paths_diag_only_old_params/train
-      - data/synthetic_data/hawkes/5k_3D_1k_paths_diag_only_old_params/train
-      # - data/synthetic_data/hawkes/2D_small/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_sin_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_poisson/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_power_exp_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_sin_base_exp_kernel/train
+
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/5k_2D_1k_paths_diag_only_old_params/val
-      - data/synthetic_data/hawkes/5k_3D_1k_paths_diag_only_old_params/val
-      # - data/synthetic_data/hawkes/2D_small/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_exp_kernel/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_exp_kernel_no_interactions/val
+      # - data/synthetic_data/hawkes/1k_3D_1k_paths_const_base_sin_exp_kernel/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_poisson/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_power_exp_base_exp_kernel/val
+      - data/synthetic_data/hawkes/1k_3D_1k_paths_sin_base_exp_kernel/val
 
   loader_kwargs:
-    batch_size: 4
+    batch_size: 5
     num_workers: 8
     test_batch_size: 1
 
     num_inference_paths: 2
 
     # Training settings - variable paths and sequence lengths
-    variable_num_of_paths: false
+    variable_num_of_paths: true
     min_path_count: 100
     max_path_count: 1000
     max_number_of_minibatch_sizes: 20
 
     variable_sequence_lens:
-      train: false          # Variable sequence lengths for training
+      train: true          # Variable sequence lengths for training
       validation: false    # Fixed sequence lengths for consistent validation
     min_sequence_len: 10
-    max_sequence_len: 250
+    max_sequence_len: 100
+    full_len_ratio: 0.1 # Ratio of full length sequences to the total number of sequences
 
     num_inference_times: 2000 # Number of times at which to evaluate the intensity function per inference path
 
@@ -59,11 +67,6 @@ model:
   model_type: fimhawkes
   normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
-
-  loss_weights:
-    mse: 0.0001
-    integrated_intensity: 0.0
-    nll: 1.0
 
   max_num_marks: &max_num_marks 3
   hidden_dim: &hidden_dim 64
@@ -147,11 +150,15 @@ model:
 
   thinning: null
 
+  loss_weights:
+    nll: 1.0
+    smape: 10.0
+
 trainer:
   name: Trainer
   debug_iterations: null
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 5000
+  epochs: &epochs 100000
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 4
