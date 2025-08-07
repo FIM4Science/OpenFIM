@@ -21,7 +21,7 @@ from tqdm import tqdm
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_07-31-1614/checkpoints/epoch-4999"
+MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-05-0848/checkpoints/epoch-6629"
 
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
@@ -46,7 +46,7 @@ NUM_EVENT_TYPES = 3
 CONTEXT_SIZE = 1000
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = 1
+INFERENCE_SIZE = 100
 
 # Number of points to use for log-likelihood evaluation
 NUM_INTEGRATION_POINTS = 5000

@@ -395,7 +395,7 @@ class HawkesDataset(FIMDataset):
 
     @property
     def is_last_dim_varying(self):
-        return self._HawkesDataset__different_last_dim
+        return self._FIMDataset__different_last_dim
 
     def __getitem__(self, idx):
         if self.is_last_dim_varying:

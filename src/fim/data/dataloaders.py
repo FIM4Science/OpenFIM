@@ -520,6 +520,8 @@ class HawkesDataLoader(BaseDataLoader):
                     if isinstance(item["inference_seq_lengths"], torch.Tensor)
                     else item["inference_seq_lengths"][i]
                 )
+                # Clamp seq_len to not exceed the actual tensor size
+                seq_len = min(seq_len, ev_times.shape[0])
                 # Number of intervals between successive events
                 intervals = max(seq_len - 1, 0)
                 if intervals <= 0:
