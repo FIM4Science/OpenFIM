@@ -231,7 +231,7 @@ if __name__ == "__main__":
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     reference_paths_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250726_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
     )
 
     # models_jsons = {
@@ -242,10 +242,10 @@ if __name__ == "__main__":
     #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05102124_fim_fixed_attn_fixed_softmax_05-06-2300/model_paths.json",
     #     ),
     #     "BISDE(20250510, BISDE Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_from_bisde_paper/bisde_real_world_cv_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_from_bisde_paper/bisde_real_world_cv_results.json"
     #     ),
     #     "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_with_exps_and_sins/bisde_real_world_cv_our_basis_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_with_exps_and_sins/bisde_real_world_cv_our_basis_results.json"
     #     ),
     #     "Ablation: train size 30k, 5M params": Path(
     #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05121921_ablation_model_train_size_30k/model_paths.json"
@@ -269,16 +269,16 @@ if __name__ == "__main__":
     #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05102124_fim_fixed_attn_fixed_softmax_05-06-2300/model_paths.json",
     #     ),
     #     "BISDE(20250510, BISDE Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_from_bisde_paper/bisde_real_world_cv_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_from_bisde_paper/bisde_real_world_cv_results.json"
     #     ),
     #     "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_with_exps_and_sins/bisde_real_world_cv_our_basis_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_with_exps_and_sins/bisde_real_world_cv_our_basis_results.json"
     #     ),
     #     "BISDE(20250514, BISDE Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
     #     ),
     #     "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
     #     ),
     #     "FIM fixed linear Attn., 04-28-0941, Epoch 040": Path(
     #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05132202_fim_fixed_linear_attn_04-28-0941_epoch_040/model_paths.json",
@@ -311,10 +311,10 @@ if __name__ == "__main__":
 
     # models_jsons = {
     #     "BISDE(20250514, BISDE Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
     #     ),
     #     "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+    #         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
     #     ),
     #     "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
     #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
@@ -324,30 +324,38 @@ if __name__ == "__main__":
     #     ),
     # }
 
-    finetune_base = Path("/cephfs/users/seifner/repos/FIM/evaluations/real_world_cross_validation_vf_and_paths_evaluation")
-    finetune_mse_base = finetune_base / "finetune_one_step_ahead_one_em_step_mse"
-    finetune_nll_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll"
-    finetune_nll_seed_1_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_seed_1"
-    finetune_nll_5_em_step_base = finetune_base / "finetune_one_step_ahead_five_em_step_nll"
-    finetune_nll_5_step_ahead_base = finetune_base / "finetune_five_step_ahead_one_em_step_nll"
-    finetune_nll_512_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points"
-    finetune_nll_512_seed_1_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_seed_1"
-    finetune_nll_512_every_10_epochs_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_every_10_epochs"
-    finetune_nll_32_every_10_epochs_base = finetune_base / "finetune_one_step_ahead_one_em_step_nll_32_points_every_10_epochs"
-    finetune_nll_512_lr_1e_6 = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6"
-    finetune_nll_512_lr_1e_6_every_10_epochs = finetune_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6_every_10_epochs"
+    non_rebuttal_base = Path(
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/real_world_cross_validation_vf_and_paths_evaluation/"
+    )
+    rebuttal_base = Path(
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/real_world_cross_validation_vf_and_paths_evaluation/"
+    )
 
-    latent_sde_MSE_train_subsplit_100_base = finetune_base / "latent_sde_latent_dim_4_context_dim_100_decoder_MSE_train_subsplits_100/"
-    latent_sde_NLL_train_subsplit_10_base = finetune_base / "latent_sde_latent_dim_4_context_dim_100_decoder_NLL_train_subsplits_10/"
-    latent_sde_NLL_train_len_40_base = finetune_base / "latent_sde_latent_dim_4_context_dim_100_decoder_NLL_len_train_subsplits_40/"
+    finetune_mse_base = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_mse"
+    finetune_nll_base = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll"
+    finetune_nll_seed_1_base = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll_seed_1"
+    finetune_nll_5_em_step_base = non_rebuttal_base / "finetune_one_step_ahead_five_em_step_nll"
+    finetune_nll_5_step_ahead_base = non_rebuttal_base / "finetune_five_step_ahead_one_em_step_nll"
+    finetune_nll_512_base = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll_512_points"
+    finetune_nll_512_seed_1_base = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll_512_points_seed_1"
+    finetune_nll_512_every_10_epochs_base = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll_512_points_every_10_epochs"
+    finetune_nll_32_every_10_epochs_base = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll_32_points_every_10_epochs"
+    finetune_nll_512_lr_1e_6 = non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6"
+    finetune_nll_512_lr_1e_6_every_10_epochs = (
+        non_rebuttal_base / "finetune_one_step_ahead_one_em_step_nll_512_points_lr_1e_6_every_10_epochs"
+    )
+
+    latent_sde_MSE_train_subsplit_100_base = non_rebuttal_base / "latent_sde_latent_dim_4_context_dim_100_decoder_MSE_train_subsplits_100/"
+    latent_sde_NLL_train_subsplit_10_base = rebuttal_base / "latent_sde_latent_dim_4_context_dim_100_decoder_NLL_train_subsplits_10/"
+    latent_sde_NLL_train_len_40_base = non_rebuttal_base / "latent_sde_latent_dim_4_context_dim_100_decoder_NLL_len_train_subsplits_40/"
 
     finetune_neurips_rebuttal_512_points_base = (
-        finetune_base / "finetune_for_neurips_rebuttal_one_step_ahead_one_em_step_nll_512_points_500_epochs"
+        rebuttal_base / "finetune_for_neurips_rebuttal_one_step_ahead_one_em_step_nll_512_points_500_epochs"
     )
 
     models_jsons = {
         "BISDE": Path(
-            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
         ),
         "No Finetune": Path(
             "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",

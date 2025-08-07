@@ -207,7 +207,7 @@ if __name__ == "__main__":
 
     # systems in table of paper
     path_to_inference_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/cross_val_inference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250726_real_world_with_5_fold_cross_validation/cross_val_inference_paths.json"
     )
 
     datasets_to_load: list[str] = [

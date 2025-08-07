@@ -232,10 +232,10 @@ if __name__ == "__main__":
     project_path = "/cephfs/users/seifner/repos/FIM"
 
     data_paths_json = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250729_synthetic_systems_data_for_ablations_length_50_500_750_1000_2000_3000_4000_5000_50000/systems_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250729_synthetic_systems_data_for_context_size_ablation_50_to_50000/systems_ksig_reference_paths.json"
     )
     data_vector_fields_json = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250729_synthetic_systems_data_for_ablations_length_50_500_750_1000_2000_3000_4000_5000_50000/systems_ground_truth_drift_diffusion.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250729_synthetic_systems_data_for_context_size_ablation_50_to_50000/systems_ground_truth_drift_diffusion.json"
     )
 
     models_jsons = {

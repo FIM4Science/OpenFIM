@@ -123,7 +123,7 @@ def get_real_world_vector_fields_and_paths(checkpoint_dir: Path, epoch: str, dat
 
 if __name__ == "__main__":
     inference_data_path = Path(
-        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/cross_val_inference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250726_real_world_with_5_fold_cross_validation/cross_val_inference_paths.json"
     )
 
     model_path = "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/epoch-139"

@@ -71,7 +71,7 @@ if __name__ == "__main__":
 
     # systems in table of paper
     path_to_inference_data_json = Path(
-        "/cephfs/users/seifner/repos/FIM/data/processed/test/20250729_synthetic_systems_data_for_ablations_length_50_500_750_1000_2000_3000_4000_5000_50000/systems_observations_and_locations.json",
+        "/cephfs_projects/foundation_models/data/SDE/test/20250729_synthetic_systems_data_for_context_size_ablation_50_to_50000/systems_observations_and_locations.json",
     )
 
     systems_to_load: list[str] = [

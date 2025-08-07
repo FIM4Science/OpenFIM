@@ -201,12 +201,8 @@ if __name__ == "__main__":
     # current_description = "preliminary_rebuttal_comparison_all_models"
     current_description = "fim_finetune_on_sampling_nll_10_seeds"
 
-    neural_sde_paper_path = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/"
-    )
-    neural_sde_github_path = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_github/set_0/"
-    )
+    neural_sde_paper_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_paper/set_0/")
+    neural_sde_github_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_github/set_0/")
 
     reference_paths_jsons = {
         "neural_sde_paper": {
@@ -224,14 +220,15 @@ if __name__ == "__main__":
     #### Finetuned on NLL
 
     # base_path = Path(
-    #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250701_latent_sde_and_fim_with_vector_fields"
+    #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250701_latent_sde_and_fim_with_vector_fields"
     # )
+    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
 
     # lat_sde_context_1_base_path = base_path / "07011432_latent_sde_context_1_with_vector_fields/model_paths"
-    # lat_sde_context_100_base_path = base_path / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
-    # fim_epochs_200_500_base_path = base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
+    # lat_sde_context_100_base_path = rebuttal_base_path / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
+    # fim_epochs_200_500_base_path = rebuttal_base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
     # fim_epochs_1000_2000_base_path = base_path / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
-    # fim_no_training_base_path = base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+    # fim_no_training_base_path = rebuttal_base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
     #
     # models_jsons = {
     #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
@@ -264,11 +261,11 @@ if __name__ == "__main__":
     # }
 
     ### With Weight decay
-    # evaluation_base_path = Path("/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation")
+    # evaluation_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation")
+    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
     # weigh_decay_base_path = evaluation_base_path / "20250701_latent_sde_and_fim_with_vector_fields"
     # lat_sde_context_100_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields"
+    # rebuttal_base_path
     #     / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
     # )
     # fim_epochs_1000_2000_base_path = (
@@ -277,8 +274,7 @@ if __name__ == "__main__":
     #     / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
     # )
     # fim_no_training_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields"
+    # rebuttal_base_path
     #     / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
     # )
     #
@@ -301,11 +297,11 @@ if __name__ == "__main__":
     # }
 
     # ### Finetuned on Sampling
-    # evaluation_base_path = Path("/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation")
+    # evaluation_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation")
+    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
     # sampling_base_path = evaluation_base_path / "20250709_fim_finetune_on_sampling"
     # lat_sde_context_100_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields"
+    # rebuttal_base_path
     #     / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
     # )
     # fim_epochs_1000_2000_base_path = (
@@ -314,8 +310,7 @@ if __name__ == "__main__":
     #     / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
     # )
     # fim_no_training_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields"
+    # rebuttal_base_path
     #     / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
     # )
     #
@@ -348,7 +343,7 @@ if __name__ == "__main__":
 
     # ### Finetuned on Sampling NLL
     # fim_finetune_on_sampling_nll_base_path = Path(
-    #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_on_sampling_nll"
+    #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_on_sampling_nll"
     # )
     #
     # models_jsons = {
@@ -368,7 +363,7 @@ if __name__ == "__main__":
 
     # ### Finetune on sampling, EM step count ablations
     # fim_finetune_em_step_ablation_base_path = Path(
-    #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_on_sampling_em_step_ablation/"
+    #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_on_sampling_em_step_ablation/"
     # )
     #
     # models_jsons = {
@@ -395,8 +390,9 @@ if __name__ == "__main__":
     # }
 
     # ### Finetune vs retrain convergence
+    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
     # conv_base_path = Path(
-    #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_vs_retrain_convergence_comparison_mse_and_nll/model_paths"
+    #     rebuttal_base_path / "20250715_fim_finetune_vs_retrain_convergence_comparison_mse_and_nll/model_paths"
     # )
     #
     # models_jsons = {
@@ -431,25 +427,27 @@ if __name__ == "__main__":
     # }
 
     # # newly trained FIM on additional locations at observations
+    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
     # models_jsons = {
-    #     "fim_locs_at_obs_epoch_139_no_finetuning": "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json"
+    #     "fim_locs_at_obs_epoch_139_no_finetuning": rebuttal_base_path/"20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json"
     # }
 
     # ### Preliminary Neurips rebuttal comparisons
-    # evaluation_base_path = Path("/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/")
+    # evaluation_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/")
+    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
     # lat_sde_context_100_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields/07011436_latent_sde_context_100_with_vector_fields/model_paths"
+    #     rebuttal_base_path
+    #     / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
     # )
     # fim_no_training_base_path = (
-    #     evaluation_base_path / "20250701_latent_sde_and_fim_with_vector_fields/07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+    #     rebuttal_base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
     # )
     # fim_epochs_200_500_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields/07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
+    #     rebuttal_base_path
+    #     / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
     # )
     # conv_base_path = Path(
-    #     "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_vs_retrain_convergence_comparison_mse_and_nll/model_paths"
+    #     rebuttal_base_path / "20250715_fim_finetune_vs_retrain_convergence_comparison_mse_and_nll/model_paths"
     # )
     #
     # models_jsons = {
@@ -457,7 +455,7 @@ if __name__ == "__main__":
     #     "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
     #     / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
     #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
-    #     "fim_locs_at_obs_no_finetuning": "/cephfs/users/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json",
+    #     "fim_locs_at_obs_no_finetuning": rebuttal_base_path / "20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json",
     #     "fim_finetune_epochs_500_lr_1e-5_one_step_ahead_NLL": fim_epochs_200_500_base_path
     #     / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
     #     "fim_finetune_epochs_100_lr_1e-5_one_step_ahead_MSE_10_em_steps": conv_base_path
@@ -472,7 +470,7 @@ if __name__ == "__main__":
 
     ### Sampling + NLL based finetuning, repeated 10 times
     sampling_10_seeds_base_path = Path(
-        "/home/seifner/repos/FIM/saved_evaluations/lorenz_system_vf_and_paths_evaluation/20250717_fim_finetune_on_sampling_nll_10_seeds/"
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250717_fim_finetune_on_sampling_nll_10_seeds/"
     )
 
     models_jsons = {
