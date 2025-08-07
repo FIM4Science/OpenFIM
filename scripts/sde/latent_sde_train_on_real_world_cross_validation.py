@@ -264,7 +264,7 @@ def get_real_world_vector_fields_and_paths(
 
 
 if __name__ == "__main__":
-    data_path = Path("/cephfs/users/seifner/repos/FIM/data/processed/test/20250726_real_world_with_5_fold_cross_validation_develop/")
+    data_path = Path("/cephfs/users/seifner/repos/FIM/data/processed/test/20250726_real_world_with_5_fold_cross_validation/")
     inference_data_path = data_path / "cross_val_inference_paths.json"
     reference_data_path = data_path / "cross_val_ksig_reference_paths.json"
 

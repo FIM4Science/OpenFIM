@@ -49,7 +49,7 @@ if __name__ == "__main__":
     )
 
     path_to_real_world_cross_validation_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250726_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
     )
     path_to_real_world_cross_validation_fimsde_json = Path(
         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json"

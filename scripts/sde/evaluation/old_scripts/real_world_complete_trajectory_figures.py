@@ -170,7 +170,7 @@ if __name__ == "__main__":
     experiment_descr = "fim_checkpoints_vs_BISDE"
 
     complete_trajectory_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/complete_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250726_real_world_with_5_fold_cross_validation/complete_paths.json"
     )
 
     datasets_to_evaluate: list[str] = [
@@ -188,10 +188,10 @@ if __name__ == "__main__":
             "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_complete_trajectory_vf_and_paths_evaluation/05101246_fim_fixed_attn_fixed_softmax_05-06-2300/model_paths.json",
         ),
         "BISDE(20250510, BISDE Library Functions)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_reeval_on_complete_trajectory_function_library_from_bisde_paper/bisde_real_world_reeval_results.json"
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250510_bisde_reeval_on_complete_trajectory_function_library_from_bisde_paper/bisde_real_world_reeval_results.json"
         ),
         "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_reeval_on_complete_trajectory_function_library_with_exps_and_sins/bisde_real_world_reeval_our_basis_results.json"
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250510_bisde_reeval_on_complete_trajectory_function_library_with_exps_and_sins/bisde_real_world_reeval_our_basis_results.json"
         ),
     }
 

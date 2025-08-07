@@ -50,12 +50,8 @@ def finetune_fim_on_lorenz(
 
 
 if __name__ == "__main__":
-    neural_sde_paper_path = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_paper/set_0/"
-    )
-    neural_sde_github_path = Path(
-        "/home/seifner/repos/FIM/data/processed/test/20250629_lorenz_system_with_vector_fields_at_locations/neural_sde_github/set_0/"
-    )
+    neural_sde_paper_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_paper/set_0/")
+    neural_sde_github_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_github/set_0/")
 
     test_data_setups = {
         "neural_sde_paper": {

@@ -6,13 +6,6 @@ import yaml
 from fim.data_generation.sde.dynamical_systems_to_files import save_dynamical_system_from_yaml
 
 
-def get_600k_100_paths_half_noisy_with_delta_tau_1e_1_to_1e_3(project_path: Path, data_path: Path):
-    yaml_path = project_path / Path("configs/data_generation/sde/test_saving_vf_at_obs.yaml")
-    save_dir = data_path / Path("test_saving_vf_at_obs")
-    labels_to_use = ["train"]
-    return yaml_path, labels_to_use, save_dir
-
-
 @click.command()
 @click.option("--generation_label", "generation_label", type=str, required=True)
 @click.option("--project_path", "project_path", type=str, required=True)
