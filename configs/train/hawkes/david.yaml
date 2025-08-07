@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed
+  name: FIM_Hawkes_10-21st_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -32,20 +32,20 @@ dataset:
       - data/synthetic_data/hawkes/1k_3D_1k_paths_sin_base_exp_kernel/val
 
   loader_kwargs:
-    batch_size: 5
-    num_workers: 8
+    batch_size: 1
+    num_workers: 16
     test_batch_size: 1
 
     num_inference_paths: 2
 
     # Training settings - variable paths and sequence lengths
     variable_num_of_paths: true
-    min_path_count: 100
-    max_path_count: 1000
-    max_number_of_minibatch_sizes: 20
+    min_path_count: 400
+    max_path_count: 2000
+    max_number_of_minibatch_sizes: 16
 
     variable_sequence_lens:
-      train: true          # Variable sequence lengths for training
+      train: false          # Variable sequence lengths for training
       validation: false    # Fixed sequence lengths for consistent validation
     min_sequence_len: 10
     max_sequence_len: 100
@@ -68,8 +68,8 @@ model:
   normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
 
-  max_num_marks: &max_num_marks 3
-  hidden_dim: &hidden_dim 64
+  max_num_marks: &max_num_marks 21
+  hidden_dim: &hidden_dim 128
 
   hidden_act: &hidden_act
     name: &activation torch.nn.GELU
@@ -173,6 +173,7 @@ trainer:
     plot_frequency: 1
     iterator_name: validation  # Use validation data for plotting
     inference_path_idx: 0  # Which inference path to plot (0 = first path)
+    enable_plotting: false  # Set to false to disable intensity function plotting
 
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
