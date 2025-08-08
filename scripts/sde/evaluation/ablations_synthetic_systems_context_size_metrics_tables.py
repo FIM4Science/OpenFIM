@@ -158,12 +158,6 @@ def synthetic_systems_metric_table(
     )
     df_mean_bracket_std_times_10 = df_mean_bracket_std_times_10["metric_value"].unstack(0)
 
-    # # drop rows with all Nans
-    # df_mean = df_mean.map(lambda x: np.nan if x == "-" else x).dropna()
-    # df_std = df_std.map(lambda x: np.nan if x == "-" else x).dropna()
-    # df_mean_bracket_std = df_mean_bracket_std.map(lambda x: np.nan if x == "-" else x).dropna()
-    # df_mean_bracket_std_times_10 = df_mean_bracket_std_times_10.map(lambda x: np.nan if x == "-" else x).dropna()
-
     # count Nans and depict them as stars
     df_star_nans = deepcopy(df[["system", "noise", "tau", "obs_length", "model", "metric_value"]])
     df_star_nans["metric_is_nan"] = np.isnan(df["metric_value"])
