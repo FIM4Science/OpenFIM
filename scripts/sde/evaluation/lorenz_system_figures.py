@@ -188,18 +188,117 @@ def vector_fields_plot(
     plt.close(fig)
 
 
+####### Rebuttal experiments
+
+# newly trained FIM on additional locations at observations
+rebuttal_base_path = Path(
+    "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/"
+)
+NEW_FIM_MODELS_JSONS = {
+    "fim_locs_at_obs_epoch_139_no_finetuning": rebuttal_base_path
+    / "20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json"
+}
+
+# Sampling + NLL based finetuning, repeated 10 times
+sampling_10_seeds_base_path = Path(
+    "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250717_fim_finetune_on_sampling_nll_10_seeds/"
+)
+
+SAMPLING_NLL_10_SEEDS_MODELS_JSONS = {
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_0": sampling_10_seeds_base_path
+    / "07161833_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_0/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_0_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_1": sampling_10_seeds_base_path
+    / "07161851_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_1/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_1_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_2": sampling_10_seeds_base_path
+    / "07161908_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_2/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_2_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_3": sampling_10_seeds_base_path
+    / "07161925_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_3/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_3_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_4": sampling_10_seeds_base_path
+    / "07161942_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_4/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_4_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_5": sampling_10_seeds_base_path
+    / "07162000_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_5/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_5_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_6": sampling_10_seeds_base_path
+    / "07162017_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_6/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_6_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_7": sampling_10_seeds_base_path
+    / "07162034_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_7/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_7_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_8": sampling_10_seeds_base_path
+    / "07162051_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_8/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_8_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_9": sampling_10_seeds_base_path
+    / "07162108_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_9/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_9_train_data_neural_sde_paper.json",
+    "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_10": sampling_10_seeds_base_path
+    / "07162125_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_10/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_10_train_data_neural_sde_paper.json",
+}
+
+# Finetune vs retrain convergence
+conv_base_path = rebuttal_base_path / "20250715_fim_finetune_vs_retrain_convergence_comparison_mse_and_nll/model_paths"
+
+CONVERGENCE_MODELS_JSONS = {
+    "finetune_mse_epoch_0050": conv_base_path / "fim_finetune_sample_mse_epoch_50_train_data_neural_sde_paper.json",
+    "finetune_mse_epoch_0100": conv_base_path / "fim_finetune_sample_mse_epoch_100_train_data_neural_sde_paper.json",
+    "finetune_mse_epoch_0200": conv_base_path / "fim_finetune_sample_mse_epoch_200_train_data_neural_sde_paper.json",
+    "finetune_mse_epoch_0500": conv_base_path / "fim_finetune_sample_mse_epoch_500_train_data_neural_sde_paper.json",
+    "finetune_mse_epoch_1000": conv_base_path / "fim_finetune_sample_mse_epoch_1000_train_data_neural_sde_paper.json",
+    "finetune_mse_epoch_2000": conv_base_path / "fim_finetune_sample_mse_epoch_2000_train_data_neural_sde_paper.json",
+    "finetune_mse_epoch_5000": conv_base_path / "fim_finetune_sample_mse_epoch_5000_train_data_neural_sde_paper.json",
+    "finetune_nll_epoch_0050": conv_base_path / "fim_finetune_sample_nll_epoch_50_train_data_neural_sde_paper.json",
+    "finetune_nll_epoch_0100": conv_base_path / "fim_finetune_sample_nll_epoch_100_train_data_neural_sde_paper.json",
+    "finetune_nll_epoch_0200": conv_base_path / "fim_finetune_sample_nll_epoch_200_train_data_neural_sde_paper.json",
+    "finetune_nll_epoch_0500": conv_base_path / "fim_finetune_sample_nll_epoch_500_train_data_neural_sde_paper.json",
+    "finetune_nll_epoch_1000": conv_base_path / "fim_finetune_sample_nll_epoch_1000_train_data_neural_sde_paper.json",
+    "finetune_nll_epoch_2000": conv_base_path / "fim_finetune_sample_nll_epoch_2000_train_data_neural_sde_paper.json",
+    "finetune_nll_epoch_5000": conv_base_path / "fim_finetune_sample_nll_epoch_5000_train_data_neural_sde_paper.json",
+    "retrain_mse_epoch_0050": conv_base_path / "fim_retrain_sample_mse_epoch_50_train_data_neural_sde_paper.json",
+    "retrain_mse_epoch_0100": conv_base_path / "fim_retrain_sample_mse_epoch_100_train_data_neural_sde_paper.json",
+    "retrain_mse_epoch_0200": conv_base_path / "fim_retrain_sample_mse_epoch_200_train_data_neural_sde_paper.json",
+    "retrain_mse_epoch_0500": conv_base_path / "fim_retrain_sample_mse_epoch_500_train_data_neural_sde_paper.json",
+    "retrain_mse_epoch_1000": conv_base_path / "fim_retrain_sample_mse_epoch_1000_train_data_neural_sde_paper.json",
+    "retrain_mse_epoch_2000": conv_base_path / "fim_retrain_sample_mse_epoch_2000_train_data_neural_sde_paper.json",
+    "retrain_mse_epoch_5000": conv_base_path / "fim_retrain_sample_mse_epoch_5000_train_data_neural_sde_paper.json",
+    "retrain_nll_epoch_0050": conv_base_path / "fim_retrain_sample_nll_epoch_50_train_data_neural_sde_paper.json",
+    "retrain_nll_epoch_0100": conv_base_path / "fim_retrain_sample_nll_epoch_100_train_data_neural_sde_paper.json",
+    "retrain_nll_epoch_0200": conv_base_path / "fim_retrain_sample_nll_epoch_200_train_data_neural_sde_paper.json",
+    "retrain_nll_epoch_0500": conv_base_path / "fim_retrain_sample_nll_epoch_500_train_data_neural_sde_paper.json",
+    "retrain_nll_epoch_1000": conv_base_path / "fim_retrain_sample_nll_epoch_1000_train_data_neural_sde_paper.json",
+    "retrain_nll_epoch_2000": conv_base_path / "fim_retrain_sample_nll_epoch_2000_train_data_neural_sde_paper.json",
+    "retrain_nll_epoch_5000": conv_base_path / "fim_retrain_sample_nll_epoch_5000_train_data_neural_sde_paper.json",
+}
+
+# Preliminary Neurips rebuttal comparisons
+evaluation_base_path = Path(
+    "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/"
+)
+lat_sde_context_100_base_path = (
+    rebuttal_base_path / "20250701_latent_sde_and_fim_with_vector_fields/07011436_latent_sde_context_100_with_vector_fields/model_paths"
+)
+fim_no_training_base_path = rebuttal_base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
+fim_epochs_200_500_base_path = rebuttal_base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
+
+PRELIMINARY_REBUTTAL_MODELS_JSONS = {
+    "lat_sde_context_100": lat_sde_context_100_base_path / "lat_sde_context_100_train_data_neural_sde_paper.json",
+    "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
+    / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
+    "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
+    "fim_locs_at_obs_no_finetuning": rebuttal_base_path
+    / "20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json",
+    "fim_finetune_epochs_500_lr_1e-5_one_step_ahead_NLL": fim_epochs_200_500_base_path
+    / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
+    "fim_finetune_epochs_100_lr_1e-5_one_step_ahead_MSE_10_em_steps": conv_base_path
+    / "fim_finetune_sample_mse_epoch_100_train_data_neural_sde_paper.json",
+    "fim_finetune_epochs_500_lr_1e-5_one_step_ahead_MSE_10_em_steps": conv_base_path
+    / "fim_finetune_sample_mse_epoch_500_train_data_neural_sde_paper.json",
+    "fim_finetune_epochs_100_lr_1e-5_one_step_ahead_NLL_10_em_steps": conv_base_path
+    / "fim_finetune_sample_nll_epoch_100_train_data_neural_sde_paper.json",
+    "fim_finetune_epochs_500_lr_1e-5_one_step_ahead_NLL_10_em_steps": conv_base_path
+    / "fim_finetune_sample_nll_epoch_500_train_data_neural_sde_paper.json",
+}
+
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     global_description = "lorenz_system_figures"
 
-    # current_description = "latent_sde_vs_fim_finetuning_vs_fim_from_scratch_bit_longer_quivers"
-    # current_description = "fim_finetune_on_NLL_and_from_scratch_with_weight_decay"
-    # current_description = "fim_finetune_on_sampling_nll"
-    # current_description = "fim_finetune_on_sampling_em_step_count_ablations"
     # current_description = "fim_finetune_vs_retrain_convergence_speed"
-    # current_description = "fim_locs_at_obs_epoch_139_no_finetuning"
-    # current_description = "preliminary_rebuttal_comparison_all_models"
-    current_description = "fim_finetune_on_sampling_nll_10_seeds"
+    # current_description = "fim_finetune_on_sampling_nll_10_seeds"
+    current_description = "preliminary_rebuttal_comparison_all_models"
 
     neural_sde_paper_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_paper/set_0/")
     neural_sde_github_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_github/set_0/")
@@ -217,286 +316,7 @@ if __name__ == "__main__":
         },
     }
 
-    #### Finetuned on NLL
-
-    # base_path = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250701_latent_sde_and_fim_with_vector_fields"
-    # )
-    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
-
-    # lat_sde_context_1_base_path = base_path / "07011432_latent_sde_context_1_with_vector_fields/model_paths"
-    # lat_sde_context_100_base_path = rebuttal_base_path / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
-    # fim_epochs_200_500_base_path = rebuttal_base_path / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
-    # fim_epochs_1000_2000_base_path = base_path / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
-    # fim_no_training_base_path = rebuttal_base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
-    #
-    # models_jsons = {
-    #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
-    #     "fim_train_from_scratch_epochs_5000_lr_1e-5": fim_no_training_base_path
-    #     / "fim_train_from_scratch_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_200_lr_1e-5": fim_epochs_200_500_base_path
-    #     / "fim_finetune_200_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_500_lr_1e-5": fim_epochs_200_500_base_path
-    #     / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
-    #     / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_2000_lr_1e-5": fim_epochs_1000_2000_base_path
-    #     / "fim_finetune_2000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_200_lr_1e-6": fim_epochs_200_500_base_path
-    #     / "fim_finetune_200_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_500_lr_1e-6": fim_epochs_200_500_base_path
-    #     / "fim_finetune_500_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_1000_lr_1e-6": fim_epochs_1000_2000_base_path
-    #     / "fim_finetune_1000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_2000_lr_1e-6": fim_epochs_1000_2000_base_path
-    #     / "fim_finetune_2000_epochs_lr_1e-6_train_data_neural_sde_paper.json",
-    #     "lat_sde_context_1": lat_sde_context_1_base_path / "lat_sde_context_1_train_data_neural_sde_paper.json",
-    #     "lat_sde_context_100": lat_sde_context_100_base_path / "lat_sde_context_100_train_data_neural_sde_paper.json",
-    #     "lat_sde_latent_3_context_1": lat_sde_context_1_base_path / "lat_sde_latent_3_context_1_train_data_neural_sde_paper.json",
-    #     "lat_sde_latent_3_context_100": lat_sde_context_100_base_path / "lat_sde_latent_3_context_100_train_data_neural_sde_paper.json",
-    #     "lat_sde_latent_3_no_proj_context_1": lat_sde_context_1_base_path
-    #     / "lat_sde_latent_3_no_proj_context_1_train_data_neural_sde_paper.json",
-    #     "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
-    #     / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
-    # }
-
-    ### With Weight decay
-    # evaluation_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation")
-    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
-    # weigh_decay_base_path = evaluation_base_path / "20250701_latent_sde_and_fim_with_vector_fields"
-    # lat_sde_context_100_base_path = (
-    # rebuttal_base_path
-    #     / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
-    # )
-    # fim_epochs_1000_2000_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields"
-    #     / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
-    # )
-    # fim_no_training_base_path = (
-    # rebuttal_base_path
-    #     / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
-    # )
-    #
-    # models_jsons = {
-    #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
-    #     / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
-    #     / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
-    #     "fim_finetune_1000_epochs_lr_1e-5_weight_decay_1e-4": weigh_decay_base_path
-    #     / "07081716_fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-4/model_paths/fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-4_train_data_neural_sde_paper.json",
-    #     "fim_finetune_1000_epochs_lr_1e-5_weight_decay_1e-3": weigh_decay_base_path
-    #     / "07081731_fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3/model_paths/fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3_train_data_neural_sde_paper.json",
-    #     "fim_finetune_5000_epochs_lr_1e-5_weight_decay_1e-4": weigh_decay_base_path
-    #     / "07081731_fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3/model_paths/fim_finetune_1024_paths_512_points_1000_epochs_lr_1e-5_weight_decay_1e-3_train_data_neural_sde_paper.json",
-    #     "fim_retrain_from_scratch_5000_epochs_lr_1e-5_weight_decay_1e-4": weigh_decay_base_path
-    #     / "07081913_fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-4_from_scratch/model_paths/fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-4_from_scratch_train_data_neural_sde_paper.json",
-    #     "fim_retrain_from_scratch_5000_epochs_lr_1e-5_weight_decay_1e-5": weigh_decay_base_path
-    #     / "07081922_fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-5_from_scratch/model_paths/fim_finetune_1024_paths_512_points_5000_epochs_lr_1e-5_weight_decay_1e-5_from_scratch_train_data_neural_sde_paper.json",
-    # }
-
-    # ### Finetuned on Sampling
-    # evaluation_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation")
-    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
-    # sampling_base_path = evaluation_base_path / "20250709_fim_finetune_on_sampling"
-    # lat_sde_context_100_base_path = (
-    # rebuttal_base_path
-    #     / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
-    # )
-    # fim_epochs_1000_2000_base_path = (
-    #     evaluation_base_path
-    #     / "20250701_latent_sde_and_fim_with_vector_fields"
-    #     / "07011427_fim_finetune_epochs_1000_2000_with_vector_fields/model_paths"
-    # )
-    # fim_no_training_base_path = (
-    # rebuttal_base_path
-    #     / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
-    # )
-    #
-    # models_jsons = {
-    #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
-    #     "fim_currently_training": sampling_base_path / "fim_currently_training_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_NLL_epochs_1000_lr_1e-5": fim_epochs_1000_2000_base_path
-    #     / "fim_finetune_1000_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
-    #     / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_500_epochs_1_sample_1_step_ahead_1_em_step": sampling_base_path
-    #     / "07071245_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_1_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_1_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_500_epochs_10_samples_1_step_ahead_1_em_step": sampling_base_path
-    #     / "07071252_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_10_samples_1_step_ahead_1_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_10_samples_1_step_ahead_1_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_500_epochs_1_sample_10_step_ahead_1_em_step": sampling_base_path
-    #     / "07071308_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_10_step_ahead_1_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_10_step_ahead_1_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_500_epochs_1_sample_1_step_ahead_10_em_step": sampling_base_path
-    #     / "07071324_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_500_epochs_1_sample_5_step_ahead_5_em_step": sampling_base_path
-    #     / "07071357_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_500_epochs_1_sample_5_step_ahead_5_em_step_detach_diffusion": sampling_base_path
-    #     / "07071420_fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_detach_diffusion/model_paths/fim_finetune_on_sampling_1024_points_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_detach_diffusion_train_data_neural_sde_paper.json",
-    #     "fim_retrain_from_scratch_on_sampling_1_sample_1_step_ahead_10_em_step": sampling_base_path
-    #     / "07081819_fim_finetune_on_sampling_1024_points_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_retrain_from_scratch/model_paths/fim_finetune_on_sampling_1024_points_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_retrain_from_scratch_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_100_epochs_1_sample_5_step_ahead_5_em_step": sampling_base_path
-    #     / "fim_1_sample_5_steps_ahead_5_em_steps_epoch_100_train_data_neural_sde_paper.json",
-    #     "fim_finetune_on_sampling_200_epochs_1_sample_5_step_ahead_5_em_step": sampling_base_path
-    #     / "fim_1_sample_5_steps_ahead_5_em_steps_epoch_200_train_data_neural_sde_paper.json",
-    # }
-
-    # ### Finetuned on Sampling NLL
-    # fim_finetune_on_sampling_nll_base_path = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_on_sampling_nll"
-    # )
-    #
-    # models_jsons = {
-    #     "fim_finetune_sampling_nll_500_epochs_1_step_ahead_10_em_steps": fim_finetune_on_sampling_nll_base_path
-    #     / "07141146_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_500_epochs_5_step_ahead_5_em_steps": fim_finetune_on_sampling_nll_base_path
-    #     / "07141221_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_1000_epochs_1_step_ahead_10_em_steps": fim_finetune_on_sampling_nll_base_path
-    #     / "07141255_fim_finetune_on_sampling_nll_1000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step/model_paths/fim_finetune_on_sampling_nll_1000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_1000_epochs_5_step_ahead_5_em_steps": fim_finetune_on_sampling_nll_base_path
-    #     / "07141404_fim_finetune_on_sampling_nll_1000_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step/model_paths/fim_finetune_on_sampling_nll_1000_epochs_lr_1e-5_32_points_1_sample_5_step_ahead_5_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_1000_epochs_1_step_ahead_10_em_steps_lr_1e-4": fim_finetune_on_sampling_nll_base_path
-    #     / "07151834_fim_finetune_on_sampling_nll_1000_epochs_lr_1e-4_32_points_1_sample_1_step_ahead_10_em_step/model_paths/fim_finetune_on_sampling_nll_1000_epochs_lr_1e-4_32_points_1_sample_1_step_ahead_10_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_1000_epochs_1_step_ahead_10_em_steps_lr_1e-6": fim_finetune_on_sampling_nll_base_path
-    #     / "07151909_fim_finetune_on_sampling_nll_1000_epochs_lr_1e-6_32_points_1_sample_1_step_ahead_10_em_step/model_paths/fim_finetune_on_sampling_nll_1000_epochs_lr_1e-6_32_points_1_sample_1_step_ahead_10_em_step_train_data_neural_sde_paper.json",
-    # }
-
-    # ### Finetune on sampling, EM step count ablations
-    # fim_finetune_em_step_ablation_base_path = Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250715_fim_finetune_on_sampling_em_step_ablation/"
-    # )
-    #
-    # models_jsons = {
-    #     "fim_finetune_sampling_mse_500_epochs_1_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151050_fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_1_em_step/model_paths/fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_1_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_mse_500_epochs_2_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151058_fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_2_em_step/model_paths/fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_2_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_mse_500_epochs_3_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151106_fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_3_em_step/model_paths/fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_3_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_mse_500_epochs_5_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151116_fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_5_em_step/model_paths/fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_5_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_mse_500_epochs_10_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151133_fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_10_em_step/model_paths/fim_finetune_on_sampling_mse_500_epochs_lr_1e-5_10_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_500_epochs_1_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151140_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_1_em_step/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_1_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_500_epochs_2_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151148_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_2_em_step/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_2_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_500_epochs_3_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151157_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_3_em_step/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_3_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_500_epochs_5_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151208_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_5_em_step/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_5_em_step_train_data_neural_sde_paper.json",
-    #     "fim_finetune_sampling_nll_500_epochs_10_em_steps": fim_finetune_em_step_ablation_base_path
-    #     / "07151226_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_10_em_step/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_10_em_step_train_data_neural_sde_paper.json",
-    # }
-
-    # ### Finetune vs retrain convergence
-    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
-    # conv_base_path = Path(
-    #     rebuttal_base_path / "20250715_fim_finetune_vs_retrain_convergence_comparison_mse_and_nll/model_paths"
-    # )
-    #
-    # models_jsons = {
-    #     "finetune_mse_epoch_0050": conv_base_path / "fim_finetune_sample_mse_epoch_50_train_data_neural_sde_paper.json",
-    #     "finetune_mse_epoch_0100": conv_base_path / "fim_finetune_sample_mse_epoch_100_train_data_neural_sde_paper.json",
-    #     "finetune_mse_epoch_0200": conv_base_path / "fim_finetune_sample_mse_epoch_200_train_data_neural_sde_paper.json",
-    #     "finetune_mse_epoch_0500": conv_base_path / "fim_finetune_sample_mse_epoch_500_train_data_neural_sde_paper.json",
-    #     "finetune_mse_epoch_1000": conv_base_path / "fim_finetune_sample_mse_epoch_1000_train_data_neural_sde_paper.json",
-    #     "finetune_mse_epoch_2000": conv_base_path / "fim_finetune_sample_mse_epoch_2000_train_data_neural_sde_paper.json",
-    #     "finetune_mse_epoch_5000": conv_base_path / "fim_finetune_sample_mse_epoch_5000_train_data_neural_sde_paper.json",
-    #     "finetune_nll_epoch_0050": conv_base_path / "fim_finetune_sample_nll_epoch_50_train_data_neural_sde_paper.json",
-    #     "finetune_nll_epoch_0100": conv_base_path / "fim_finetune_sample_nll_epoch_100_train_data_neural_sde_paper.json",
-    #     "finetune_nll_epoch_0200": conv_base_path / "fim_finetune_sample_nll_epoch_200_train_data_neural_sde_paper.json",
-    #     "finetune_nll_epoch_0500": conv_base_path / "fim_finetune_sample_nll_epoch_500_train_data_neural_sde_paper.json",
-    #     "finetune_nll_epoch_1000": conv_base_path / "fim_finetune_sample_nll_epoch_1000_train_data_neural_sde_paper.json",
-    #     "finetune_nll_epoch_2000": conv_base_path / "fim_finetune_sample_nll_epoch_2000_train_data_neural_sde_paper.json",
-    #     "finetune_nll_epoch_5000": conv_base_path / "fim_finetune_sample_nll_epoch_5000_train_data_neural_sde_paper.json",
-    #     "retrain_mse_epoch_0050": conv_base_path / "fim_retrain_sample_mse_epoch_50_train_data_neural_sde_paper.json",
-    #     "retrain_mse_epoch_0100": conv_base_path / "fim_retrain_sample_mse_epoch_100_train_data_neural_sde_paper.json",
-    #     "retrain_mse_epoch_0200": conv_base_path / "fim_retrain_sample_mse_epoch_200_train_data_neural_sde_paper.json",
-    #     "retrain_mse_epoch_0500": conv_base_path / "fim_retrain_sample_mse_epoch_500_train_data_neural_sde_paper.json",
-    #     "retrain_mse_epoch_1000": conv_base_path / "fim_retrain_sample_mse_epoch_1000_train_data_neural_sde_paper.json",
-    #     "retrain_mse_epoch_2000": conv_base_path / "fim_retrain_sample_mse_epoch_2000_train_data_neural_sde_paper.json",
-    #     "retrain_mse_epoch_5000": conv_base_path / "fim_retrain_sample_mse_epoch_5000_train_data_neural_sde_paper.json",
-    #     "retrain_nll_epoch_0050": conv_base_path / "fim_retrain_sample_nll_epoch_50_train_data_neural_sde_paper.json",
-    #     "retrain_nll_epoch_0100": conv_base_path / "fim_retrain_sample_nll_epoch_100_train_data_neural_sde_paper.json",
-    #     "retrain_nll_epoch_0200": conv_base_path / "fim_retrain_sample_nll_epoch_200_train_data_neural_sde_paper.json",
-    #     "retrain_nll_epoch_0500": conv_base_path / "fim_retrain_sample_nll_epoch_500_train_data_neural_sde_paper.json",
-    #     "retrain_nll_epoch_1000": conv_base_path / "fim_retrain_sample_nll_epoch_1000_train_data_neural_sde_paper.json",
-    #     "retrain_nll_epoch_2000": conv_base_path / "fim_retrain_sample_nll_epoch_2000_train_data_neural_sde_paper.json",
-    #     "retrain_nll_epoch_5000": conv_base_path / "fim_retrain_sample_nll_epoch_5000_train_data_neural_sde_paper.json",
-    # }
-
-    # # newly trained FIM on additional locations at observations
-    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
-    # models_jsons = {
-    #     "fim_locs_at_obs_epoch_139_no_finetuning": rebuttal_base_path/"20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json"
-    # }
-
-    # ### Preliminary Neurips rebuttal comparisons
-    # evaluation_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/")
-    # rebuttal_base_path = Path("/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/")
-    # lat_sde_context_100_base_path = (
-    #     rebuttal_base_path
-    #     / "07011436_latent_sde_context_100_with_vector_fields/model_paths"
-    # )
-    # fim_no_training_base_path = (
-    #     rebuttal_base_path / "07011430_fim_no_finetune_or_train_from_scratch/model_paths"
-    # )
-    # fim_epochs_200_500_base_path = (
-    #     rebuttal_base_path
-    #     / "07011423_fim_finetune_epochs_200_500_with_vector_fields/model_paths"
-    # )
-    # conv_base_path = Path(
-    #     rebuttal_base_path / "20250715_fim_finetune_vs_retrain_convergence_comparison_mse_and_nll/model_paths"
-    # )
-    #
-    # models_jsons = {
-    #     "lat_sde_context_100": lat_sde_context_100_base_path / "lat_sde_context_100_train_data_neural_sde_paper.json",
-    #     "lat_sde_latent_3_no_proj_context_100": lat_sde_context_100_base_path
-    #     / "lat_sde_latent_3_no_proj_context_100_train_data_neural_sde_paper.json",
-    #     "fim_no_finetuning": fim_no_training_base_path / "fim_model_C_at_139_epochs_no_finetuning_train_data_neural_sde_paper.json",
-    #     "fim_locs_at_obs_no_finetuning": rebuttal_base_path / "20250716_fim_location_at_obs_epoch_139_no_finetuning/model_paths/fim_locs_at_obs_no_finetuning_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_500_lr_1e-5_one_step_ahead_NLL": fim_epochs_200_500_base_path
-    #     / "fim_finetune_500_epochs_lr_1e-5_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_100_lr_1e-5_one_step_ahead_MSE_10_em_steps": conv_base_path
-    #     / "fim_finetune_sample_mse_epoch_100_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_500_lr_1e-5_one_step_ahead_MSE_10_em_steps": conv_base_path
-    #     / "fim_finetune_sample_mse_epoch_500_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_100_lr_1e-5_one_step_ahead_NLL_10_em_steps": conv_base_path
-    #     / "fim_finetune_sample_nll_epoch_100_train_data_neural_sde_paper.json",
-    #     "fim_finetune_epochs_500_lr_1e-5_one_step_ahead_NLL_10_em_steps": conv_base_path
-    #     / "fim_finetune_sample_nll_epoch_500_train_data_neural_sde_paper.json",
-    # }
-
-    ### Sampling + NLL based finetuning, repeated 10 times
-    sampling_10_seeds_base_path = Path(
-        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_not_used_in_neurips_rebuttal/lorenz_system_vf_and_paths_evaluation/20250717_fim_finetune_on_sampling_nll_10_seeds/"
-    )
-
-    models_jsons = {
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_0": sampling_10_seeds_base_path
-        / "07161833_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_0/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_0_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_1": sampling_10_seeds_base_path
-        / "07161851_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_1/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_1_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_2": sampling_10_seeds_base_path
-        / "07161908_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_2/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_2_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_3": sampling_10_seeds_base_path
-        / "07161925_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_3/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_3_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_4": sampling_10_seeds_base_path
-        / "07161942_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_4/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_4_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_5": sampling_10_seeds_base_path
-        / "07162000_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_5/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_5_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_6": sampling_10_seeds_base_path
-        / "07162017_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_6/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_6_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_7": sampling_10_seeds_base_path
-        / "07162034_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_7/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_7_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_8": sampling_10_seeds_base_path
-        / "07162051_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_8/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_8_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_9": sampling_10_seeds_base_path
-        / "07162108_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_9/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_9_train_data_neural_sde_paper.json",
-        "fim_finetune_sampling_nll_500_epochs_10_em_steps_seed_10": sampling_10_seeds_base_path
-        / "07162125_fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_10/model_paths/fim_finetune_on_sampling_nll_500_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_seed_10_train_data_neural_sde_paper.json",
-    }
+    models_jsons = PRELIMINARY_REBUTTAL_MODELS_JSONS
 
     plot_paths = True
     plot_vector_fields = True

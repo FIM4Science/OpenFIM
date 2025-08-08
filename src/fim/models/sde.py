@@ -2888,7 +2888,7 @@ class FIMSDE(AModel):
             delta_tau = (obs_times[:, :, 1:, :] - obs_times[:, :, :-1, :]).reshape(B, -1, 1)
             obs_mask_valid_steps = (obs_mask[:, :, :-1, :] + obs_mask[:, :, 1:, :]).reshape(B, -1, 1)
 
-            if self.finetune_num_points is not -1:
+            if self.finetune_num_points != -1:
                 perm = torch.randperm(initial_states.shape[-2])[: self.finetune_num_points]
                 initial_states = initial_states[:, perm, :]
                 target_states = target_states[:, perm, :]
@@ -2937,7 +2937,7 @@ class FIMSDE(AModel):
             obs_mask_valid_steps = torch.flatten(obs_mask_valid_steps, start_dim=1, end_dim=2)  # [B, -1, steps, D]
             delta_tau = torch.flatten(delta_tau, start_dim=1, end_dim=2)  # [B, -1, steps, D]
 
-            if self.finetune_num_points is not -1:
+            if self.finetune_num_points != -1:
                 perm = torch.randperm(initial_states.shape[1])[: self.finetune_num_points]
                 initial_states = initial_states[:, perm]
                 target_states = target_states[:, perm]
