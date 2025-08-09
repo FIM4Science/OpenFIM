@@ -101,3 +101,18 @@ def get_model_dicts_neurips_submission_checkpoint() -> tuple[dict, dict, str]:
     }
 
     return model_dicts, models_display_ids
+
+
+def get_model_dicts_post_neurips_submission_checkpoint() -> tuple[dict, dict, str]:
+    """ """
+    model_dicts = {
+        "FIM_half_locs_from_obs_epoch_139": {
+            "checkpoint_dir": "/cephfs_projects/foundation_models/models/FIMSDE/Post_NeurIPS_models/600k_32_locations_at_observations_32_locations_randomly_07-14-1850/checkpoints",
+            "checkpoint_name": "epoch-139",
+        },
+    }
+    models_display_ids = {
+        "FIM_half_locs_from_obs_epoch_139": "FIM, 1/2 locations from observations, Epoch 139",
+    }
+
+    return model_dicts, models_display_ids

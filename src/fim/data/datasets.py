@@ -1,4 +1,5 @@
 import itertools
+import json
 import logging
 import math
 import operator
@@ -19,6 +20,7 @@ from datasets import Dataset, DatasetDict, DownloadMode, get_dataset_split_names
 from torch import Tensor
 from torch.utils.data import default_collate
 
+from fim import data_path
 from fim.data.config_dataclasses import FIMDatasetConfig
 from fim.data.utils import load_h5
 
@@ -688,6 +690,9 @@ class FIMSDEDatabatch:
     diffusion_at_locations: Tensor | np.ndarray
     locations: Tensor | np.ndarray
 
+    drift_at_obs_values: Tensor | np.ndarray
+    diffusion_at_obs_values: Tensor | np.ndarray
+
     obs_mask: Tensor | np.ndarray = None
 
     diffusion_parameters: Tensor | np.ndarray = None
@@ -965,6 +970,103 @@ class FIMSDEDataset(torch.utils.data.Dataset):
         param.max_num_steps = self.max_num_steps
 
 
+class JsonSDEDataset(torch.utils.data.IterableDataset):
+    def __init__(
+        self,
+        batch_size: int,
+        json_paths: Path | Paths | dict,
+        keys_to_load: dict,
+        paths_per_batch_element: int | None = None,
+        **kwargs,
+    ):
+        self.batch_size = batch_size
+        self.num_batches = None  # determined by self.__len__()
+
+        self.keys_to_load = keys_to_load
+        self.paths_per_batch_element = paths_per_batch_element
+
+        self.data = self.__load_data(json_paths, keys_to_load, paths_per_batch_element)
+
+    def __load_data(self, data: Path | Paths | dict | list[dict], keys_to_load: dict, paths_per_batch_element: int | None) -> dict:
+        """
+        Load dicts from jsons (all containing keys_to_load as keys), concatenate their Tensor values along first dimension.
+
+        Args:
+            data (Path | Paths | dict | list[dict]): (List of) Path to jsons containing dicts with Tensor values or dicts.
+            keys_to_load (dict): Keys to load from dicts in jsons. Rename loaded keys to the corresponding values in keys_to_load.
+            paths_per_batch_element (int): Group loaded paths into batch eleemnts with this many paths for easier FIM processing.
+        """
+        if not isinstance(data, list):
+            data = [data]
+
+        # data: list[dict] = torch.utils._pytree.tree_map(
+        #     partial(self._load_dict_from_json, keys_to_load=keys_to_load, paths_per_batch_element=paths_per_batch_element), data
+        # )
+        data: list[dict] = [self._load_dict_from_json(d, keys_to_load, paths_per_batch_element) for d in data]
+
+        if len(data) > 1:
+            data: dict = torch.utils._pytree.tree_map(lambda *x: torch.concatenate(x, dim=0), *data)  # tuple of length 1
+
+        return data[0]
+
+    @staticmethod
+    def _load_dict_from_json(data, keys_to_load: dict, paths_per_batch_element: int | None = None) -> dict:
+        """
+        Load dict with Tensor values from json.
+        Extract relevant keys and (optionally) add a specific path dimension for FIM processing.
+        """
+        if isinstance(data, Path):
+            data: Path = pathlib.Path(data)  # to be sure
+            if not data.is_absolute():
+                data = pathlib.Path(data_path) / data
+
+            assert data.exists(), f"{data} does not exist."
+
+            data: dict = json.load(open(data, "r"))
+
+        elif isinstance(data, dict):
+            data: dict = data
+
+        else:
+            raise ValueError(f"Must pass Path or dict, got {type(data)}.")
+
+        data: dict = {key: Tensor(value) if isinstance(value, list) else value for key, value in data.items()}
+
+        assert all(json_key in data.keys() for json_key in keys_to_load.values()), (
+            f"Dict has keys {data.keys()} and does not contain all keys to load {keys_to_load}."
+        )
+        data: dict = {renamed_key: data[json_key] for renamed_key, json_key in keys_to_load.items()}
+
+        assert all(isinstance(value, Tensor) for value in data.values()), (
+            f"Can only load Tensors, got types {(type(value) for value in data.values())} in json {data}."
+        )
+
+        if paths_per_batch_element is not None:
+            data_size = list(data.values())[0].shape[-3]
+            num_batches = data_size // paths_per_batch_element
+
+            data: dict = {key: value[: num_batches * paths_per_batch_element] for key, value in data.items()}
+            data: dict = {key: value.reshape(num_batches, paths_per_batch_element, *value.shape[1:]) for key, value in data.items()}
+
+        return data
+
+    def __len__(self):
+        """
+        Length is number of batches.
+        """
+        if self.num_batches is None:
+            B = list(self.data.values())[0].shape[0]
+            self.num_batches = B // self.batch_size
+
+        return self.num_batches
+
+    def __iter__(self):
+        """
+        Return iterator yielding batches of self.batch_size.
+        """
+        return tensor_dict_iterator(self.data, self.batch_size, process_data=None, process_batch=None)
+
+
 class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):
     """
     Load data from separate files, pad them along observed dimension, sequence length and loations, and concatenate the resulting tensors.
@@ -993,9 +1095,9 @@ class PaddedFIMSDEDataset(torch.utils.data.IterableDataset):
         num_observations: Optional[tuple] = None,
     ):
         # group values by keys, so they can be easily selected
-        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + add_paths_keys
-        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_loc_keys
-        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_dim_keys
+        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + list(add_paths_keys)
+        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_loc_keys)
+        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_dim_keys)
         self.dim_mask_key = dim_mask_key
 
         # shuffle data per iter setup
@@ -1217,9 +1319,9 @@ class HeterogeneousFIMSDEDataset(torch.utils.data.IterableDataset):
         **kwargs,
     ):
         # group values by keys, so they can be easily selected
-        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + add_paths_keys
-        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_loc_keys
-        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_dim_keys
+        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + list(add_paths_keys)
+        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_loc_keys)
+        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_dim_keys)
         self.dim_mask_key = dim_mask_key
 
         # paths to data and loading / padding config
@@ -1410,9 +1512,9 @@ class StreamingFIMSDEDataset(torch.utils.data.IterableDataset):
         **kwargs,
     ):
         # group values by keys, so they can be easily selected
-        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + add_paths_keys
-        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_loc_keys
-        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + add_dim_keys
+        self.paths_keys = ["obs_values", "obs_times", "obs_mask"] + list(add_paths_keys)
+        self.loc_keys = ["locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_loc_keys)
+        self.dim_keys = ["obs_values", "locations", "drift_at_locations", "diffusion_at_locations", dim_mask_key] + list(add_dim_keys)
         self.dim_mask_key = dim_mask_key
 
         # paths to data and loading / padding config

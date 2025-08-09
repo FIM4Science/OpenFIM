@@ -1,0 +1,235 @@
+from pathlib import Path
+from pprint import pprint
+
+import optree
+import torch
+
+from fim.data.datasets import get_file_paths
+from fim.data.utils import load_file, load_h5
+
+
+def get_inference_data(
+    system_data_dir: Path, initial_states: torch.Tensor, stride: int, noise: float, dt: float, target_length: int
+) -> dict:
+    """
+    Subsample data from a large fine grid by strides. truncate to a target length.
+    i.e. stride does not imply fewer points in trajectories.
+
+    Args:
+        system_data_dir (Path): Absolute path to directory containing pre-generated, long, fine-grid trajectories of one system.
+        initial states (torch.Tensor): Set of initial states for path generation.
+        stride (int): Stridelength to subsample the fine-grid trajectories with.
+        noise (float): Relative additive noise added to observations of trajectories.
+        dt (float): Time delta of pre-generated trajectories.
+        target_length (int): Length of (subsampled and truncated) trajectories to return.
+
+    Returns:
+        data (dict): Subsampled and truncated trajectories of system.
+                     Keys: obs_values, obs_times, tau, locations, drift_at_locations, diffusion_at_locations
+    """
+    # load and pad data to max dim
+    files_to_load = {
+        "obs_times": "obs_times.h5",
+        "obs_values": "obs_values.h5",
+        "locations": "locations.h5",
+        "drift_at_locations": "drift_at_locations.h5",
+        "diffusion_at_locations": "diffusion_at_locations.h5",
+    }
+
+    # load data from paths
+    file_paths: dict[str, list[Path]] = get_file_paths(system_data_dir, files_to_load)
+    data: dict[str, list[torch.Tensor]] = torch.utils._pytree.tree_map(load_file, file_paths)
+
+    # load_file returns list of one tensor
+    data: dict[str, torch.Tensor] = {k: v[0] for k, v in data.items()}
+
+    # subsample observations by strides of provided length
+    data["obs_values"] = data["obs_values"][:, :, ::stride, :]
+    data["obs_times"] = data["obs_times"][:, :, ::stride, :]
+
+    # truncate observations to target length
+    data["obs_values"] = data["obs_values"][:, :, :target_length, :]
+    data["obs_times"] = data["obs_times"][:, :, :target_length, :]
+
+    # additive relative noise
+    obs_range = 1 / 2 * (torch.amax(data["obs_values"], dim=-2, keepdim=True) - torch.amin(data["obs_values"], dim=-2, keepdim=True))
+    data["obs_values"] = data["obs_values"] + noise * obs_range * torch.randn_like(data["obs_values"])
+    data["noise"] = noise
+
+    # time between two observations, based on data generating dt
+    data["tau"] = stride * dt
+
+    # initial states for path generation
+    data["initial_states"] = initial_states
+
+    return data
+
+
+def get_ksig_reference_paths(system_data_dir: Path, sample_paths_count: int, sample_path_length: int) -> torch.Tensor:
+    """
+    Truncate and chunck pre-generated, long, fine-grid sample paths, into sample paths of sample_path_length.
+
+    Args:
+        system_data_dir (Path): Absolute path to directory containing pre-generated, long, fine-grid trajectories of one system.
+        sample_paths_count (int): Number of sample paths to return.
+        sample_path_length (int): Length of each path to return.
+
+    Returns:
+        paths (torch.Tensor): Shape [E, sample_paths_count, sample_path_length, D]
+    """
+
+    # load file
+    paths = load_h5(system_data_dir / "obs_values.h5")  # [E, 1, L, D]
+
+    # truncate one long path into required length
+    paths = paths[:, :, : sample_paths_count * sample_path_length, :]  # [E, 1, sample_paths_count * sample_path_length, D]
+
+    # reshape long path into sample_paths_count paths of lenght sample_path_length
+    E, _, _, D = paths.shape
+    paths = paths.reshape(E, sample_paths_count, sample_path_length, D)
+
+    return paths
+
+
+def get_system_data(all_systems_data: list[dict], system: str, tau: float, noise: float) -> dict:
+    """
+     From a list of all systems data, extract data of system with tau inter-observation times and relative noise.
+
+    Args:
+        all_systems_data (list[dict]): List of system data, each of which is a dict.
+        system (str): Name of system data to extract.
+        tau (float): Inter-observation time of data to extract.
+        noise (float): Relative additive noise added to observations of trajectories.
+
+    Return:
+        data_of_system (dict): Keys: name, tau, obs_times, obs_values, locations, initial_states
+    """
+    data_of_system = [d for d in all_systems_data if (d["name"] == system and d["tau"] == tau and d["noise"] == noise)]
+
+    # should contain exactly one data for each system and tau
+    if len(data_of_system) == 1:
+        data_of_system = data_of_system[0]
+
+        # rename for easier inference for model
+        data_of_system["obs_values"] = data_of_system.pop("observations")
+
+        # add obs times based_on_tau
+        B, M, T, _ = data_of_system["obs_values"].shape
+        data_of_system["obs_times"] = tau * torch.ones((B, M, 1, 1)) * torch.arange(T).reshape(1, 1, T, 1)
+
+        return data_of_system
+
+    elif len(data_of_system) == 0:
+        raise ValueError(f"Could not find data of system {system} and tau {tau} and noise perc {noise}.")
+
+    else:
+        raise ValueError(f"Found {len(data_of_system)} sets of data for system {system} and tau {tau}.")
+
+
+def prepare_synthetic_data(
+    path_to_data: Path,
+    path_to_ksig_reference_data: Path,
+    systems_to_load: list[str],
+    subsampling_strides: list[int],
+    noises: list[float],
+    observations_lengths: list[int],
+    sample_paths_count: int,
+    sample_path_length: int,
+    dt: float,
+):
+    """
+    Load data from files, subsample, add noise and provide reference data for KSIG.
+    """
+    # load all KSIG reference paths
+    ksig_ref_obs_values = {system: load_h5(path_to_ksig_reference_data / system / "obs_values.h5") for system in systems_to_load}
+
+    # truncate and reshape into sample_paths_count trajectories of length sample_path_length
+    ksig_ref_obs_values = {
+        system: ksig_values[:, :, : sample_paths_count * sample_path_length, :] for system, ksig_values in ksig_ref_obs_values.items()
+    }
+    ksig_ref_obs_values = {
+        system: ksig_values.reshape(-1, sample_paths_count, sample_path_length, ksig_values.shape[-1])
+        for system, ksig_values in ksig_ref_obs_values.items()
+    }
+
+    # load all KSIG reference paths
+    ksig_ref_obs_values = {
+        system: get_ksig_reference_paths(path_to_ksig_reference_data / system, sample_paths_count, sample_path_length)
+        for system in systems_to_load
+    }
+
+    # reference paths for KSIG comparison
+    reference_datasets = []
+    for system, data in ksig_ref_obs_values.items():
+        reference_datasets.append(
+            {
+                "name": system.replace("_", " "),
+                "real_paths": data,
+            }
+        )
+
+    print("Reference paths")
+    pprint(optree.tree_map(lambda x: x.shape if isinstance(x, torch.Tensor) else x, reference_datasets))
+
+    # extract data for inference of models for all systems and delta tau (strides)
+    ksig_initial_states: dict = {system: paths[:, :, 0, :] for system, paths in ksig_ref_obs_values.items()}
+    datasets = {
+        (system, stride, noise, observations_length): get_inference_data(
+            path_to_data / system, ksig_initial_states[system], stride, noise, dt, observations_length
+        )
+        for system in systems_to_load
+        for stride in subsampling_strides
+        for noise in noises
+        for observations_length in observations_lengths
+    }
+
+    # inference dataset (including input paths, locations for vector field evaluation and initial states for sampling paths)
+    inference_datasets = []
+    for data_key, data in datasets.items():
+        inference_datasets.append(
+            {
+                "name": data_key[0].replace("_", " "),
+                "tau": data["tau"],
+                "noise": data["noise"],
+                "observations_length": data_key[-1],
+                "observations": data["obs_values"],
+                "locations": data["locations"],
+                "initial_states": data["initial_states"],
+            }
+        )
+
+    print("Inference datasets")
+    pprint(optree.tree_map(lambda x: x.shape if isinstance(x, torch.Tensor) else x, inference_datasets))
+
+    # ground truth vector fields for comparison
+    ground_truth_drift_diffusion = []
+    for data_key, data in datasets.items():
+        system = data_key[0]
+        # tau = data["tau"]
+        if system.replace("_", " ") not in [
+            d["name"] for d in ground_truth_drift_diffusion
+        ]:  # tau == 0.002 and stride == 1 and noise == 0.0 and :  # save only once
+            ground_truth_drift_diffusion.append(
+                {
+                    "name": system.replace("_", " "),
+                    "locations": data["locations"],
+                    "drift_at_locations": data["drift_at_locations"],
+                    "diffusion_at_locations": data["diffusion_at_locations"],
+                }
+            )
+
+    print("Ground truth drift and diffusion")
+    pprint(optree.tree_map(lambda x: x.shape if isinstance(x, torch.Tensor) else x, ground_truth_drift_diffusion))
+
+    def _check_finite(x):
+        if isinstance(x, torch.Tensor):
+            assert torch.torch.isfinite(x).all().item()
+
+    optree.tree_map(_check_finite, (reference_datasets, inference_datasets), namespace="fimsde")
+
+    reference_datasets, inference_datasets, ground_truth_drift_diffusion = optree.tree_map(
+        lambda x: x.detach().to("cpu").numpy() if isinstance(x, torch.Tensor) else x,
+        (reference_datasets, inference_datasets, ground_truth_drift_diffusion),
+    )
+
+    return reference_datasets, inference_datasets, ground_truth_drift_diffusion

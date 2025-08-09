@@ -342,17 +342,33 @@ class PathGenerator:
         locations = self.define_locations(obs_values)  # [num_realizations, num_locations, D]
         num_locations = locations.shape[-2]
 
+        obs_values_all_paths = torch.flatten(obs_values, start_dim=1, end_dim=2)  # [num_realizations, num_total_obs, D]
+        num_obs_values = obs_values_all_paths.shape[-2]
+
+        all_locations = torch.concatenate([locations, obs_values_all_paths], dim=1)
+        num_all_locations = num_locations + num_obs_values
+
         # evaluate vector fields of all realizations at all locations
-        locations_repeated = locations.reshape(-1, D)
-        drift_params_repeated = drift_parameters.repeat_interleave(num_locations, 0)  # [num_realizations * num_locations, ...]
-        diffusion_params_repeated = diffusion_parameters.repeat_interleave(num_locations, 0)
+        locations_repeated = all_locations.reshape(-1, D)
+        drift_params_repeated = drift_parameters.repeat_interleave(num_all_locations, 0)  # [num_realizations * num_all_locations, ...]
+        diffusion_params_repeated = diffusion_parameters.repeat_interleave(num_all_locations, 0)
 
-        drift_at_locations = self.system.drift(locations_repeated, None, drift_params_repeated)  # [num_realizations * num_locations, D]
-        diffusion_at_locations = self.system.diffusion(locations_repeated, None, diffusion_params_repeated)
+        drift_at_all_locations = self.system.drift(locations_repeated, None, drift_params_repeated)
+        diffusion_at_all_locations = self.system.diffusion(locations_repeated, None, diffusion_params_repeated)
+        # [num_realizations * num_all_locations, D]
 
-        # add realization axis to evaluations at locations
-        drift_at_locations = drift_at_locations.reshape(num_realizations, num_locations, D)  # [num_realizations, num_locations, D]
-        diffusion_at_locations = diffusion_at_locations.reshape(num_realizations, num_locations, D)
+        # add realization axis to evaluations at locations, [num_realizations, num_all_locations, D]
+        drift_at_all_locations = drift_at_all_locations.reshape(num_realizations, num_all_locations, D)
+        diffusion_at_all_locations = diffusion_at_all_locations.reshape(num_realizations, num_all_locations, D)
+
+        # separate vfs at locations from vfs at obs_values
+        drift_at_locations = drift_at_all_locations[:, :num_locations, :]
+        drift_at_obs_values = drift_at_all_locations[:, num_locations:, :]
+        drift_at_obs_values = drift_at_obs_values.reshape(obs_values.shape)
+
+        diffusion_at_locations = diffusion_at_all_locations[:, :num_locations, :]
+        diffusion_at_obs_values = diffusion_at_all_locations[:, num_locations:, :]
+        diffusion_at_obs_values = diffusion_at_obs_values.reshape(obs_values.shape)
 
         return FIMSDEDatabatch(
             obs_times=obs_times,
@@ -362,6 +378,8 @@ class PathGenerator:
             locations=locations,
             diffusion_at_locations=diffusion_at_locations,
             drift_at_locations=drift_at_locations,
+            diffusion_at_obs_values=diffusion_at_obs_values,
+            drift_at_obs_values=drift_at_obs_values,
             process_dimension=process_dimension,
         )
 

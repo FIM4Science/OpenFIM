@@ -8,9 +8,6 @@ from typing import Optional
 import numpy as np
 import optree
 import torch
-from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
-    get_model_dicts_neurips_submission_checkpoint,
-)
 from tqdm import tqdm
 
 from fim import project_path
@@ -26,7 +23,15 @@ from fim.utils.sde.evaluation import (
 )
 
 
-def get_real_world_data(all_data: list[dict], dataset: str, split: int, expected_num_total_splits: int) -> dict:
+def get_real_world_data(
+    all_data: list[dict],
+    dataset: str,
+    split: int,
+    expected_num_total_splits: int,
+    obs_times_key: str = "obs_times_separate",
+    obs_values_key: str = "obs_values_separate",
+    obs_mask_key: str = "obs_mask_separate",
+) -> dict:
     """
      From a list of all real world data, extract dataset split.
 
@@ -58,13 +63,13 @@ def get_real_world_data(all_data: list[dict], dataset: str, split: int, expected
             "num_total_splits": data["num_total_splits"],
             "delta_tau": data["delta_tau"],
             "transform": data["transform"],
-            "path_length_to_generate": data["path_length_to_generate"],
+            "path_length_to_generate": data.get("path_length_to_generate"),
             # FIM can be evaluated with (potentially) two paths, before and after the reference split
-            "obs_times": data["obs_times_separate"],
-            "obs_values": data["obs_values_separate"],
-            "obs_mask": data["obs_mask_separate"],
-            "locations": data["locations"],
-            "initial_states": data["initial_states"],
+            "obs_times": data[obs_times_key],
+            "obs_values": data[obs_values_key],
+            "obs_mask": data.get(obs_mask_key),
+            "locations": data.get("locations"),
+            "initial_states": data.get("initial_states"),
         }
 
         return return_data
@@ -184,20 +189,25 @@ def _pprint_dict_with_shapes(d: dict) -> None:
 
 
 if __name__ == "__main__":
+    from model_dicts.models_trained_on_600k_deg_3_drift_deg_2_diffusion import (
+        get_model_dicts_post_neurips_submission_checkpoint,
+    )
+
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     dataset_descr = "real_world_cross_validation_vf_and_paths_evaluation"
 
     # How to name experiments
     # experiment_descr = "fim_fixed_attn_fixed_softmax_05-06-2300"
-    experiment_descr = "fim_fixed_softmax_05-03-2033_epoch_138"
+    # experiment_descr = "fim_fixed_softmax_05-03-2033_epoch_138"
+    experiment_descr = "fim_location_at_obs_no_finetuning"
 
-    model_dicts, models_display_ids = get_model_dicts_neurips_submission_checkpoint()
+    model_dicts, models_display_ids = get_model_dicts_post_neurips_submission_checkpoint()
 
     results_to_load: list[str] = []
 
     # systems in table of paper
     path_to_inference_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/cross_val_inference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250726_real_world_with_5_fold_cross_validation/cross_val_inference_paths.json"
     )
 
     datasets_to_load: list[str] = [

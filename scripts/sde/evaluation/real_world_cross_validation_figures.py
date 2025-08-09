@@ -39,19 +39,21 @@ def get_model_results_on_splits(
             split_result["drift_at_locations"] = np.array(split_result["drift_at_locations"])
             split_result["diffusion_at_locations"] = np.array(split_result["diffusion_at_locations"])
 
-            if model_label in apply_sqrt_to_diffusion:
+            if model_label in apply_sqrt_to_diffusion and split_result["diffusion_at_locations"] is not None:
                 split_result["diffusion_at_locations"] = np.sqrt(np.max(split_result["diffusion_at_locations"], 0))
 
             # reverse log-transform
             if split_result.get("transform") == "log":
-                split_result["locations"] = np.exp(split_result["locations"])
                 split_result["synthetic_paths"] = np.exp(split_result["synthetic_paths"])
 
-                # ito formula applied to f(x) =df(x) = ddf(x) = exp(x)
-                split_result["drift_at_locations"] = split_result["locations"] * (
-                    split_result["drift_at_locations"] + 1 / 2 * split_result["diffusion_at_locations"] ** 2
-                )
-                split_result["diffusion_at_locations"] = split_result["locations"] * split_result["diffusion_at_locations"]
+                if split_result["locations"] is not None:
+                    split_result["locations"] = np.exp(split_result["locations"])
+
+                    # ito formula applied to f(x) =df(x) = ddf(x) = exp(x)
+                    split_result["drift_at_locations"] = split_result["locations"] * (
+                        split_result["drift_at_locations"] + 1 / 2 * split_result["diffusion_at_locations"] ** 2
+                    )
+                    split_result["diffusion_at_locations"] = split_result["locations"] * split_result["diffusion_at_locations"]
 
             transformed_split_results.append(split_result)
 
@@ -244,12 +246,12 @@ if __name__ == "__main__":
     dataset_descr = "real_world_cross_validation_figures"
 
     # How to name experiments
-    # experiment_descr = "fim_checkpoints_vs_BISDE"
-    # experiment_descr = "fim_and_BISDE_vs_ablation_models"
-    experiment_descr = "fim_fixed_linear_vs_fixed_softmax_different_epochs"
+    # experiment_descr = "fim_location_at_obs_no_finetuning_vs_old_fim_vs_bisde"
+    # experiment_descr = "Latent_sde_10_train_subsplits"
+    experiment_descr = "fim_finetune_neurips_rebuttal_all_epochs"
 
     reference_data_json = Path(
-        "/cephfs_projects/foundation_models/data/SDE/test/20250506_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
+        "/cephfs_projects/foundation_models/data/SDE/test/20250726_real_world_with_5_fold_cross_validation/cross_val_ksig_reference_paths.json"
     )
 
     expected_num_total_splits = 5
@@ -261,97 +263,95 @@ if __name__ == "__main__":
         "tsla",
     ]
 
-    # models_jsons = {
-    #     "FIM (05-03-2033)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05102037_fim_fixed_attn_fixed_softmax_05-03-2033/model_paths.json",
-    #     ),
-    #     "FIM (05-06-2300)": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05102124_fim_fixed_attn_fixed_softmax_05-06-2300/model_paths.json",
-    #     ),
-    # "BISDE(20250514, BISDE Library Functions)": Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
-    # ),
-    # "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-    #     "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
-    # ),
-    #     # "BISDE(20250510, BISDE Library Functions)": Path(
-    #     #     "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_from_bisde_paper/bisde_real_world_cv_results.json"
-    #     # ),
-    #     # "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-    #     #     "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250510_bisde_5_fold_cross_validation_function_library_with_exps_and_sins/bisde_real_world_cv_our_basis_results.json"
-    #     # ),
-    #     # "Ablation: train size 30k, 5M params": Path(
-    #     #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05121921_ablation_model_train_size_30k/model_paths.json"
-    #     # ),
-    #     # "Ablation: train size 100k, 10M params": Path(
-    #     #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05121914_ablation_model_train_size_100k/model_paths.json"
-    #     # ),
-    #     "Ablation: train size 600k, 20M params": Path(
-    #         "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05121902_ablation_model_train_size_600k/model_paths.json"
-    #     ),
-    #     # "Ablation: train size 30k with degree 4 drift, 5M params": Path(
-    #     #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05121927_ablation_model_degree_4_drift/model_paths.json"
-    #     # ),
-    # }
     models_jsons = {
-        "BISDE(20250514, BISDE Library Functions)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
-        ),
-        "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
-            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250506_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
-        ),
-        "FIM fixed linear Attn., 04-28-0941, Epoch 040": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05132202_fim_fixed_linear_attn_04-28-0941_epoch_040/model_paths.json",
-        ),
-        "FIM fixed linear Attn., 04-28-0941, Epoch 070": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05132215_fim_fixed_linear_attn_04-28-0941_epoch_070/model_paths.json",
-        ),
-        "FIM fixed linear Attn., 04-28-0941, Epoch 100": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05132227_fim_fixed_linear_attn_04-28-0941_epoch_100/model_paths.json",
-        ),
-        "FIM fixed linear Attn., 04-28-0941, Epoch 125": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05132353_fim_fixed_linear_attn_04-28-0941_epoch_125/model_paths.json",
-        ),
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 040": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140004_fim_fixed_softmax_05-03-2033_epoch_040/model_paths.json",
-        ),
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 070": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140019_fim_fixed_softmax_05-03-2033_epoch_070/model_paths.json",
-        ),
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 100": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140033_fim_fixed_softmax_05-03-2033_epoch_100/model_paths.json",
-        ),
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 125": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140045_fim_fixed_softmax_05-03-2033_epoch_125/model_paths.json",
-        ),
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
-            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
-        ),
+        # "BISDE(20250514, BISDE Library Functions)": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_results.json"
+        # ),
+        # "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+        # ),
+        # "FIM fixed Softmax dim., 05-03-2033, Epoch 138": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
+        # ),
+        # "FIM (half locations at observations) (07-14-1850) Epoch 139": Path(
+        #     "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250716_post_neurips_evaluations/real_world_cross_validation_vf_and_paths_evaluation/07161232_fim_location_at_obs_no_finetuning/model_paths.json"
+        # ),
     }
 
-    # models_color = {
-    #     "FIM (05-03-2033)": "#0072B2",
-    #     "FIM (05-06-2300)": "blue",
-    #     "BISDE(20250510, BISDE Library Functions)": "#CC79A7",
-    #     "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)": "magenta",
-    #     "Ablation: train size 30k, 5M params": "green",
-    #     "Ablation: train size 100k, 10M params": "yellow",
-    #     "Ablation: train size 600k, 20M params": "brown",
-    #     "Ablation: train size 30k with degree 4 drift, 5M params": "red",
-    # }
+    rebuttal_base = Path(
+        "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/real_world_cross_validation_vf_and_paths_evaluation/"
+    )
+
+    latent_sde_NLL_train_subsplit_10_base = rebuttal_base / "latent_sde_latent_dim_4_context_dim_100_decoder_NLL_train_subsplits_10/"
+
+    finetune_neurips_rebuttal_512_points_base = (
+        rebuttal_base / "finetune_for_neurips_rebuttal_one_step_ahead_one_em_step_nll_512_points_500_epochs"
+    )
+
+    models_jsons = {
+        "BISDE": Path(
+            "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250726_real_world_with_5_fold_cross_validation/20250514_bisde_5_fold_cross_validation_paths_no_nans/bisde_real_world_cv_our_basis_results.json"
+        ),
+        "No Finetune": Path(
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/real_world_cross_validation_vf_and_paths_evaluation/05140056_fim_fixed_softmax_05-03-2033_epoch_138/model_paths.json",
+        ),
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 500": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_499.json",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 1000": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_999.json",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 2000": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_1999.json",
+        # "LatentSDE, NLL objective, 10 train subsplits, Epoch 5000": latent_sde_NLL_train_subsplit_10_base
+        # / "combined_outputs_epoch_4999.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 10": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_9.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 20": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_19.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 30": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_29.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 40": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_39.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 50": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_49.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 60": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_59.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 70": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_69.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 80": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_79.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 90": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_89.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 100": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_99.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 200": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_199.json",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 500": finetune_neurips_rebuttal_512_points_base
+        / "combined_outputs_epoch_499.json",
+    }
 
     models_color = {
-        "FIM fixed linear Attn., 04-28-0941, Epoch 040": "#0072B2",
-        "FIM fixed linear Attn., 04-28-0941, Epoch 070": "blue",
-        "FIM fixed linear Attn., 04-28-0941, Epoch 100": "#CC79A7",
-        "FIM fixed linear Attn., 04-28-0941, Epoch 125": "magenta",
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 040": "green",
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 070": "yellow",
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 100": "brown",
-        "FIM fixed Softmax dim., 05-03-2033, Epoch 125": "red",
         "FIM fixed Softmax dim., 05-03-2033, Epoch 138": "grey",
+        "FIM (half locations at observations) (07-14-1850) Epoch 139": "#0072B2",
         "BISDE(20250514, BISDE Library Functions)": "lightblue",
         "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)": "orange",
+        "BISDE": "grey",
+        "No Finetune": "black",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 10": "#FF66FF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 20": "#E35BFF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 30": "#C64FFF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 40": "#AA44FF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 50": "#8E39FF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 60": "#712DFF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 70": "#5522FF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 80": "#3917FF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 90": "#1C0BFF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 100": "#0000FF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 200": "#8E39FF",
+        "Finetune Sample NLL, NeurIPS Rebuttal, 512 Points, Epoch 500": "#712DFF",
+        "LatentSDE, NLL objective, 10 train subsplits, Epoch 500": "#8E39FF",
+        "LatentSDE, NLL objective, 10 train subsplits, Epoch 1000": "#712DFF",
+        "LatentSDE, NLL objective, 10 train subsplits, Epoch 2000": "#5522FF",
+        "LatentSDE, NLL objective, 10 train subsplits, Epoch 5000": "#3917FF",
     }
 
     apply_sqrt_to_diffusion = [
@@ -359,6 +359,7 @@ if __name__ == "__main__":
         "BISDE(20250510, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
         "BISDE(20250514, BISDE Library Functions)",
         "BISDE(20250514, (u^(0,..,3), exp(u), sin(u)) Library Functions)",
+        "BISDE",
     ]
 
     # --------------------------------------------------------------------------------------------------------------------------------- #

@@ -1,0 +1,99 @@
+experiment:
+  # name: finetune_fim_05-03-2033_epoch_139_on_128_constant_diffusion_lorenz_paths_with_likelihood_on_all_points_lr_1e-6
+  name: test
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  # seed: 10
+  device_map: cuda # auto, cuda, cpu
+
+distributed:
+  enabled: true # true for multi gpu training
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD (data parallelism), HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED (decides how to split parameters along GPUs)
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+
+dataset:
+  name: FIMSDEDataloaderIterableDataset
+
+  max_dim: 3
+
+  dataset_name:
+    train:  JsonSDEDataset
+    validation: JsonSDEDataset
+    test: JsonSDEDataset
+
+  batch_size:
+    train: 1
+    validation: 1
+    test: 1
+
+  num_workers: 1
+
+  keys_to_load:
+    obs_times: "obs_grid"
+    obs_values: "noisy_obs_values"
+
+  paths_per_batch_element:
+    train: 1024
+    test: 128
+    validation: 128
+
+  json_paths:
+    train: /cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_paper/set_0/train_data.json
+    test: /cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_paper/set_0/validation_data.json
+    validation: /cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_paper/set_0/validation_data.json
+
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy (stick to bf16, maybe try bf16_mixed for more accurate gradients)
+  # epochs: &epochs 500
+  detect_anomaly: false
+  save_every: 50
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  # profiler:
+  #   num_batches: 40
+  #   trace_path: "/home/seifner/repos/FIM/results/profiler/trace.json"
+
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.LorenzEvaluationEpoch
+    plot_frequency: 49
+    model_type: fimsde
+
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: loss_threshold
+      beta: 1000000000.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: vector_field_max_norm
+      beta: 1000000000.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: drift_loss_scale
+      beta: 1.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: diffusion_loss_scale
+      beta: 1.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: kl_loss_scale
+      beta: 0.0
+
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: short_time_transition_log_likelihood_loss_scale
+      beta: 0.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      # lr: &lr_rate 1.0e-6
+      weight_decay: 0 # 1.0e-3
+      gradient_norm_clipping: 1

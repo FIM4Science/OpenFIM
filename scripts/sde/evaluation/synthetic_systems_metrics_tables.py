@@ -276,7 +276,9 @@ if __name__ == "__main__":
     # experiment_descr = "fim_fixed_softmax_dim_05-03-2033_epoch_139"
     # experiment_descr = "ablations_training_epochs_of_single_model"
     # experiment_descr = "comparing_checkpoints_of_fim_fixed_linear_attn_and_fixed_softmax_dim"
-    experiment_descr = "neurips_table_1_fim_sparsegp_bisde"
+    # experiment_descr = "neurips_table_1_fim_sparsegp_bisde"
+    # experiment_descr = "fim_location_at_obs_no_finetuning"
+    experiment_descr = "post_neurips_table_old_fim_fim_with_locations_sparesegp_bisde"
 
     project_path = "/cephfs/users/seifner/repos/FIM"
 
@@ -333,6 +335,7 @@ if __name__ == "__main__":
         "FIM (fixed Softmax dim.) (05-03-2033) Epoch 139": Path(
             "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_vf_and_paths/05141437_fim_fixed_softmax_dim_05-03-2033_epoch_139/model_paths.json"
         ),
+        "FIM (half locations at observations) (07-14-1850) Epoch 139": "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250716_post_neurips_evaluations/synthetic_systems_vf_and_paths/07161215_fim_location_at_obs_no_finetuning/model_paths.json",
     }
     apply_sqrt_to_diffusion = [
         "BISDE",
@@ -357,6 +360,7 @@ if __name__ == "__main__":
         # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 70",
         # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 100",
         "FIM (fixed Softmax dim.) (05-03-2033) Epoch 139",
+        "FIM (half locations at observations) (07-14-1850) Epoch 139",
     ]
 
     systems_to_evaluate = [
@@ -371,14 +375,14 @@ if __name__ == "__main__":
 
     taus_to_evaluate = [
         0.002,
-        # 0.01,
+        0.01,
         0.02,
-        # 0.2,
+        0.2,
     ]
     noise_to_evaluate = [
         0.0,
         0.05,
-        # 0.1,
+        0.1,
     ]
     experiment_count = 5
     mmd_max_num_paths = 100
@@ -444,6 +448,9 @@ if __name__ == "__main__":
         Path(
             "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250329_neurips_submission_evaluations/synthetic_systems_metrics_tables/05141550_fim_fixed_softmax_dim_05-03-2033_epoch_139/metric_evaluations_jsons"
         ),
+        Path(
+            "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250716_post_neurips_evaluations/synthetic_systems_metrics_tables/07161307_fim_location_at_obs_no_finetuning/metric_evaluations_jsons"
+        ),
     ]
 
     # tables config
@@ -463,6 +470,7 @@ if __name__ == "__main__":
         # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 70",
         # "FIM (fixed Softmax dim.) (05-03-2033) Epoch 100",
         "FIM (fixed Softmax dim.) (05-03-2033) Epoch 139",
+        "FIM (half locations at observations) (07-14-1850) Epoch 139",
     ]
     systems_order = systems_to_evaluate
     precision = 3
