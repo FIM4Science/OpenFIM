@@ -1044,7 +1044,9 @@ def move_batch_to_local_rank(batch: dict | tuple, local_rank: str, ignore_keys: 
         batch (dict | tuple): Batch on device specified by `local_rank`.
     """
     if isinstance(batch, tuple) and hasattr(batch, "_fields"):  # Check if batch is a namedtuple
-        batch = batch._replace(**{key: val.to(local_rank) if key not in ignore_keys else val for key, val in batch._asdict().items()})
+        batch = batch._replace(
+            **{key: val.to(local_rank, non_blocking=True) if key not in ignore_keys else val for key, val in batch._asdict().items()}
+        )
     else:
         if isinstance(next(iter(batch.keys())), int):  # Catch case where we use groupings
             # Select a random value of batch
@@ -1052,7 +1054,11 @@ def move_batch_to_local_rank(batch: dict | tuple, local_rank: str, ignore_keys: 
         for key in batch.keys():
             if ignore_keys and key in ignore_keys:
                 continue
-            batch[key] = batch[key].to(local_rank)
+            # Enable non_blocking transfers when using pinned memory
+            try:
+                batch[key] = batch[key].to(local_rank, non_blocking=True)
+            except Exception:
+                batch[key] = batch[key].to(local_rank)
 
     return batch
 

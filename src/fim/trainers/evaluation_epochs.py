@@ -530,6 +530,8 @@ class HawkesEvaluationPlots(EvaluationEpoch):
     """
     Evaluation epoch class for Hawkes processes that creates TensorBoard plots
     comparing target and predicted intensity values for all marks.
+
+    Can be disabled by setting 'enable_plotting: false' in the configuration.
     """
 
     def __init__(
@@ -565,6 +567,9 @@ class HawkesEvaluationPlots(EvaluationEpoch):
 
         # which inference path to plot (default: first one)
         self.inference_path_idx: int = kwargs.get("inference_path_idx", 0)
+
+        # whether to enable plotting (default: True)
+        self.enable_plotting: bool = kwargs.get("enable_plotting", True)
 
     @staticmethod
     def create_intensity_plots(
@@ -677,6 +682,10 @@ class HawkesEvaluationPlots(EvaluationEpoch):
         Create intensity plots for target vs predicted values during validation.
         """
         self.model.eval()
+
+        # Check if plotting is disabled
+        if not self.enable_plotting:
+            return {}
 
         if epoch % self.plot_frequency != 0:
             return {}
