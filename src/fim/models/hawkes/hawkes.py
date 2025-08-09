@@ -526,18 +526,8 @@ class FIMHawkes(AModel):
             masked_delta_times = masked_delta_times.squeeze(-1)  # (B, P, L)
             positions = torch.arange(L, device=masked_delta_times.device).view(1, 1, L)
             seq_lengths_expanded = x["context_seq_lengths"].unsqueeze(2)
-
-            # Create a mask for valid positions and flatten for median calculation
-            valid_mask = positions < seq_lengths_expanded
-
-            # Calculate median for each batch
-            norm_constants = torch.zeros(B, device=masked_delta_times.device)
-            for b in range(B):
-                batch_valid_times = masked_delta_times[b][valid_mask[b]]
-                if len(batch_valid_times) > 0:
-                    norm_constants[b] = torch.median(batch_valid_times)
-                else:
-                    norm_constants[b] = 1.0  # fallback if no valid times
+            masked_delta_times[positions >= seq_lengths_expanded] = float("-inf")
+            norm_constants = masked_delta_times.amax(dim=[1, 2])
 
         # Build normalized time tensors without altering original x
         nc_view4 = norm_constants.view(-1, 1, 1, 1)
