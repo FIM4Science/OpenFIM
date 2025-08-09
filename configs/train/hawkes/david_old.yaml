@@ -16,15 +16,15 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/train
-      # - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/train
 
     validation: !!python/tuple
-      - data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/val
-      # - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/val
+      # - data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/val
+      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/val
 
   loader_kwargs:
-    batch_size: 12
+    batch_size: 6
     num_workers: 16
     test_batch_size: 1
 
@@ -148,9 +148,9 @@ model:
 
 trainer:
   name: Trainer
-  debug_iterations: null
+  debug_iterations: 5
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 100000
+  epochs: &epochs 1
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 4
@@ -159,12 +159,17 @@ trainer:
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
 
+  profiler:
+    trace_path: ./results/profiles/hawkes_train_trace.json
+    num_batches: 5
+
   # Add evaluation epoch for TensorBoard plotting
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.HawkesEvaluationPlots
     plot_frequency: 1
     iterator_name: validation  # Use validation data for plotting
     inference_path_idx: 0  # Which inference path to plot (0 = first path)
+    enable_plotting: false  # Set to false to disable intensity function plotting'_ä
 
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
