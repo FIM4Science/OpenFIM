@@ -1,0 +1,164 @@
+experiment:
+  name: hawkes_mini_test
+  name_add_date: false
+  seed: [1]
+  device_map: cpu
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD
+  wrap_policy: NO_POLICY
+  min_num_params: 1000
+  checkpoint_type: full_state
+  activation_chekpoint: false
+
+dataset:
+  name: HawkesDataLoader
+  path:
+    train: !!python/tuple
+      - tests/resources/data/hawkes/3D_hawkes_test_data
+      - tests/resources/data/hawkes/10D_hawkes_test_data
+    validation: !!python/tuple
+      - tests/resources/data/hawkes/3D_hawkes_test_data
+      - tests/resources/data/hawkes/10D_hawkes_test_data
+
+  loader_kwargs:
+    batch_size: 2
+    test_batch_size: 1
+    num_workers: 0
+    num_inference_paths: 1
+    num_inference_times: 8
+    variable_num_of_paths: true
+    min_path_count: 10
+    max_path_count: 10
+    max_number_of_minibatch_sizes: 1
+
+    variable_sequence_lens: {train: true, validation: false}
+    min_sequence_len: 4
+    max_sequence_len: 8
+
+  dataset_kwargs:
+    files_to_load:
+      base_intensity_functions: "base_intensity_functions.pt"
+      event_times: "event_times.pt"
+      event_types: "event_types.pt"
+      kernel_functions: "kernel_functions.pt"
+    field_name_for_dimension_grouping: ["base_intensity_functions", "kernel_functions"]
+    data_limit: 8
+
+model:
+  model_type: fimhawkes
+  normalize_times: true
+  normalize_by_max_time: false
+
+  max_num_marks: 10
+  hidden_dim: 16
+
+  hidden_act:
+    name: torch.nn.GELU
+
+  mark_encoder:
+    name: torch.nn.Linear
+    out_features: 16
+
+  time_encoder:
+    name: torch.nn.Linear
+    out_features: 16
+
+  delta_time_encoder:
+    name: torch.nn.Linear
+    out_features: 16
+
+  intensity_evaluation_time_encoder:
+    name: torch.nn.Linear
+
+  evaluation_mark_encoder:
+    name: torch.nn.Linear
+
+  context_ts_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 1
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.0
+      nhead: 2
+      batch_first: true
+
+  inference_ts_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 1
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.0
+      nhead: 2
+      batch_first: true
+
+  functional_attention:
+    paths_block_attention: false
+    num_res_layers: 1
+    attention:
+      nhead: 1
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: !!python/tuple [16, 16]
+
+  context_self_attention:
+    num_heads: 2
+    dropout: 0.0
+    batch_first: true
+
+  mu_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [16, 16]
+    hidden_act: {name: torch.nn.GELU}
+
+  alpha_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [16, 16]
+    hidden_act: {name: torch.nn.GELU}
+
+  beta_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [16, 16]
+    hidden_act: {name: torch.nn.GELU}
+
+  intensity_decoder:
+    name: fim.models.blocks.base.MLP
+    hidden_layers: !!python/tuple [16, 16]
+    hidden_act: {name: torch.nn.GELU}
+
+  thinning: null
+
+  loss_weights:
+    nll: 1.0
+    smape: 1.0
+
+trainer:
+  name: Trainer
+  debug_iterations: 2
+  precision: fp32_policy
+  epochs: 1
+  detect_anomaly: false
+  save_every: 1
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+
+  evaluation_epoch:
+    path: fim.trainers.evaluation_epochs.HawkesEvaluationPlots
+    plot_frequency: 1
+    iterator_name: validation
+    inference_path_idx: 0
+    enable_plotting: false
+
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler
+      beta: 1.0
+      label: gauss_nll
+
+optimizers: !!python/tuple
+  - optimizer_d:
+      name: torch.optim.AdamW
+      lr: 0.0001
+      weight_decay: 0.0

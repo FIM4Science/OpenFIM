@@ -188,10 +188,10 @@ trainer:
   # Add evaluation epoch for TensorBoard plotting
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.HawkesEvaluationPlots
-    plot_frequency: 1
+    plot_frequency: 10
     iterator_name: validation  # Use validation data for plotting
     inference_path_idx: 0  # Which inference path to plot (0 = first path)
-    enable_plotting: false  # Set to false to disable intensity function plotting
+    enable_plotting: true  # Set to false to disable intensity function plotting
 
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
