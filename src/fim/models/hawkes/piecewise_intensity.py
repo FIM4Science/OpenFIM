@@ -75,8 +75,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
                 returns original-scale intensities. When ``normalized_times=True``, returns
                 normalized-scale intensities to avoid redundant conversions.
         """
-        device = query_times.device
-        B, P, L_eval = query_times.shape
+        B, P, L_ev_al = query_times.shape
         _, M, _, L = self.mu.shape
 
         # ------------------------------------------------------------------
@@ -93,20 +92,15 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
             # No normalisation constants stored – use times as-is
             query_times_norm = query_times
 
-        # Reshape and broadcast to compare each query time with all event times
-        # per path: [B, P, L_eval, 1] vs [B, P, 1, L]
-        past_mask = self.event_times.unsqueeze(2) < query_times_norm.unsqueeze(3)  # [B,P,L_eval,L]
+        # Ensure contiguous memory for faster bucketization/searchsorted kernels
+        query_times_norm = query_times_norm.contiguous()
+        event_times_contig = self.event_times.contiguous()
 
-        # Build indices tensor 0..L-1 for max operation
-        idx = torch.arange(L, device=device, dtype=torch.long).view(1, 1, 1, L)
-        idx = idx.expand(B, P, L_eval, L)
-
-        # Replace *future* events by -1 so that max selects the last *past* event
-        idx_masked = torch.where(past_mask, idx, torch.full_like(idx, -1))
-        last_idx = idx_masked.max(dim=3).values  # [B, P, L_eval], -1 if no past event
-
-        # Clamp to at least 0 so that gather works; the corresponding delta_t
-        # will be set to 0 and intensity will reduce to Softplus(mu).
+        # Efficiently locate the index of the last past event for each query time
+        # using searchsorted instead of constructing large boolean masks.
+        # searchsorted returns the insertion index in [0, L]; subtract 1 to get
+        # the index of the last event strictly before the query time, or -1 if none exists.
+        last_idx = torch.searchsorted(event_times_contig, query_times_norm, right=False) - 1  # [B,P,L_eval]
         last_idx_clamped = last_idx.clamp(min=0)
 
         # Gather parameters of the last event
@@ -118,7 +112,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         beta_last = torch.gather(self.beta, dim=3, index=gather_idx)
 
         # Gather event times of the last event: [B,P,L_eval]
-        t_last = torch.gather(self.event_times, dim=2, index=last_idx_clamped)
+        t_last = torch.gather(event_times_contig, dim=2, index=last_idx_clamped)
         # If no past event exists (last_idx == -1) we fallback to t_last = 0 so that
         # the intensity reduces to Softplus(mu) with delta_t = query_times.
         t_last = torch.where(last_idx.eq(-1), torch.zeros_like(t_last), t_last)

@@ -962,46 +962,40 @@ class FIMHawkes(AModel):
 
         # Loop over batch items because kernel/base functions are heterogeneous Python objects.
         for b in range(B):
-            # The number of marks can vary per sample in the ground truth data.
-            # Use the length of the provided function list for this sample.
             actual_marks_b = len(base_intensity_functions_list[b])
 
-            # Extract original-scale data for the current batch item
-            eval_times_b = intensity_evaluation_times_orig[b]  # Use original times
-            hist_times_b = event_times[b]  # Use original times
-            hist_types_b = event_types[b]
-            seq_lengths_b = inference_seq_lengths[b]
+            eval_times_b = intensity_evaluation_times_orig[b]  # [P, L_eval] (original times)
+            hist_times_b = event_times[b]  # [P, L_hist] (original times)
+            hist_types_b = event_types[b]  # [P, L_hist]
+            seq_lengths_b = inference_seq_lengths[b]  # [P]
 
-            # --- Calculate Summed Kernel Term (in original time scale) ---
-            delta_t_b = eval_times_b.unsqueeze(-1) - hist_times_b.unsqueeze(-2)
-
-            causality_mask_b = delta_t_b > 1e-9
-            hist_indices = torch.arange(L_hist, device=device).view(1, L_hist)
-            padding_mask_b = hist_indices < seq_lengths_b.unsqueeze(-1)
-            valid_history_mask_b = causality_mask_b & padding_mask_b.unsqueeze(1)
-
-            # Initialize with baseline values
+            # Vectorized implementation
+            # Baseline: μ_i(t) per mark i at all evaluation times
             for i in range(actual_marks_b):
                 mu_func_b_i = base_intensity_functions_list[b][i]
-                total_intensity[b, i, :, :] = mu_func_b_i(eval_times_b)  # Pass original times
+                total_intensity[b, i, :, :] = mu_func_b_i(eval_times_b)
 
-            # Accumulate kernel influences
-            for i in range(actual_marks_b):
-                for j in range(actual_marks_b):
+            # Precompute deltas and masks once per batch element
+            delta_t_b = eval_times_b.unsqueeze(-1) - hist_times_b.unsqueeze(-2)  # [P, L_eval, L_hist]
+            hist_indices = torch.arange(L_hist, device=device).view(1, L_hist)
+            padding_mask_b = hist_indices < seq_lengths_b.unsqueeze(-1)  # [P, L_hist]
+            valid_history_mask_b = (delta_t_b > 1e-9) & padding_mask_b.unsqueeze(1)  # [P, L_eval, L_hist]
+
+            # Accumulate kernel influences vectorized over P and L_eval
+            for j in range(actual_marks_b):
+                source_mark_mask_b = hist_types_b == j  # [P, L_hist]
+                final_mask_b = valid_history_mask_b & source_mark_mask_b.unsqueeze(1)
+
+                if not torch.any(final_mask_b):
+                    continue
+
+                deltas = delta_t_b  # [P, L_eval, L_hist]
+                for i in range(actual_marks_b):
                     phi_func_b_ij = kernel_functions_list[b][i][j]
-                    source_mark_mask_b = (hist_types_b == j).unsqueeze(1)
-                    final_mask_b = valid_history_mask_b & source_mark_mask_b
-
-                    if not torch.any(final_mask_b):
-                        continue
-
-                    delta_t_to_eval = delta_t_b[final_mask_b]
-                    kernel_values = phi_func_b_ij(delta_t_to_eval)  # Pass original time deltas
-
-                    kernel_contribution = torch.zeros_like(delta_t_b)
-                    kernel_contribution[final_mask_b] = kernel_values
-                    summed_kernel_values = kernel_contribution.sum(dim=-1)
-                    total_intensity[b, i, :, :] += summed_kernel_values
+                    kij = phi_func_b_ij(deltas)
+                    kij = torch.where(final_mask_b, kij, torch.zeros_like(kij))
+                    summed = kij.sum(dim=-1)  # [P, L_eval]
+                    total_intensity[b, i, :, :] += summed
 
         # Apply non-negativity constraint
         target_intensity_values_orig = torch.relu(total_intensity)
