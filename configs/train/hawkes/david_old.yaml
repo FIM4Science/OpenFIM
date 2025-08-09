@@ -148,9 +148,9 @@ model:
 
 trainer:
   name: Trainer
-  debug_iterations: 5
+  debug_iterations: 10
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
-  epochs: &epochs 1
+  epochs: &epochs 10
   detect_anomaly: false
   save_every: 10
   gradient_accumulation_steps: 4
@@ -159,9 +159,9 @@ trainer:
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
 
-  profiler:
-    trace_path: ./results/profiles/hawkes_train_trace.json
-    num_batches: 5
+  # profiler:
+  #   trace_path: ./results/profiles/hawkes_train_trace.json
+  #   num_batches: 5
 
   # Add evaluation epoch for TensorBoard plotting
   evaluation_epoch:
