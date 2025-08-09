@@ -339,8 +339,8 @@ class HawkesDataset(FIMDataset):
             else:
                 grouping_field = grouping_fields
 
-            self._HawkesDataset__different_last_dim = self.__check_hawkes_dimension_consistency(data, grouping_field)
-            if self._HawkesDataset__different_last_dim:
+            self._FIMDataset__different_last_dim = self.__check_hawkes_dimension_consistency(data, grouping_field)
+            if self._FIMDataset__different_last_dim:
                 grouped_data = defaultdict(lambda: defaultdict(list))
                 # For Hawkes processes, marks dimension is the second dimension (shape[1])
                 idx_to_dim = [v.shape[1] for v in data[grouping_field]]
