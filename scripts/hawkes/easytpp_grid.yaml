@@ -2,15 +2,27 @@
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
   - easytpp/retweet
-  - /cephfs/users/berghaus/FoundationModels/FIM/data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale
+  - easytpp/taobao
+  - easytpp/stackoverflow
+  - easytpp/amazon
+  - easytpp/taxi
+  # - /cephfs/users/berghaus/FoundationModels/FIM/data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale
+
 # - 'models' are EasyTPP model ids (e.g., NHP, SAHP, THP, ...) passed to easy_tpp
 models:
+  - RMTPP
   - NHP
+  # - FullyNN -> not working
   - SAHP
+  - THP
+  # - IntensityFree -> not working
+  # - ODETPP -> not working
+  - AttNHP
+  - ANHN
 # - 'epochs' is the maximum number of epochs to train; early stopping (below) may stop earlier
 epochs: 10000
 # - 'batch_size' is the EasyTPP trainer batch size
-batch_size: 256
+batch_size: 128
 # - 'max_num_events' truncates each sequence length; set to null for no truncation
 max_num_events: null
 # - 'num_train_paths' / 'num_eval_paths' let you subsample sequences (paths)
