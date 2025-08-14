@@ -1,7 +1,7 @@
 # Example config for easytpp_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  - easytpp/retweet
+  # - easytpp/retweet
   - easytpp/taobao
   - easytpp/stackoverflow
   - easytpp/amazon
@@ -22,7 +22,7 @@ models:
 # - 'epochs' is the maximum number of epochs to train; early stopping (below) may stop earlier
 epochs: 10000
 # - 'batch_size' is the EasyTPP trainer batch size
-batch_size: 128
+batch_size: 32
 # - 'max_num_events' truncates each sequence length; set to null for no truncation
 max_num_events: null
 # - 'num_train_paths' / 'num_eval_paths' let you subsample sequences (paths)
@@ -36,7 +36,7 @@ output_dir: checkpoints
 # - 'results_root' stores per-run folders with run.log and metrics.json, plus summary/matrices
 results_root: results/easytpp
 # - 'parallel' controls how many runs are executed concurrently; increase based on available GPU/CPU/memory
-parallel: 1
+parallel: 4
 # Early stopping (optional)
 # - patience: number of epochs without improvement before stopping
 early_stop_patience: 10

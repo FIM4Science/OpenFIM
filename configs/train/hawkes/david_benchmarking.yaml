@@ -16,12 +16,10 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/5k_21D_2k_paths_sin_base_exp_kernel/val
 
     validation: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/val
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/val
+      - data/synthetic_data/hawkes/5k_21D_2k_paths_sin_base_exp_kernel/val
 
   loader_kwargs:
     batch_size: 6
@@ -51,6 +49,7 @@ dataset:
       event_times: "event_times.pt"
       event_types: "event_types.pt"
       kernel_functions: "kernel_functions.pt"
+      time_offsets: "time_offsets.pt"
     # data_limit: 50
     field_name_for_dimension_grouping:
       ["base_intensity_functions", "kernel_functions"]

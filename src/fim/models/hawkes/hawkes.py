@@ -426,6 +426,7 @@ class FIMHawkes(AModel):
                 x["inference_seq_lengths"],
                 norm_constants,
                 num_marks=num_marks,
+                inference_time_offsets=x.get("inference_time_offsets", None),
             )
             out["target_intensity_values"] = target_intensity_values
 
@@ -908,6 +909,7 @@ class FIMHawkes(AModel):
         inference_seq_lengths: Tensor,
         norm_constants: Tensor,
         num_marks: int,
+        inference_time_offsets: Tensor | None = None,
     ):
         """
         Compute the target intensity values based on the formula:
@@ -933,6 +935,8 @@ class FIMHawkes(AModel):
             norm_constants (Tensor): The normalization constants.
                 Shape: [B].
             num_marks (int): The number of marks for the batch.
+            inference_time_offsets (Tensor): The time offsets for the inference paths (since we shifted events to zero).
+                Shape: [B, P].
 
         Returns:
             Tensor: The computed target intensity values, scaled for the normalized time domain.
@@ -943,7 +947,6 @@ class FIMHawkes(AModel):
         _, _, L_hist, _ = inference_event_times.shape
         D = num_marks
 
-        # --- START: MODIFICATION ---
         # The input times are normalized. We must denormalize them to use with the
         # original kernel and base intensity functions.
         norm_constants_eval = norm_constants.view(B, 1, 1)
@@ -951,7 +954,13 @@ class FIMHawkes(AModel):
 
         intensity_evaluation_times_orig = intensity_evaluation_times * norm_constants_eval
         inference_event_times_orig = inference_event_times * norm_constants_hist
-        # --- END: MODIFICATION ---
+
+        # If offsets are provided (events originally shifted to start at 0), add them back
+        if inference_time_offsets is not None:
+            # Add to evaluation times [B, P, L_eval]
+            intensity_evaluation_times_orig = intensity_evaluation_times_orig + inference_time_offsets.unsqueeze(-1)
+            # Add to historical event times [B, P, L_hist, 1]
+            inference_event_times_orig = inference_event_times_orig + inference_time_offsets.unsqueeze(-1).unsqueeze(-1)
 
         # Ensure tensors are 3D for easier processing by removing the trailing dimension
         event_times = inference_event_times_orig.squeeze(-1)  # Use original times
