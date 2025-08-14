@@ -77,6 +77,7 @@ dataset:
       event_times: "event_times.pt"
       event_types: "event_types.pt"
       kernel_functions: "kernel_functions.pt"
+      time_offsets: "time_offsets.pt"
     # data_limit: 50
     field_name_for_dimension_grouping:
       ["base_intensity_functions", "kernel_functions"]
