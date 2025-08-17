@@ -849,6 +849,7 @@ class FIMHawkes(AModel):
         norm_constants: Tensor,
         num_marks: int,
         num_samples: int = 100,
+        inference_time_offsets: Tensor | None = None,
     ):
         """
         Computes the ground-truth integrated intensity Λ(t) = ∫λ(s)ds from 0 to t
@@ -882,6 +883,7 @@ class FIMHawkes(AModel):
             inference_seq_lengths,
             norm_constants,
             num_marks,
+            inference_time_offsets=inference_time_offsets,
         )
         # Result shape: [B, M, P, L_eval * num_samples]
 
