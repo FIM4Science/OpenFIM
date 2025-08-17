@@ -3,11 +3,11 @@ Run examples:
   Local Hawkes dataset:
     python scripts/hawkes/easytpp_fit.py \
       data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions \
-      --sample-idx 0 --model NHP --epochs 100 --batch-size 256 \
+      --sample-idx 0 --model RMTPP --epochs 1000 --batch-size 256 \
       --max-num-events 100 --num-train-paths 2000 --num-eval-paths 100
   HuggingFace EasyTPP dataset:
     python scripts/hawkes/easytpp_fit.py easytpp/retweet \
-      --model NHP --epochs 100 --batch-size 256 \
+      --model RMTPP --epochs 1000 --batch-size 256 \
       --max-num-events 100 --num-train-paths 1000 --num-eval-paths 100
 
 Script to fit an EasyTPP model on either
@@ -51,7 +51,7 @@ import os
 import shutil
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Union
 
@@ -170,9 +170,9 @@ def _load_local_sample(sample_dir: Path, sample_idx: int) -> Dict[str, List[List
     # ------------------------------------------------------------
     # Required tensor files
     # ------------------------------------------------------------
-    event_times_t = torch.load(sample_dir / "event_times.pt")  # [B, P, L, 1]
-    event_types_t = torch.load(sample_dir / "event_types.pt")  # [B, P, L, 1]
-    seq_lengths_t = torch.load(sample_dir / "seq_lengths.pt")  # [B, P]
+    event_times_t = torch.load(sample_dir / "event_times.pt", weights_only=True)  # [B, P, L, 1]
+    event_types_t = torch.load(sample_dir / "event_types.pt", weights_only=True)  # [B, P, L, 1]
+    seq_lengths_t = torch.load(sample_dir / "seq_lengths.pt", weights_only=True)  # [B, P]
 
     if sample_idx >= event_times_t.shape[0]:
         raise IndexError(f"sample_idx {sample_idx} exceeds available samples ({event_times_t.shape[0]}).")
@@ -355,7 +355,7 @@ def write_training_config(
         learning_rate: 1.e-3
         valid_freq: 1
         use_tfb: True
-        metrics: ['acc', 'rmse', 'loglike']
+        metrics: ['acc', 'rmse']
         seed: 42
         gpu: {gpu}
       model_config:
@@ -404,6 +404,29 @@ def write_training_config(
 # -----------------------------------------------------------------------------
 
 
+def _monkey_patch_easytpp_float32() -> None:
+    """Force EasyTPP collator to cast time tensors to float32 even without padding."""
+    try:
+        import torch  # noqa: WPS433
+        from easy_tpp.preprocess.data_collator import TPPDataCollator  # type: ignore
+
+        if not hasattr(TPPDataCollator, "__orig_call__"):
+            TPPDataCollator.__orig_call__ = TPPDataCollator.__call__  # type: ignore[attr-defined]
+
+            def __patched_call__(self, features, return_tensors=None):  # type: ignore[no-redef]
+                batch = TPPDataCollator.__orig_call__(self, features, return_tensors)  # type: ignore[attr-defined]
+                if return_tensors in (None, "pt"):
+                    if "time_seqs" in batch:
+                        batch["time_seqs"] = batch["time_seqs"].to(dtype=torch.float32)
+                    if "time_delta_seqs" in batch:
+                        batch["time_delta_seqs"] = batch["time_delta_seqs"].to(dtype=torch.float32)
+                return batch
+
+            TPPDataCollator.__call__ = __patched_call__  # type: ignore[assignment]
+    except Exception:
+        pass
+
+
 def main() -> None:  # noqa: D401
     args = parse_args()
 
@@ -412,9 +435,11 @@ def main() -> None:  # noqa: D401
         import torch  # noqa: WPS433 (optional import)
 
         torch.set_default_dtype(torch.float32)
-        torch.set_default_tensor_type(torch.FloatTensor)
     except ImportError:
         pass
+
+    # Force EasyTPP to emit float32 tensors for time fields
+    _monkey_patch_easytpp_float32()
 
     dataset_arg = args.dataset
     dataset_path = Path(dataset_arg)
@@ -431,7 +456,7 @@ def main() -> None:  # noqa: D401
     run_name = args.run_name or auto_run_name
     results_dir = Path(args.results_dir) / run_name
     results_dir.mkdir(parents=True, exist_ok=True)
-    run_started_at = datetime.utcnow().isoformat() + "Z"
+    run_started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     t_start = time.time()
 
     # Prepare a tmp directory that will hold the converted dataset and config.
@@ -648,7 +673,7 @@ def main() -> None:  # noqa: D401
                     results_payload = {
                         "status": "ok",
                         "started_at": run_started_at,
-                        "finished_at": datetime.utcnow().isoformat() + "Z",
+                        "finished_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                         "duration_seconds": round(time.time() - t_start, 3),
                         "dataset": dataset_arg,
                         "model": args.model,
@@ -679,7 +704,7 @@ def main() -> None:  # noqa: D401
                             "status": "train_ok_eval_failed",
                             "error": str(eval_err),
                             "started_at": run_started_at,
-                            "finished_at": datetime.utcnow().isoformat() + "Z",
+                            "finished_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                             "duration_seconds": round(time.time() - t_start, 3),
                             "dataset": dataset_arg,
                             "model": args.model,
@@ -710,7 +735,7 @@ def main() -> None:  # noqa: D401
             results_payload = {
                 "status": "skipped",
                 "started_at": run_started_at,
-                "finished_at": datetime.utcnow().isoformat() + "Z",
+                "finished_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "duration_seconds": round(time.time() - t_start, 3),
                 "dataset": dataset_arg,
                 "model": args.model,
