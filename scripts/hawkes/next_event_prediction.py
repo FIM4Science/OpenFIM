@@ -37,10 +37,7 @@ DATASET_IDENTIFIER = "easytpp/taxi"
 SAMPLE_INDEX = 0
 
 # Set the local dataset path (used only if USE_EASYTPP=False).
-LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale"
-
-# Set the number of event types for the chosen dataset.
-NUM_EVENT_TYPES = 10
+LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions"
 
 # Maximum number of sequences from the training set to use as context.
 CONTEXT_SIZE = None
@@ -179,6 +176,24 @@ def load_local_dataset_subset(dataset_dict, size):
         return dataset_dict
 
     return {key: values[:size] for key, values in dataset_dict.items()}
+
+
+def detect_num_event_types_from_data(context_data_raw: dict, inference_data_raw: dict) -> int:
+    """
+    Detect number of unique event types by scanning the loaded data's type sequences.
+
+    Works for both locally loaded datasets (converted to lists) and HF slices
+    (dict of lists).
+    """
+    unique_types = set()
+    for seq in context_data_raw.get("type_event", []):
+        unique_types.update(seq)
+    for seq in inference_data_raw.get("type_event", []):
+        unique_types.update(seq)
+    if not unique_types:
+        # Fallback to 1 to avoid zero marks; caller may override if model config is known
+        return 1
+    return int(len(unique_types))
 
 
 def load_fimhawkes_with_proper_weights(checkpoint_path: str) -> FIMHawkes:
@@ -323,7 +338,7 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
     }
 
 
-def predict_next_event_for_sequence_ground_truth(model, inference_sequence, context_batch, ground_truth_functions, device):
+def predict_next_event_for_sequence_ground_truth(model, inference_sequence, context_batch, ground_truth_functions, device, num_marks: int):
     """
     Perform next-event prediction for a single inference sequence using ground truth intensity functions.
     """
@@ -412,7 +427,7 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
                     x["inference_event_types"][:, :, :prefix_len, :],  # [B, P, prefix_len, 1]
                     torch.tensor([[prefix_len]], device=device),  # [B, P]
                     norm_constants,
-                    num_marks=NUM_EVENT_TYPES,
+                    num_marks=num_marks,
                 )
                 # target_intensity shape: [B, M, P, T_query]
                 # Sampler expects [B, P, T_query, M]
@@ -449,7 +464,7 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
                 x["inference_event_types"][:, :, :prefix_len, :],
                 torch.tensor([[prefix_len]], device=device),
                 norm_constants,
-                num_marks=NUM_EVENT_TYPES,
+                num_marks=num_marks,
             )
             total_gt_intensity = gt_intensities_at_samples.sum(dim=1, keepdim=True)
             gt_probabilities_at_samples = gt_intensities_at_samples / (total_gt_intensity + 1e-9)
@@ -533,7 +548,7 @@ class GroundTruthIntensity:
             self.num_marks,
         )
 
-    def integral(self, t_start, t_end, normalized_times=True):
+    def integral(self, t_end, t_start=None, num_samples: int = 100, normalized_times: bool = False):
         # Reshape t_end from [B, P] to [B, P, 1] for compatibility
         t_end_reshaped = t_end.unsqueeze(-1)
 
@@ -546,6 +561,7 @@ class GroundTruthIntensity:
             self.x["inference_seq_lengths"],
             self.norm_constants,
             self.num_marks,
+            num_samples=num_samples,
         )
         # This function computes integral from 0 to t_end. _nll_loss provides t_start=0.
         # The result will be [B, M, P, 1], we need to squeeze it for the loss function.
@@ -785,6 +801,10 @@ def main():
     context_data_raw = _truncate_batch(context_data_raw)
     inference_data_raw = _truncate_batch(inference_data_raw)
 
+    # Detect number of unique event types from the data
+    detected_num_marks = detect_num_event_types_from_data(context_data_raw, inference_data_raw)
+    print(f"Detected number of event types (marks): {detected_num_marks}")
+
     # 3. Prepare the fixed context batch (on-the-fly)
     # This batch will be cached and reused for all inference sequences.
     print("Preparing fixed context data...")
@@ -876,7 +896,7 @@ def main():
             # c. Get ground truth predictions if available
             if ground_truth_available:
                 gt_predictions = predict_next_event_for_sequence_ground_truth(
-                    model, inference_item, context_batch, ground_truth_functions, device
+                    model, inference_item, context_batch, ground_truth_functions, device, detected_num_marks
                 )
                 gt_pred_dtimes = gt_predictions["predicted_event_dtimes"].cpu()
                 gt_pred_types = gt_predictions["predicted_event_types"].cpu()
@@ -1042,7 +1062,7 @@ def main():
                         num_points_between_events=10,
                     )
                     # Ensure we plot all marks for EasyTPP data
-                    model_data_vis["num_marks"] = NUM_EVENT_TYPES
+                    model_data_vis["num_marks"] = detected_num_marks
                 except ValueError as e:
                     print(f"⚠️  Could not prepare EasyTPP context/inference sample: {e}")
                 else:
