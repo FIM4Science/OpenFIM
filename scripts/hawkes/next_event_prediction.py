@@ -9,6 +9,7 @@ Usage:
 
 import json
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import torch
@@ -43,7 +44,7 @@ LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_i
 CONTEXT_SIZE = None
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = None
+INFERENCE_SIZE = 10
 
 # Number of points to use for log-likelihood evaluation
 NUM_INTEGRATION_POINTS = 5000
@@ -240,7 +241,9 @@ def load_fimhawkes_with_proper_weights(checkpoint_path: str) -> FIMHawkes:
     return model
 
 
-def predict_next_event_for_sequence(model, inference_sequence, context_batch, device):
+def predict_next_event_for_sequence(
+    model, inference_sequence, context_batch, device, precomputed_enhanced_context=None, num_marks: Optional[int] = None
+):
     """
     Perform next-event prediction for a single inference sequence using a fixed context batch.
     """
@@ -278,6 +281,10 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
                 "inference_seq_lengths": inf_lengths,
                 "intensity_evaluation_times": torch.zeros(1, 1, 1, device=device),
             }
+            if precomputed_enhanced_context is not None:
+                x["precomputed_enhanced_context"] = precomputed_enhanced_context
+            if num_marks is not None:
+                x["num_marks"] = torch.tensor([num_marks], device=device)
 
             model_out = model.forward(x)
             intensity_obj = model_out["intensity_function"]
@@ -583,7 +590,15 @@ class GroundTruthIntensity:
         return integral_at_tend.squeeze(-1)
 
 
-def compute_nll(model, inference_sequence, context_batch, device, ground_truth_functions=None):
+def compute_nll(
+    model,
+    inference_sequence,
+    context_batch,
+    device,
+    ground_truth_functions=None,
+    precomputed_enhanced_context=None,
+    num_marks: Optional[int] = None,
+):
     """
     Compute the Negative Log-Likelihood for a given sequence for the model and ground truth.
     """
@@ -607,6 +622,10 @@ def compute_nll(model, inference_sequence, context_batch, device, ground_truth_f
         "inference_seq_lengths": inf_lengths,
         "intensity_evaluation_times": torch.zeros(1, 1, 1, device=device),  # Dummy
     }
+    if precomputed_enhanced_context is not None:
+        x["precomputed_enhanced_context"] = precomputed_enhanced_context
+    if num_marks is not None:
+        x["num_marks"] = torch.tensor([num_marks], device=device)
     # Provide offsets to model.forward for target intensity computation (mandatory)
     x["inference_time_offsets"] = inference_sequence["time_offset_tensor"].to(device)
 
@@ -894,6 +913,15 @@ def main():
     baseline_pred_dtimes = baseline_predictions["predicted_event_dtimes"]
     baseline_pred_types = baseline_predictions["predicted_event_types"]
 
+    # Precompute enhanced context embeddings once, since context paths remain fixed across inference
+    with torch.no_grad():
+        precomp_ctx = {
+            "context_event_times": context_batch["time_seqs"].unsqueeze(0).unsqueeze(-1).to(device),
+            "context_event_types": context_batch["type_seqs"].unsqueeze(0).unsqueeze(-1).to(device),
+            "context_seq_lengths": context_batch["seq_non_pad_mask"].sum(dim=1).unsqueeze(0).to(device),
+        }
+        precomputed_enhanced_context = model.encode_context(precomp_ctx)
+
     # 4. Loop through inference sequences and perform next-event prediction
     with torch.no_grad():
         for i in tqdm(range(num_inference_sequences), desc="Evaluating Inference Sequences"):
@@ -914,7 +942,14 @@ def main():
             ].unsqueeze(1)
 
             # b. Get model predictions
-            predictions = predict_next_event_for_sequence(model, inference_item, context_batch, device)
+            predictions = predict_next_event_for_sequence(
+                model,
+                inference_item,
+                context_batch,
+                device,
+                precomputed_enhanced_context=precomputed_enhanced_context,
+                num_marks=detected_num_marks,
+            )
             pred_dtimes = predictions["predicted_event_dtimes"].cpu()
             pred_types = predictions["predicted_event_types"].cpu()
 
@@ -978,7 +1013,13 @@ def main():
 
             # g. Calculate NLL for the current sequence
             nll_results = compute_nll(
-                model, inference_item, context_batch, device, ground_truth_functions if ground_truth_available else None
+                model,
+                inference_item,
+                context_batch,
+                device,
+                ground_truth_functions if ground_truth_available else None,
+                precomputed_enhanced_context=precomputed_enhanced_context,
+                num_marks=detected_num_marks,
             )
             total_nll_model += nll_results.get("model_nll", 0)
             if ground_truth_available:

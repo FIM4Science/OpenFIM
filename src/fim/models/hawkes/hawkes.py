@@ -174,6 +174,60 @@ class FIMHawkes(AModel):
 
         self.loss_weights = self.config.loss_weights
 
+    def encode_context(self, x: Dict[str, Tensor]) -> Tensor:
+        """
+        Compute and return the enhanced context embeddings given only context tensors.
+
+        Expected keys in `x`:
+            - "context_event_times": [B, P_context, L, 1]
+            - "context_event_types": [B, P_context, L, 1]
+            - "context_seq_lengths": [B, P_context]
+
+        Returns:
+            Tensor of shape [B, P_context, D] with enhanced context embeddings.
+        """
+        # Make a shallow copy so we can insert temporary fields
+        ctx: Dict[str, Tensor] = {
+            "context_event_times": x["context_event_times"],
+            "context_event_types": x["context_event_types"],
+            "context_seq_lengths": x["context_seq_lengths"],
+        }
+
+        # Compute delta times and normalization (consistent with forward)
+        self._compute_delta_times_inplace(ctx, "context")
+        if self.normalize_times:
+            _, x_norm = self._normalize_input_times(
+                {
+                    # Minimal inputs required by _normalize_input_times
+                    "context_event_times": ctx["context_event_times"],
+                    "context_seq_lengths": ctx["context_seq_lengths"],
+                    # Provide placeholders for inference keys (not used here)
+                    "inference_event_times": ctx["context_event_times"],
+                    "intensity_evaluation_times": ctx["context_event_times"].squeeze(-1),
+                    "context_delta_times": ctx["context_delta_times"],
+                    "inference_delta_times": ctx["context_event_times"],
+                }
+            )
+            ctx.update(x_norm)
+
+        # Encode observations for context and build enhanced context
+        sequence_encodings_context = self._encode_observations_optimized(ctx, "context")  # [B, P_context, L, D]
+
+        B, P_context, L, D = sequence_encodings_context.shape
+        context_flat = sequence_encodings_context.view(B * P_context, L, D)
+        q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
+        context_seq_lengths_flat = ctx["context_seq_lengths"].view(-1)
+        positions = torch.arange(L, device=self.device).unsqueeze(0)
+        key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
+        h_k_context_flat = self.functional_attention(
+            q_expanded,
+            context_flat.unsqueeze(2),
+            observations_padding_mask=key_padding_mask.unsqueeze(-1),
+        )
+        h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
+        enhanced_context = h_k_context + self.context_self_attn(h_k_context, h_k_context, h_k_context)[0]
+        return enhanced_context
+
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         """
         Forward pass for the model.
@@ -235,48 +289,32 @@ class FIMHawkes(AModel):
         # ------------------------------------------------------------------
         # Encoding of observations (context & target/inference)
         # ------------------------------------------------------------------
-        sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
-        sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-
-        # ------------------------------------------------------------------
-        # (10) Path Summary: obtain h_k^{context} via functional attention
-        # ------------------------------------------------------------------
-        # For each context path k, we compute h_k^{context} = ψ_attn(q, H_k^{context}, H_k^{context})
-        # where H_k^{context} = {h_{k,1}^{context}, ..., h_{k,I_k}^{context}} are the event encodings
-
-        B, P_context, L, D = sequence_encodings_context.shape
-
-        # Reshape for batch processing: [B*P_context, L, D]
-        context_flat = sequence_encodings_context.view(B * P_context, L, D)
-
-        # Expand the learnable query q for each path: [B*P_context, 1, D]
-        q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
-
-        # Create attention mask for padded positions
-        context_seq_lengths_flat = x["context_seq_lengths"].view(-1)  # [B*P_context]
-        positions = torch.arange(L, device=self.device).unsqueeze(0)  # [1, L]
-        key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)  # [B*P_context, L]
-
-        # Apply functional attention: q attends to H_k^{context}
-        # This implements Eq. (4): h_k^{context} = ψ_attn(q, H_k^{context}, H_k^{context})
-        h_k_context_flat = self.functional_attention(
-            q_expanded,  # locations_encoding: [B*P_context, 1, D]
-            context_flat.unsqueeze(2),  # observations_encoding: [B*P_context, L, 1, D]
-            observations_padding_mask=key_padding_mask.unsqueeze(-1),  # [B*P_context, L, 1]
-        )  # Result shape: [B*P_context, 1, D]
-
-        # Reshape back to [B, P_context, D] (squeeze the singleton query dimension)
-        h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
-
-        # ------------------------------------------------------------------
-        # (5) Concatenate all context path summaries: H_context = {h_1^{context}, ..., h_K^{context}}
-        # ------------------------------------------------------------------
-        H_context = h_k_context  # [B, P_context, D] - this is already the concatenation
-
-        # ------------------------------------------------------------------
-        # (6) Enhance context embeddings via self-attention across paths
-        # ------------------------------------------------------------------
-        enhanced_context = H_context + self.context_self_attn(H_context, H_context, H_context)[0]  # [B, P_context, D]
+        # Allow re-using precomputed enhanced context embeddings to avoid repeated encoding
+        precomputed_enhanced_context = x.get("precomputed_enhanced_context", None)
+        if precomputed_enhanced_context is not None:
+            enhanced_context = precomputed_enhanced_context
+            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
+        else:
+            sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
+            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
+            # ------------------------------------------------------------------
+            # (10) Path Summary: obtain h_k^{context} via functional attention
+            # ------------------------------------------------------------------
+            B, P_context, L, D = sequence_encodings_context.shape
+            context_flat = sequence_encodings_context.view(B * P_context, L, D)
+            q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
+            context_seq_lengths_flat = x["context_seq_lengths"].view(-1)
+            positions = torch.arange(L, device=self.device).unsqueeze(0)
+            key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
+            h_k_context_flat = self.functional_attention(
+                q_expanded,
+                context_flat.unsqueeze(2),
+                observations_padding_mask=key_padding_mask.unsqueeze(-1),
+            )
+            h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
+            H_context = h_k_context
+            enhanced_context = H_context + self.context_self_attn(H_context, H_context, H_context)[0]
+        # At this point, `enhanced_context` is available
 
         # ------------------------------------------------------------------
         # Convert event representations to intensity parameters
