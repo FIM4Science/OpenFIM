@@ -21,7 +21,7 @@ from tqdm import tqdm
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-05-0848/checkpoints/epoch-6629"
+MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-21st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-15-1154/checkpoints/epoch-100"
 
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
@@ -29,7 +29,7 @@ MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000
 USE_EASYTPP = True
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
-DATASET_IDENTIFIER = "easytpp/retweet"
+DATASET_IDENTIFIER = "easytpp/taxi"
 
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
@@ -40,19 +40,19 @@ SAMPLE_INDEX = 0
 LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale"
 
 # Set the number of event types for the chosen dataset.
-NUM_EVENT_TYPES = 3
+NUM_EVENT_TYPES = 10
 
 # Maximum number of sequences from the training set to use as context.
-CONTEXT_SIZE = 1000
+CONTEXT_SIZE = None
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = 100
+INFERENCE_SIZE = None
 
 # Number of points to use for log-likelihood evaluation
 NUM_INTEGRATION_POINTS = 5000
 
 # Only consider paths up to this length
-MAX_NUM_EVENTS = 100
+MAX_NUM_EVENTS = None
 
 PLOT_INTENSITY_PREDICTIONS = True
 
@@ -240,28 +240,20 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
             context_types = context_batch["type_seqs"].unsqueeze(0).unsqueeze(-1).to(device)
             context_lengths = context_batch["seq_non_pad_mask"].sum(dim=1).unsqueeze(0).to(device)
 
-            inf_times_padded = torch.zeros(1, 1, L, 1, device=device)
-            inf_types_padded = torch.zeros(1, 1, L, 1, device=device)
-
             prefix_times = inference_sequence["time_seqs"][0, :prefix_len]
             prefix_types = inference_sequence["type_seqs"][0, :prefix_len]
 
-            inf_times_padded[0, 0, :prefix_len, 0] = prefix_times
-            inf_types_padded[0, 0, :prefix_len, 0] = prefix_types
-
-            # Pad *after* the prefix with +inf so that these indices are guaranteed
-            # to be treated as "future" events by the intensity implementation and
-            # never influence the sampler.
-            inf_times_padded[0, 0, prefix_len:, 0] = float("inf")
-
+            # Build exact-length 4D tensors (no padding)
+            inf_times = prefix_times.view(1, 1, prefix_len, 1).to(device)
+            inf_types = prefix_types.to(dtype=torch.long).view(1, 1, prefix_len, 1).to(device)
             inf_lengths = torch.tensor([[prefix_len]], device=device)
 
             x = {
                 "context_event_times": context_times,
                 "context_event_types": context_types,
                 "context_seq_lengths": context_lengths,
-                "inference_event_times": inf_times_padded,
-                "inference_event_types": inf_types_padded,
+                "inference_event_times": inf_times,
+                "inference_event_types": inf_types,
                 "inference_seq_lengths": inf_lengths,
                 "intensity_evaluation_times": torch.zeros(1, 1, 1, device=device),
             }
@@ -271,13 +263,12 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
 
             # Extract only the *real* history up to `prefix_len` so the sampler and
             # subsequent calculations ignore the +inf padding.
-            hist_times_full = x["inference_event_times"].squeeze(0).squeeze(-1)
-            hist_times = hist_times_full[:, :prefix_len]
+            hist_times = x["inference_event_times"].squeeze(0).squeeze(-1)
 
             hist_dtimes = torch.zeros_like(hist_times)
             hist_dtimes[:, 1:] = hist_times[:, 1:] - hist_times[:, :-1]
 
-            hist_types = x["inference_event_types"].squeeze(0).squeeze(-1)[:, :prefix_len]
+            hist_types = x["inference_event_types"].squeeze(0).squeeze(-1)
 
             def intensity_fn_for_sampler(query_times, hist_ignored):
                 intensity_per_mark = intensity_obj.evaluate(query_times)
@@ -293,10 +284,10 @@ def predict_next_event_for_sequence(model, inference_sequence, context_batch, de
                 compute_last_step_only=True,
             )
 
-            # `accepted_dtimes` returned by the sampler are ABSOLUTE timestamps.  To obtain
+            # `accepted_dtimes` returned by the sampler are ABSOLUTE timestamps. To obtain
             # the inter-event time we need to subtract the timestamp of the last observed
             # event (t_last).
-            t_last_tensor = hist_times[:, -1:].unsqueeze(-1)  # Shape compatible with accepted_dtimes
+            t_last_tensor = hist_times[:, -1:].unsqueeze(-1)
             raw_delta_samples = accepted_dtimes - t_last_tensor
             # Warn if sampler fell back to its max dtime
             dtime_max = model.event_sampler.dtime_max
@@ -724,8 +715,11 @@ def main():
         test_dataset = load_dataset(DATASET_IDENTIFIER, split="test")
 
         # Select a subset for context and inference based on configuration
-        context_data_raw = train_dataset[:CONTEXT_SIZE]
-        inference_data_raw = test_dataset[:INFERENCE_SIZE]
+        effective_context_size = len(train_dataset) if CONTEXT_SIZE is None else CONTEXT_SIZE
+        effective_inference_size = len(test_dataset) if INFERENCE_SIZE is None else INFERENCE_SIZE
+
+        context_data_raw = train_dataset[:effective_context_size]
+        inference_data_raw = test_dataset[:effective_inference_size]
 
         # Ground truth functions not available for HuggingFace datasets
         ground_truth_available = False
@@ -737,8 +731,11 @@ def main():
         test_dataset_dict = load_local_dataset(LOCAL_DATASET_PATH, "test")
 
         # Select a subset for context and inference based on configuration
-        context_data_raw = load_local_dataset_subset(train_dataset_dict, CONTEXT_SIZE)
-        inference_data_raw = load_local_dataset_subset(test_dataset_dict, INFERENCE_SIZE)
+        effective_context_size = len(train_dataset_dict["seq_len"]) if CONTEXT_SIZE is None else CONTEXT_SIZE
+        effective_inference_size = len(test_dataset_dict["seq_len"]) if INFERENCE_SIZE is None else INFERENCE_SIZE
+
+        context_data_raw = load_local_dataset_subset(train_dataset_dict, effective_context_size)
+        inference_data_raw = load_local_dataset_subset(test_dataset_dict, effective_inference_size)
 
         # Check if ground truth functions are available
         ground_truth_available = "kernel_functions" in test_dataset_dict and "base_intensity_functions" in test_dataset_dict
@@ -753,11 +750,12 @@ def main():
             print("⚠️  Ground truth functions not available - model predictions only")
 
     # Truncate sequences longer than MAX_NUM_EVENTS
-    print(f"Truncating all sequences to at most {MAX_NUM_EVENTS} events...")
+    limit_str = "no limit" if MAX_NUM_EVENTS is None else str(MAX_NUM_EVENTS)
+    print(f"Truncating all sequences to at most {limit_str} events...")
 
     def _truncate_example(example):
         length = example.get("seq_len", len(example.get("time_since_start", [])))
-        trunc = min(length, MAX_NUM_EVENTS)
+        trunc = length if MAX_NUM_EVENTS is None else min(length, MAX_NUM_EVENTS)
         example["time_since_start"] = example["time_since_start"][:trunc]
         example["time_since_last_event"] = example["time_since_last_event"][:trunc]
         example["type_event"] = example["type_event"][:trunc]
@@ -772,7 +770,7 @@ def main():
             data_dict["type_event"],
             data_dict["seq_len"],
         ):
-            trunc = min(length, MAX_NUM_EVENTS)
+            trunc = length if MAX_NUM_EVENTS is None else min(length, MAX_NUM_EVENTS)
             truncated["time_since_start"].append(times[:trunc])
             truncated["time_since_last_event"].append(deltas[:trunc])
             truncated["type_event"].append(types[:trunc])
@@ -783,13 +781,9 @@ def main():
                 truncated[key] = data_dict[key]
         return truncated
 
-    # Apply truncation: use map for HuggingFace datasets if available, otherwise batch truncation
-    if hasattr(context_data_raw, "map"):
-        context_data_raw = context_data_raw.map(_truncate_example)
-        inference_data_raw = inference_data_raw.map(_truncate_example)
-    else:
-        context_data_raw = _truncate_batch(context_data_raw)
-        inference_data_raw = _truncate_batch(inference_data_raw)
+    # Apply truncation to the dict-of-lists data
+    context_data_raw = _truncate_batch(context_data_raw)
+    inference_data_raw = _truncate_batch(inference_data_raw)
 
     # 3. Prepare the fixed context batch (on-the-fly)
     # This batch will be cached and reused for all inference sequences.
@@ -799,10 +793,15 @@ def main():
     # Adjust the sampler's dtime_max to match the time scale of the dataset and avoid artificial truncation.
     # ------------------------------------------------------------------
 
-    if USE_EASYTPP:
-        max_dtime_train = max(max(seq) for seq in train_dataset["time_since_last_event"]) if CONTEXT_SIZE > 0 else 1.0
+    num_context_sequences = len(context_data_raw["seq_len"]) if "seq_len" in context_data_raw else 0
+    num_inference_sequences = len(inference_data_raw["seq_len"]) if "seq_len" in inference_data_raw else 0
+
+    if num_context_sequences > 0:
+        max_dtime_train = (
+            max(max(seq) for seq in context_data_raw["time_since_last_event"]) if context_data_raw["time_since_last_event"] else 1.0
+        )
     else:
-        max_dtime_train = max(max(seq) for seq in train_dataset_dict["time_since_last_event"]) if CONTEXT_SIZE > 0 else 1.0
+        max_dtime_train = 1.0
 
     sampler_cap = float(max_dtime_train) * 1.2  # 20 % safety margin
     model.event_sampler.dtime_max = sampler_cap
@@ -815,7 +814,7 @@ def main():
     model.event_sampler.over_sample_rate = 5.0
     print(f"Set sampler over_sample_rate to {model.event_sampler.over_sample_rate:.1f}")
 
-    max_context_len = max(len(seq) for seq in context_data_raw["time_since_start"]) if CONTEXT_SIZE > 0 else 0
+    max_context_len = max(len(seq) for seq in context_data_raw["time_since_start"]) if num_context_sequences > 0 else 0
 
     context_batch = {
         "time_seqs": [],
@@ -832,9 +831,9 @@ def main():
     context_batch["time_seqs"] = torch.tensor(context_batch["time_seqs"], device=device)
     context_batch["type_seqs"] = torch.tensor(context_batch["type_seqs"], device=device)
     context_batch["seq_len"] = torch.tensor(context_batch["seq_len"], device=device)
-    context_batch["seq_non_pad_mask"] = torch.arange(max_context_len, device=device).expand(CONTEXT_SIZE, max_context_len) < context_batch[
-        "seq_len"
-    ].unsqueeze(1)
+    context_batch["seq_non_pad_mask"] = torch.arange(max_context_len, device=device).expand(
+        num_context_sequences, max_context_len
+    ) < context_batch["seq_len"].unsqueeze(1)
 
     # Initialize metrics for model predictions
     total_mae, total_sq_err, total_acc, total_events = 0, 0, 0, 0
@@ -856,7 +855,7 @@ def main():
 
     # 4. Loop through inference sequences and perform next-event prediction
     with torch.no_grad():
-        for i in tqdm(range(INFERENCE_SIZE), desc="Evaluating Inference Sequences"):
+        for i in tqdm(range(num_inference_sequences), desc="Evaluating Inference Sequences"):
             # a. Prepare a single inference sequence
             inference_item = {
                 "time_seqs": torch.tensor([inference_data_raw["time_since_start"][i]], device=device),
@@ -944,7 +943,7 @@ def main():
     final_mae = total_mae / total_events if total_events > 0 else 0
     final_rmse = np.sqrt(total_sq_err / total_events) if total_events > 0 else 0
     final_acc = total_acc / total_events if total_events > 0 else 0
-    final_ll_model = -total_nll_model / INFERENCE_SIZE if INFERENCE_SIZE > 0 else 0
+    final_ll_model = -total_nll_model / num_inference_sequences if num_inference_sequences > 0 else 0
 
     baseline_final_mae = baseline_total_mae / baseline_total_events if baseline_total_events > 0 else 0
     baseline_final_rmse = np.sqrt(baseline_total_sq_err / baseline_total_events) if baseline_total_events > 0 else 0
@@ -970,7 +969,7 @@ def main():
         gt_final_mae = gt_total_mae / gt_total_events if gt_total_events > 0 else 0
         gt_final_rmse = np.sqrt(gt_total_sq_err / gt_total_events) if gt_total_events > 0 else 0
         gt_final_acc = gt_total_acc / gt_total_events if gt_total_events > 0 else 0
-        final_ll_gt = -total_nll_gt / INFERENCE_SIZE if INFERENCE_SIZE > 0 else 0
+        final_ll_gt = -total_nll_gt / num_inference_sequences if num_inference_sequences > 0 else 0
 
         print()
         print("GROUND TRUTH BASELINE:")
