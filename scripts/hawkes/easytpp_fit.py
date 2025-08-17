@@ -2,9 +2,9 @@
 Run examples:
   Local Hawkes dataset:
     python scripts/hawkes/easytpp_fit.py \
-      data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale \
+      data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions \
       --sample-idx 0 --model NHP --epochs 100 --batch-size 256 \
-      --max-num-events 100 --num-train-paths 1000 --num-eval-paths 100
+      --max-num-events 100 --num-train-paths 2000 --num-eval-paths 100
   HuggingFace EasyTPP dataset:
     python scripts/hawkes/easytpp_fit.py easytpp/retweet \
       --model NHP --epochs 100 --batch-size 256 \
@@ -132,19 +132,19 @@ def parse_args() -> argparse.Namespace:  # noqa: D401
     parser.add_argument(
         "--early-stop-patience",
         type=int,
-        default=None,
-        help="Enable simple early stopping with given patience (in epochs). If omitted, trains for full epochs.",
+        default=10,
+        help="Enable early stopping with given patience (in epochs). Default: 10 (based on validation log-likelihood).",
     )
     parser.add_argument(
         "--early-stop-metric",
         type=str,
-        default="rmse",
-        help="Validation metric to monitor for early stopping (e.g., rmse or acc).",
+        default="loglike",
+        help="Validation metric to monitor for early stopping (e.g., loglike, rmse, acc).",
     )
     parser.add_argument(
         "--early-stop-mode",
         type=str,
-        default="min",
+        default="max",
         choices=["min", "max"],
         help="Direction for early stopping: min (e.g., rmse) or max (e.g., acc).",
     )
@@ -355,7 +355,7 @@ def write_training_config(
         learning_rate: 1.e-3
         valid_freq: 1
         use_tfb: True
-        metrics: ['acc', 'rmse']
+        metrics: ['acc', 'rmse', 'loglike']
         seed: 42
         gpu: {gpu}
       model_config:
