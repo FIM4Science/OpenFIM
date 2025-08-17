@@ -26,7 +26,7 @@ MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-21st_2000_paths_mixed_100_events_
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
 # If False: Load from local path
-USE_EASYTPP = True
+USE_EASYTPP = False
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
 DATASET_IDENTIFIER = "easytpp/taxi"
@@ -88,11 +88,13 @@ def load_local_dataset(dataset_path: str, split: str):
     event_types = torch.load(split_path / "event_types.pt")  # [N_samples, P_processes, K_events, 1]
     seq_lengths = torch.load(split_path / "seq_lengths.pt")  # [N_samples, P_processes]
 
-    # Load ground truth functions if they exist
+    # Load ground truth functions if they exist, and mandatory time offsets
     kernel_functions = None
     base_intensity_functions = None
     kernel_functions_path = split_path / "kernel_functions.pt"
     base_intensity_functions_path = split_path / "base_intensity_functions.pt"
+    time_offsets_path = split_path / "time_offsets.pt"
+    time_offsets = torch.load(time_offsets_path)  # [N_samples, P]
 
     if kernel_functions_path.exists() and base_intensity_functions_path.exists():
         kernel_functions = torch.load(kernel_functions_path)  # [N_samples, M, M]
@@ -110,6 +112,7 @@ def load_local_dataset(dataset_path: str, split: str):
     event_times_sample = event_times[SAMPLE_INDEX]  # [P_processes, K_events, 1]
     event_types_sample = event_types[SAMPLE_INDEX]  # [P_processes, K_events, 1]
     seq_lengths_sample = seq_lengths[SAMPLE_INDEX]  # [P_processes]
+    time_offsets_sample = time_offsets[SAMPLE_INDEX]  # [P_processes]
 
     # Now work with processes dimension only (P instead of N*P)
     total_sequences = P
@@ -157,6 +160,9 @@ def load_local_dataset(dataset_path: str, split: str):
         # Extract functions for the selected sample
         result["kernel_functions"] = kernel_functions[SAMPLE_INDEX : SAMPLE_INDEX + 1]  # Keep batch dimension [1, M, M]
         result["base_intensity_functions"] = base_intensity_functions[SAMPLE_INDEX : SAMPLE_INDEX + 1]  # Keep batch dimension [1, M]
+
+    # Add time offsets (per-path tensor [P])
+    result["time_offsets"] = time_offsets_sample
 
     return result
 
@@ -428,6 +434,7 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
                     torch.tensor([[prefix_len]], device=device),  # [B, P]
                     norm_constants,
                     num_marks=num_marks,
+                    inference_time_offsets=inference_sequence["time_offset_tensor"],
                 )
                 # target_intensity shape: [B, M, P, T_query]
                 # Sampler expects [B, P, T_query, M]
@@ -465,6 +472,9 @@ def predict_next_event_for_sequence_ground_truth(model, inference_sequence, cont
                 torch.tensor([[prefix_len]], device=device),
                 norm_constants,
                 num_marks=num_marks,
+                inference_time_offsets=(
+                    inference_sequence.get("time_offset_tensor") if inference_sequence.get("time_offset_tensor") is not None else None
+                ),
             )
             total_gt_intensity = gt_intensities_at_samples.sum(dim=1, keepdim=True)
             gt_probabilities_at_samples = gt_intensities_at_samples / (total_gt_intensity + 1e-9)
@@ -506,6 +516,9 @@ class GroundTruthIntensity:
             "kernel_functions": ground_truth_functions["kernel_functions"].to(self.device),
             "base_intensity_functions": ground_truth_functions["base_intensity_functions"].to(self.device),
         }
+        # Optional per-path time offset, shape expected by model: [B, P]
+        # Mandatory per-path time offset
+        self.x["inference_time_offsets"] = inference_sequence["time_offset_tensor"].to(self.device)
 
         self.kernel_functions_list, self.base_intensity_functions_list = model._decode_functions(
             self.x["kernel_functions"], self.x["base_intensity_functions"]
@@ -546,6 +559,7 @@ class GroundTruthIntensity:
             self.x["inference_seq_lengths"],
             self.norm_constants,
             self.num_marks,
+            self.x.get("inference_time_offsets", None),
         )
 
     def integral(self, t_end, t_start=None, num_samples: int = 100, normalized_times: bool = False):
@@ -562,6 +576,7 @@ class GroundTruthIntensity:
             self.norm_constants,
             self.num_marks,
             num_samples=num_samples,
+            inference_time_offsets=self.x.get("inference_time_offsets", None),
         )
         # This function computes integral from 0 to t_end. _nll_loss provides t_start=0.
         # The result will be [B, M, P, 1], we need to squeeze it for the loss function.
@@ -592,6 +607,8 @@ def compute_nll(model, inference_sequence, context_batch, device, ground_truth_f
         "inference_seq_lengths": inf_lengths,
         "intensity_evaluation_times": torch.zeros(1, 1, 1, device=device),  # Dummy
     }
+    # Provide offsets to model.forward for target intensity computation (mandatory)
+    x["inference_time_offsets"] = inference_sequence["time_offset_tensor"].to(device)
 
     with torch.no_grad():
         model_out = model.forward(x)
@@ -765,6 +782,10 @@ def main():
             ground_truth_functions = None
             print("⚠️  Ground truth functions not available - model predictions only")
 
+        # Thread mandatory time offsets through the raw dicts (shape [P])
+        context_data_raw["time_offsets"] = train_dataset_dict["time_offsets"]
+        inference_data_raw["time_offsets"] = test_dataset_dict["time_offsets"]
+
     # Truncate sequences longer than MAX_NUM_EVENTS
     limit_str = "no limit" if MAX_NUM_EVENTS is None else str(MAX_NUM_EVENTS)
     print(f"Truncating all sequences to at most {limit_str} events...")
@@ -791,8 +812,8 @@ def main():
             truncated["time_since_last_event"].append(deltas[:trunc])
             truncated["type_event"].append(types[:trunc])
             truncated["seq_len"].append(trunc)
-        # Preserve any ground truth functions
-        for key in ("kernel_functions", "base_intensity_functions"):
+        # Preserve any ground truth functions and time offsets
+        for key in ("kernel_functions", "base_intensity_functions", "time_offsets"):
             if key in data_dict:
                 truncated[key] = data_dict[key]
         return truncated
@@ -883,6 +904,10 @@ def main():
                 "type_seqs": torch.tensor([inference_data_raw["type_event"][i]], device=device),
                 "seq_len": torch.tensor([inference_data_raw["seq_len"][i]], device=device),
             }
+            # Attach per-path time offset (mandatory): model expects shape [B=1, P=1]
+            toff_val = inference_data_raw["time_offsets"][i]
+            scalar_off = float(toff_val.item()) if torch.is_tensor(toff_val) else float(toff_val)
+            inference_item["time_offset_tensor"] = torch.tensor([[scalar_off]], device=device, dtype=torch.float32)
             inf_max_len = inference_item["time_seqs"].shape[1]
             inference_item["seq_non_pad_mask"] = torch.arange(inf_max_len, device=device).expand(1, inf_max_len) < inference_item[
                 "seq_len"
