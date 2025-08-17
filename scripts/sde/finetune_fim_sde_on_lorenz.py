@@ -9,7 +9,6 @@ from pathlib import Path
 
 import click
 import finetune_helpers
-from train_latent_sde import sample_lorenz_paths_from_trained_model
 
 from fim.utils.helper import load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
@@ -28,7 +27,7 @@ def finetune_fim_on_lorenz(
     base_config: Path,
     train_data_label: str,
     exp_name: str,
-    sample_paths: bool,
+    sample_every: int,
     **extra_configs,
 ) -> None:
     """
@@ -45,8 +44,12 @@ def finetune_fim_on_lorenz(
     trainer = finetune_helpers.train_fimsde(model, config)
     finetune_helpers.add_model_type_to_checkpoints(trainer)
 
-    if sample_paths is True:
-        sample_lorenz_paths_from_trained_model(trainer, exp_name, train_data_label, test_data_setups)
+    # checkpoint_dir = Path(project_path) / trainer.checkpointer.checkpoint_dir
+    # n_epochs = trainer.n_epochs
+
+    del trainer
+
+    # sample_lorenz_paths_from_trained_model(checkpoint_dir, n_epochs, exp_name, train_data_label, test_data_setups, sample_every)
 
 
 if __name__ == "__main__":
@@ -93,6 +96,7 @@ if __name__ == "__main__":
     @click.option("--seed", "seed", type=int, required=True)
     @click.option("--exp-name", "exp_name", type=str, required=True)
     @click.option("--train-data-label", "train_data_label", type=str, required=True)
+    @click.option("--sample-every", "sample_every", type=int, required=False, default=None)
     @click.option("--detach-diffusion", "detach_diffusion", type=bool, required=False, default=False)
     @click.option("--likelihood", "likelihood", type=bool, required=False, default=False)
     @click.option("--sampling-mse", "sampling_mse", type=bool, required=False, default=False)
@@ -101,7 +105,6 @@ if __name__ == "__main__":
     @click.option("--samples-steps", "samples_steps", type=int, required=False, default=1)
     @click.option("--em-steps", "em_steps", type=int, required=False, default=1)
     @click.option("--num-points", "num_points", type=int, required=False, default=-1)
-    @click.option("--sample-paths", "sample_paths", type=bool, required=False, default=True)
     @click.option("--epochs", "epochs", type=int, required=False, default=500)
     @click.option("--save-every", "save_every", type=int, required=False, default=100)
     @click.option("--lr", "lr", type=float, required=False, default=1e-5)

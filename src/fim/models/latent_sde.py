@@ -411,12 +411,14 @@ class LatentSDE(AModel):
         B = initial_states.shape[0]
         assert latent_paths.shape == (T, B, self.config.latent_size), f"Got {latent_paths.shape} and {(T, B, self.config.context_size)}."
         assert projected_paths.shape == (T, B, self.config.data_size), f"Got {projected_paths.shape} and {(T, B, self.config.data_size)}."
-        assert log_ratio.shape == (T - 1, B), f"Got {log_ratio.shape} and {(T - 1, B)}."
+        if log_ratio is not None:
+            assert log_ratio.shape == (T - 1, B), f"Got {log_ratio.shape} and {(T - 1, B)}."
 
         # batch first convention
-        latent_paths, projected_paths, log_ratio = torch.utils._pytree.tree_map(
-            lambda x: torch.transpose(x, 0, 1), (latent_paths, projected_paths, log_ratio)
-        )
+        latent_paths = torch.transpose(latent_paths, 0, 1)
+        projected_paths = torch.transpose(projected_paths, 0, 1)
+        if log_ratio is not None:
+            log_ratio = torch.transpose(log_ratio, 0, 1)
 
         return latent_paths, projected_paths, log_ratio
 
