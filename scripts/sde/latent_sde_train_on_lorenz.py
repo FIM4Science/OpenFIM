@@ -5,7 +5,10 @@
 # pylint: disable=missing-function-docstring
 import logging
 import warnings
+from datetime import datetime
 from pathlib import Path
+from pprint import pprint
+from typing import Optional
 
 import click
 import finetune_helpers
@@ -13,7 +16,6 @@ import latent_sde_helpers
 from evaluation.lorenz_system_paths_evaluation import evaluate_all_models
 
 from fim import project_path
-from fim.trainers.trainer import Trainer
 from fim.utils.helper import load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
@@ -24,21 +26,45 @@ warnings.filterwarnings("ignore", module="matplotlib")
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 
 
-def sample_lorenz_paths_from_trained_model(trainer: Trainer, exp_name: str, train_data_label: str, test_data_setups: dict) -> None:
+def sample_lorenz_paths_from_trained_model(
+    checkpoint_dir: Path, n_epochs: int, exp_name: str, train_data_label: str, test_data_setups: dict, sample_every: Optional[int] = None
+) -> None:
     """
     Sample Paths from trained model based on some test data.
     """
-    checkpoint_dir = Path(project_path) / trainer.checkpointer.checkpoint_dir
     last_epoch = finetune_helpers.get_last_epoch(checkpoint_dir)
 
-    model_dicts = {(exp_name, train_data_label): {"checkpoint_dir": checkpoint_dir, "checkpoint_name": last_epoch}}
+    if sample_every is None:
+        model_dicts = [
+            {(exp_name + f"_epoch_{last_epoch}", train_data_label): {"checkpoint_dir": checkpoint_dir, "checkpoint_name": last_epoch}}
+        ]
 
-    evaluate_all_models(
-        dataset_descr="lorenz_system_vf_and_paths_evaluation",
-        experiment_descr=exp_name,
-        model_dicts=model_dicts,
-        data_setups=test_data_setups,
-    )
+    else:
+        epochs_to_save = [e for e in range(1, n_epochs) if (e % sample_every == 0)]
+        epochs_to_save = [max(e - 1, 0) for e in epochs_to_save]  # epoch count starts at 0
+        epochs_to_save_str = [str(e).zfill(len(str(n_epochs - 1))) for e in epochs_to_save]
+
+        model_dicts = [
+            {(exp_name + f"_epoch_{epoch_str}", train_data_label): {"checkpoint_dir": checkpoint_dir, "checkpoint_name": f"epoch-{epoch}"}}
+            for (epoch, epoch_str) in zip(epochs_to_save, epochs_to_save_str)
+        ]
+
+    pprint(model_dicts)
+
+    experiment_descr = exp_name
+    dataset_descr = "lorenz_system_vf_and_paths_evaluation"
+
+    evaluation_path = Path(project_path) / "evaluations"
+    time: str = str(datetime.now().strftime("%m%d%H%M"))
+    evaluation_dir: Path = evaluation_path / dataset_descr / (time + "_" + experiment_descr)
+    evaluation_dir.mkdir(parents=True, exist_ok=True)
+
+    for d in model_dicts:
+        evaluate_all_models(
+            evaluation_dir=evaluation_dir,
+            model_dicts=d,
+            data_setups=test_data_setups,
+        )
 
 
 def train_latent_sde(
@@ -46,6 +72,7 @@ def train_latent_sde(
     base_config: Path,
     exp_name: str,
     train_data_label: str,
+    sample_every: int,
     **extra_configs,
 ) -> None:
     """
@@ -58,7 +85,12 @@ def train_latent_sde(
 
     trainer = latent_sde_helpers.train_latent_sde(config)
 
-    sample_lorenz_paths_from_trained_model(trainer, exp_name, train_data_label, test_data_setups)
+    # checkpoint_dir = Path(project_path) / trainer.checkpointer.checkpoint_dir
+    # n_epochs = trainer.n_epochs
+    #
+    del trainer
+    #
+    # sample_lorenz_paths_from_trained_model(checkpoint_dir, n_epochs, exp_name, train_data_label, test_data_setups, sample_every)
 
 
 if __name__ == "__main__":
@@ -103,6 +135,9 @@ if __name__ == "__main__":
     @click.option("--seed", "seed", type=int, required=True)
     @click.option("--exp-name", "exp_name", type=str, required=True)
     @click.option("--train-data-label", "train_data_label", type=str, required=True)
+    @click.option("--sample-every", "sample_every", type=int, required=False, default=None)
+    @click.option("--save-every", "save_every", type=int, required=False, default=1000)
+    @click.option("--epochs", "epochs", type=int, required=False, default=5000)
     @click.option("--context-size", "context_size", type=int, required=False, default=None)
     @click.option("--hidden-size", "hidden_size", type=int, required=False, default=None)
     @click.option("--latent-size", "latent_size", type=int, required=False, default=None)
@@ -112,6 +147,7 @@ if __name__ == "__main__":
     @click.option("--kl-scale-end-step", "kl_scale_end_step", type=int, required=False, default=None)
     @click.option("--lr", "lr", type=float, default=None)
     @click.option("--lr-gamma", "lr_gamma", type=float, default=None)
+    @click.option("--mse-objective", "mse_objective", type=bool, required=False, default=False)
     def cli(**kwargs):
         train_latent_sde(test_data_setups, **kwargs)
 

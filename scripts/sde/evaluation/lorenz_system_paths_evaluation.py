@@ -76,6 +76,20 @@ def evaluate_latentsde_on_lorenz(
         }
     )
 
+    # ## posterior equation, posterior condition
+    # ctx, obs_times, _ = model.encode_inputs(reference_obs_times, reference_obs_values)
+    # posterior_initial_states, _, _ = model.sample_posterior_initial_condition(ctx[0])
+    # _, paths_post_eq_post_init_cond, _ = model.sample_from_posterior_equation(posterior_initial_states, ctx, obs_times)
+    # results.append(
+    #     {
+    #         "synthetic_path": paths_post_eq_post_init_cond,
+    #         "drift_at_locations": drift_at_locations,
+    #         "diffusion_at_locations": diffusion_at_locations,
+    #         "sampling_label": "Posterior Eq. in Latent Space",
+    #         "initial_state_label": "Posterior Init. Cond. from Ref. Set.",
+    #     }
+    # )
+    #
     # prior equation, prior initial condition
     prior_initial_states = model.sample_prior_initial_condition(reference_obs_values.shape[0])
     _, paths_prior_init_cond = model.sample_from_prior_equation(prior_initial_states, obs_times)
@@ -225,11 +239,16 @@ def run_lorenz_evaluation(
                 device=device,
             )  # contains results from multiple sampling strategies
 
+            results = optree.tree_map(lambda x: x.to("cpu") if isinstance(x, torch.Tensor) else x, results, namespace="fimsde")
+
             # copy evaluation setup for all results
             for result in results:
                 evaluation_ = deepcopy(evaluation)
                 evaluation_.results = result
                 evaluations_with_results.append(evaluation_)
+
+            del results
+            del evaluation_
 
         else:
             evaluation.results = evaluate_fim_on_lorenz(
@@ -243,9 +262,14 @@ def run_lorenz_evaluation(
                 inference_data_label=dataset["inference_data_label"],
                 device=device,
             )
+            evaluation.results = optree.tree_map(
+                lambda x: x.to("cpu") if isinstance(x, torch.Tensor) else x, evaluation.results, namespace="fimsde"
+            )
             evaluations_with_results.append(evaluation)
+            del evaluation
 
         del model
+        del dataset
 
     return evaluations_with_results
 
@@ -294,13 +318,7 @@ def get_lorenz_datasets(train_data_label: str, train_data_jsons: Path, device=No
     return datasets
 
 
-def evaluate_all_models(dataset_descr: str, experiment_descr: str, model_dicts: dict, data_setups: dict, results_to_load: list[Path] = []):
-    # Save dir setup: project_path / evaluations / synthetic_datasets / time_stamp + _ + experiment_descr
-    evaluation_path = Path(project_path) / "evaluations"
-    time: str = str(datetime.now().strftime("%m%d%H%M"))
-    evaluation_dir: Path = evaluation_path / dataset_descr / (time + "_" + experiment_descr)
-    evaluation_dir.mkdir(parents=True, exist_ok=True)
-
+def evaluate_all_models(evaluation_dir: Path, model_dicts: dict, data_setups: dict, results_to_load: list[Path] = []):
     datasets: list[dict] = [get_lorenz_datasets(train_data_label=setup_label, **setup) for setup_label, setup in data_setups.items()]
     datasets: dict = {k: v for d in datasets for k, v in d.items()}
 
@@ -625,4 +643,10 @@ if __name__ == "__main__":
 
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
-    evaluate_all_models(dataset_descr, experiment_descr, model_dicts, data_setups, results_to_load=results_to_load)
+    # Save dir setup: project_path / evaluations / synthetic_datasets / time_stamp + _ + experiment_descr
+    evaluation_path = Path(project_path) / "evaluations"
+    time: str = str(datetime.now().strftime("%m%d%H%M"))
+    evaluation_dir: Path = evaluation_path / dataset_descr / (time + "_" + experiment_descr)
+    evaluation_dir.mkdir(parents=True, exist_ok=True)
+
+    evaluate_all_models(evaluation_dir, model_dicts, data_setups, results_to_load=results_to_load)

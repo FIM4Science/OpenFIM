@@ -269,6 +269,101 @@ PRELIMINARY_REBUTTAL_MODELS_JSONS = {
     / "fim_finetune_sample_nll_epoch_500_train_data_neural_sde_paper.json",
 }
 
+
+#### Post neurips convergence speed comparison for figure in 100 stepsize grid
+convergence_base_path = Path(
+    "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_system_vf_and_paths_evaluation/20250820_fim_finetune_vs_retrain_convergence_comparison_mse_every_100_epochs/"
+)
+
+conv_lat_sde_path = (
+    convergence_base_path / "08200856_latent_sde_paper_setup_record_every_100_epochs_for_convergence_speed_comparison/model_paths"
+)
+conv_fim_finetune_base_path = (
+    convergence_base_path
+    / "08201339_fim_finetune_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_convergence_speed_post_neurips/model_paths"
+)
+conv_fim_retrain_base_path = (
+    convergence_base_path
+    / "08201722_fim_from_scratch_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_convergence_speed_post_neurips/model_paths"
+)
+
+epochs = [99 + i * 100 for i in range(49)]
+epochs = [str(e).zfill(4) for e in epochs]  # 0099 til 4899
+
+CONVERGENCE_EVERY_100_LATENT_SDE_JSONS = {
+    f"latent_sde_epoch_{epoch}": conv_lat_sde_path / f"develop_sampling_epoch_{epoch}_train_data_neural_sde_paper.json" for epoch in epochs
+}
+
+CONVERGENCE_EVERY_100_FIM_FINETUNE_JSONS = {
+    f"fim_finetune_epoch_{epoch}": conv_fim_finetune_base_path
+    / f"fim_finetune_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_convergence_speed_post_neurips_epoch_{epoch}_train_data_neural_sde_paper.json"
+    for epoch in epochs
+}
+
+CONVERGENCE_EVERY_100_FIM_RETRAIN_JSONS = {
+    f"fim_retrain_epoch_{epoch}": conv_fim_retrain_base_path
+    / f"fim_from_scratch_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_convergence_speed_post_neurips_epoch_{epoch}_train_data_neural_sde_paper.json"
+    for epoch in epochs
+}
+
+CONVERGENCE_EVERY_100_MODEL_JSONS = (
+    CONVERGENCE_EVERY_100_LATENT_SDE_JSONS | CONVERGENCE_EVERY_100_FIM_FINETUNE_JSONS | CONVERGENCE_EVERY_100_FIM_RETRAIN_JSONS
+)
+
+#### Post neurips convergence speed comparison for figure in 5 stepsize grid
+convergence_base_path = Path(
+    "/cephfs_projects/foundation_models/data/SDE/saved_evaluation_results/20250808_neurips_rebuttal_evaluations/lorenz_convergence_speed/sampled_paths"
+)
+conv_lat_sde_prior_eq_path = (
+    convergence_base_path / "08210828_latent_sde_paper_setup_record_every_5_epochs_convergence_speed_post_neurips/model_paths"
+)
+conv_lat_sde_posterior_eq_path = (
+    convergence_base_path
+    / "08221217_latent_sde_paper_setup_posterior_equation_record_every_5_epochs_convergence_speed_post_neurips/model_paths"
+)
+conv_fim_finetune_base_path = (
+    convergence_base_path
+    / "08210827_fim_finetune_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_record_every_5_epochs_convergence_speed_post_neurips/model_paths"
+)
+conv_fim_retrain_base_path = (
+    convergence_base_path
+    / "08210825_fim_from_scratch_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_every_5_epochs_convergence_speed_post_neurips/model_paths"
+)
+
+epochs = [4 + i * 5 for i in range(999)]
+epochs = [str(e).zfill(4) for e in epochs]  # 0004 til 4899
+
+CONVERGENCE_EVERY_5_LATENT_SDE_PRIOR_EQ_JSONS = {
+    f"latent_sde_prior_eq_epoch_{epoch}": conv_lat_sde_prior_eq_path
+    / f"latent_sde_paper_setup_record_every_5_epochs_convergence_speed_post_neurips_epoch_{epoch}_train_data_neural_sde_paper.json"
+    for epoch in epochs
+}
+
+CONVERGENCE_EVERY_5_LATENT_SDE_POSTERIOR_EQ_JSONS = {
+    f"latent_sde_posterior_eq_epoch_{epoch}": conv_lat_sde_posterior_eq_path
+    / f"latent_sde_paper_setup_posterior_equation_record_every_5_epochs_convergence_speed_post_neurips_epoch_{epoch}_train_data_neural_sde_paper.json"
+    for epoch in epochs
+}
+
+CONVERGENCE_EVERY_5_FIM_FINETUNE_JSONS = {
+    f"fim_finetune_epoch_{epoch}": conv_fim_finetune_base_path
+    / f"fim_finetune_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_record_every_5_epochs_convergence_speed_post_neurips_epoch_{epoch}_train_data_neural_sde_paper.json"
+    for epoch in epochs
+}
+
+CONVERGENCE_EVERY_5_FIM_RETRAIN_JSONS = {
+    f"fim_retrain_epoch_{epoch}": conv_fim_retrain_base_path
+    / f"fim_from_scratch_on_sampling_mse_5000_epochs_lr_1e-5_32_points_1_sample_1_step_ahead_10_em_step_every_5_epochs_convergence_speed_post_neurips_epoch_{epoch}_train_data_neural_sde_paper.json"
+    for epoch in epochs
+}
+
+CONVERGENCE_EVERY_5_MODEL_JSONS = (
+    CONVERGENCE_EVERY_5_LATENT_SDE_PRIOR_EQ_JSONS
+    | CONVERGENCE_EVERY_5_LATENT_SDE_POSTERIOR_EQ_JSONS
+    | CONVERGENCE_EVERY_5_FIM_FINETUNE_JSONS
+    | CONVERGENCE_EVERY_5_FIM_RETRAIN_JSONS
+)
+
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     dataset_descr = "lorenz_system_metrics_tables"
@@ -277,11 +372,12 @@ if __name__ == "__main__":
     # experiment_descr = "fim_finetune_vs_retrain_convergence_speed"
     # experiment_descr = "fim_locs_at_obs_epoch_139_no_finetuning"
     # experiment_descr = "fim_finetune_on_sampling_nll_10_seeds"
-    experiment_descr = "preliminary_rebuttal_comparison_all_models"
+    # experiment_descr = "preliminary_rebuttal_comparison_all_models"
+    experiment_descr = "convergence_speed_every_5_steps_latent_sde_posterior_and_prior_eq_fim_finetuned_and_retrained"
 
-    models_jsons = PRELIMINARY_REBUTTAL_MODELS_JSONS
+    models_jsons = CONVERGENCE_EVERY_5_MODEL_JSONS
 
-    metrics = ["mmd", "mse_drift", "mse_diffusion"]
+    metrics = ["mmd", "mse_drift", "mse_diffusion", "mse_paths"]
 
     project_path = "/cephfs/users/seifner/repos/FIM"
     neural_sde_paper_path = Path("/cephfs_projects/foundation_models/data/SDE/test/20250629_lorenz_systems/neural_sde_paper/set_0/")
@@ -330,7 +426,7 @@ if __name__ == "__main__":
             model_id=(model_label, model_paths.get("sampling_label"), model_paths.get("initial_state_label")),
             model_json=models_jsons[model_label],
             data_id=(model_paths["train_data_label"], model_paths["inference_data_label"]),
-            data_paths_json=reference_paths_jsons[model_paths["train_data_label"]][model_paths["inference_data_label"]],
+            data_paths_json=None,  # reference_paths_jsons[model_paths["train_data_label"]][model_paths["inference_data_label"]],
             data_vector_fields_json=None,
             metric_id=metric,
             metric_value=None,  # input later
@@ -413,6 +509,10 @@ if __name__ == "__main__":
 
             elif eval.metric_id == "mse_diffusion" and model_drift is not None:
                 eval.metric_value = get_mse(reference_diffusion, model_diffusion)
+
+            elif eval.metric_id == "mse_paths":
+                assert reference_paths.shape == model_paths.shape
+                eval.metric_value = get_mse(reference_paths.reshape(-1, 3), model_paths.reshape(-1, 3))
 
             end_time = datetime.now()
             computation_time = (end_time - start_time).total_seconds()

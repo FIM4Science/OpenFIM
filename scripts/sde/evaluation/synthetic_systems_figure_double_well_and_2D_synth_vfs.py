@@ -37,16 +37,49 @@ def _load_from_json(path_to_json: Path, system_name: str, tau: float, noise: flo
     return all_exp_results
 
 
+def _plot_1D_vfs(axs, locations, drift, diffusion, color, linewidth, linestyle, label):
+    axs[0].plot(locations.squeeze(), drift.squeeze(), color=color, linewidth=linewidth, linestyle=linestyle, label=label)
+    axs[1].plot(locations.squeeze(), diffusion.squeeze(), color=color, linewidth=linewidth, linestyle=linestyle)
+
+
+def _plot_2D_vf(ax, locations, vf, color, linestyle, scale=None, label=None):
+    return ax.quiver(
+        locations.squeeze()[:, 0],
+        locations.squeeze()[:, 1],
+        vf.squeeze()[:, 0],
+        vf.squeeze()[:, 1],
+        color=color,
+        scale=scale,
+        linestyle=linestyle,
+        linewidth=linewidth_vf,
+        width=0.011,
+        headwidth=2.5,
+        label=label,
+    )
+
+
+def _subsample_2D_locs(locations, size_dim, subsample_factor):
+    locations = locations.reshape(size_dim, size_dim, 2)
+    locations = locations[::subsample_factor, ::subsample_factor]
+    locations = locations.reshape(1, -1, 2)
+
+    return locations
+
+
 if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     global_description = "synthetic_systems_figure_double_well_and_2D_synth_vfs"
 
     # current_description = "neurips_search_for_decent_results_tau_0_002_noise_0_exp_4"
-    current_description = "found_tau_0_002_noise_0_results_for_all_models"
+    # current_description = "found_tau_0_002_noise_0_results_for_all_models"
+    current_description = "post_neurips_color_update_and_zero_shot_in_brackets"
 
     # data and results to load
-    path_to_data_json = Path(
+    path_to_vector_fields_data_json = Path(
         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ground_truth_drift_diffusion.json"
+    )
+    path_to_ksig_paths_json = Path(
+        "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250325_synthetic_systems_5000_points_with_additive_noise/data/systems_ksig_reference_paths.json"
     )
     path_to_gp_json = Path(
         "/cephfs_projects/foundation_models/data/SDE/external_evaluations_and_data/20250505_sparse_gp_model_results_with_noise/20250505_sparse_gp_experiments_mai.json"
@@ -60,25 +93,18 @@ if __name__ == "__main__":
 
     # results to plot
     systems_to_plot = ["Wang", "Double Well"]
-    noise = 0.0
 
     select_gp_results = {
-        # "Double Well": {"tau": 0.002, "noise": noise, "exp": 1},
-        # "Wang": {"tau": 0.002, "noise": noise, "exp": 0},
-        "Double Well": {"tau": 0.002, "noise": noise, "exp": 0},  # good: 0, 1
-        "Wang": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
-    }  # DW: 1 is ok, Wang: 0 is ok
+        "Double Well": {"tau": 0.002, "exp": 0, "noise": 0},
+        "Wang": {"tau": 0.002, "exp": 2, "noise": 0},
+    }
     select_bisde_results = {
-        # "Double Well": {"tau": 0.002, "noise": noise, "exp": 2},
-        # "Wang": {"tau": 0.002, "noise": noise, "exp": 3},
-        "Double Well": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1, 4
-        "Wang": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
-    }  # DW: 1  is ok, Wang:  3 is ok,
+        "Double Well": {"tau": 0.002, "exp": 1, "noise": 0},
+        "Wang": {"tau": 0.002, "exp": 0, "noise": 0},
+    }
     select_fimsde_results = {
-        # "Double Well": {"tau": 0.002, "noise": noise, "exp": 4},
-        # "Wang": {"tau": 0.002, "noise": noise, "exp": 1},
-        "Double Well": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
-        "Wang": {"tau": 0.002, "noise": noise, "exp": 1},  # good: 1
+        "Double Well": {"tau": 0.02, "exp": 4, "noise": 0},
+        "Wang": {"tau": 0.02, "exp": 1, "noise": 0},
     }
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
@@ -89,7 +115,7 @@ if __name__ == "__main__":
     evaluation_dir.mkdir(parents=True, exist_ok=True)
 
     # load data of double well and wang 2D synth
-    all_data: list[dict] = json.load(open(path_to_data_json))
+    all_data: list[dict] = json.load(open(path_to_vector_fields_data_json))
     all_systems_data: dict = {all_data[i].get("name"): copy(all_data[i]) for i in range(len(all_data))}
     data = {k: v for k, v in all_systems_data.items() if k in systems_to_plot}
     data = optree.tree_map(lambda x: np.array(x), data, is_leaf=lambda x: isinstance(x, list))
@@ -104,7 +130,7 @@ if __name__ == "__main__":
         "Wang": _load_from_json(path_to_bisde_json, "Wang", **select_bisde_results["Wang"], apply_sqrt_to_diffusion=True),
         "Double Well": _load_from_json(
             path_to_bisde_json, "Double Well", **select_bisde_results["Double Well"], apply_sqrt_to_diffusion=True
-        ),  # this needs to change
+        ),
     }
     fimsde_results = {
         "Wang": _load_from_json(path_to_fimsde_json, "Wang", **select_fimsde_results["Wang"], apply_sqrt_to_diffusion=False),
@@ -143,12 +169,12 @@ if __name__ == "__main__":
     axs[4].set_title("Diffusion", fontsize=5, pad=2)
 
     # general plot config
-    linewidth = 1
+    linewidth_vf = 1
     loc_size_per_dim = 32
     loc_subsample_factor = 4
 
     gt_color = "black"
-    gp_color = "#E69F00"
+    gp_color = "#D55E00"
     bisde_color = "#CC79A7"
     fimsde_color = "#0072B2"
 
@@ -157,36 +183,10 @@ if __name__ == "__main__":
     bisde_linestyle = "dashdot"
     fimsde_linestyle = "solid"
 
-    gt_label = "Ground-truth"
+    gt_label = "Ground-Truth"
     gp_label = "SparseGP"
     bisde_label = "BISDE"
-    fimsde_label = "FIM-SDE"
-
-    def _plot_1D_vfs(axs, locations, drift, diffusion, color, linewidth, linestyle, label):
-        axs[0].plot(locations.squeeze(), drift.squeeze(), color=color, linewidth=linewidth, linestyle=linestyle, label=label)
-        axs[1].plot(locations.squeeze(), diffusion.squeeze(), color=color, linewidth=linewidth, linestyle=linestyle)
-
-    def _plot_2D_vf(ax, locations, vf, color, linestyle, scale=None, label=None):
-        return ax.quiver(
-            locations.squeeze()[:, 0],
-            locations.squeeze()[:, 1],
-            vf.squeeze()[:, 0],
-            vf.squeeze()[:, 1],
-            color=color,
-            scale=scale,
-            linestyle=linestyle,
-            linewidth=1,
-            width=0.011,
-            headwidth=2.5,
-            label=label,
-        )
-
-    def _subsample_2D_locs(locations, size_dim, subsample_factor):
-        locations = locations.reshape(size_dim, size_dim, 2)
-        locations = locations[::subsample_factor, ::subsample_factor]
-        locations = locations.reshape(1, -1, 2)
-
-        return locations
+    fimsde_label = "FIM-SDE (Zero-Shot)"
 
     # plot ground-truth
     dw_data = data["Double Well"]
@@ -201,7 +201,7 @@ if __name__ == "__main__":
     dw_locs = dw_data["locations"]
     dw_drift = dw_data["drift_at_locations"]
     dw_diff = dw_data["diffusion_at_locations"]
-    _plot_1D_vfs(axs, dw_locs, dw_drift, dw_diff, color=gt_color, linewidth=linewidth, linestyle=gt_linestyle, label=gt_label)
+    _plot_1D_vfs(axs, dw_locs, dw_drift, dw_diff, color=gt_color, linewidth=linewidth_vf, linestyle=gt_linestyle, label=gt_label)
 
     two_d_locs = _subsample_2D_locs(two_d_data["locations"], size_dim=loc_size_per_dim, subsample_factor=loc_subsample_factor)
     two_d_drift = _subsample_2D_locs(two_d_data["drift_at_locations"], size_dim=loc_size_per_dim, subsample_factor=loc_subsample_factor)
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     dw_gp_results = gp_results["Double Well"]
     dw_gp_drift = dw_gp_results["drift_at_locations"]
     dw_gp_diff = dw_gp_results["diffusion_at_locations"]
-    _plot_1D_vfs(axs, dw_locs, dw_gp_drift, dw_gp_diff, color=gp_color, linewidth=linewidth, linestyle=gp_linestyle, label=gp_label)
+    _plot_1D_vfs(axs, dw_locs, dw_gp_drift, dw_gp_diff, color=gp_color, linewidth=linewidth_vf, linestyle=gp_linestyle, label=gp_label)
 
     two_d_gp_results = gp_results["Wang"]
     two_d_gp_drift = _subsample_2D_locs(
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     dw_bisde_drift = dw_bisde_results["drift_at_locations"]
     dw_bisde_diff = dw_bisde_results["diffusion_at_locations"]
     _plot_1D_vfs(
-        axs, dw_locs, dw_bisde_drift, dw_bisde_diff, color=bisde_color, linewidth=linewidth, linestyle=bisde_linestyle, label=bisde_label
+        axs, dw_locs, dw_bisde_drift, dw_bisde_diff, color=bisde_color, linewidth=linewidth_vf, linestyle=bisde_linestyle, label=bisde_label
     )
 
     two_d_bisde_results = bisde_results["Wang"]
@@ -256,7 +256,7 @@ if __name__ == "__main__":
         dw_fimsde_drift,
         dw_fimsde_diff,
         color=fimsde_color,
-        linewidth=linewidth,
+        linewidth=linewidth_vf,
         linestyle=fimsde_linestyle,
         label=fimsde_label,
     )
@@ -275,15 +275,6 @@ if __name__ == "__main__":
     plt.draw()
     handles, labels = axs[0].get_legend_handles_labels()
 
-    # # because bise is not on double well
-    # quiver_handles, quiver_labels = axs[3].get_legend_handles_labels()
-    # bisde_handle = [mlines.Line2D([], [], color=bisde_color, linewidth=linewidth, linestyle="dashdot")]
-    # bisde_label = quiver_labels
-    #
-    # handles = handles[:2] + bisde_handle + handles[2:]
-    # labels = labels[:2] + bisde_label + labels[2:]
-    #
-    # legend_fontsize = 6
     legend_fontsize = 5
     bbox_x = axs[2].get_position().x0 + 0.5 * (axs[2].get_position().x1 - axs[2].get_position().x0)
     bbox_y = axs[2].get_position().y1 * 1.07
