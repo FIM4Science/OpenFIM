@@ -22,15 +22,15 @@ from tqdm import tqdm
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-21st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-15-1154/checkpoints/epoch-100"
+MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-21st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-15-1154/checkpoints/epoch-103"
 
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
 # If False: Load from local path
-USE_EASYTPP = False
+USE_EASYTPP = True
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
-DATASET_IDENTIFIER = "easytpp/taxi"
+DATASET_IDENTIFIER = "easytpp/stackoverflow"
 
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
@@ -44,13 +44,13 @@ LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_i
 CONTEXT_SIZE = None
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = 10
+INFERENCE_SIZE = None
 
 # Number of points to use for log-likelihood evaluation
 NUM_INTEGRATION_POINTS = 5000
 
 # Only consider paths up to this length
-MAX_NUM_EVENTS = None
+MAX_NUM_EVENTS = 38
 
 PLOT_INTENSITY_PREDICTIONS = True
 
@@ -524,8 +524,8 @@ class GroundTruthIntensity:
             "base_intensity_functions": ground_truth_functions["base_intensity_functions"].to(self.device),
         }
         # Optional per-path time offset, shape expected by model: [B, P]
-        # Mandatory per-path time offset
-        self.x["inference_time_offsets"] = inference_sequence["time_offset_tensor"].to(self.device)
+        if "time_offset_tensor" in inference_sequence:
+            self.x["inference_time_offsets"] = inference_sequence["time_offset_tensor"].to(self.device)
 
         self.kernel_functions_list, self.base_intensity_functions_list = model._decode_functions(
             self.x["kernel_functions"], self.x["base_intensity_functions"]
@@ -626,8 +626,9 @@ def compute_nll(
         x["precomputed_enhanced_context"] = precomputed_enhanced_context
     if num_marks is not None:
         x["num_marks"] = torch.tensor([num_marks], device=device)
-    # Provide offsets to model.forward for target intensity computation (mandatory)
-    x["inference_time_offsets"] = inference_sequence["time_offset_tensor"].to(device)
+    # Provide offsets to model.forward for target intensity computation only if present (local datasets)
+    if "time_offset_tensor" in inference_sequence:
+        x["inference_time_offsets"] = inference_sequence["time_offset_tensor"].to(device)
 
     with torch.no_grad():
         model_out = model.forward(x)
@@ -932,10 +933,11 @@ def main():
                 "type_seqs": torch.tensor([inference_data_raw["type_event"][i]], device=device),
                 "seq_len": torch.tensor([inference_data_raw["seq_len"][i]], device=device),
             }
-            # Attach per-path time offset (mandatory): model expects shape [B=1, P=1]
-            toff_val = inference_data_raw["time_offsets"][i]
-            scalar_off = float(toff_val.item()) if torch.is_tensor(toff_val) else float(toff_val)
-            inference_item["time_offset_tensor"] = torch.tensor([[scalar_off]], device=device, dtype=torch.float32)
+            # Attach per-path time offset only for local datasets (if available): model expects shape [B=1, P=1]
+            if (not USE_EASYTPP) and ("time_offsets" in inference_data_raw):
+                toff_val = inference_data_raw["time_offsets"][i]
+                scalar_off = float(toff_val.item()) if torch.is_tensor(toff_val) else float(toff_val)
+                inference_item["time_offset_tensor"] = torch.tensor([[scalar_off]], device=device, dtype=torch.float32)
             inf_max_len = inference_item["time_seqs"].shape[1]
             inference_item["seq_non_pad_mask"] = torch.arange(inf_max_len, device=device).expand(1, inf_max_len) < inference_item[
                 "seq_len"
