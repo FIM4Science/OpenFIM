@@ -7,7 +7,9 @@ Usage:
 - Adjust CONTEXT_SIZE and INFERENCE_SIZE based on your memory constraints
 """
 
+import argparse
 import json
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -50,7 +52,7 @@ INFERENCE_SIZE = None
 NUM_INTEGRATION_POINTS = 5000
 
 # Only consider paths up to this length
-MAX_NUM_EVENTS = 38
+MAX_NUM_EVENTS = 100
 
 PLOT_INTENSITY_PREDICTIONS = True
 
@@ -740,6 +742,297 @@ def compute_baseline_predictions(context_data_raw, inference_data_raw):
     }
 
 
+def run_next_event_evaluation(
+    model_checkpoint_path: str,
+    dataset: str,
+    context_size: Optional[int] = None,
+    inference_size: Optional[int] = None,
+    max_num_events: Optional[int] = 100,
+    sample_index: int = 0,
+    num_integration_points: int = 5000,
+    plot_intensity_predictions: bool = False,
+):
+    """
+    Programmatic entry point for evaluating next-event prediction on a dataset.
+
+    Returns a dictionary with aggregate metrics for the model, naive baseline,
+    and ground truth (if available), plus bookkeeping fields.
+    """
+    start_time = time.time()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load model
+    model = load_fimhawkes_with_proper_weights(model_checkpoint_path)
+    model.eval()
+    model.to(device)
+
+    # Make sampler more robust (match defaults used in main)
+    model.event_sampler.num_samples_boundary = 50
+
+    # Resolve dataset source: HF id if startswith "easytpp/", else treat as local path
+    use_easytpp = isinstance(dataset, str) and dataset.startswith("easytpp/")
+
+    # Set globals used in some internals
+    global SAMPLE_INDEX, NUM_INTEGRATION_POINTS
+    SAMPLE_INDEX = sample_index
+    NUM_INTEGRATION_POINTS = num_integration_points
+
+    if use_easytpp:
+        train_dataset = load_dataset(dataset, split="train")
+        test_dataset = load_dataset(dataset, split="test")
+
+        effective_context_size = len(train_dataset) if context_size is None else context_size
+        effective_inference_size = len(test_dataset) if inference_size is None else inference_size
+
+        context_data_raw = train_dataset[:effective_context_size]
+        inference_data_raw = test_dataset[:effective_inference_size]
+
+        ground_truth_available = False
+        ground_truth_functions = None
+    else:
+        train_dataset_dict = load_local_dataset(dataset, "context")
+        test_dataset_dict = load_local_dataset(dataset, "test")
+
+        effective_context_size = len(train_dataset_dict["seq_len"]) if context_size is None else context_size
+        effective_inference_size = len(test_dataset_dict["seq_len"]) if inference_size is None else inference_size
+
+        context_data_raw = load_local_dataset_subset(train_dataset_dict, effective_context_size)
+        inference_data_raw = load_local_dataset_subset(test_dataset_dict, effective_inference_size)
+
+        ground_truth_available = "kernel_functions" in test_dataset_dict and "base_intensity_functions" in test_dataset_dict
+        if ground_truth_available:
+            ground_truth_functions = {
+                "kernel_functions": test_dataset_dict["kernel_functions"],
+                "base_intensity_functions": test_dataset_dict["base_intensity_functions"],
+            }
+        else:
+            ground_truth_functions = None
+
+        # Thread mandatory time offsets through the raw dicts (shape [P])
+        context_data_raw["time_offsets"] = train_dataset_dict["time_offsets"]
+        inference_data_raw["time_offsets"] = test_dataset_dict["time_offsets"]
+
+    # Truncate sequences
+    def _truncate_batch(data_dict):
+        truncated = {"time_since_start": [], "time_since_last_event": [], "type_event": [], "seq_len": []}
+        for times, deltas, types, length in zip(
+            data_dict["time_since_start"],
+            data_dict["time_since_last_event"],
+            data_dict["type_event"],
+            data_dict["seq_len"],
+        ):
+            trunc = length if max_num_events is None else min(length, max_num_events)
+            truncated["time_since_start"].append(times[:trunc])
+            truncated["time_since_last_event"].append(deltas[:trunc])
+            truncated["type_event"].append(types[:trunc])
+            truncated["seq_len"].append(trunc)
+        for key in ("kernel_functions", "base_intensity_functions", "time_offsets"):
+            if key in data_dict:
+                truncated[key] = data_dict[key]
+        return truncated
+
+    context_data_raw = _truncate_batch(context_data_raw)
+    inference_data_raw = _truncate_batch(inference_data_raw)
+
+    detected_num_marks = detect_num_event_types_from_data(context_data_raw, inference_data_raw)
+
+    # Sampler calibration using context deltas
+    num_context_sequences = len(context_data_raw["seq_len"]) if "seq_len" in context_data_raw else 0
+    if num_context_sequences > 0:
+        max_dtime_train = (
+            max(max(seq) for seq in context_data_raw["time_since_last_event"]) if context_data_raw["time_since_last_event"] else 1.0
+        )
+    else:
+        max_dtime_train = 1.0
+    sampler_cap = float(max_dtime_train) * 1.2
+    model.event_sampler.dtime_max = sampler_cap
+    model.event_sampler.over_sample_rate = 5.0
+
+    # Build context batch
+    max_context_len = max(len(seq) for seq in context_data_raw["time_since_start"]) if num_context_sequences > 0 else 0
+    context_batch = {"time_seqs": [], "type_seqs": [], "seq_len": []}
+    for i in range(len(context_data_raw["time_since_start"])):
+        pad_len = max_context_len - len(context_data_raw["time_since_start"][i])
+        context_batch["time_seqs"].append(context_data_raw["time_since_start"][i] + [0] * pad_len)
+        context_batch["type_seqs"].append(context_data_raw["type_event"][i] + [0] * pad_len)
+        context_batch["seq_len"].append(context_data_raw["seq_len"][i])
+    context_batch["time_seqs"] = torch.tensor(context_batch["time_seqs"], device=device)
+    context_batch["type_seqs"] = torch.tensor(context_batch["type_seqs"], device=device)
+    context_batch["seq_len"] = torch.tensor(context_batch["seq_len"], device=device)
+    context_batch["seq_non_pad_mask"] = torch.arange(max_context_len, device=device).expand(
+        num_context_sequences, max_context_len
+    ) < context_batch["seq_len"].unsqueeze(1)
+
+    # Metrics accumulators
+    total_mae, total_sq_err, total_acc, total_events = 0, 0, 0, 0
+    total_nll_model = 0
+    if ground_truth_available:
+        gt_total_mae, gt_total_sq_err, gt_total_acc, gt_total_events = 0, 0, 0, 0
+        total_nll_gt = 0
+
+    baseline_total_mae, baseline_total_sq_err, baseline_total_acc, baseline_total_events = 0, 0, 0, 0
+
+    # Baseline predictions
+    baseline_predictions = compute_baseline_predictions(context_data_raw, inference_data_raw)
+    baseline_pred_dtimes = baseline_predictions["predicted_event_dtimes"]
+    baseline_pred_types = baseline_predictions["predicted_event_types"]
+
+    # Precompute enhanced context
+    with torch.no_grad():
+        precomp_ctx = {
+            "context_event_times": context_batch["time_seqs"].unsqueeze(0).unsqueeze(-1).to(device),
+            "context_event_types": context_batch["type_seqs"].unsqueeze(0).unsqueeze(-1).to(device),
+            "context_seq_lengths": context_batch["seq_non_pad_mask"].sum(dim=1).unsqueeze(0).to(device),
+        }
+        precomputed_enhanced_context = model.encode_context(precomp_ctx)
+
+    # Inference loop
+    num_inference_sequences = len(inference_data_raw["seq_len"]) if "seq_len" in inference_data_raw else 0
+    with torch.no_grad():
+        for i in range(num_inference_sequences):
+            inference_item = {
+                "time_seqs": torch.tensor([inference_data_raw["time_since_start"][i]], device=device),
+                "time_delta_seqs": torch.tensor([inference_data_raw["time_since_last_event"][i]], device=device),
+                "type_seqs": torch.tensor([inference_data_raw["type_event"][i]], device=device),
+                "seq_len": torch.tensor([inference_data_raw["seq_len"][i]], device=device),
+            }
+            if (not use_easytpp) and ("time_offsets" in inference_data_raw):
+                toff_val = inference_data_raw["time_offsets"][i]
+                scalar_off = float(toff_val.item()) if torch.is_tensor(toff_val) else float(toff_val)
+                inference_item["time_offset_tensor"] = torch.tensor([[scalar_off]], device=device, dtype=torch.float32)
+            inf_max_len = inference_item["time_seqs"].shape[1]
+            inference_item["seq_non_pad_mask"] = torch.arange(inf_max_len, device=device).expand(1, inf_max_len) < inference_item[
+                "seq_len"
+            ].unsqueeze(1)
+
+            predictions = predict_next_event_for_sequence(
+                model,
+                inference_item,
+                context_batch,
+                device,
+                precomputed_enhanced_context=precomputed_enhanced_context,
+                num_marks=detected_num_marks,
+            )
+            pred_dtimes = predictions["predicted_event_dtimes"].cpu()
+            pred_types = predictions["predicted_event_types"].cpu()
+
+            if ground_truth_available:
+                gt_predictions = predict_next_event_for_sequence_ground_truth(
+                    model, inference_item, context_batch, ground_truth_functions, device, detected_num_marks
+                )
+                gt_pred_dtimes = gt_predictions["predicted_event_dtimes"].cpu()
+                gt_pred_types = gt_predictions["predicted_event_types"].cpu()
+
+            baseline_seq_dtimes = baseline_pred_dtimes[i : i + 1]
+            baseline_seq_types = baseline_pred_types[i : i + 1]
+
+            true_dtimes = inference_item["time_delta_seqs"].cpu()[:, 1:]
+            true_types = inference_item["type_seqs"].cpu()[:, 1:]
+
+            mask = torch.zeros_like(true_types, dtype=torch.bool)
+            original_length = inference_item["seq_len"].item()
+            if original_length > 1:
+                mask[0, : original_length - 1] = True
+
+            num_events_in_batch = mask.sum().item()
+            if num_events_in_batch > 0:
+                mae = torch.abs(pred_dtimes[mask] - true_dtimes[mask]).sum().item()
+                sq_err = ((pred_dtimes[mask] - true_dtimes[mask]) ** 2).sum().item()
+                acc = (pred_types[mask] == true_types[mask]).sum().item()
+
+                total_mae += mae
+                total_sq_err += sq_err
+                total_acc += acc
+                total_events += num_events_in_batch
+
+                seq_pred_dtimes = baseline_seq_dtimes[:, : original_length - 1]
+                seq_pred_types = baseline_seq_types[:, : original_length - 1]
+                baseline_mae = torch.abs(seq_pred_dtimes[mask] - true_dtimes[mask]).sum().item()
+                baseline_sq_err = ((seq_pred_dtimes[mask] - true_dtimes[mask]) ** 2).sum().item()
+                baseline_acc = (seq_pred_types[mask] == true_types[mask]).sum().item()
+
+                baseline_total_mae += baseline_mae
+                baseline_total_sq_err += baseline_sq_err
+                baseline_total_acc += baseline_acc
+                baseline_total_events += num_events_in_batch
+
+                if ground_truth_available:
+                    gt_mae = torch.abs(gt_pred_dtimes[mask] - true_dtimes[mask]).sum().item()
+                    gt_sq_err = ((gt_pred_dtimes[mask] - true_dtimes[mask]) ** 2).sum().item()
+                    gt_acc = (gt_pred_types[mask] == true_types[mask]).sum().item()
+
+                    gt_total_mae += gt_mae
+                    gt_total_sq_err += gt_sq_err
+                    gt_total_acc += gt_acc
+                    gt_total_events += num_events_in_batch
+
+            nll_results = compute_nll(
+                model,
+                inference_item,
+                context_batch,
+                device,
+                ground_truth_functions if ground_truth_available else None,
+                precomputed_enhanced_context=precomputed_enhanced_context,
+                num_marks=detected_num_marks,
+            )
+            total_nll_model += nll_results.get("model_nll", 0)
+            if ground_truth_available:
+                total_nll_gt += nll_results.get("gt_nll", 0)
+
+    # Aggregate
+    final_mae = total_mae / total_events if total_events > 0 else 0.0
+    final_rmse = float(np.sqrt(total_sq_err / total_events)) if total_events > 0 else 0.0
+    final_acc = total_acc / total_events if total_events > 0 else 0.0
+    final_ll_model = -total_nll_model / num_inference_sequences if num_inference_sequences > 0 else 0.0
+
+    baseline_final_mae = baseline_total_mae / baseline_total_events if baseline_total_events > 0 else 0.0
+    baseline_final_rmse = float(np.sqrt(baseline_total_sq_err / baseline_total_events)) if baseline_total_events > 0 else 0.0
+    baseline_final_acc = baseline_total_acc / baseline_total_events if baseline_total_events > 0 else 0.0
+
+    result = {
+        "dataset": dataset,
+        "model_checkpoint": model_checkpoint_path,
+        "ground_truth_available": bool(ground_truth_available),
+        "num_events": int(total_events),
+        "num_inference_sequences": int(num_inference_sequences),
+        "duration_seconds": float(time.time() - start_time),
+        "metrics": {
+            "model": {
+                "mae": float(final_mae),
+                "rmse": float(final_rmse),
+                "acc": float(final_acc),
+                "loglike": float(final_ll_model),
+            },
+            "baseline": {
+                "mae": float(baseline_final_mae),
+                "rmse": float(baseline_final_rmse),
+                "acc": float(baseline_final_acc),
+                "loglike": None,
+            },
+            "ground_truth": None,
+        },
+    }
+
+    if ground_truth_available:
+        gt_final_mae = gt_total_mae / gt_total_events if gt_total_events > 0 else 0.0
+        gt_final_rmse = float(np.sqrt(gt_total_sq_err / gt_total_events)) if gt_total_events > 0 else 0.0
+        gt_final_acc = gt_total_acc / gt_total_events if gt_total_events > 0 else 0.0
+        final_ll_gt = -total_nll_gt / num_inference_sequences if num_inference_sequences > 0 else 0.0
+        result["metrics"]["ground_truth"] = {
+            "mae": float(gt_final_mae),
+            "rmse": float(gt_final_rmse),
+            "acc": float(gt_final_acc),
+            "loglike": float(final_ll_gt),
+        }
+
+    # Optional: plotting is supported only when run as a standalone script; skip inside the function
+    if plot_intensity_predictions and False:
+        pass
+
+    return result
+
+
 def main():
     """
     Main function to load the model and dataset, and run the evaluation.
@@ -1176,10 +1469,46 @@ def main():
 
 
 if __name__ == "__main__":
-    if "path/to/your" in MODEL_CHECKPOINT_PATH:
-        print("=" * 60)
-        print("!!! WARNING: Please update the MODEL_CHECKPOINT_PATH variable !!!")
-        print(f"Current path is: {MODEL_CHECKPOINT_PATH}")
-        print("=" * 60)
-    else:
+    parser = argparse.ArgumentParser("Run a single FIM-Hawkes next-event evaluation")
+    parser.add_argument("--checkpoint", type=str, required=False, help="Model checkpoint directory")
+    parser.add_argument("--dataset", type=str, required=False, help="HF id (easytpp/...) or local dataset path")
+    parser.add_argument("--run-dir", type=str, required=False, help="Directory to write metrics.json and artifacts")
+    parser.add_argument("--context-size", type=int, default=None, help="Number of sequences from train split to use as context")
+    parser.add_argument("--inference-size", type=int, default=None, help="Number of sequences from test split to evaluate")
+    parser.add_argument("--max-num-events", type=int, default=100, help="Truncate sequences to this many events; -1 means no truncation")
+    parser.add_argument("--sample-idx", type=int, default=0, help="Sample index (for local datasets)")
+    parser.add_argument("--num-integration-points", type=int, default=5000, help="NLL integration points")
+
+    args = parser.parse_args()
+
+    # If required CLI args are not provided, fall back to the legacy main() behavior
+    if not args.checkpoint or not args.dataset or not args.run_dir:
         main()
+    else:
+        run_dir = Path(args.run_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        max_num_events = None if (args.max_num_events is not None and args.max_num_events < 0) else args.max_num_events
+
+        try:
+            result = run_next_event_evaluation(
+                model_checkpoint_path=args.checkpoint,
+                dataset=args.dataset,
+                context_size=args.context_size,
+                inference_size=args.inference_size,
+                max_num_events=max_num_events,
+                sample_index=args.sample_idx,
+                num_integration_points=args.num_integration_points,
+                plot_intensity_predictions=False,
+            )
+            status = "OK"
+        except Exception as e:
+            result = {
+                "dataset": args.dataset,
+                "model_checkpoint": str(args.checkpoint),
+                "status": "FAIL",
+                "error": str(e),
+            }
+            status = "FAIL"
+
+        result.setdefault("status", status)
+        (run_dir / "metrics.json").write_text(json.dumps(result, indent=2))

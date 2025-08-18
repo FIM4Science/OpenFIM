@@ -13,6 +13,7 @@ import json
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
@@ -186,6 +187,9 @@ def main() -> None:
         print("[ERROR] Config must define 'datasets' and 'models'.")
         sys.exit(2)
 
+    # Create a timestamped results_root so runs don't overwrite each other
+    ts_root = datetime.now().strftime("%y%m%d-%H%M")
+
     base = {
         "epochs": int(cfg.get("epochs", 50)),
         "batch_size": int(cfg.get("batch_size", 256)),
@@ -195,7 +199,7 @@ def main() -> None:
         "num_eval_paths": cfg.get("num_eval_paths"),
         "sample_idx": int(cfg.get("sample_idx", 0)),
         "output_dir": Path(cfg.get("output_dir", "checkpoints")),
-        "results_root": Path(cfg.get("results_root", "results/easytpp_grid")),
+        "results_root": Path(cfg.get("results_root", "results/easytpp_grid")) / ts_root,
     }
 
     parallel = int(cfg.get("parallel", 1))
