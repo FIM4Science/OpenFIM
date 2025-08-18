@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_10-21st_2000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -26,11 +26,11 @@ dataset:
       - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/train
       - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/train
       - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_poisson/train
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_sin_base_exp_kernel/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/train
 
     validation: !!python/tuple
       # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/val
@@ -43,14 +43,14 @@ dataset:
       # - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/val
       # - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/val
       # - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/val
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel/val
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_const_base_exp_kernel_no_interactions/val
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_poisson/val
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_Gamma_base_exp_kernel/val
-      - data/synthetic_data/hawkes/5k_21D_2k_paths_sin_base_exp_kernel/val
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/val
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/val
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/val
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/val
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/val
 
   loader_kwargs:
-    batch_size: 2
+    batch_size: 14
     num_workers: 16
     test_batch_size: 2
 
@@ -59,11 +59,11 @@ dataset:
     # Training settings - variable paths and sequence lengths
     variable_num_of_paths: true
     min_path_count: 400
-    max_path_count: 2000
-    max_number_of_minibatch_sizes: 8
+    max_path_count: 400
+    max_number_of_minibatch_sizes: 1
 
     variable_sequence_lens:
-      train: true          # Variable sequence lengths for training
+      train: false          # Variable sequence lengths for training
       validation: false    # Fixed sequence lengths for consistent validation
     min_sequence_len: 10
     max_sequence_len: 100
@@ -87,7 +87,7 @@ model:
   normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
 
-  max_num_marks: &max_num_marks 21
+  max_num_marks: &max_num_marks 22
   hidden_dim: &hidden_dim 128
 
   hidden_act: &hidden_act
@@ -98,11 +98,11 @@ model:
     out_features: *hidden_dim
 
   time_encoder:
-    name: torch.nn.Linear
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
     out_features: *hidden_dim
 
   delta_time_encoder:
-    name: torch.nn.Linear
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
     out_features: *hidden_dim
 
   intensity_evaluation_time_encoder:
@@ -171,7 +171,7 @@ model:
 
   loss_weights:
     nll: 1.0
-    smape: 200.0
+    smape: 10.0
 
 trainer:
   name: Trainer
