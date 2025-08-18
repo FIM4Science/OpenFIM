@@ -122,10 +122,22 @@ class FIMHawkes(AModel):
 
         mark_encoder["in_features"] = self.max_num_marks
         self.mark_encoder = create_class_instance(mark_encoder.pop("name"), mark_encoder)
-        time_encoder["in_features"] = 1
-        self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
-        delta_time_encoder["in_features"] = 1
-        self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
+        # Support both Linear and custom time encoders (e.g., SineTimeEncoding)
+        _te_name = time_encoder.get("name", "")
+        if _te_name.endswith("SineTimeEncoding"):
+            # SineTimeEncoding expects only out_features
+            time_encoder["out_features"] = self.hidden_dim
+            self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
+        else:
+            time_encoder["in_features"] = 1
+            self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
+        _dte_name = delta_time_encoder.get("name", "")
+        if _dte_name.endswith("SineTimeEncoding"):
+            delta_time_encoder["out_features"] = self.hidden_dim
+            self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
+        else:
+            delta_time_encoder["in_features"] = 1
+            self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
         intensity_evaluation_time_encoder["in_features"] = 1
         intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
         self.intensity_evaluation_time_encoder = create_class_instance(
