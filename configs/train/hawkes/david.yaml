@@ -111,9 +111,6 @@ model:
     name: fim.models.blocks.positional_encodings.SineTimeEncoding
     out_features: *hidden_dim
 
-  intensity_evaluation_time_encoder:
-    name: fim.models.blocks.positional_encodings.SineTimeEncoding
-    out_features: *hidden_dim
 
   evaluation_mark_encoder:
     name: torch.nn.Linear
