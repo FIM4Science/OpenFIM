@@ -16,6 +16,12 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_Gamma_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_Gamma_base_exp_kernel/train
       - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/train
       - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_no_interactions/train
       - data/synthetic_data/hawkes/1k_10D_2k_paths_poisson/train
@@ -50,7 +56,7 @@ dataset:
       - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/val
 
   loader_kwargs:
-    batch_size: 14
+    batch_size: 12
     num_workers: 16
     test_batch_size: 2
 
@@ -106,7 +112,8 @@ model:
     out_features: *hidden_dim
 
   intensity_evaluation_time_encoder:
-    name: torch.nn.Linear
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
+    out_features: *hidden_dim
 
   evaluation_mark_encoder:
     name: torch.nn.Linear
