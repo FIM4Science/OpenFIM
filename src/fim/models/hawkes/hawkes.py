@@ -138,11 +138,19 @@ class FIMHawkes(AModel):
         else:
             delta_time_encoder["in_features"] = 1
             self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
-        intensity_evaluation_time_encoder["in_features"] = 1
-        intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
-        self.intensity_evaluation_time_encoder = create_class_instance(
-            intensity_evaluation_time_encoder.pop("name"), intensity_evaluation_time_encoder
-        )
+        _iete_name = intensity_evaluation_time_encoder.get("name", "")
+        if _iete_name.endswith("SineTimeEncoding"):
+            # SineTimeEncoding expects only out_features
+            intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
+            self.intensity_evaluation_time_encoder = create_class_instance(
+                intensity_evaluation_time_encoder.pop("name"), intensity_evaluation_time_encoder
+            )
+        else:
+            intensity_evaluation_time_encoder["in_features"] = 1
+            intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
+            self.intensity_evaluation_time_encoder = create_class_instance(
+                intensity_evaluation_time_encoder.pop("name"), intensity_evaluation_time_encoder
+            )
         evaluation_mark_encoder["in_features"] = self.max_num_marks
         evaluation_mark_encoder["out_features"] = self.hidden_dim
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
