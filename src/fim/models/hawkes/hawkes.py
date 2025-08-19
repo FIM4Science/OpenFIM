@@ -22,7 +22,6 @@ class FIMHawkesConfig(PretrainedConfig):
         mark_encoder: dict = None,
         time_encoder: dict = None,
         delta_time_encoder: dict = None,
-        intensity_evaluation_time_encoder: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
         inference_ts_encoder: dict = None,
@@ -46,7 +45,6 @@ class FIMHawkesConfig(PretrainedConfig):
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
-        self.intensity_evaluation_time_encoder = intensity_evaluation_time_encoder
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.inference_ts_encoder = inference_ts_encoder
@@ -108,7 +106,6 @@ class FIMHawkes(AModel):
         mark_encoder = copy.deepcopy(self.config.mark_encoder)
         time_encoder = copy.deepcopy(self.config.time_encoder)
         delta_time_encoder = copy.deepcopy(self.config.delta_time_encoder)
-        intensity_evaluation_time_encoder = copy.deepcopy(self.config.intensity_evaluation_time_encoder)
         evaluation_mark_encoder = copy.deepcopy(self.config.evaluation_mark_encoder)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
         inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
@@ -138,19 +135,6 @@ class FIMHawkes(AModel):
         else:
             delta_time_encoder["in_features"] = 1
             self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
-        _iete_name = intensity_evaluation_time_encoder.get("name", "")
-        if _iete_name.endswith("SineTimeEncoding"):
-            # SineTimeEncoding expects only out_features
-            intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
-            self.intensity_evaluation_time_encoder = create_class_instance(
-                intensity_evaluation_time_encoder.pop("name"), intensity_evaluation_time_encoder
-            )
-        else:
-            intensity_evaluation_time_encoder["in_features"] = 1
-            intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
-            self.intensity_evaluation_time_encoder = create_class_instance(
-                intensity_evaluation_time_encoder.pop("name"), intensity_evaluation_time_encoder
-            )
         evaluation_mark_encoder["in_features"] = self.max_num_marks
         evaluation_mark_encoder["out_features"] = self.hidden_dim
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
@@ -539,17 +523,6 @@ class FIMHawkes(AModel):
 
         return h.view(B, P, L, -1)
 
-    def _trunk_net_encoder(self, x: dict) -> Tensor:
-        kernel_grids = x["kernel_grids"]  # TODO: Dont work with the full grid
-        (B, M, L_kernel) = kernel_grids.shape
-        time_encodings = self.kernel_time_encoder(kernel_grids.reshape(B * M * L_kernel, -1))
-        encodings_per_event_mark = self.evaluation_mark_encoder(
-            torch.nn.functional.one_hot(torch.arange(self.max_num_marks, device=self.device), num_classes=self.max_num_marks).float()
-        )
-        marks = torch.arange(M, device=self.device).repeat_interleave(L_kernel).repeat(B)
-        mark_encodings = encodings_per_event_mark[marks]
-        return (time_encodings + mark_encodings).view(B, M, L_kernel, -1)
-
     def _intensity_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
         B, M, P_inference, L_inference, D = time_dependent_path_summary.shape
         time_dependent_path_summary = time_dependent_path_summary.view(B * M * P_inference * L_inference, D)
@@ -673,30 +646,6 @@ class FIMHawkes(AModel):
             raise ValueError(f"Invalid type: {type}")
 
         return h.view(B, P, L, -1)
-
-    def _trunk_net_encoder_optimized(self, x: dict, num_marks: int) -> Tensor:
-        """Optimized trunk net encoding using cached one-hot encodings"""
-        intensity_evaluation_times = x["intensity_evaluation_times"]
-        B, P_inference, L_inference = intensity_evaluation_times.shape
-
-        past_event_shifted_intensity_evaluation_times = self._get_past_event_shifted_intensity_evaluation_times(
-            intensity_evaluation_times, x["inference_event_times"], num_marks
-        )
-
-        # More efficient reshaping and encoding
-        time_encodings = self.intensity_evaluation_time_encoder(past_event_shifted_intensity_evaluation_times.reshape(-1, 1)).reshape(
-            B, num_marks, P_inference, L_inference, -1
-        )
-
-        # Use cached one-hot encodings for evaluation marks
-        marks = torch.arange(num_marks, device=intensity_evaluation_times.device)
-        one_hot_eval_marks = self.mark_one_hot[marks]  # [M, max_num_marks]
-        eval_mark_encodings = self.evaluation_mark_encoder(one_hot_eval_marks)  # [M, hidden_dim]
-        mark_encodings = (
-            eval_mark_encodings.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand(B, -1, P_inference, L_inference, -1)
-        )  # [B, M, P_inference, L_inference, D]
-
-        return time_encodings + mark_encodings
 
     def _functional_attention_encoder_optimized(self, queries: Tensor, keys_values: Tensor, attention_mask: Tensor) -> Tensor:
         """

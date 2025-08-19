@@ -69,8 +69,6 @@ model:
     name: torch.nn.Linear
     out_features: 16
 
-  intensity_evaluation_time_encoder:
-    name: torch.nn.Linear
 
   evaluation_mark_encoder:
     name: torch.nn.Linear
