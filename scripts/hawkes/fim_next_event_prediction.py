@@ -1605,7 +1605,7 @@ def main():
 
                         # Y ticks as step labels
                         ax.set_yticks(y_rows)
-                        ax.set_yticklabels([f"{k}→{k + 1}" for k in range(n_steps)])
+                        ax.set_yticklabels([f"{k + 1}→{k + 2}" for k in range(n_steps)])
                         ax.invert_yaxis()  # earliest step at top
 
                         ax.set_xlabel("Event time")
