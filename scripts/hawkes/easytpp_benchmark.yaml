@@ -2,24 +2,24 @@
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
   # - easytpp/retweet
-  - easytpp/taobao
+  # - easytpp/taobao
   # - easytpp/stackoverflow
-  - easytpp/amazon
-  - easytpp/taxi
-  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
+  # - easytpp/amazon
+  # - easytpp/taxi
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
-  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
-  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_sin_base_exp_kernel
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_sin_base_exp_kernel
 
 # - 'models' are EasyTPP model ids (e.g., NHP, SAHP, THP, ...) passed to easy_tpp
 models:
   # - AttNHP
   # - ANHN -> not working
   - RMTPP
-  - NHP
-  # - FullyNN -> not working
-  # - SAHP -> not working
-  - THP
+  # - NHP
+  # # - FullyNN -> not working
+  # # - SAHP -> not working
+  # - THP
   # - IntensityFree -> not working
   # - ODETPP -> not working
 # - 'epochs' is the maximum number of epochs to train; early stopping (below) may stop earlier

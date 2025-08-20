@@ -1,8 +1,8 @@
 """
 run via:
 
-python3 scripts/hawkes/easytpp_grid.py \
-  --config scripts/hawkes/easytpp_grid.yaml
+python3 scripts/hawkes/easytpp_benchmark.py
+ --config scripts/hawkes/easytpp_benchmark.yaml
 """
 
 from __future__ import annotations

@@ -24,7 +24,7 @@ from tqdm import tqdm
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-21st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-15-1154/checkpoints/epoch-103"
+MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-19-1612/checkpoints/epoch-25"
 
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
@@ -32,7 +32,7 @@ MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-21st_2000_paths_mixed_100_events_
 USE_EASYTPP = True
 
 # Set the Hugging Face dataset identifier (used only if USE_EASYTPP=True).
-DATASET_IDENTIFIER = "easytpp/stackoverflow"
+DATASET_IDENTIFIER = "easytpp/taxi"
 
 # Sample index to use when loading local datasets (used only if USE_EASYTPP=False)
 # Local datasets have shape [N_samples, P_processes, K_events, 1]
@@ -55,6 +55,10 @@ NUM_INTEGRATION_POINTS = 5000
 MAX_NUM_EVENTS = 100
 
 PLOT_INTENSITY_PREDICTIONS = True
+
+PLOT_EVENT_PREDICTIONS = True
+# Index of the inference trajectory/path to visualize (used by both event and intensity plots)
+PLOT_PATH_INDEX = 0
 
 # ===================================================================
 
@@ -1417,9 +1421,17 @@ def main():
                     "seq_lengths": seq_lengths,
                 }
                 try:
+                    # Use configurable path index within the inference split
+                    _sel_inf_idx = 0
+                    try:
+                        _sel_inf_idx = int(PLOT_PATH_INDEX)
+                    except Exception:
+                        _sel_inf_idx = 0
+                    # Constrain by actual number of inference sequences
+                    _sel_inf_idx = max(0, min(_sel_inf_idx, int(num_inference_sequences) - 1))
                     model_data_vis = prepare_batch_for_model(
                         single_sample,
-                        inference_path_idx=len(context_data_raw),
+                        inference_path_idx=int(num_context_sequences) + _sel_inf_idx,
                         num_points_between_events=10,
                     )
                     # Ensure we plot all marks for EasyTPP data
@@ -1434,7 +1446,7 @@ def main():
                     try:
                         with torch.no_grad():
                             model_output_vis = model(model_data_vis)
-                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_0.png"
+                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_{PLOT_PATH_INDEX}.png"
                         plot_intensity_comparison(
                             model_output_vis,
                             model_data_vis,
@@ -1451,7 +1463,18 @@ def main():
                     key: (value[SAMPLE_INDEX] if torch.is_tensor(value) else value[SAMPLE_INDEX]) for key, value in data.items()
                 }
                 try:
-                    model_data_vis = prepare_batch_for_model(single_sample, inference_path_idx=0, num_points_between_events=10)
+                    # Use configurable path index within the sample
+                    try:
+                        _p = int(single_sample["event_times"].shape[0])
+                    except Exception:
+                        _p = 1
+                    _sel_path_idx = 0
+                    try:
+                        _sel_path_idx = int(PLOT_PATH_INDEX)
+                    except Exception:
+                        _sel_path_idx = 0
+                    _sel_path_idx = max(0, min(_sel_path_idx, _p - 1))
+                    model_data_vis = prepare_batch_for_model(single_sample, inference_path_idx=_sel_path_idx, num_points_between_events=10)
                 except ValueError as e:
                     print(f"⚠️  Could not prepare batch for intensity visualization: {e}")
                 else:
@@ -1462,10 +1485,163 @@ def main():
                     try:
                         with torch.no_grad():
                             model_output_vis = model(model_data_vis)
-                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_0.png"
+                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_{PLOT_PATH_INDEX}.png"
                         plot_intensity_comparison(model_output_vis, model_data_vis, save_path=save_path, path_idx=0)
                     except Exception as e:
                         print(f"⚠️  Intensity visualization failed: {e}")
+
+    # Plot event predictions for a single trajectory if requested
+    if PLOT_EVENT_PREDICTIONS:
+        print("\nPlotting event predictions for a single trajectory...")
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("⚠️  Matplotlib not available. Skipping event prediction plot.")
+        else:
+            if num_inference_sequences == 0:
+                print("⚠️  No inference sequences available to plot.")
+            else:
+                i = min(max(0, PLOT_PATH_INDEX), num_inference_sequences - 1)
+                try:
+                    # Prepare the selected inference sequence
+                    inference_item = {
+                        "time_seqs": torch.tensor([inference_data_raw["time_since_start"][i]], device=device),
+                        "time_delta_seqs": torch.tensor([inference_data_raw["time_since_last_event"][i]], device=device),
+                        "type_seqs": torch.tensor([inference_data_raw["type_event"][i]], device=device),
+                        "seq_len": torch.tensor([inference_data_raw["seq_len"][i]], device=device),
+                    }
+                    if (not USE_EASYTPP) and ("time_offsets" in inference_data_raw):
+                        toff_val = inference_data_raw["time_offsets"][i]
+                        scalar_off = float(toff_val.item()) if torch.is_tensor(toff_val) else float(toff_val)
+                        inference_item["time_offset_tensor"] = torch.tensor([[scalar_off]], device=device, dtype=torch.float32)
+                    inf_max_len = inference_item["time_seqs"].shape[1]
+                    inference_item["seq_non_pad_mask"] = torch.arange(inf_max_len, device=device).expand(1, inf_max_len) < inference_item[
+                        "seq_len"
+                    ].unsqueeze(1)
+
+                    # Get model predictions for the chosen trajectory
+                    predictions = predict_next_event_for_sequence(
+                        model,
+                        inference_item,
+                        context_batch,
+                        device,
+                        precomputed_enhanced_context=precomputed_enhanced_context,
+                        num_marks=detected_num_marks,
+                    )
+                    pred_dtimes = predictions["predicted_event_dtimes"].cpu()[0]  # [L-1]
+                    pred_types = predictions["predicted_event_types"].cpu()[0]  # [L-1]
+
+                    # Ground truth (skip first event since it's the conditioning event)
+                    time_seq = inference_item["time_seqs"].cpu()[0]
+                    type_seq = inference_item["type_seqs"].cpu()[0]
+                    original_length = inference_item["seq_len"].item()
+
+                    if original_length <= 1:
+                        print("⚠️  Selected sequence has length <= 1. Nothing to plot.")
+                    else:
+                        # True next-event absolute times and types
+                        true_next_times = time_seq[1:original_length].numpy()
+                        true_next_types = type_seq[1:original_length].numpy()
+
+                        # Predicted next-event absolute times: t_k + predicted_dtime_k
+                        prev_times = time_seq[: original_length - 1].numpy()
+                        pred_next_times = prev_times + pred_dtimes[: original_length - 1].numpy()
+                        pred_next_types = pred_types[: original_length - 1].numpy()
+
+                        # Row-per-step timeline: x = event time, y = step index (k->k+1)
+                        from matplotlib.lines import Line2D
+
+                        n_steps = len(true_next_times)
+                        height = max(4.0, min(14.0, 0.35 * n_steps + 2.0))
+                        fig, ax = plt.subplots(1, 1, figsize=(12, height))
+
+                        # Build color palette for types
+                        types_present = sorted(set(map(int, true_next_types.tolist())) | set(map(int, pred_next_types.tolist())))
+                        cmap = plt.get_cmap("tab20")
+                        colors = {t: cmap(i % 20) for i, t in enumerate(types_present)}
+
+                        # Rows correspond to step indices k (predicting event k+1)
+                        y_rows = np.arange(n_steps)
+
+                        # Draw faint guide lines for rows
+                        for y in y_rows:
+                            ax.axhline(y, color="#dddddd", linewidth=0.6, zorder=0)
+
+                        # Scatter true and predicted markers per step, colored by type
+                        for idx in range(n_steps):
+                            t_true = float(true_next_times[idx])
+                            t_pred = float(pred_next_times[idx])
+                            type_true = int(true_next_types[idx])
+                            type_pred = int(pred_next_types[idx])
+                            y = y_rows[idx]
+
+                            # True marker (circle)
+                            ax.scatter(
+                                t_true,
+                                y,
+                                color=colors.get(type_true, "#1f77b4"),
+                                marker="o",
+                                edgecolors="k",
+                                linewidths=0.5,
+                                s=40,
+                                label=None,
+                                zorder=3,
+                            )
+                            # Predicted marker (x)
+                            ax.scatter(
+                                t_pred,
+                                y,
+                                color=colors.get(type_pred, "#ff7f0e"),
+                                marker="x",
+                                linewidths=1.0,
+                                s=50,
+                                label=None,
+                                zorder=3,
+                            )
+
+                            # Optional small annotations with type ids
+                            ax.text(t_true, y + 0.15, f"T{type_true}", fontsize=7, color="#333333", ha="center", va="bottom")
+                            ax.text(t_pred, y - 0.15, f"P{type_pred}", fontsize=7, color="#333333", ha="center", va="top")
+
+                        # Y ticks as step labels
+                        ax.set_yticks(y_rows)
+                        ax.set_yticklabels([f"{k}→{k + 1}" for k in range(n_steps)])
+                        ax.invert_yaxis()  # earliest step at top
+
+                        ax.set_xlabel("Event time")
+                        ax.set_ylabel("Step (k→k+1)")
+                        ax.set_title("Next-step predictions: rows = steps, circles = True, crosses = Predicted; color = Type")
+
+                        # Legends: marker semantics and type colors
+                        marker_handles = [
+                            Line2D([0], [0], marker="o", color="k", markerfacecolor="w", markersize=7, linestyle="None", label="True"),
+                            Line2D([0], [0], marker="x", color="k", markersize=7, linestyle="None", label="Predicted"),
+                        ]
+                        type_handles = [
+                            Line2D(
+                                [0],
+                                [0],
+                                marker="o",
+                                color="none",
+                                markeredgecolor="k",
+                                markerfacecolor=colors[t],
+                                markersize=7,
+                                linestyle="None",
+                                label=f"Type {t}",
+                            )
+                            for t in types_present
+                        ]
+                        legend1 = ax.legend(handles=marker_handles, loc="upper right", title="Kind")
+                        ax.add_artist(legend1)
+                        ax.legend(handles=type_handles, loc="lower right", title="Types", ncol=min(3, len(type_handles)))
+
+                        fig.tight_layout()
+                        save_path = f"event_predictions_sample_{SAMPLE_INDEX}_seq_{i}.png"
+                        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+                        plt.close(fig)
+                        print(f"Saved event prediction plot to: {save_path}")
+                except Exception as e:
+                    print(f"⚠️  Event prediction plotting failed: {e}")
 
 
 if __name__ == "__main__":
