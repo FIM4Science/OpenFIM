@@ -4,12 +4,12 @@ datasets:
     # - easytpp/retweet
   - easytpp/taobao
   # - easytpp/stackoverflow
-  - easytpp/amazon
-  - easytpp/taxi
-  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
-  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
-  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
-  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_sin_base_exp_kernel
+  # - easytpp/amazon
+  # - easytpp/taxi
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_sin_base_exp_kernel
 
 # - 'checkpoints' list of FIM-Hawkes checkpoint directories
 checkpoints:
@@ -21,6 +21,7 @@ inference_size: null  # null => use full test split
 max_num_events: null   # null => no truncation
 sample_idx: 0         # used only for local datasets
 num_integration_points: 5000
+num_bootstrap_samples: 1000
 
 # Output
 results_root: results/fim_benchmark
