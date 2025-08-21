@@ -746,6 +746,33 @@ def compute_baseline_predictions(context_data_raw, inference_data_raw):
     }
 
 
+def _bootstrap_ci(samples: np.ndarray, stat_fn, num_samples: int = 1000, alpha: float = 0.05):
+    """
+    Compute percentile bootstrap confidence interval for a statistic.
+
+    Args:
+        samples: 1D array-like of observations
+        stat_fn: Callable that maps a 1D array to a scalar statistic
+        num_samples: Number of bootstrap resamples
+        alpha: 1 - confidence level (0.05 => 95% CI)
+
+    Returns:
+        (lower, upper) tuple or (None, None) if samples are empty
+    """
+    arr = np.asarray(samples)
+    n = arr.shape[0]
+    if n == 0:
+        return None, None
+    rng = np.random.default_rng()
+    stats = np.empty(num_samples, dtype=float)
+    for i in range(num_samples):
+        idx = rng.integers(0, n, size=n)
+        stats[i] = float(stat_fn(arr[idx]))
+    lower = float(np.quantile(stats, alpha / 2))
+    upper = float(np.quantile(stats, 1 - alpha / 2))
+    return lower, upper
+
+
 def run_next_event_evaluation(
     model_checkpoint_path: str,
     dataset: str,
@@ -755,6 +782,7 @@ def run_next_event_evaluation(
     sample_index: int = 0,
     num_integration_points: int = 5000,
     plot_intensity_predictions: bool = False,
+    num_bootstrap_samples: int = 1000,
 ):
     """
     Programmatic entry point for evaluating next-event prediction on a dataset.
@@ -877,6 +905,22 @@ def run_next_event_evaluation(
 
     baseline_total_mae, baseline_total_sq_err, baseline_total_acc, baseline_total_events = 0, 0, 0, 0
 
+    # For bootstrap CIs, collect per-event and per-sequence stats
+    model_abs_errors: list = []
+    model_sq_errors: list = []
+    model_correct_flags: list = []
+    model_seq_loglikes: list = []  # per-sequence average loglike
+
+    baseline_abs_errors: list = []
+    baseline_sq_errors: list = []
+    baseline_correct_flags: list = []
+
+    if ground_truth_available:
+        gt_abs_errors: list = []
+        gt_sq_errors: list = []
+        gt_correct_flags: list = []
+        gt_seq_loglikes: list = []
+
     # Baseline predictions
     baseline_predictions = compute_baseline_predictions(context_data_raw, inference_data_raw)
     baseline_pred_dtimes = baseline_predictions["predicted_event_dtimes"]
@@ -950,6 +994,11 @@ def run_next_event_evaluation(
                 total_acc += acc
                 total_events += num_events_in_batch
 
+                # Collect per-event stats for bootstrap
+                model_abs_errors.extend(torch.abs(pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
+                model_sq_errors.extend(((pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
+                model_correct_flags.extend((pred_types[mask] == true_types[mask]).to(torch.float32).view(-1).tolist())
+
                 seq_pred_dtimes = baseline_seq_dtimes[:, : original_length - 1]
                 seq_pred_types = baseline_seq_types[:, : original_length - 1]
                 baseline_mae = torch.abs(seq_pred_dtimes[mask] - true_dtimes[mask]).sum().item()
@@ -961,6 +1010,11 @@ def run_next_event_evaluation(
                 baseline_total_acc += baseline_acc
                 baseline_total_events += num_events_in_batch
 
+                # Collect baseline per-event stats for bootstrap
+                baseline_abs_errors.extend(torch.abs(seq_pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
+                baseline_sq_errors.extend(((seq_pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
+                baseline_correct_flags.extend((seq_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1).tolist())
+
                 if ground_truth_available:
                     gt_mae = torch.abs(gt_pred_dtimes[mask] - true_dtimes[mask]).sum().item()
                     gt_sq_err = ((gt_pred_dtimes[mask] - true_dtimes[mask]) ** 2).sum().item()
@@ -970,6 +1024,11 @@ def run_next_event_evaluation(
                     gt_total_sq_err += gt_sq_err
                     gt_total_acc += gt_acc
                     gt_total_events += num_events_in_batch
+
+                    # Collect GT per-event stats for bootstrap
+                    gt_abs_errors.extend(torch.abs(gt_pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
+                    gt_sq_errors.extend(((gt_pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
+                    gt_correct_flags.extend((gt_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1).tolist())
 
             nll_results = compute_nll(
                 model,
@@ -981,8 +1040,13 @@ def run_next_event_evaluation(
                 num_marks=detected_num_marks,
             )
             total_nll_model += nll_results.get("model_nll", 0)
+            # Per-sequence loglike for bootstrap (mean per sequence)
+            if "model_nll" in nll_results:
+                model_seq_loglikes.append(-float(nll_results["model_nll"]))
             if ground_truth_available:
                 total_nll_gt += nll_results.get("gt_nll", 0)
+                if "gt_nll" in nll_results:
+                    gt_seq_loglikes.append(-float(nll_results["gt_nll"]))
 
     # Aggregate
     final_mae = total_mae / total_events if total_events > 0 else 0.0
@@ -993,6 +1057,51 @@ def run_next_event_evaluation(
     baseline_final_mae = baseline_total_mae / baseline_total_events if baseline_total_events > 0 else 0.0
     baseline_final_rmse = float(np.sqrt(baseline_total_sq_err / baseline_total_events)) if baseline_total_events > 0 else 0.0
     baseline_final_acc = baseline_total_acc / baseline_total_events if baseline_total_events > 0 else 0.0
+
+    # Compute bootstrap CIs (95%)
+    mae_ci_lower, mae_ci_upper = (
+        _bootstrap_ci(np.array(model_abs_errors), np.mean, num_bootstrap_samples) if total_events > 0 else (None, None)
+    )
+    rmse_ci_lower, rmse_ci_upper = (
+        _bootstrap_ci(np.array(model_sq_errors), lambda x: np.sqrt(np.mean(x)), num_bootstrap_samples) if total_events > 0 else (None, None)
+    )
+    acc_ci_lower, acc_ci_upper = (
+        _bootstrap_ci(np.array(model_correct_flags), np.mean, num_bootstrap_samples) if total_events > 0 else (None, None)
+    )
+    loglike_ci_lower, loglike_ci_upper = (
+        _bootstrap_ci(np.array(model_seq_loglikes), np.mean, num_bootstrap_samples) if len(model_seq_loglikes) > 0 else (None, None)
+    )
+
+    baseline_mae_ci_lower, baseline_mae_ci_upper = (
+        _bootstrap_ci(np.array(baseline_abs_errors), np.mean, num_bootstrap_samples) if baseline_total_events > 0 else (None, None)
+    )
+    baseline_rmse_ci_lower, baseline_rmse_ci_upper = (
+        _bootstrap_ci(np.array(baseline_sq_errors), lambda x: np.sqrt(np.mean(x)), num_bootstrap_samples)
+        if baseline_total_events > 0
+        else (None, None)
+    )
+    baseline_acc_ci_lower, baseline_acc_ci_upper = (
+        _bootstrap_ci(np.array(baseline_correct_flags), np.mean, num_bootstrap_samples) if baseline_total_events > 0 else (None, None)
+    )
+
+    if ground_truth_available:
+        gt_mae_ci_lower, gt_mae_ci_upper = (
+            _bootstrap_ci(np.array(gt_abs_errors), np.mean, num_bootstrap_samples) if gt_total_events > 0 else (None, None)
+        )
+        gt_rmse_ci_lower, gt_rmse_ci_upper = (
+            _bootstrap_ci(np.array(gt_sq_errors), lambda x: np.sqrt(np.mean(x)), num_bootstrap_samples)
+            if gt_total_events > 0
+            else (None, None)
+        )
+        gt_acc_ci_lower, gt_acc_ci_upper = (
+            _bootstrap_ci(np.array(gt_correct_flags), np.mean, num_bootstrap_samples) if gt_total_events > 0 else (None, None)
+        )
+        gt_loglike_ci_lower, gt_loglike_ci_upper = (
+            _bootstrap_ci(np.array(gt_seq_loglikes), np.mean, num_bootstrap_samples) if len(gt_seq_loglikes) > 0 else (None, None)
+        )
+    else:
+        gt_mae_ci_lower = gt_mae_ci_upper = gt_rmse_ci_lower = gt_rmse_ci_upper = None
+        gt_acc_ci_lower = gt_acc_ci_upper = gt_loglike_ci_lower = gt_loglike_ci_upper = None
 
     result = {
         "dataset": dataset,
@@ -1007,12 +1116,34 @@ def run_next_event_evaluation(
                 "rmse": float(final_rmse),
                 "acc": float(final_acc),
                 "loglike": float(final_ll_model),
+                "mae_ci_error": (None if mae_ci_lower is None or mae_ci_upper is None else float(0.5 * (mae_ci_upper - mae_ci_lower))),
+                "rmse_ci_error": (None if rmse_ci_lower is None or rmse_ci_upper is None else float(0.5 * (rmse_ci_upper - rmse_ci_lower))),
+                "acc_ci_error": (None if acc_ci_lower is None or acc_ci_upper is None else float(0.5 * (acc_ci_upper - acc_ci_lower))),
+                "loglike_ci_error": (
+                    None if loglike_ci_lower is None or loglike_ci_upper is None else float(0.5 * (loglike_ci_upper - loglike_ci_lower))
+                ),
             },
             "baseline": {
                 "mae": float(baseline_final_mae),
                 "rmse": float(baseline_final_rmse),
                 "acc": float(baseline_final_acc),
                 "loglike": None,
+                "mae_ci_error": (
+                    None
+                    if baseline_mae_ci_lower is None or baseline_mae_ci_upper is None
+                    else float(0.5 * (baseline_mae_ci_upper - baseline_mae_ci_lower))
+                ),
+                "rmse_ci_error": (
+                    None
+                    if baseline_rmse_ci_lower is None or baseline_rmse_ci_upper is None
+                    else float(0.5 * (baseline_rmse_ci_upper - baseline_rmse_ci_lower))
+                ),
+                "acc_ci_error": (
+                    None
+                    if baseline_acc_ci_lower is None or baseline_acc_ci_upper is None
+                    else float(0.5 * (baseline_acc_ci_upper - baseline_acc_ci_lower))
+                ),
+                "loglike_ci_error": None,
             },
             "ground_truth": None,
         },
@@ -1028,6 +1159,20 @@ def run_next_event_evaluation(
             "rmse": float(gt_final_rmse),
             "acc": float(gt_final_acc),
             "loglike": float(final_ll_gt),
+            "mae_ci_error": (
+                None if gt_mae_ci_lower is None or gt_mae_ci_upper is None else float(0.5 * (gt_mae_ci_upper - gt_mae_ci_lower))
+            ),
+            "rmse_ci_error": (
+                None if gt_rmse_ci_lower is None or gt_rmse_ci_upper is None else float(0.5 * (gt_rmse_ci_upper - gt_rmse_ci_lower))
+            ),
+            "acc_ci_error": (
+                None if gt_acc_ci_lower is None or gt_acc_ci_upper is None else float(0.5 * (gt_acc_ci_upper - gt_acc_ci_lower))
+            ),
+            "loglike_ci_error": (
+                None
+                if gt_loglike_ci_lower is None or gt_loglike_ci_upper is None
+                else float(0.5 * (gt_loglike_ci_upper - gt_loglike_ci_lower))
+            ),
         }
 
     # Optional: plotting is supported only when run as a standalone script; skip inside the function
@@ -1654,6 +1799,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-num-events", type=int, default=100, help="Truncate sequences to this many events; -1 means no truncation")
     parser.add_argument("--sample-idx", type=int, default=0, help="Sample index (for local datasets)")
     parser.add_argument("--num-integration-points", type=int, default=5000, help="NLL integration points")
+    parser.add_argument("--num-bootstrap-samples", type=int, default=1000, help="Number of bootstrap samples for 95% CI")
 
     args = parser.parse_args()
 
@@ -1675,6 +1821,7 @@ if __name__ == "__main__":
                 sample_index=args.sample_idx,
                 num_integration_points=args.num_integration_points,
                 plot_intensity_predictions=False,
+                num_bootstrap_samples=args.num_bootstrap_samples,
             )
             status = "OK"
         except Exception as e:

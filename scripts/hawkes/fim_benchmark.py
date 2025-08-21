@@ -73,6 +73,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         cmd.extend(["--sample-idx", str(cfg.get("sample_idx"))])
     if cfg.get("num_integration_points") is not None:
         cmd.extend(["--num-integration-points", str(cfg.get("num_integration_points"))])
+    if cfg.get("num_bootstrap_samples") is not None:
+        cmd.extend(["--num-bootstrap-samples", str(cfg.get("num_bootstrap_samples"))])
 
     with run_log.open("w") as log_f:
         proc = subprocess.run(cmd, stdout=log_f, stderr=subprocess.STDOUT)
@@ -123,9 +125,21 @@ def collect_rows(results_root: Path) -> List[Dict]:
                     "checkpoint": checkpoint,
                     "source": src,
                     "mae": m.get("mae"),
+                    "mae_ci_lower": m.get("mae_ci_lower"),
+                    "mae_ci_upper": m.get("mae_ci_upper"),
+                    "mae_ci_error": m.get("mae_ci_error"),
                     "rmse": m.get("rmse"),
+                    "rmse_ci_lower": m.get("rmse_ci_lower"),
+                    "rmse_ci_upper": m.get("rmse_ci_upper"),
+                    "rmse_ci_error": m.get("rmse_ci_error"),
                     "acc": m.get("acc"),
+                    "acc_ci_lower": m.get("acc_ci_lower"),
+                    "acc_ci_upper": m.get("acc_ci_upper"),
+                    "acc_ci_error": m.get("acc_ci_error"),
                     "loglike": m.get("loglike"),
+                    "loglike_ci_lower": m.get("loglike_ci_lower"),
+                    "loglike_ci_upper": m.get("loglike_ci_upper"),
+                    "loglike_ci_error": m.get("loglike_ci_error"),
                     "num_events": num_events,
                     "duration_seconds": duration_seconds,
                     "run_dir": str(child),
@@ -150,9 +164,13 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
         "source",
         "status",
         "mae",
+        "mae_ci_error",
         "rmse",
+        "rmse_ci_error",
         "acc",
+        "acc_ci_error",
         "loglike",
+        "loglike_ci_error",
         "num_events",
         "duration_seconds",
         "run_dir",
@@ -215,7 +233,17 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
             for row in matrix:
                 writer.writerow(row)
 
-    for metric in ["mae", "rmse", "acc", "loglike", "num_events"]:
+    for metric in [
+        "mae",
+        "mae_ci_error",
+        "rmse",
+        "rmse_ci_error",
+        "acc",
+        "acc_ci_error",
+        "loglike",
+        "loglike_ci_error",
+        "num_events",
+    ]:
         save_matrix(metric)
 
 
@@ -238,6 +266,7 @@ def main() -> None:
         "max_num_events": cfg.get("max_num_events"),  # allow null for no truncation
         "sample_idx": int(cfg.get("sample_idx", 0)),
         "num_integration_points": int(cfg.get("num_integration_points", 5000)),
+        "num_bootstrap_samples": int(cfg.get("num_bootstrap_samples", 1000)),
         "results_root": Path(cfg.get("results_root", "results/next_event_eval")) / ts_root,
     }
 
