@@ -664,8 +664,18 @@ def main() -> None:  # noqa: D401
                     metrics = runner.run_one_epoch(test_loader, RunnerPhase.VALIDATE)
 
                     # Display standard metrics if present.
+                    # Compute and add event type error (100 - accuracy). Handle both [0,1] and [0,100] scales.
+                    if "acc" in metrics and metrics["acc"] is not None:
+                        try:
+                            acc_value = float(metrics["acc"])  # type: ignore[arg-type]
+                            error_value = (1.0 - acc_value) * 100.0 if acc_value <= 1.0 else 100.0 - acc_value
+                            metrics["type_error"] = error_value
+                        except Exception:
+                            # If conversion fails, skip error computation gracefully
+                            pass
+
                     print("[INFO] Evaluation metrics:")
-                    for key in ["rmse", "acc", "loglike", "num_events"]:
+                    for key in ["rmse", "type_error", "loglike", "num_events"]:
                         if key in metrics:
                             print(f"    {key}: {metrics[key]}")
 
