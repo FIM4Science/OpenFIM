@@ -132,10 +132,8 @@ def collect_rows(results_root: Path) -> List[Dict]:
                     "rmse_ci_lower": m.get("rmse_ci_lower"),
                     "rmse_ci_upper": m.get("rmse_ci_upper"),
                     "rmse_ci_error": m.get("rmse_ci_error"),
-                    "acc": m.get("acc"),
-                    "acc_ci_lower": m.get("acc_ci_lower"),
-                    "acc_ci_upper": m.get("acc_ci_upper"),
-                    "acc_ci_error": m.get("acc_ci_error"),
+                    "type_error": m.get("type_error"),
+                    "type_error_ci_error": m.get("type_error_ci_error"),
                     "loglike": m.get("loglike"),
                     "loglike_ci_lower": m.get("loglike_ci_lower"),
                     "loglike_ci_upper": m.get("loglike_ci_upper"),
@@ -167,8 +165,8 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
         "mae_ci_error",
         "rmse",
         "rmse_ci_error",
-        "acc",
-        "acc_ci_error",
+        "type_error",
+        "type_error_ci_error",
         "loglike",
         "loglike_ci_error",
         "num_events",
@@ -184,7 +182,7 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
         }.get(src, src)
 
     with csv_path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for r in rows:
             row_out = dict(r)
@@ -238,8 +236,8 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
         "mae_ci_error",
         "rmse",
         "rmse_ci_error",
-        "acc",
-        "acc_ci_error",
+        "type_error",
+        "type_error_ci_error",
         "loglike",
         "loglike_ci_error",
         "num_events",
@@ -311,7 +309,7 @@ def main() -> None:
             ok,
             total,
             base["results_root"] / "summary.csv",
-            ", ".join(str(base["results_root"] / f"matrix_{m}.csv") for m in ["mae", "rmse", "acc", "loglike", "num_events"]),
+            ", ".join(str(base["results_root"] / f"matrix_{m}.csv") for m in ["mae", "rmse", "type_error", "loglike", "num_events"]),
         )
     )
 

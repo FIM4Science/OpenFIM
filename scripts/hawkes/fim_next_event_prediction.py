@@ -914,11 +914,15 @@ def run_next_event_evaluation(
     baseline_abs_errors: list = []
     baseline_sq_errors: list = []
     baseline_correct_flags: list = []
+    # Error flags (1 for incorrect type prediction)
+    model_error_flags: list = []
+    baseline_error_flags: list = []
 
     if ground_truth_available:
         gt_abs_errors: list = []
         gt_sq_errors: list = []
         gt_correct_flags: list = []
+        gt_error_flags: list = []
         gt_seq_loglikes: list = []
 
     # Baseline predictions
@@ -997,7 +1001,9 @@ def run_next_event_evaluation(
                 # Collect per-event stats for bootstrap
                 model_abs_errors.extend(torch.abs(pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
                 model_sq_errors.extend(((pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
-                model_correct_flags.extend((pred_types[mask] == true_types[mask]).to(torch.float32).view(-1).tolist())
+                correct_flags_tensor = (pred_types[mask] == true_types[mask]).to(torch.float32).view(-1)
+                model_correct_flags.extend(correct_flags_tensor.tolist())
+                model_error_flags.extend((1.0 - correct_flags_tensor).tolist())
 
                 seq_pred_dtimes = baseline_seq_dtimes[:, : original_length - 1]
                 seq_pred_types = baseline_seq_types[:, : original_length - 1]
@@ -1013,7 +1019,9 @@ def run_next_event_evaluation(
                 # Collect baseline per-event stats for bootstrap
                 baseline_abs_errors.extend(torch.abs(seq_pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
                 baseline_sq_errors.extend(((seq_pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
-                baseline_correct_flags.extend((seq_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1).tolist())
+                baseline_correct_tensor = (seq_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1)
+                baseline_correct_flags.extend(baseline_correct_tensor.tolist())
+                baseline_error_flags.extend((1.0 - baseline_correct_tensor).tolist())
 
                 if ground_truth_available:
                     gt_mae = torch.abs(gt_pred_dtimes[mask] - true_dtimes[mask]).sum().item()
@@ -1028,7 +1036,9 @@ def run_next_event_evaluation(
                     # Collect GT per-event stats for bootstrap
                     gt_abs_errors.extend(torch.abs(gt_pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
                     gt_sq_errors.extend(((gt_pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
-                    gt_correct_flags.extend((gt_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1).tolist())
+                    gt_correct_tensor = (gt_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1)
+                    gt_correct_flags.extend(gt_correct_tensor.tolist())
+                    gt_error_flags.extend((1.0 - gt_correct_tensor).tolist())
 
             nll_results = compute_nll(
                 model,
@@ -1065,8 +1075,9 @@ def run_next_event_evaluation(
     rmse_ci_lower, rmse_ci_upper = (
         _bootstrap_ci(np.array(model_sq_errors), lambda x: np.sqrt(np.mean(x)), num_bootstrap_samples) if total_events > 0 else (None, None)
     )
-    acc_ci_lower, acc_ci_upper = (
-        _bootstrap_ci(np.array(model_correct_flags), np.mean, num_bootstrap_samples) if total_events > 0 else (None, None)
+    # Compute CI directly on error rate (not as 1 - accuracy)
+    type_error_ci_lower, type_error_ci_upper = (
+        _bootstrap_ci(np.array(model_error_flags), np.mean, num_bootstrap_samples) if total_events > 0 else (None, None)
     )
     loglike_ci_lower, loglike_ci_upper = (
         _bootstrap_ci(np.array(model_seq_loglikes), np.mean, num_bootstrap_samples) if len(model_seq_loglikes) > 0 else (None, None)
@@ -1080,8 +1091,8 @@ def run_next_event_evaluation(
         if baseline_total_events > 0
         else (None, None)
     )
-    baseline_acc_ci_lower, baseline_acc_ci_upper = (
-        _bootstrap_ci(np.array(baseline_correct_flags), np.mean, num_bootstrap_samples) if baseline_total_events > 0 else (None, None)
+    baseline_type_error_ci_lower, baseline_type_error_ci_upper = (
+        _bootstrap_ci(np.array(baseline_error_flags), np.mean, num_bootstrap_samples) if baseline_total_events > 0 else (None, None)
     )
 
     if ground_truth_available:
@@ -1093,15 +1104,15 @@ def run_next_event_evaluation(
             if gt_total_events > 0
             else (None, None)
         )
-        gt_acc_ci_lower, gt_acc_ci_upper = (
-            _bootstrap_ci(np.array(gt_correct_flags), np.mean, num_bootstrap_samples) if gt_total_events > 0 else (None, None)
+        gt_type_error_ci_lower, gt_type_error_ci_upper = (
+            _bootstrap_ci(np.array(gt_error_flags), np.mean, num_bootstrap_samples) if gt_total_events > 0 else (None, None)
         )
         gt_loglike_ci_lower, gt_loglike_ci_upper = (
             _bootstrap_ci(np.array(gt_seq_loglikes), np.mean, num_bootstrap_samples) if len(gt_seq_loglikes) > 0 else (None, None)
         )
     else:
         gt_mae_ci_lower = gt_mae_ci_upper = gt_rmse_ci_lower = gt_rmse_ci_upper = None
-        gt_acc_ci_lower = gt_acc_ci_upper = gt_loglike_ci_lower = gt_loglike_ci_upper = None
+        gt_type_error_ci_lower = gt_type_error_ci_upper = gt_loglike_ci_lower = gt_loglike_ci_upper = None
 
     result = {
         "dataset": dataset,
@@ -1114,11 +1125,15 @@ def run_next_event_evaluation(
             "model": {
                 "mae": float(final_mae),
                 "rmse": float(final_rmse),
-                "acc": float(final_acc),
+                "type_error": float(100.0 * (1.0 - final_acc)),
                 "loglike": float(final_ll_model),
                 "mae_ci_error": (None if mae_ci_lower is None or mae_ci_upper is None else float(0.5 * (mae_ci_upper - mae_ci_lower))),
                 "rmse_ci_error": (None if rmse_ci_lower is None or rmse_ci_upper is None else float(0.5 * (rmse_ci_upper - rmse_ci_lower))),
-                "acc_ci_error": (None if acc_ci_lower is None or acc_ci_upper is None else float(0.5 * (acc_ci_upper - acc_ci_lower))),
+                "type_error_ci_error": (
+                    None
+                    if type_error_ci_lower is None or type_error_ci_upper is None
+                    else float(100.0 * 0.5 * (type_error_ci_upper - type_error_ci_lower))
+                ),
                 "loglike_ci_error": (
                     None if loglike_ci_lower is None or loglike_ci_upper is None else float(0.5 * (loglike_ci_upper - loglike_ci_lower))
                 ),
@@ -1126,7 +1141,7 @@ def run_next_event_evaluation(
             "baseline": {
                 "mae": float(baseline_final_mae),
                 "rmse": float(baseline_final_rmse),
-                "acc": float(baseline_final_acc),
+                "type_error": float(100.0 * (1.0 - baseline_final_acc)),
                 "loglike": None,
                 "mae_ci_error": (
                     None
@@ -1138,10 +1153,10 @@ def run_next_event_evaluation(
                     if baseline_rmse_ci_lower is None or baseline_rmse_ci_upper is None
                     else float(0.5 * (baseline_rmse_ci_upper - baseline_rmse_ci_lower))
                 ),
-                "acc_ci_error": (
+                "type_error_ci_error": (
                     None
-                    if baseline_acc_ci_lower is None or baseline_acc_ci_upper is None
-                    else float(0.5 * (baseline_acc_ci_upper - baseline_acc_ci_lower))
+                    if baseline_type_error_ci_lower is None or baseline_type_error_ci_upper is None
+                    else float(100.0 * 0.5 * (baseline_type_error_ci_upper - baseline_type_error_ci_lower))
                 ),
                 "loglike_ci_error": None,
             },
@@ -1157,7 +1172,7 @@ def run_next_event_evaluation(
         result["metrics"]["ground_truth"] = {
             "mae": float(gt_final_mae),
             "rmse": float(gt_final_rmse),
-            "acc": float(gt_final_acc),
+            "type_error": float(100.0 * (1.0 - gt_final_acc)),
             "loglike": float(final_ll_gt),
             "mae_ci_error": (
                 None if gt_mae_ci_lower is None or gt_mae_ci_upper is None else float(0.5 * (gt_mae_ci_upper - gt_mae_ci_lower))
@@ -1165,8 +1180,10 @@ def run_next_event_evaluation(
             "rmse_ci_error": (
                 None if gt_rmse_ci_lower is None or gt_rmse_ci_upper is None else float(0.5 * (gt_rmse_ci_upper - gt_rmse_ci_lower))
             ),
-            "acc_ci_error": (
-                None if gt_acc_ci_lower is None or gt_acc_ci_upper is None else float(0.5 * (gt_acc_ci_upper - gt_acc_ci_lower))
+            "type_error_ci_error": (
+                None
+                if gt_type_error_ci_lower is None or gt_type_error_ci_upper is None
+                else float(100.0 * 0.5 * (gt_type_error_ci_upper - gt_type_error_ci_lower))
             ),
             "loglike_ci_error": (
                 None
@@ -1487,12 +1504,12 @@ def main():
     print("SIMPLE BASELINE (Majority Type + Mean Time):")
     print(f"  Time Prediction MAE:       {baseline_final_mae:.4f}")
     print(f"  Time Prediction RMSE:      {baseline_final_rmse:.4f}")
-    print(f"  Type Prediction Accuracy:  {baseline_final_acc:.4f}")
+    print(f"  Type Prediction Error (%): {100.0 * (1.0 - baseline_final_acc):.4f}")
     print()
     print("MODEL PREDICTIONS:")
     print(f"  Time Prediction MAE:       {final_mae:.4f}")
     print(f"  Time Prediction RMSE:      {final_rmse:.4f}")
-    print(f"  Type Prediction Accuracy:  {final_acc:.4f}")
+    print(f"  Type Prediction Error (%): {100.0 * (1.0 - final_acc):.4f}")
     print(f"  Log-Likelihood:          {final_ll_model:.4f}")
 
     if ground_truth_available:
@@ -1505,28 +1522,34 @@ def main():
         print("GROUND TRUTH BASELINE:")
         print(f"  Time Prediction MAE:       {gt_final_mae:.4f}")
         print(f"  Time Prediction RMSE:      {gt_final_rmse:.4f}")
-        print(f"  Type Prediction Accuracy:  {gt_final_acc:.4f}")
+        print(f"  Type Prediction Error (%): {100.0 * (1.0 - gt_final_acc):.4f}")
         print(f"  Log-Likelihood:          {final_ll_gt:.4f}")
 
         print()
         print("COMPARISON (Model vs Ground Truth):")
         mae_improvement = ((gt_final_mae - final_mae) / gt_final_mae * 100) if gt_final_mae > 0 else 0
         rmse_improvement = ((gt_final_rmse - final_rmse) / gt_final_rmse * 100) if gt_final_rmse > 0 else 0
-        acc_improvement = ((final_acc - gt_final_acc) / gt_final_acc * 100) if gt_final_acc > 0 else 0
+        # Use error (1 - accuracy) for improvement
+        gt_error = 1.0 - gt_final_acc
+        model_error = 1.0 - final_acc
+        err_improvement = ((gt_error - model_error) / gt_error * 100) if gt_error > 0 else 0
 
         print(f"  MAE improvement:           {mae_improvement:+.1f}%")
         print(f"  RMSE improvement:          {rmse_improvement:+.1f}%")
-        print(f"  Accuracy improvement:      {acc_improvement:+.1f}%")
+        print(f"  Error improvement:         {err_improvement:+.1f}%")
 
     print()
     print("COMPARISON (Model vs Simple Baseline):")
     baseline_mae_improvement = ((baseline_final_mae - final_mae) / baseline_final_mae * 100) if baseline_final_mae > 0 else 0
     baseline_rmse_improvement = ((baseline_final_rmse - final_rmse) / baseline_final_rmse * 100) if baseline_final_rmse > 0 else 0
-    baseline_acc_improvement = ((final_acc - baseline_final_acc) / baseline_final_acc * 100) if baseline_final_acc > 0 else 0
+    # Use error (1 - accuracy) for improvement
+    baseline_error = 1.0 - baseline_final_acc
+    model_error = 1.0 - final_acc
+    baseline_err_improvement = ((baseline_error - model_error) / baseline_error * 100) if baseline_error > 0 else 0
 
     print(f"  MAE improvement:           {baseline_mae_improvement:+.1f}%")
     print(f"  RMSE improvement:          {baseline_rmse_improvement:+.1f}%")
-    print(f"  Accuracy improvement:      {baseline_acc_improvement:+.1f}%")
+    print(f"  Error improvement:         {baseline_err_improvement:+.1f}%")
 
     print("=" * 60)
 
