@@ -110,14 +110,32 @@ def collect_metrics(results_root: Path, grid: Iterable[Tuple[str, str]]) -> List
             payload = json.loads(metrics_path.read_text())
         except Exception:
             continue
+        metrics = payload.get("metrics", {}) or {}
+        # Prefer stored type_error; fall back to legacy 'error' or derive from 'acc'
+        type_error = metrics.get("type_error")
+        if type_error is None:
+            legacy_error = metrics.get("error")
+            if legacy_error is not None:
+                try:
+                    type_error = float(legacy_error)
+                except Exception:
+                    type_error = None
+        if type_error is None:
+            acc = metrics.get("acc")
+            if acc is not None:
+                try:
+                    acc_val = float(acc)
+                    type_error = (1.0 - acc_val) * 100.0 if acc_val <= 1.0 else 100.0 - acc_val
+                except Exception:
+                    type_error = None
         row = {
             "dataset": payload.get("dataset"),
             "model": payload.get("model"),
             "status": payload.get("status", "unknown"),
-            "rmse": payload.get("metrics", {}).get("rmse"),
-            "acc": payload.get("metrics", {}).get("acc"),
-            "loglike": payload.get("metrics", {}).get("loglike"),
-            "num_events": payload.get("metrics", {}).get("num_events"),
+            "rmse": metrics.get("rmse"),
+            "type_error": type_error,
+            "loglike": metrics.get("loglike"),
+            "num_events": metrics.get("num_events"),
             "duration_seconds": payload.get("duration_seconds"),
             "run_dir": str(child),
         }
@@ -133,7 +151,7 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
         "model",
         "status",
         "rmse",
-        "acc",
+        "type_error",
         "loglike",
         "num_events",
         "duration_seconds",
@@ -173,7 +191,8 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
             for row in matrix:
                 writer.writerow(row)
 
-    for metric in ["rmse", "acc", "loglike", "num_events"]:
+    # Matrices include type_error instead of acc
+    for metric in ["rmse", "type_error", "loglike", "num_events"]:
         save_matrix(metric)
 
 
@@ -244,7 +263,7 @@ def main() -> None:
             ok,
             total,
             base["results_root"] / "summary.csv",
-            ", ".join(str(base["results_root"] / f"matrix_{m}.csv") for m in ["rmse", "acc", "loglike", "num_events"]),
+            ", ".join(str(base["results_root"] / f"matrix_{m}.csv") for m in ["rmse", "type_error", "loglike", "num_events"]),
         )
     )
 
