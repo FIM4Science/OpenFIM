@@ -145,7 +145,7 @@ def calculate_smape(pred_dtimes: torch.Tensor, true_dtimes: torch.Tensor) -> flo
     denom = p + a
     num = (pred_dtimes - true_dtimes).abs()
     term = torch.where(denom > 1e-9, num / denom, torch.zeros_like(denom))
-    return float(100.0 * torch.mean(term).item())
+    return float(200.0 * torch.mean(term).item())
 
 
 def calculate_rmse_e(pred_types: torch.Tensor, true_types: torch.Tensor, num_marks: int) -> float:
