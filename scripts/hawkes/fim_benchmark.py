@@ -24,6 +24,13 @@ import yaml
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser("Run a grid of FIM-Hawkes next-event evaluations and aggregate results")
     p.add_argument("--config", type=Path, required=True, help="YAML config file")
+    p.add_argument(
+        "--task",
+        type=str,
+        choices=["next_event", "long_horizon", "both"],
+        default=None,
+        help="Evaluation task: next_event, long_horizon, or both (sequential)",
+    )
     return p.parse_args()
 
 
@@ -37,29 +44,86 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     checkpoint_name = checkpoint.name or str(cfg.get("checkpoint"))
     results_root: Path = cfg["results_root"]
 
-    base_name = (
-        f"{checkpoint_name}__{Path(dataset).name if Path(dataset).exists() else str(dataset).replace('/', '-')}__"
-        f"ctx{cfg.get('context_size', 'all')}__inf{cfg.get('inference_size', 'all')}"
-    )
-    result_dir = results_root / base_name
-    result_dir.mkdir(parents=True, exist_ok=True)
-    run_log = result_dir / "run.log"
+    task = str(cfg.get("task", "next_event"))
+
+    def base_name_for(task_label: str) -> str:
+        hz = ""
+        if task_label == "long_horizon":
+            hz = f"__N{cfg.get('forecast_horizon_size', 'NA')}__S{cfg.get('num_ensemble_trajectories', '5')}"
+        return (
+            f"{checkpoint_name}__{Path(dataset).name if Path(dataset).exists() else str(dataset).replace('/', '-')}__"
+            f"{task_label}{hz}__ctx{cfg.get('context_size', 'all')}__inf{cfg.get('inference_size', 'all')}"
+        )
+
+    if task == "both":
+        # Parent directory for the combined run
+        parent_dir = results_root / base_name_for("both")
+        parent_dir.mkdir(parents=True, exist_ok=True)
+        run_log = parent_dir / "run.log"
+        # Child dirs per task
+        next_dir = results_root / base_name_for("next_event")
+        long_dir = results_root / base_name_for("long_horizon")
+        next_dir.mkdir(parents=True, exist_ok=True)
+        long_dir.mkdir(parents=True, exist_ok=True)
+        start_dir = parent_dir
+        return_dir = parent_dir
+    else:
+        result_dir = results_root / base_name_for(task)
+        result_dir.mkdir(parents=True, exist_ok=True)
+        run_log = result_dir / "run.log"
+        start_dir = result_dir
+        return_dir = result_dir
 
     print(
-        f"[EVAL START] ckpt={checkpoint_name} dataset={dataset} ctx={cfg.get('context_size')} inf={cfg.get('inference_size')} → {result_dir}",
+        f"[EVAL START] ckpt={checkpoint_name} dataset={dataset} ctx={cfg.get('context_size')} inf={cfg.get('inference_size')} → {start_dir}",
         flush=True,
     )
 
-    cmd = [
-        sys.executable,
-        str(Path(__file__).with_name("fim_next_event_prediction.py")),
-        "--checkpoint",
-        str(cfg["checkpoint"]),
-        "--dataset",
-        str(dataset),
-        "--run-dir",
-        str(result_dir),
-    ]
+    # Build command(s) based on task
+    commands: List[List[str]] = []
+
+    def build_common_args(run_dir: Path) -> List[str]:
+        args = [
+            "--checkpoint",
+            str(cfg["checkpoint"]),
+            "--dataset",
+            str(dataset),
+            "--run-dir",
+            str(run_dir),
+        ]
+        if cfg.get("context_size") is not None:
+            args.extend(["--context-size", str(cfg.get("context_size"))])
+        if cfg.get("inference_size") is not None:
+            args.extend(["--inference-size", str(cfg.get("inference_size"))])
+        # max_num_events: None => no truncation; pass -1 as sentinel
+        if cfg.get("max_num_events") is None:
+            args.extend(["--max-num-events", "-1"])
+        else:
+            args.extend(["--max-num-events", str(cfg.get("max_num_events"))])
+        if cfg.get("sample_idx") is not None:
+            args.extend(["--sample-idx", str(cfg.get("sample_idx"))])
+        if cfg.get("num_integration_points") is not None:
+            args.extend(["--num-integration-points", str(cfg.get("num_integration_points"))])
+        return args
+
+    if task in ("next_event", "both"):
+        script_path = Path(__file__).with_name("fim_next_event_prediction.py")
+        sub_run_dir = next_dir if task == "both" else result_dir
+        cmd = [sys.executable, str(script_path)] + build_common_args(sub_run_dir)
+        if cfg.get("num_bootstrap_samples") is not None:
+            cmd.extend(["--num-bootstrap-samples", str(cfg.get("num_bootstrap_samples"))])
+        commands.append(cmd)
+
+    if task in ("long_horizon", "both"):
+        script_path = Path(__file__).with_name("fim_long_horizon_prediction.py")
+        sub_run_dir = long_dir if task == "both" else result_dir
+        cmd = [sys.executable, str(script_path)] + build_common_args(sub_run_dir)
+        if cfg.get("forecast_horizon_size") is None:
+            raise ValueError("long_horizon task requires 'forecast_horizon_size' in config")
+        cmd.extend(["--forecast-horizon-size", str(cfg.get("forecast_horizon_size"))])
+        if cfg.get("num_ensemble_trajectories") is not None:
+            cmd.extend(["--num-ensemble-trajectories", str(cfg.get("num_ensemble_trajectories"))])
+        commands.append(cmd)
     if cfg.get("context_size") is not None:
         cmd.extend(["--context-size", str(cfg.get("context_size"))])
     if cfg.get("inference_size") is not None:
@@ -73,16 +137,47 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         cmd.extend(["--sample-idx", str(cfg.get("sample_idx"))])
     if cfg.get("num_integration_points") is not None:
         cmd.extend(["--num-integration-points", str(cfg.get("num_integration_points"))])
-    if cfg.get("num_bootstrap_samples") is not None:
+    if cfg.get("num_bootstrap_samples") is not None and task == "next_event":
+        # Only used by next-event evaluation
         cmd.extend(["--num-bootstrap-samples", str(cfg.get("num_bootstrap_samples"))])
 
-    with run_log.open("w") as log_f:
-        proc = subprocess.run(cmd, stdout=log_f, stderr=subprocess.STDOUT)
+    # Long-horizon specific args
+    if task == "long_horizon":
+        if cfg.get("forecast_horizon_size") is None:
+            raise ValueError("long_horizon task requires 'forecast_horizon_size' in config")
+        cmd.extend(["--forecast-horizon-size", str(cfg.get("forecast_horizon_size"))])
+        if cfg.get("num_ensemble_trajectories") is not None:
+            cmd.extend(["--num-ensemble-trajectories", str(cfg.get("num_ensemble_trajectories"))])
 
-    rc = proc.returncode
+    # Execute sequentially if multiple commands
+    rc = 0
+    with run_log.open("w") as log_f:
+        for idx, cmd in enumerate(commands, start=1):
+            seg = f"[{idx}/{len(commands)}]"
+            log_f.write(f"[RUN] {seg} {' '.join(cmd)}\n")
+            log_f.flush()
+            proc = subprocess.run(cmd, stdout=log_f, stderr=subprocess.STDOUT)
+            rc = proc.returncode
+            if rc != 0:
+                break
+
     status = "OK" if rc == 0 else f"FAIL(rc={rc})"
-    note = "metrics.json" if (result_dir / "metrics.json").exists() else "no metrics.json"
-    print(f"[EVAL END]   ckpt={checkpoint_name} dataset={dataset} → {status} ({note}) log={run_log}", flush=True)
+    # Determine a note summarizing presence of metrics
+    note = []
+    if task == "both":
+        if (next_dir / "metrics.json").exists():
+            note.append("next_event:metrics.json")
+        else:
+            note.append("next_event:no metrics.json")
+        if (long_dir / "metrics.json").exists():
+            note.append("long_horizon:metrics.json")
+        else:
+            note.append("long_horizon:no metrics.json")
+        note_str = ", ".join(note)
+        print(f"[EVAL END]   ckpt={checkpoint_name} dataset={dataset} → {status} ({note_str}) log={run_log}", flush=True)
+    else:
+        note_str = "metrics.json" if (result_dir / "metrics.json").exists() else "no metrics.json"
+        print(f"[EVAL END]   ckpt={checkpoint_name} dataset={dataset} → {status} ({note_str}) log={run_log}", flush=True)
 
     if rc != 0:
         try:
@@ -91,15 +186,14 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             print(f"[EVAL LOG TAIL] {checkpoint_name} on {dataset}:\n{tail}\n---", flush=True)
         except Exception:
             pass
-    return str(dataset), checkpoint_name, result_dir, rc
+    return str(dataset), checkpoint_name, return_dir, rc
 
 
 def collect_rows(results_root: Path) -> List[Dict]:
     rows: List[Dict] = []
-    for child in results_root.glob("*__*__*"):
-        metrics_path = child / "metrics.json"
-        if not metrics_path.exists():
-            continue
+    # Search recursively for metrics.json in any sub-run directory
+    for metrics_path in results_root.rglob("metrics.json"):
+        child = metrics_path.parent
         try:
             payload = json.loads(metrics_path.read_text())
         except Exception:
@@ -109,12 +203,26 @@ def collect_rows(results_root: Path) -> List[Dict]:
         checkpoint = payload.get("model_checkpoint")
         status = payload.get("status", "unknown")
         duration_seconds = payload.get("duration_seconds")
-        num_events = payload.get("num_events")
+        # next_event writes num_events; long_horizon writes num_eval_sequences
+        num_events = payload.get("num_events", payload.get("num_eval_sequences"))
 
         metrics = payload.get("metrics", {})
         model_m = (metrics or {}).get("model") or {}
         baseline_m = (metrics or {}).get("baseline") or {}
         gt_m = (metrics or {}).get("ground_truth") or {}
+
+        # Detect task from run_dir name or metrics content
+        run_dir_str = str(child)
+        if "__long_horizon__" in run_dir_str or "/long_horizon" in run_dir_str:
+            task = "long_horizon"
+        elif "__next_event__" in run_dir_str or "/next_event" in run_dir_str:
+            task = "next_event"
+        else:
+            # Heuristic based on available metrics
+            if ((metrics or {}).get("model") or {}).get("rmsex_plus") is not None:
+                task = "long_horizon"
+            else:
+                task = "next_event"
 
         def add_row(src: str, m: Dict):
             if not m:
@@ -124,6 +232,8 @@ def collect_rows(results_root: Path) -> List[Dict]:
                     "dataset": dataset,
                     "checkpoint": checkpoint,
                     "source": src,
+                    "task": task,
+                    # next-event metrics
                     "mae": m.get("mae"),
                     "mae_ci_lower": m.get("mae_ci_lower"),
                     "mae_ci_upper": m.get("mae_ci_upper"),
@@ -138,6 +248,10 @@ def collect_rows(results_root: Path) -> List[Dict]:
                     "loglike_ci_lower": m.get("loglike_ci_lower"),
                     "loglike_ci_upper": m.get("loglike_ci_upper"),
                     "loglike_ci_error": m.get("loglike_ci_error"),
+                    # long-horizon metrics
+                    "rmsex_plus": m.get("rmsex_plus"),
+                    "smape": m.get("smape"),
+                    "rmse_e": m.get("rmse_e"),
                     "num_events": num_events,
                     "duration_seconds": duration_seconds,
                     "run_dir": str(child),
@@ -161,6 +275,7 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
         "checkpoint",
         "source",
         "status",
+        # next-event
         "mae",
         "mae_ci_error",
         "rmse",
@@ -169,6 +284,10 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
         "type_error_ci_error",
         "loglike",
         "loglike_ci_error",
+        # long-horizon
+        "rmsex_plus",
+        "smape",
+        "rmse_e",
         "num_events",
         "duration_seconds",
         "run_dir",
@@ -191,9 +310,12 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
 
 
 def write_matrices(results_root: Path, rows: List[Dict]) -> None:
-    # axes: dataset x (checkpoint,source) → metric
+    # axes: dataset x (checkpoint,task,source) → metric; we will write separate matrices per task
     datasets = sorted({r.get("dataset", "") for r in rows})
-    models = sorted({(r.get("checkpoint", ""), r.get("source", "")) for r in rows})
+    models_by_task = {
+        task: sorted({(r.get("checkpoint", ""), r.get("source", "")) for r in rows if r.get("task") == task})
+        for task in ("next_event", "long_horizon")
+    }
 
     def pretty_source(src: str) -> str:
         return {
@@ -206,7 +328,8 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
         ds_str = str(ds)
         return ds_str if ds_str.startswith("easytpp/") else Path(ds_str).name
 
-    def build_matrix(metric: str) -> List[List[str]]:
+    def build_matrix(metric: str, task: str) -> List[List[str]]:
+        models = models_by_task.get(task, [])
         unique_ckpts = sorted({ckpt for ckpt, _ in models})
         multiple_ckpts = len(unique_ckpts) > 1
         if multiple_ckpts:
@@ -214,7 +337,7 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
         else:
             header = ["dataset"] + [pretty_source(src) for _, src in models]
         matrix: List[List[str]] = [header]
-        idx = {(r.get("dataset"), r.get("checkpoint"), r.get("source")): r for r in rows}
+        idx = {(r.get("dataset"), r.get("checkpoint"), r.get("source")): r for r in rows if r.get("task") == task}
         for ds in datasets:
             row_vals: List[str] = [pretty_dataset(ds)]
             for ckpt, src in models:
@@ -223,14 +346,16 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
             matrix.append(row_vals)
         return matrix
 
-    def save_matrix(metric: str) -> None:
-        matrix = build_matrix(metric)
-        out_path = results_root / f"matrix_{metric}.csv"
+    def save_matrix(metric: str, task: str) -> None:
+        matrix = build_matrix(metric, task)
+        prefix = "next_event" if task == "next_event" else "long_horizon"
+        out_path = results_root / f"{prefix}_{metric}.csv"
         with out_path.open("w", newline="") as fh:
             writer = csv.writer(fh)
             for row in matrix:
                 writer.writerow(row)
 
+    # Write next-event matrices
     for metric in [
         "mae",
         "mae_ci_error",
@@ -242,7 +367,10 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
         "loglike_ci_error",
         "num_events",
     ]:
-        save_matrix(metric)
+        save_matrix(metric, task="next_event")
+    # Write long-horizon matrices
+    for metric in ["rmsex_plus", "smape", "rmse_e", "num_events"]:
+        save_matrix(metric, task="long_horizon")
 
 
 def main() -> None:
@@ -258,6 +386,9 @@ def main() -> None:
     # Create a timestamped results_root so runs don't overwrite each other
     ts_root = datetime.now().strftime("%y%m%d-%H%M")
 
+    # Task selection: CLI overrides YAML; default to next_event
+    task = args.task or str(cfg.get("task", "next_event"))
+
     base = {
         "context_size": cfg.get("context_size"),
         "inference_size": cfg.get("inference_size"),
@@ -265,6 +396,12 @@ def main() -> None:
         "sample_idx": int(cfg.get("sample_idx", 0)),
         "num_integration_points": int(cfg.get("num_integration_points", 5000)),
         "num_bootstrap_samples": int(cfg.get("num_bootstrap_samples", 1000)),
+        "task": task,
+        # long-horizon specific
+        "forecast_horizon_size": cfg.get("forecast_horizon_size"),
+        "num_ensemble_trajectories": int(cfg.get("num_ensemble_trajectories", 5))
+        if cfg.get("num_ensemble_trajectories") is not None
+        else None,
         "results_root": Path(cfg.get("results_root", "results/next_event_eval")) / ts_root,
     }
 
@@ -309,7 +446,10 @@ def main() -> None:
             ok,
             total,
             base["results_root"] / "summary.csv",
-            ", ".join(str(base["results_root"] / f"matrix_{m}.csv") for m in ["mae", "rmse", "type_error", "loglike", "num_events"]),
+            ", ".join(
+                [str(base["results_root"] / f"next_event_{m}.csv") for m in ["mae", "rmse", "type_error", "loglike", "num_events"]]
+                + [str(base["results_root"] / f"long_horizon_{m}.csv") for m in ["rmsex_plus", "smape", "rmse_e", "num_events"]]
+            ),
         )
     )
 
