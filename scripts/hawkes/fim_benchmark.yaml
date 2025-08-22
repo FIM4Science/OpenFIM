@@ -1,10 +1,10 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-    # - easytpp/retweet
-  # - easytpp/taobao
-  # - easytpp/stackoverflow
-  # - easytpp/amazon
+  - easytpp/retweet
+  - easytpp/taobao
+  - easytpp/stackoverflow
+  - easytpp/amazon
   - easytpp/taxi
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
@@ -18,15 +18,15 @@ checkpoints:
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
 task: both
-context_size: 10    # null => use full train split
-inference_size: 5  # null => use full test split
+context_size: null    # null => use full train split
+inference_size: null  # null => use full test split
 max_num_events: null   # null => no truncation
 sample_idx: 0         # used only for local datasets
 num_integration_points: 5000
 num_bootstrap_samples: 1000
 
 # Long-horizon parameters (used when task == long_horizon)
-forecast_horizon_size: 10           # N future events to generate
+forecast_horizon_size: 20           # N future events to generate
 num_ensemble_trajectories: 5        # number of independent trajectories for ensembling
 
 # Output
