@@ -248,6 +248,59 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
             save_matrix(metric, task)
 
 
+def write_latex_row_next_event_fim(results_root: Path, rows: List[Dict]) -> Path:
+    """Aggregate next-event 'model' results across datasets into a single LaTeX row.
+
+    The order is fixed to: AMAZON, TAXI, TAOBAO, STACKOVERFLOW-V1
+    (matching datasets easytpp/amazon, easytpp/taxi, easytpp/taobao, easytpp/stackoverflow).
+
+    Missing datasets produce empty fields.
+
+    Returns the path to the written .tex file.
+    """
+    # Build quick index for model rows of next_event task, keyed by dataset id
+    model_rows = {(r.get("dataset") or ""): r for r in rows if r.get("task") == "next_event" and r.get("source") == "model"}
+
+    # Dataset ids to look for in fixed table order
+    ds_ids = [
+        "easytpp/amazon",
+        "easytpp/taxi",
+        "easytpp/taobao",
+        "easytpp/stackoverflow",
+    ]
+
+    cells: List[str] = []
+    for ds in ds_ids:
+        r = model_rows.get(ds)
+        if r is None:
+            # Two empty fields: RMSE and ERROR
+            cells.extend(["", ""])
+        else:
+            rmse = r.get("rmse")
+            rmse_ci = r.get("rmse_ci_error")
+            terr = r.get("type_error")
+            terr_ci = r.get("type_error_ci_error")
+
+            def fmt(val):
+                return f"{val:.2f}" if isinstance(val, (int, float)) else ""
+
+            cells.append(f"{fmt(rmse)} $\\pm$ {fmt(rmse_ci)}")
+            cells.append(f"{fmt(terr)} $\\pm$ {fmt(terr_ci)}")
+
+    row = " ".join(
+        [
+            "\\textbf{FIM$^{\\dagger}$ (ours)}",
+            "&",
+            " & ".join(cells),
+            "\\\\",
+        ]
+    )
+
+    out_path = results_root / "next_event_fim_row.tex"
+    out_path.write_text(row)
+    return out_path
+
+
 def main() -> None:
     args = parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
@@ -279,6 +332,9 @@ def main() -> None:
     if rows:
         write_summary(base["results_root"], rows)
         write_matrices(base["results_root"], rows)
+        # Also emit a LaTeX row for FIM (next-event) for direct inclusion in papers
+        tex_path = write_latex_row_next_event_fim(base["results_root"], rows)
+        print(f"[LATEX] Wrote FIM next-event row → {tex_path}")
 
     ok = sum(1 for _, _, _, rc in results if rc == 0)
     print(f"\nCompleted {ok}/{total} evaluations. Results are in {base['results_root']}")

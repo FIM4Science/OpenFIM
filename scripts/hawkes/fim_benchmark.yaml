@@ -1,7 +1,7 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  - easytpp/retweet
+  # - easytpp/retweet
   - easytpp/taobao
   - easytpp/stackoverflow
   - easytpp/amazon

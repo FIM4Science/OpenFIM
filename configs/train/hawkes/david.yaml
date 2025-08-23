@@ -43,7 +43,7 @@ dataset:
       - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_sparse/train
       - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel_sparse/train
       - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_sparse
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_sparse/train
 
 
     validation: !!python/tuple
