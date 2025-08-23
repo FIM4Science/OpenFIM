@@ -23,13 +23,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from datasets import load_dataset
 
 # Import the new OTD metric functions
 from otd_metrics import get_distances_otd
@@ -116,6 +116,68 @@ def load_local_dataset(dataset_path: str, split: str) -> Dict:
         "seq_len": seq_len,
         "time_offsets": per_path_offsets,
     }
+
+
+def load_cdiff_dataset(dataset: str, split: str) -> Tuple[Dict, Optional[int]]:
+    """Load CDiff_dataset pickle split and adapt to internal format.
+
+    Returns (data_dict, num_marks) where data_dict has keys:
+    - time_since_start: List[List[float]] (shifted so first event starts at 0)
+    - time_since_last_event: List[List[float]] (recomputed from shifted start times)
+    - type_event: List[List[int]]
+    - seq_len: List[int]
+    num_marks is d['dim_process'] when available.
+    """
+    base = Path(dataset)
+    if not base.exists():
+        # Try resolving against the repo's CDiff_dataset folder
+        candidate = Path(__file__).resolve().parents[2] / "data" / "external" / "CDiff_dataset" / dataset
+        if candidate.exists():
+            base = candidate
+    pkl_path = base / f"{split}.pkl"
+    if not pkl_path.exists():
+        raise FileNotFoundError(f"CDiff dataset split not found: {pkl_path}")
+
+    with open(pkl_path, "rb") as f:
+        d = pickle.load(f)
+
+    num_marks = d.get("dim_process") if isinstance(d, dict) else None
+    seqs_raw = d.get(split)
+    if not isinstance(seqs_raw, list):
+        raise ValueError(f"Unexpected {split} content in {pkl_path}: {type(seqs_raw)}")
+
+    time_since_start: List[List[float]] = []
+    time_since_last_event: List[List[float]] = []
+    type_event: List[List[int]] = []
+    seq_len: List[int] = []
+
+    for seq in seqs_raw:
+        if not isinstance(seq, list) or len(seq) == 0:
+            time_since_start.append([])
+            time_since_last_event.append([])
+            type_event.append([])
+            seq_len.append(0)
+            continue
+        # Shift absolute times to start at zero
+        first_time = float(seq[0].get("time_since_start", 0.0))
+        times = [float(ev.get("time_since_start", 0.0)) - first_time for ev in seq]
+        types = [int(ev.get("type_event", 0)) for ev in seq]
+        # Recompute deltas from shifted times
+        deltas = [0.0]
+        for j in range(1, len(times)):
+            deltas.append(float(times[j] - times[j - 1]))
+
+        time_since_start.append(times)
+        time_since_last_event.append(deltas)
+        type_event.append(types)
+        seq_len.append(len(times))
+
+    return {
+        "time_since_start": time_since_start,
+        "time_since_last_event": time_since_last_event,
+        "type_event": type_event,
+        "seq_len": seq_len,
+    }, (int(num_marks) if num_marks is not None else None)
 
 
 def detect_num_event_types_from_data(context_data_raw: Dict, inference_data_raw: Dict) -> int:
@@ -301,25 +363,25 @@ def run_long_horizon_evaluation(
     model.eval().to(device)
     model.event_sampler.num_samples_boundary = 50
 
-    use_easytpp = isinstance(dataset, str) and str(dataset).startswith("easytpp/")
-    if use_easytpp:
-        train_dataset = load_dataset(dataset, split="train")
-        test_dataset = load_dataset(dataset, split="test")
-        eff_ctx_size = len(train_dataset) if context_size is None else context_size
-        eff_inf_size = len(test_dataset) if inference_size is None else inference_size
-        context_data_raw = train_dataset[:eff_ctx_size]
-        inference_data_raw = test_dataset[:eff_inf_size]
-    else:
-        train_dataset_dict = load_local_dataset(dataset, "context")
-        test_dataset_dict = load_local_dataset(dataset, "test")
-        eff_ctx_size = len(train_dataset_dict["seq_len"]) if context_size is None else context_size
-        eff_inf_size = len(test_dataset_dict["seq_len"]) if inference_size is None else inference_size
+    # Resolve CDiff_dataset path
+    dataset_path = Path(dataset)
+    if not dataset_path.exists():
+        # Allow dataset to be a short name like "amazon" resolving to repo data folder
+        dataset_path = Path(__file__).resolve().parents[2] / "data" / "external" / "CDiff_dataset" / dataset
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Dataset path not found or unsupported: {dataset}")
 
-        def take_subset(d: Dict, size: int) -> Dict:
-            return {k: (v[:size] if isinstance(v, list) else v) for k, v in d.items()}
+    # Load CDiff train/test splits, shifting times to start at zero
+    train_dataset_dict, num_marks_ctx = load_cdiff_dataset(str(dataset_path), "train")
+    test_dataset_dict, num_marks_inf = load_cdiff_dataset(str(dataset_path), "test")
+    eff_ctx_size = len(train_dataset_dict["seq_len"]) if context_size is None else context_size
+    eff_inf_size = len(test_dataset_dict["seq_len"]) if inference_size is None else inference_size
 
-        context_data_raw = take_subset(train_dataset_dict, eff_ctx_size)
-        inference_data_raw = take_subset(test_dataset_dict, eff_inf_size)
+    def take_subset(d: Dict, size: int) -> Dict:
+        return {k: (v[:size] if isinstance(v, list) else v) for k, v in d.items()}
+
+    context_data_raw = take_subset(train_dataset_dict, eff_ctx_size)
+    inference_data_raw = take_subset(test_dataset_dict, eff_inf_size)
 
     def _truncate_batch(data_dict: Dict) -> Dict:
         if max_num_events is None or max_num_events < 0:
@@ -340,7 +402,11 @@ def run_long_horizon_evaluation(
     context_data_raw = _truncate_batch(context_data_raw)
     inference_data_raw = _truncate_batch(inference_data_raw)
 
-    detected_num_marks = detect_num_event_types_from_data(context_data_raw, inference_data_raw)
+    detected_num_marks = (
+        num_marks_ctx
+        if num_marks_ctx is not None
+        else (num_marks_inf if num_marks_inf is not None else detect_num_event_types_from_data(context_data_raw, inference_data_raw))
+    )
     model.config.max_num_marks = detected_num_marks
 
     num_ctx_seqs = len(context_data_raw.get("seq_len", []))

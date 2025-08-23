@@ -802,8 +802,11 @@ def run_next_event_evaluation(
     # Make sampler more robust (match defaults used in main)
     model.event_sampler.num_samples_boundary = 50
 
-    # Resolve dataset source: HF id if startswith "easytpp/", else treat as local path
-    use_easytpp = isinstance(dataset, str) and dataset.startswith("easytpp/")
+    # Always use Hugging Face EasyTPP datasets for next-event prediction.
+    # Coerce short names like "amazon" to "easytpp/amazon".
+    dataset_str = str(dataset)
+    dataset_id = dataset_str if dataset_str.startswith("easytpp/") else f"easytpp/{dataset_str}"
+    use_easytpp = True
 
     # Set globals used in some internals
     global SAMPLE_INDEX, NUM_INTEGRATION_POINTS
@@ -811,8 +814,8 @@ def run_next_event_evaluation(
     NUM_INTEGRATION_POINTS = num_integration_points
 
     if use_easytpp:
-        train_dataset = load_dataset(dataset, split="train")
-        test_dataset = load_dataset(dataset, split="test")
+        train_dataset = load_dataset(dataset_id, split="train")
+        test_dataset = load_dataset(dataset_id, split="test")
 
         effective_context_size = len(train_dataset) if context_size is None else context_size
         effective_inference_size = len(test_dataset) if inference_size is None else inference_size
@@ -823,8 +826,10 @@ def run_next_event_evaluation(
         ground_truth_available = False
         ground_truth_functions = None
     else:
-        train_dataset_dict = load_local_dataset(dataset, "context")
-        test_dataset_dict = load_local_dataset(dataset, "test")
+        # This branch is intentionally unreachable (always using HF datasets)
+        # Kept for compatibility; not used.
+        train_dataset_dict = load_local_dataset(dataset_id, "context")
+        test_dataset_dict = load_local_dataset(dataset_id, "test")
 
         effective_context_size = len(train_dataset_dict["seq_len"]) if context_size is None else context_size
         effective_inference_size = len(test_dataset_dict["seq_len"]) if inference_size is None else inference_size
@@ -1115,7 +1120,7 @@ def run_next_event_evaluation(
         gt_type_error_ci_lower = gt_type_error_ci_upper = gt_loglike_ci_lower = gt_loglike_ci_upper = None
 
     result = {
-        "dataset": dataset,
+        "dataset": dataset_id if use_easytpp else dataset,
         "model_checkpoint": model_checkpoint_path,
         "ground_truth_available": bool(ground_truth_available),
         "num_events": int(total_events),

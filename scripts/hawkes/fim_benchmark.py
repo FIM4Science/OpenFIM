@@ -76,8 +76,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
 
     commands: List[List[str]] = []
 
-    def build_common_args(run_dir: Path) -> List[str]:
-        args = ["--checkpoint", str(cfg["checkpoint"]), "--dataset", str(dataset), "--run-dir", str(run_dir)]
+    def build_common_args_for_dataset(run_dir: Path, ds: str) -> List[str]:
+        args = ["--checkpoint", str(cfg["checkpoint"]), "--dataset", str(ds), "--run-dir", str(run_dir)]
         if cfg.get("context_size") is not None:
             args.extend(["--context-size", str(cfg.get("context_size"))])
         if cfg.get("inference_size") is not None:
@@ -94,14 +94,20 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
 
     if task in ("next_event", "both"):
         sub_run_dir = next_dir if task == "both" else result_dir
-        cmd = [sys.executable, str(Path(__file__).with_name("fim_next_event_prediction.py"))] + build_common_args(sub_run_dir)
+        dataset_ne = dataset if str(dataset).startswith("easytpp/") else f"easytpp/{dataset}"
+        cmd = [sys.executable, str(Path(__file__).with_name("fim_next_event_prediction.py"))] + build_common_args_for_dataset(
+            sub_run_dir, dataset_ne
+        )
         if cfg.get("num_bootstrap_samples") is not None:
             cmd.extend(["--num-bootstrap-samples", str(cfg.get("num_bootstrap_samples"))])
         commands.append(cmd)
 
     if task in ("long_horizon", "both"):
         sub_run_dir = long_dir if task == "both" else result_dir
-        cmd = [sys.executable, str(Path(__file__).with_name("fim_long_horizon_prediction.py"))] + build_common_args(sub_run_dir)
+        # For long-horizon, load CDiff local data (script resolves short names to repo path)
+        cmd = [sys.executable, str(Path(__file__).with_name("fim_long_horizon_prediction.py"))] + build_common_args_for_dataset(
+            sub_run_dir, str(dataset)
+        )
         if cfg.get("forecast_horizon_size") is None:
             raise ValueError("long_horizon task requires 'forecast_horizon_size'")
         cmd.extend(["--forecast-horizon-size", str(cfg.get("forecast_horizon_size"))])
@@ -301,6 +307,65 @@ def write_latex_row_next_event_fim(results_root: Path, rows: List[Dict]) -> Path
     return out_path
 
 
+def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> Path:
+    """Aggregate long-horizon 'model' results into two LaTeX rows for the table layout.
+
+    Top row order: Taxi, Taobao
+    Bottom row order: StackOverflow, Amazon
+
+    Metrics per dataset (order): OTD, RMSE_e, RMSE_{x+}, sMAPE
+    """
+    # Index long_horizon model rows by dataset id
+    model_rows = {(r.get("dataset") or ""): r for r in rows if r.get("task") == "long_horizon" and r.get("source") == "model"}
+
+    # Helper to retrieve a row by either full id (e.g., easytpp/taxi) or short name (e.g., taxi)
+    def get_row_for_dataset_short(short_name: str) -> Dict:
+        # Direct match on keys
+        if short_name in model_rows:
+            return model_rows[short_name]
+        # Try prefixed EasyTPP id
+        pref = f"easytpp/{short_name}"
+        if pref in model_rows:
+            return model_rows[pref]
+        # Try matching by basename of the path/id
+        for k, v in model_rows.items():
+            base = Path(str(k)).name
+            if base == short_name:
+                return v
+            # Also handle ids like easytpp/amazon -> amazon
+            if "/" in str(k) and str(k).split("/")[-1] == short_name:
+                return v
+        return {}
+
+    def fmt3(val):
+        return f"{val:.3f}" if isinstance(val, (int, float)) else ""
+
+    def cells_for(ds_shorts: List[str]) -> List[str]:
+        cells: List[str] = []
+        for ds_short in ds_shorts:
+            r = get_row_for_dataset_short(ds_short)
+            if r is None:
+                cells.extend(["", "", "", ""])  # OTD, RMSE_e, RMSE_{x+}, sMAPE
+            else:
+                otd = r.get("otd")
+                rmse_e = r.get("rmse_e")
+                rmsex_plus = r.get("rmsex_plus")
+                smape = r.get("smape")
+                cells.extend([fmt3(otd), fmt3(rmse_e), fmt3(rmsex_plus), fmt3(smape)])
+        return cells
+
+    # Use short names; resolver maps from either HF ids or local names
+    top_cells = cells_for(["taxi", "taobao"])
+    bottom_cells = cells_for(["stackoverflow", "amazon"])
+
+    row_top = " ".join(["\\textbf{FIM (ours)}", "&", " & ".join(top_cells), "\\\\"])  # Taxi | Taobao
+    row_bottom = " ".join(["\\textbf{FIM (ours)}", "&", " & ".join(bottom_cells), "\\\\"])  # StackOverflow | Amazon
+
+    out_path = results_root / "long_horizon_fim_rows.tex"
+    out_path.write_text(f"{row_top}\n{row_bottom}\n")
+    return out_path
+
+
 def main() -> None:
     args = parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
@@ -335,6 +400,9 @@ def main() -> None:
         # Also emit a LaTeX row for FIM (next-event) for direct inclusion in papers
         tex_path = write_latex_row_next_event_fim(base["results_root"], rows)
         print(f"[LATEX] Wrote FIM next-event row → {tex_path}")
+        # And two LaTeX rows for FIM (long-horizon) matching the table layout
+        tex_long = write_latex_rows_long_horizon_fim(base["results_root"], rows)
+        print(f"[LATEX] Wrote FIM long-horizon rows → {tex_long}")
 
     ok = sum(1 for _, _, _, rc in results if rc == 0)
     print(f"\nCompleted {ok}/{total} evaluations. Results are in {base['results_root']}")

@@ -1,11 +1,11 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  # - easytpp/retweet
-  - easytpp/taobao
-  - easytpp/stackoverflow
-  - easytpp/amazon
-  - easytpp/taxi
+  # - retweet
+  - taobao
+  - stackoverflow
+  - amazon
+  - taxi
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
