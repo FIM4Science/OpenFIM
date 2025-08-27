@@ -3,9 +3,9 @@
 datasets:
   # - retweet
   - taobao
-  - stackoverflow
-  - amazon
-  - taxi
+  # - stackoverflow
+  # - amazon
+  # - taxi
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
@@ -13,14 +13,14 @@ datasets:
 
 # - 'checkpoints' list of FIM-Hawkes checkpoint directories
 checkpoints:
-  - results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-21-0855/checkpoints/best-model
+  - results/finetuned_cdiff_gpu/250827-1305/best-model
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
-task: both
-context_size: null    # null => use full train split
+task: long_horizon
+context_size: 2000    # null => use full train split
 inference_size: null  # null => use full test split
-max_num_events: null   # null => no truncation
+max_num_events: 100   # null => no truncation
 sample_idx: 0         # used only for local datasets
 num_integration_points: 5000
 num_bootstrap_samples: 1000
