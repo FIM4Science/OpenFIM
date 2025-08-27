@@ -19,9 +19,10 @@ Usage example:
     --save_dir results/finetuned_cdiff_gpu \
     --max_paths 2000 \
     --max_events 100 \
-    --resume_model results/FIM_Hawkes_10-22st_small_″2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-26-1457/checkpoints/best-model
+    --resume_model results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-24-1124/checkpoints/best-model
 """
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -285,8 +286,25 @@ def main(
         logger.warning("Multiple configs detected (%d). Fine-tune will use the first one.", len(configs))
     config: GenericConfig = configs[0]
 
-    logger.info("Creating model from config (%s)", config.model.model_type)
-    model = ModelFactory.create(config.model.to_dict())
+    # Prefer loading the exact model config from the checkpoint to avoid shape mismatches
+    model = None
+    if resume_model is not None:
+        resume_path = Path(resume_model)
+        # If a file is given, look for config.json in its parent; if a directory, in it directly
+        ckpt_dir = resume_path if resume_path.is_dir() else resume_path.parent
+        ckpt_config_path = ckpt_dir / "config.json"
+        if ckpt_config_path.exists():
+            try:
+                with open(ckpt_config_path, "r", encoding="utf-8") as f:
+                    ckpt_cfg_dict = json.load(f)
+                logger.info("Creating model from checkpoint config (%s)", ckpt_cfg_dict.get("model_type", "unknown"))
+                model = ModelFactory.create(ckpt_cfg_dict)
+            except Exception as e:
+                logger.warning("Failed to load checkpoint config at %s due to %s; falling back to YAML.", ckpt_config_path, e)
+
+    if model is None:
+        logger.info("Creating model from YAML config (%s)", config.model.model_type)
+        model = ModelFactory.create(config.model.to_dict())
 
     # Load weights if provided (supports file or directory path)
     if resume_model is not None:
