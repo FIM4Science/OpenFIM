@@ -75,6 +75,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     )
 
     commands: List[List[str]] = []
+    command_labels: List[str] = []  # "next_event" or "long_horizon"
+    command_run_dirs: List[Path] = []
 
     def build_common_args_for_dataset(run_dir: Path, ds: str) -> List[str]:
         args = ["--checkpoint", str(cfg["checkpoint"]), "--dataset", str(ds), "--run-dir", str(run_dir)]
@@ -101,6 +103,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         if cfg.get("num_bootstrap_samples") is not None:
             cmd.extend(["--num-bootstrap-samples", str(cfg.get("num_bootstrap_samples"))])
         commands.append(cmd)
+        command_labels.append("next_event")
+        command_run_dirs.append(sub_run_dir)
 
     if task in ("long_horizon", "both"):
         sub_run_dir = long_dir if task == "both" else result_dir
@@ -114,6 +118,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         if cfg.get("num_ensemble_trajectories") is not None:
             cmd.extend(["--num-ensemble-trajectories", str(cfg.get("num_ensemble_trajectories"))])
         commands.append(cmd)
+        command_labels.append("long_horizon")
+        command_run_dirs.append(sub_run_dir)
 
     rc = 0
     with run_log.open("w") as log_f:
@@ -122,6 +128,20 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             log_f.flush()
             proc = subprocess.run(cmd, stdout=log_f, stderr=subprocess.STDOUT)
             rc = proc.returncode
+            # If the just-finished command is the next-event eval and succeeded, persist its loglike as a simple file
+            try:
+                if rc == 0 and command_labels[idx - 1] == "next_event":
+                    ne_dir = command_run_dirs[idx - 1]
+                    metrics_path = ne_dir / "metrics.json"
+                    if metrics_path.exists():
+                        payload = json.loads(metrics_path.read_text())
+                        model_metrics = (payload.get("metrics", {}) or {}).get("model", {})
+                        loglike_val = model_metrics.get("loglike")
+                        if isinstance(loglike_val, (int, float)):
+                            (ne_dir / "loglike.txt").write_text(f"{loglike_val:.6f}\n")
+            except Exception:
+                # Ignore any issues writing the auxiliary file
+                pass
             if rc != 0:
                 break
 
