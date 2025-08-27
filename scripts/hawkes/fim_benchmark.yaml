@@ -13,7 +13,7 @@ datasets:
 
 # - 'checkpoints' list of FIM-Hawkes checkpoint directories
 checkpoints:
-  - results/finetuned_cdiff_gpu/250827-1305/best-model
+  - results/finetuned_cdiff_gpu/250827-1420/best-model
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both

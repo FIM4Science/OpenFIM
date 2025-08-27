@@ -9,14 +9,18 @@ Supported data inputs:
   We shift times to start at zero (like other scripts) and build tensors.
 - Optional PT format: if `event_times.pt` and `event_types.pt` exist in the directory
   they will be used instead. These should have shapes [P, L] or [P, L, 1], and we add [B=1,...].
+ - EasyTPP on Hugging Face Hub: pass a dataset id like "easytpp/retweet" (or just
+   "retweet" which will be coerced to "easytpp/retweet"). We load the train split
+   as multi-path sequences. If a validation split is available ("validation" or "test"),
+   it's used for validation NLL.
 
 Usage example:
-  python3 scripts/hawkes/fim_finetune_cdiff.py \
+  python3 scripts/hawkes/fim_finetune.py \
     --config configs/train/hawkes/david_small.yaml \
-    --dataset_dir data/external/CDiff_dataset/taobao \
+    --dataset easytpp/taobao \
     --epochs 500 \
     --lr 5e-5 \
-    --save_dir results/finetuned_cdiff_gpu \
+    --save_dir results/finetuned \
     --max_paths 2000 \
     --max_events 100 \
     --resume_model results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-24-1124/checkpoints/best-model
@@ -248,9 +252,38 @@ def _apply_limits_to_cdiff_lists(data: Dict[str, List], max_paths: Optional[int]
     return out
 
 
+def _load_easytpp_split(dataset: str, split: str) -> Dict[str, List]:
+    """Load an EasyTPP dataset split from Hugging Face as CDiff-style lists.
+
+    If the provided dataset id does not start with "easytpp/", it will be prefixed.
+    """
+    try:
+        from datasets import load_dataset  # Lazy import to avoid hard dependency for local-only runs
+    except Exception as e:
+        raise ImportError("The 'datasets' package is required for Hugging Face loading. Install with 'pip install datasets'.") from e
+
+    dataset_id = dataset if str(dataset).startswith("easytpp/") else f"easytpp/{dataset}"
+    ds = load_dataset(dataset_id, split=split)
+    # Convert to dict-of-lists; keys expected: time_since_start, type_event, seq_len
+    data_slice = ds[: len(ds)] if hasattr(ds, "__len__") else ds[:]
+    # Some HF datasets may name length differently; prefer provided seq_len if present, else derive
+    time_since_start = data_slice.get("time_since_start") or []
+    type_event = data_slice.get("type_event") or []
+    seq_len = data_slice.get("seq_len") or [len(t) for t in time_since_start]
+    return {"time_since_start": time_since_start, "type_event": type_event, "seq_len": seq_len}
+
+
 @click.command()
 @click.option("--config", "cfg_path", required=True, type=click.Path(exists=True), help="Path to hawkes YAML config")
-@click.option("--dataset_dir", required=True, type=click.Path(exists=True), help="CDiff dataset directory (e.g., retweet)")
+@click.option(
+    "--dataset",
+    required=True,
+    type=str,
+    help=(
+        "Dataset identifier or path. Use a local folder with CDiff/PT format or an EasyTPP Hugging Face id "
+        "like 'easytpp/retweet' (or just 'retweet')."
+    ),
+)
 @click.option("--resume_model", default=None, type=click.Path(exists=True), help="Path to model-checkpoint.pth to load")
 @click.option("--epochs", default=1000, type=int, help="Fine-tuning epochs")
 @click.option("--lr", default=5e-5, type=float, help="Learning rate")
@@ -263,7 +296,7 @@ def _apply_limits_to_cdiff_lists(data: Dict[str, List], max_paths: Optional[int]
 @click.option("--deterministic_val", is_flag=True, default=True, help="Use fixed RNG seed for validation NLL")
 def main(
     cfg_path: str,
-    dataset_dir: str,
+    dataset: str,
     resume_model: Optional[str],
     epochs: int,
     lr: float,
@@ -307,6 +340,8 @@ def main(
         model = ModelFactory.create(config.model.to_dict())
 
     # Load weights if provided (supports file or directory path)
+    # Track which weights file was actually loaded (for metadata)
+    loaded_weights_path: Optional[Path] = None
     if resume_model is not None:
         resume_path = Path(resume_model)
         logger.info("Loading model weights from %s", resume_path)
@@ -324,6 +359,7 @@ def main(
                     break
             if found is None:
                 raise FileNotFoundError(f"No model file found in {resume_path}; expected one of {', '.join(str(c) for c in candidates)}")
+            loaded_weights_path = found
             if found.suffix == ".safetensors":
                 from safetensors.torch import load_file as _load_safetensors
 
@@ -331,6 +367,7 @@ def main(
             else:
                 state = torch.load(found, map_location="cpu", weights_only=False)
         else:
+            loaded_weights_path = resume_path
             state = torch.load(resume_path, map_location="cpu", weights_only=False)
 
         missing, unexpected = model.load_state_dict(state, strict=False)
@@ -354,39 +391,71 @@ def main(
         # Also save a conventional PyTorch checkpoint for convenience
         torch.save(state_cpu, save_dir / "model-checkpoint.pth")
 
-    # Load dataset (prefer CDiff pickles; fallback to .pt tensors)
-    ddir = Path(dataset_dir)
-    if (ddir / "train.pkl").exists():
-        train_lists = _apply_limits_to_cdiff_lists(_load_cdiff_train(ddir), max_paths, max_events)
-        event_times, event_types, seq_lengths = _build_tensors_from_cdiff(train_lists, device)
-    else:
-        times_path = ddir / "event_times.pt"
-        types_path = ddir / "event_types.pt"
-        lengths_path = ddir / "seq_lengths.pt"
-        if not times_path.exists() or not types_path.exists():
-            raise FileNotFoundError(f"Expected either train.pkl or (event_times.pt & event_types.pt) in {ddir}")
-        event_times = _ensure_4d_times(torch.load(times_path, map_location="cpu").float()).to(device)
-        event_types = _ensure_4d_types(torch.load(types_path, map_location="cpu")).to(device)
-        seq_lengths = torch.load(lengths_path, map_location="cpu") if lengths_path.exists() else None
-        if seq_lengths is not None:
-            if seq_lengths.dim() == 1:  # [P] -> [1, P]
-                seq_lengths = seq_lengths.unsqueeze(0)
-            elif seq_lengths.dim() != 2:
-                raise ValueError(f"Unsupported seq_lengths shape {tuple(seq_lengths.shape)}; expected [P] or [B=1,P]")
-            seq_lengths = seq_lengths.to(device)
+    # Load dataset (supports local CDiff/PT folders or EasyTPP HF datasets)
+    dataset_arg = str(dataset)
+    dpath = Path(dataset_arg)
+    if dpath.exists():
+        # Local directory modes
+        dataset_name = dpath.name
+        if (dpath / "train.pkl").exists():
+            train_lists = _apply_limits_to_cdiff_lists(_load_cdiff_train(dpath), max_paths, max_events)
+            event_times, event_types, seq_lengths = _build_tensors_from_cdiff(train_lists, device)
+        else:
+            times_path = dpath / "event_times.pt"
+            types_path = dpath / "event_types.pt"
+            lengths_path = dpath / "seq_lengths.pt"
+            if not times_path.exists() or not types_path.exists():
+                raise FileNotFoundError(f"Expected either train.pkl or (event_times.pt & event_types.pt) in {dpath}")
+            event_times = _ensure_4d_times(torch.load(times_path, map_location="cpu").float()).to(device)
+            event_types = _ensure_4d_types(torch.load(types_path, map_location="cpu")).to(device)
+            seq_lengths = torch.load(lengths_path, map_location="cpu") if lengths_path.exists() else None
+            if seq_lengths is not None:
+                if seq_lengths.dim() == 1:  # [P] -> [1, P]
+                    seq_lengths = seq_lengths.unsqueeze(0)
+                elif seq_lengths.dim() != 2:
+                    raise ValueError(f"Unsupported seq_lengths shape {tuple(seq_lengths.shape)}; expected [P] or [B=1,P]")
+                seq_lengths = seq_lengths.to(device)
 
-        # Apply limits if provided
-        _, P_full, L_full, _ = event_times.shape
-        if max_paths is not None and max_paths > 0 and max_paths < P_full:
-            event_times = event_times[:, :max_paths, :, :]
-            event_types = event_types[:, :max_paths, :, :]
-            if seq_lengths is not None:
-                seq_lengths = seq_lengths[:, :max_paths]
-        if max_events is not None and max_events > 0 and max_events < L_full:
-            event_times = event_times[:, :, :max_events, :]
-            event_types = event_types[:, :, :max_events, :]
-            if seq_lengths is not None:
-                seq_lengths = torch.minimum(seq_lengths, torch.tensor(max_events, device=seq_lengths.device))
+            # Apply limits if provided
+            _, P_full, L_full, _ = event_times.shape
+            if max_paths is not None and max_paths > 0 and max_paths < P_full:
+                event_times = event_times[:, :max_paths, :, :]
+                event_types = event_types[:, :max_paths, :, :]
+                if seq_lengths is not None:
+                    seq_lengths = seq_lengths[:, :max_paths]
+            if max_events is not None and max_events > 0 and max_events < L_full:
+                event_times = event_times[:, :, :max_events, :]
+                event_types = event_types[:, :, :max_events, :]
+                if seq_lengths is not None:
+                    seq_lengths = torch.minimum(seq_lengths, torch.tensor(max_events, device=seq_lengths.device))
+        # Validation for local: optional dev.pkl
+        has_val = (dpath / "dev.pkl").exists()
+        if has_val:
+            dev_lists = _apply_limits_to_cdiff_lists(_load_cdiff_split(dpath, "dev"), max_paths, max_events)
+            val_event_times, val_event_types, val_seq_lengths = _build_tensors_from_cdiff(dev_lists, device)
+            P_val = int(val_event_times.shape[1])
+    else:
+        # Hugging Face EasyTPP dataset
+        dataset_id = dataset_arg if dataset_arg.startswith("easytpp/") else f"easytpp/{dataset_arg}"
+        dataset_name = dataset_id.split("/")[-1]
+        train_lists = _apply_limits_to_cdiff_lists(_load_easytpp_split(dataset_id, "train"), max_paths, max_events)
+        event_times, event_types, seq_lengths = _build_tensors_from_cdiff(train_lists, device)
+        # Try validation: prefer 'validation', then 'test'
+        has_val = False
+        val_event_times = val_event_types = val_seq_lengths = None  # type: ignore
+        try:
+            dev_lists = _apply_limits_to_cdiff_lists(_load_easytpp_split(dataset_id, "validation"), max_paths, max_events)
+            val_event_times, val_event_types, val_seq_lengths = _build_tensors_from_cdiff(dev_lists, device)
+            has_val = True
+        except Exception:
+            try:
+                dev_lists = _apply_limits_to_cdiff_lists(_load_easytpp_split(dataset_id, "test"), max_paths, max_events)
+                val_event_times, val_event_types, val_seq_lengths = _build_tensors_from_cdiff(dev_lists, device)
+                has_val = True
+            except Exception:
+                has_val = False
+        if has_val:
+            P_val = int(val_event_times.shape[1])
 
     # Determine initial target path index (may be overridden per-epoch below)
     P = int(event_times.shape[1])
@@ -404,19 +473,31 @@ def main(
     # Simple training loop
     best_loss: float = float("inf")
     # Create timestamped run directory under the chosen save root
-    save_root_base = Path(save_dir) if save_dir is not None else (Path("results") / "finetuned_cdiff")
+    save_root_base = (Path(save_dir) if save_dir is not None else (Path("results") / "finetuned_cdiff")) / dataset_name
     timestamp = datetime.now().strftime("%y%m%d-%H%M")
     save_root = save_root_base / timestamp
     save_root.mkdir(parents=True, exist_ok=True)
     logger.info("Saving fine-tune artifacts under: %s", str(save_root))
+    # Persist metadata about this fine-tuning run (including base model used)
+    try:
+        dataset_meta_key = "dataset_dir" if Path(str(dataset)).exists() else "dataset_id"
+        dataset_meta_val = str(Path(str(dataset)).resolve()) if dataset_meta_key == "dataset_dir" else str(dataset)
+        meta = {
+            dataset_meta_key: dataset_meta_val,
+            "dataset_name": dataset_name,
+            "base_model_path": str(loaded_weights_path.resolve()) if loaded_weights_path is not None else None,
+            "resume_model_arg": str(resume_model) if resume_model is not None else None,
+            "learning_rate": lr,
+            "weight_decay": weight_decay,
+            "epochs": epochs,
+        }
+        with open(save_root / "finetune_meta.json", "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+    except Exception as e:
+        logger.warning("Failed to write finetune_meta.json due to %s", e)
     writer = SummaryWriter(log_dir=str(save_root / "tensorboard"))
 
-    # Prepare optional validation set (CDiff dev split)
-    has_val = (ddir / "dev.pkl").exists()
-    if has_val:
-        dev_lists = _apply_limits_to_cdiff_lists(_load_cdiff_split(ddir, "dev"), max_paths, max_events)
-        val_event_times, val_event_types, val_seq_lengths = _build_tensors_from_cdiff(dev_lists, device)
-        P_val = int(val_event_times.shape[1])
+    # Prepare optional validation set already handled above for both local/HF
 
     for epoch in range(1, epochs + 1):
         # 1) Training step: resample target path index each epoch to reduce overfitting
