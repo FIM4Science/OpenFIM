@@ -482,6 +482,26 @@ class FIMHawkes(AModel):
                 schedulers=schedulers,
                 step=step,
             )
+        else:
+            # No ground-truth functions available: fall back to NLL-only fine-tuning
+            # Compute NLL on normalized time domain (internally denormalized if needed)
+            nll_only = self._nll_loss(
+                intensity_fn=intensity_fn,
+                event_times=event_times,
+                event_types=x["inference_event_types"].squeeze(-1),
+                seq_lengths=x["inference_seq_lengths"],
+            )
+
+            # Weight with configured loss weight for compatibility
+            total_loss = self.loss_weights.get("nll", 1.0) * nll_only
+
+            out["losses"] = {
+                "loss": total_loss,
+                "nll_loss": nll_only.detach().item(),
+                # Placeholders for logging consistency
+                "smape_loss": 0.0,
+                "mae_loss": 0.0,
+            }
 
         if self.normalize_times:
             self._denormalize_output(out, norm_constants)
