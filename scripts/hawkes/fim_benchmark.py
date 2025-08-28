@@ -78,8 +78,110 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     command_labels: List[str] = []  # "next_event" or "long_horizon"
     command_run_dirs: List[Path] = []
 
-    def build_common_args_for_dataset(run_dir: Path, ds: str) -> List[str]:
-        args = ["--checkpoint", str(cfg["checkpoint"]), "--dataset", str(ds), "--run-dir", str(run_dir)]
+    # ============================
+    # Optional: Fine-tuning support
+    # ============================
+    def _resolve_cdiff_dataset_path(ds: str) -> Path:
+        base = Path(ds)
+        if base.exists():
+            return base
+        candidate = Path(__file__).resolve().parents[2] / "data" / "external" / "CDiff_dataset" / ds
+        return candidate
+
+    def _latest_best_model_dir(save_root: Path, dataset_name: str) -> Path:
+        base_dir = save_root / dataset_name
+        if not base_dir.exists():
+            return Path("")
+        candidates = []
+        try:
+            for ts_dir in base_dir.iterdir():
+                if ts_dir.is_dir():
+                    bm = ts_dir / "best-model"
+                    if bm.exists():
+                        candidates.append((bm.stat().st_mtime, bm))
+        except Exception:
+            candidates = []
+        if not candidates:
+            return Path("")
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    def _maybe_finetune(for_task: str) -> Path:
+        """Run finetuning for the specific sub-task and return best checkpoint dir.
+
+        For next_event: use HF EasyTPP dataset id (e.g., easytpp/amazon).
+        For long_horizon: use local CDiff dataset folder path.
+        """
+        if not bool(cfg.get("fine_tune", False)):
+            return checkpoint
+
+        finetune_config = cfg.get("finetune_config")
+        finetune_epochs = int(cfg.get("fine_tune_epochs", 100))
+        finetune_lr = cfg.get("fine_tune_lr", 5e-5)
+        # Default finetune save root co-located under current results root for easy discovery
+        ft_save_root = Path(cfg.get("finetune_save_root", results_root / "_finetune"))
+        ft_save_root.mkdir(parents=True, exist_ok=True)
+
+        # Build dataset argument for finetune
+        if for_task == "next_event":
+            ds_arg = dataset if str(dataset).startswith("easytpp/") else f"easytpp/{dataset}"
+            dataset_name_for_ft = ds_arg.split("/")[-1]
+        else:
+            cdiff_path = _resolve_cdiff_dataset_path(str(dataset))
+            if not cdiff_path.exists():
+                raise FileNotFoundError(f"CDiff dataset path not found for long_horizon finetune: {cdiff_path}")
+            ds_arg = str(cdiff_path)
+            dataset_name_for_ft = Path(ds_arg).name
+
+        # Always resume from the original base checkpoint for each dataset/task
+        base_ckpt = str(checkpoint)
+
+        ft_cmd = [
+            sys.executable,
+            str(Path(__file__).with_name("fim_finetune.py")),
+        ]
+        if finetune_config:
+            ft_cmd.extend(["--config", str(finetune_config)])
+        ft_cmd.extend(
+            [
+                "--dataset",
+                str(ds_arg),
+                "--epochs",
+                str(finetune_epochs),
+                "--lr",
+                str(finetune_lr),
+                "--resume_model",
+                base_ckpt,
+                "--save_dir",
+                str(ft_save_root),
+            ]
+        )
+
+        with run_log.open("a") as log_f:
+            log_f.write(f"\n===== [FINETUNE {for_task}] =====\n{' '.join(ft_cmd)}\n\n")
+            log_f.flush()
+            proc = subprocess.run(ft_cmd, stdout=log_f, stderr=subprocess.STDOUT)
+            if proc.returncode != 0:
+                print(
+                    f"[FINETUNE FAIL] task={for_task} dataset={dataset} rc={proc.returncode}; falling back to base checkpoint",
+                    flush=True,
+                )
+                return checkpoint
+
+        # Locate newest best-model for this dataset under save root
+        best_dir = _latest_best_model_dir(Path(ft_save_root), dataset_name_for_ft)
+        if not best_dir or not best_dir.exists():
+            print(
+                f"[FINETUNE WARN] Could not locate best-model under {ft_save_root}/{dataset_name_for_ft}; using base checkpoint",
+                flush=True,
+            )
+            return checkpoint
+
+        print(f"[FINETUNE OK] task={for_task} dataset={dataset} → {best_dir}", flush=True)
+        return best_dir
+
+    def build_common_args_for_dataset(run_dir: Path, ds: str, ckpt_dir: Path) -> List[str]:
+        args = ["--checkpoint", str(ckpt_dir), "--dataset", str(ds), "--run-dir", str(run_dir)]
         if cfg.get("context_size") is not None:
             args.extend(["--context-size", str(cfg.get("context_size"))])
         if cfg.get("inference_size") is not None:
@@ -97,9 +199,12 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     if task in ("next_event", "both"):
         sub_run_dir = next_dir if task == "both" else result_dir
         dataset_ne = dataset if str(dataset).startswith("easytpp/") else f"easytpp/{dataset}"
-        cmd = [sys.executable, str(Path(__file__).with_name("fim_next_event_prediction.py"))] + build_common_args_for_dataset(
-            sub_run_dir, dataset_ne
-        )
+        eff_ckpt_ne = _maybe_finetune("next_event")
+        cmd = [
+            sys.executable,
+            str(Path(__file__).with_name("fim_next_event_prediction.py")),
+            *build_common_args_for_dataset(sub_run_dir, dataset_ne, eff_ckpt_ne),
+        ]
         if cfg.get("num_bootstrap_samples") is not None:
             cmd.extend(["--num-bootstrap-samples", str(cfg.get("num_bootstrap_samples"))])
         commands.append(cmd)
@@ -109,9 +214,12 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     if task in ("long_horizon", "both"):
         sub_run_dir = long_dir if task == "both" else result_dir
         # For long-horizon, load CDiff local data (script resolves short names to repo path)
-        cmd = [sys.executable, str(Path(__file__).with_name("fim_long_horizon_prediction.py"))] + build_common_args_for_dataset(
-            sub_run_dir, str(dataset)
-        )
+        eff_ckpt_lh = _maybe_finetune("long_horizon")
+        cmd = [
+            sys.executable,
+            str(Path(__file__).with_name("fim_long_horizon_prediction.py")),
+            *build_common_args_for_dataset(sub_run_dir, str(dataset), eff_ckpt_lh),
+        ]
         if cfg.get("forecast_horizon_size") is None:
             raise ValueError("long_horizon task requires 'forecast_horizon_size'")
         cmd.extend(["--forecast-horizon-size", str(cfg.get("forecast_horizon_size"))])
@@ -295,6 +403,11 @@ def write_latex_row_next_event_fim(results_root: Path, rows: List[Dict]) -> Path
         "easytpp/stackoverflow",
     ]
 
+    # Determine if fine-tuned checkpoints are used for next_event (any row contains '_finetune')
+    is_finetuned = any(
+        (r.get("task") == "next_event" and r.get("source") == "model" and "_finetune" in str(r.get("checkpoint", ""))) for r in rows
+    )
+
     cells: List[str] = []
     for ds in ds_ids:
         r = model_rows.get(ds)
@@ -313,14 +426,8 @@ def write_latex_row_next_event_fim(results_root: Path, rows: List[Dict]) -> Path
             cells.append(f"{fmt(rmse)} $\\pm$ {fmt(rmse_ci)}")
             cells.append(f"{fmt(terr)} $\\pm$ {fmt(terr_ci)}")
 
-    row = " ".join(
-        [
-            "\\textbf{FIM$^{\\dagger}$ (ours)}",
-            "&",
-            " & ".join(cells),
-            "\\\\",
-        ]
-    )
+    label = "\\textbf{FIM (fine-tuned)}" if is_finetuned else "\\textbf{FIM$^{\\dagger}$}"
+    row = " ".join([label, "&", " & ".join(cells), "\\\\"])
 
     out_path = results_root / "next_event_fim_row.tex"
     out_path.write_text(row)
@@ -378,8 +485,13 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
     top_cells = cells_for(["taxi", "taobao"])
     bottom_cells = cells_for(["stackoverflow", "amazon"])
 
-    row_top = " ".join(["\\textbf{FIM (ours)}", "&", " & ".join(top_cells), "\\\\"])  # Taxi | Taobao
-    row_bottom = " ".join(["\\textbf{FIM (ours)}", "&", " & ".join(bottom_cells), "\\\\"])  # StackOverflow | Amazon
+    # Determine if fine-tuned checkpoints are used for long_horizon (any row contains '_finetune')
+    is_finetuned = any(
+        (r.get("task") == "long_horizon" and r.get("source") == "model" and "_finetune" in str(r.get("checkpoint", ""))) for r in rows
+    )
+    label = "\\textbf{FIM (fine-tuned)}" if is_finetuned else "\\textbf{FIM}"
+    row_top = " ".join([label, "&", " & ".join(top_cells), "\\\\"])  # Taxi | Taobao
+    row_bottom = " ".join([label, "&", " & ".join(bottom_cells), "\\\\"])  # StackOverflow | Amazon
 
     out_path = results_root / "long_horizon_fim_rows.tex"
     out_path.write_text(f"{row_top}\n{row_bottom}\n")

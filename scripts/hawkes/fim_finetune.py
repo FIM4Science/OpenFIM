@@ -274,7 +274,7 @@ def _load_easytpp_split(dataset: str, split: str) -> Dict[str, List]:
 
 
 @click.command()
-@click.option("--config", "cfg_path", required=True, type=click.Path(exists=True), help="Path to hawkes YAML config")
+@click.option("--config", "cfg_path", required=False, type=click.Path(exists=True), help="Path to hawkes YAML config (optional)")
 @click.option(
     "--dataset",
     required=True,
@@ -295,7 +295,7 @@ def _load_easytpp_split(dataset: str, split: str) -> Dict[str, List]:
 @click.option("--val_integration_points", default=5000, type=int, help="Monte Carlo samples for validation NLL integral")
 @click.option("--deterministic_val", is_flag=True, default=True, help="Use fixed RNG seed for validation NLL")
 def main(
-    cfg_path: str,
+    cfg_path: Optional[str],
     dataset: str,
     resume_model: Optional[str],
     epochs: int,
@@ -311,13 +311,15 @@ def main(
     setup_logging()
 
     # Load config and instantiate model
-    cfg_raw = load_yaml(Path(cfg_path))
-    configs = expand_params(cfg_raw)
-    if len(configs) == 0:
-        raise ValueError("No configs produced by expand_params. Check your YAML.")
-    if len(configs) > 1:
-        logger.warning("Multiple configs detected (%d). Fine-tune will use the first one.", len(configs))
-    config: GenericConfig = configs[0]
+    config: Optional[GenericConfig] = None
+    if cfg_path is not None:
+        cfg_raw = load_yaml(Path(cfg_path))
+        configs = expand_params(cfg_raw)
+        if len(configs) == 0:
+            raise ValueError("No configs produced by expand_params. Check your YAML.")
+        if len(configs) > 1:
+            logger.warning("Multiple configs detected (%d). Fine-tune will use the first one.", len(configs))
+        config = configs[0]
 
     # Prefer loading the exact model config from the checkpoint to avoid shape mismatches
     model = None
@@ -336,6 +338,8 @@ def main(
                 logger.warning("Failed to load checkpoint config at %s due to %s; falling back to YAML.", ckpt_config_path, e)
 
     if model is None:
+        if config is None:
+            raise ValueError("No resume checkpoint config.json found and no --config YAML provided; cannot instantiate model.")
         logger.info("Creating model from YAML config (%s)", config.model.model_type)
         model = ModelFactory.create(config.model.to_dict())
 
@@ -377,7 +381,10 @@ def main(
             logger.warning("Unexpected keys when loading state_dict: %s", unexpected)
 
     # Device
-    device = torch.device("cuda" if torch.cuda.is_available() and config.experiment.device_map != "cpu" else "cpu")
+    if config is not None:
+        device = torch.device("cuda" if torch.cuda.is_available() and getattr(config.experiment, "device_map", "cuda") != "cpu" else "cpu")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.train()
 
