@@ -1,8 +1,8 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  # - retweet
-  - taobao
+  - retweet
+  # - taobao
   # - stackoverflow
   # - amazon
   # - taxi
@@ -13,11 +13,11 @@ datasets:
 
 # - 'checkpoints' list of FIM-Hawkes checkpoint directories
 checkpoints:
-  - results/finetuned_cdiff_gpu/250827-1420/best-model
+  - results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-24-1124/checkpoints/best-model
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
-task: long_horizon
+task: both
 context_size: 2000    # null => use full train split
 inference_size: null  # null => use full test split
 max_num_events: 100   # null => no truncation
@@ -34,3 +34,17 @@ results_root: results/fim_benchmark
 
 # Parallelism
 parallel: 1
+
+# Fine-tuning (optional). If enabled, model is fine-tuned per dataset before evaluation
+# - For next_event: HF EasyTPP dataset id is used for fine-tune (e.g., easytpp/taobao)
+# - For long_horizon: local CDiff dataset path is used (resolved from data/external/CDiff_dataset/<name> if needed)
+# - The best validation checkpoint (best-model) is automatically selected for evaluation
+# - Each dataset starts fine-tune from the base checkpoint again (no carry-over)
+fine_tune: false
+# Required when fine_tune: true — path to a train YAML used by fim_finetune.py
+# finetune_config: configs/train/hawkes/david_small.yaml
+# Fine-tune hyperparameters
+fine_tune_lr: 5e-5
+fine_tune_epochs: 500
+# Optional custom save root for fine-tuning artifacts
+# finetune_save_root: results/finetuned_cdiff

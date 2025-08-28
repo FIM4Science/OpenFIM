@@ -292,7 +292,20 @@ def predict_next_event_for_sequence(
             if num_marks is not None:
                 x["num_marks"] = torch.tensor([num_marks], device=device)
 
-            model_out = model.forward(x)
+            # Some model.forward implementations compute NLL by default and expect
+            # fully padded shapes. For pure inference, temporarily disable NLL.
+            _orig_nll = getattr(model, "_nll_loss", None)
+            try:
+                if _orig_nll is not None:
+
+                    def _zero_nll(**kwargs):
+                        return torch.tensor(0.0, device=device)
+
+                    model._nll_loss = lambda *args, **kwargs: _zero_nll(**kwargs)
+                model_out = model.forward(x)
+            finally:
+                if _orig_nll is not None:
+                    model._nll_loss = _orig_nll
             intensity_obj = model_out["intensity_function"]
 
             # Extract only the *real* history up to `prefix_len` so the sampler and
@@ -1853,11 +1866,13 @@ if __name__ == "__main__":
             )
             status = "OK"
         except Exception as e:
+            import traceback
+
             result = {
                 "dataset": args.dataset,
                 "model_checkpoint": str(args.checkpoint),
                 "status": "FAIL",
-                "error": str(e),
+                "error": f"{e}\n{traceback.format_exc()}",
             }
             status = "FAIL"
 

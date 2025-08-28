@@ -1,11 +1,11 @@
 experiment:
-  name: FIM_Hawkes_10-22st_small_″2000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_10-22st_small_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
 
 distributed:
-  enabled: false
+  enabled: true
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -16,26 +16,26 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_poisson/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/1k_1D_2k_paths_Gamma_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/1k_5D_2k_paths_Gamma_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/1k_10D_2k_paths_poisson/train
+      # - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/train
+      # - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/train
+      # - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/train
+      # - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/train
       - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/train
       # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_sparse/train
       # - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel_sparse/train
@@ -77,7 +77,7 @@ dataset:
     max_number_of_minibatch_sizes: 1
 
     variable_sequence_lens:
-      train: true          # Variable sequence lengths for training
+      train: false          # Variable sequence lengths for training
       validation: false    # Fixed sequence lengths for consistent validation
     min_sequence_len: 15
     max_sequence_len: 100
