@@ -435,10 +435,11 @@ def write_latex_row_next_event_fim(results_root: Path, rows: List[Dict]) -> Path
 
 
 def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> Path:
-    """Aggregate long-horizon 'model' results into two LaTeX rows for the table layout.
+    """Aggregate long-horizon 'model' results into LaTeX rows for the table layout.
 
     Top row order: Taxi, Taobao
-    Bottom row order: StackOverflow, Amazon
+    Middle row order: StackOverflow, Amazon
+    Bottom row: Retweet (left 4 cells), remaining 4 cells empty
 
     Metrics per dataset (order): OTD, RMSE_e, RMSE_{x+}, sMAPE
     """
@@ -483,7 +484,10 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
 
     # Use short names; resolver maps from either HF ids or local names
     top_cells = cells_for(["taxi", "taobao"])
-    bottom_cells = cells_for(["stackoverflow", "amazon"])
+    middle_cells = cells_for(["stackoverflow", "amazon"])
+    # Retweet occupies the left block; right block intentionally left empty
+    retweet_row_cells_left = cells_for(["retweet"])
+    retweet_row_cells_right = ["", "", "", ""]
 
     # Determine if fine-tuned checkpoints are used for long_horizon (any row contains '_finetune')
     is_finetuned = any(
@@ -491,10 +495,11 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
     )
     label = "\\textbf{FIM (fine-tuned)}" if is_finetuned else "\\textbf{FIM}"
     row_top = " ".join([label, "&", " & ".join(top_cells), "\\\\"])  # Taxi | Taobao
-    row_bottom = " ".join([label, "&", " & ".join(bottom_cells), "\\\\"])  # StackOverflow | Amazon
+    row_middle = " ".join([label, "&", " & ".join(middle_cells), "\\\\"])  # StackOverflow | Amazon
+    row_bottom = " ".join([label, "&", " & ".join(retweet_row_cells_left + retweet_row_cells_right), "\\\\"])  # Retweet | (empty)
 
     out_path = results_root / "long_horizon_fim_rows.tex"
-    out_path.write_text(f"{row_top}\n{row_bottom}\n")
+    out_path.write_text(f"{row_top}\n{row_middle}\n{row_bottom}\n")
     return out_path
 
 
