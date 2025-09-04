@@ -294,6 +294,7 @@ def _load_easytpp_split(dataset: str, split: str) -> Dict[str, List]:
 @click.option("--max_events", default=None, type=int, help="Limit number of events per path (truncate L)")
 @click.option("--val_integration_points", default=5000, type=int, help="Monte Carlo samples for validation NLL integral")
 @click.option("--deterministic_val", is_flag=True, default=True, help="Use fixed RNG seed for validation NLL")
+@click.option("--grad-accum-steps", default=1, type=int, help="Gradient accumulation steps per epoch")
 def main(
     cfg_path: Optional[str],
     dataset: str,
@@ -307,6 +308,7 @@ def main(
     max_events: Optional[int],
     val_integration_points: int,
     deterministic_val: bool,
+    grad_accum_steps: int,
 ):
     setup_logging()
 
@@ -321,25 +323,28 @@ def main(
             logger.warning("Multiple configs detected (%d). Fine-tune will use the first one.", len(configs))
         config = configs[0]
 
-    # Prefer loading the exact model config from the checkpoint to avoid shape mismatches
-    model = None
+    # Strictly load model from checkpoint config when resume_model is provided,
+    # but fall back to YAML config when the checkpoint config is missing fields
+    # like 'model_type'. This improves robustness for older checkpoints.
     if resume_model is not None:
         resume_path = Path(resume_model)
-        # If a file is given, look for config.json in its parent; if a directory, in it directly
         ckpt_dir = resume_path if resume_path.is_dir() else resume_path.parent
         ckpt_config_path = ckpt_dir / "config.json"
-        if ckpt_config_path.exists():
-            try:
-                with open(ckpt_config_path, "r", encoding="utf-8") as f:
-                    ckpt_cfg_dict = json.load(f)
-                logger.info("Creating model from checkpoint config (%s)", ckpt_cfg_dict.get("model_type", "unknown"))
-                model = ModelFactory.create(ckpt_cfg_dict)
-            except Exception as e:
-                logger.warning("Failed to load checkpoint config at %s due to %s; falling back to YAML.", ckpt_config_path, e)
-
-    if model is None:
+        if not ckpt_config_path.exists():
+            raise FileNotFoundError(f"Checkpoint config.json not found: {ckpt_config_path}")
+        with open(ckpt_config_path, "r", encoding="utf-8") as f:
+            ckpt_cfg_dict = json.load(f)
+        mt = ckpt_cfg_dict.get("model_type")
+        if not isinstance(mt, str) or not mt:
+            # Prefer loading directly from checkpoint by inferring model type.
+            # Hawkes finetune supports only FIMHawkes, so default to that.
+            logger.warning("Checkpoint config missing 'model_type'. Assuming 'fimhawkes' and proceeding with checkpoint config.")
+            ckpt_cfg_dict["model_type"] = "fimhawkes"
+        logger.info("Creating model from checkpoint config (%s)", ckpt_cfg_dict.get("model_type"))
+        model = ModelFactory.create(ckpt_cfg_dict)
+    else:
         if config is None:
-            raise ValueError("No resume checkpoint config.json found and no --config YAML provided; cannot instantiate model.")
+            raise ValueError("No --resume_model provided and no --config YAML; cannot instantiate model.")
         logger.info("Creating model from YAML config (%s)", config.model.model_type)
         model = ModelFactory.create(config.model.to_dict())
 
@@ -387,6 +392,8 @@ def main(
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     model.train()
+    # Enable bf16 autocast on CUDA to reduce memory (matches trainer bf16_mixed)
+    use_bf16_autocast = device.type == "cuda"
 
     def _save_checkpoint(save_dir: Path):
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -507,20 +514,28 @@ def main(
     # Prepare optional validation set already handled above for both local/HF
 
     for epoch in range(1, epochs + 1):
-        # 1) Training step: resample target path index each epoch to reduce overfitting
-        P = int(event_times.shape[1])
-        target_idx_epoch = torch.randint(low=0, high=P, size=(1,)).item()
-        x, _, _ = _build_batch(event_times, event_types, seq_lengths, target_idx_epoch, device)
-
+        # Gradient accumulation to simulate larger batch size without increasing memory
         optimizer.zero_grad(set_to_none=True)
-        out = model(x)
-        losses = out["losses"]
-        loss = losses["loss"]
-        loss.backward()
+        epoch_loss_sum: float = 0.0
+        nll_train = float("nan")
+        steps_this_epoch = max(1, int(grad_accum_steps))
+        for _ in range(steps_this_epoch):
+            # 1) Training micro-step: resample target path index each iteration
+            P = int(event_times.shape[1])
+            target_idx_epoch = torch.randint(low=0, high=P, size=(1,)).item()
+            x, _, _ = _build_batch(event_times, event_types, seq_lengths, target_path_idx=target_idx_epoch, device=device)
+
+            # Forward with bf16 autocast to reduce activation memory
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_bf16_autocast):
+                out = model(x)
+            losses = out["losses"]
+            # Scale the loss to average across micro-steps
+            loss = losses["loss"] / steps_this_epoch
+            epoch_loss_sum += float(loss.detach().cpu())
+            nll_train = float(losses.get("nll_loss", float("nan")))
+            loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-
-        nll_train = losses.get("nll_loss", float("nan"))
         # Validation NLL
         if has_val:
             model.eval()
@@ -529,7 +544,8 @@ def main(
                 nll_vals: List[float] = []
                 for p_idx in range(P_val):
                     x_val, _, _ = _build_batch(val_event_times, val_event_types, val_seq_lengths, p_idx, device)
-                    out_val = model(x_val)
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_bf16_autocast):
+                        out_val = model(x_val)
                     try:
                         if deterministic_val:
                             with torch.random.fork_rng(devices=[device], enabled=True):
@@ -539,6 +555,25 @@ def main(
                                     if model.normalize_times
                                     else x_val["inference_event_times"]
                                 )
+                                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_bf16_autocast):
+                                    nll_one = (
+                                        model._nll_loss(
+                                            intensity_fn=out_val["intensity_function"],
+                                            event_times=event_times_for_nll,
+                                            event_types=x_val["inference_event_types"].squeeze(-1),
+                                            seq_lengths=x_val["inference_seq_lengths"],
+                                            num_integration_points=val_integration_points,
+                                        )
+                                        .detach()
+                                        .item()
+                                    )
+                        else:
+                            event_times_for_nll = (
+                                x_val.get("inference_event_times_norm", x_val["inference_event_times"])
+                                if model.normalize_times
+                                else x_val["inference_event_times"]
+                            )
+                            with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_bf16_autocast):
                                 nll_one = (
                                     model._nll_loss(
                                         intensity_fn=out_val["intensity_function"],
@@ -550,23 +585,6 @@ def main(
                                     .detach()
                                     .item()
                                 )
-                        else:
-                            event_times_for_nll = (
-                                x_val.get("inference_event_times_norm", x_val["inference_event_times"])
-                                if model.normalize_times
-                                else x_val["inference_event_times"]
-                            )
-                            nll_one = (
-                                model._nll_loss(
-                                    intensity_fn=out_val["intensity_function"],
-                                    event_times=event_times_for_nll,
-                                    event_types=x_val["inference_event_types"].squeeze(-1),
-                                    seq_lengths=x_val["inference_seq_lengths"],
-                                    num_integration_points=val_integration_points,
-                                )
-                                .detach()
-                                .item()
-                            )
                     except Exception:
                         nll_one = out_val["losses"].get("nll_loss", float("nan"))
                     if nll_one == nll_one:
@@ -583,12 +601,12 @@ def main(
             "Epoch %d/%d - loss: %.6f, nll_train: %.6f, nll_val: %.6f",
             epoch,
             epochs,
-            float(loss.detach().cpu()),
+            float(epoch_loss_sum),
             float(nll_train),
             float(nll_val),
         )
         # TensorBoard scalars
-        writer.add_scalar("train/loss", float(loss.detach().cpu()), epoch)
+        writer.add_scalar("train/loss", float(epoch_loss_sum), epoch)
         if nll_train == nll_train:  # not NaN
             writer.add_scalar("train/nll", float(nll_train), epoch)
         if has_val and nll_val == nll_val:
@@ -601,9 +619,9 @@ def main(
             pass
 
         # Save best and periodic
-        is_best = float(loss.detach().cpu()) < best_loss
+        is_best = float(epoch_loss_sum) < best_loss
         if is_best:
-            best_loss = float(loss.detach().cpu())
+            best_loss = float(epoch_loss_sum)
             best_dir = save_root / "best-model"
             _save_checkpoint(best_dir)
 

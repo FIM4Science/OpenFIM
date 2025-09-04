@@ -16,7 +16,6 @@ from typing import Optional
 import numpy as np
 import torch
 from datasets import load_dataset
-from safetensors import safe_open
 from tqdm import tqdm
 
 
@@ -211,40 +210,10 @@ def detect_num_event_types_from_data(context_data_raw: dict, inference_data_raw:
 
 def load_fimhawkes_with_proper_weights(checkpoint_path: str) -> FIMHawkes:
     """
-    Load FIMHawkes model with all weights properly loaded.
+    Load FIMHawkes using the generic AModel loader, which reads config.json
+    and model-checkpoint.pth from the checkpoint directory.
     """
-    checkpoint_path = Path(checkpoint_path)
-    if not checkpoint_path.is_dir():
-        raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_path}")
-
-    config_path = checkpoint_path / "config.json"
-    if not config_path.exists():
-        raise FileNotFoundError(f"config.json not found in checkpoint directory: {config_path}")
-    with open(config_path, "r") as f:
-        config_dict = json.load(f)
-
-    if "model_type" not in config_dict:
-        config_dict["model_type"] = "fimhawkes"
-
-    config = FIMHawkesConfig.from_dict(config_dict)
-    model = FIMHawkes(config)
-
-    safetensors_path = checkpoint_path / "model.safetensors"
-    if not safetensors_path.exists():
-        raise FileNotFoundError(f"model.safetensors not found in checkpoint directory: {safetensors_path}")
-
-    with safe_open(safetensors_path, framework="pt", device="cpu") as f:
-        state_dict = {key: f.get_tensor(key) for key in f.keys()}
-
-    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-
-    print("✅ Model loaded with custom weight loading.")
-    if missing_keys:
-        print(f"⚠️  Missing keys in state_dict: {len(missing_keys)}")
-    if unexpected_keys:
-        print(f"⚠️  Unexpected keys in state_dict: {len(unexpected_keys)}")
-
-    return model
+    return FIMHawkes.load_model(Path(checkpoint_path))
 
 
 def predict_next_event_for_sequence(

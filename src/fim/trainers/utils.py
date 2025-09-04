@@ -987,8 +987,22 @@ def broadcast_state_dict(state_dict: Optional[dict], state_dict_name: str, move_
     dist.broadcast_object_list(local_state_dict, src=0, device=torch.cuda.current_device())
     local_state_dict = local_state_dict[0]
     if move_on_local_gpu:
-        for k, v in local_state_dict.items():
-            local_state_dict[k] = v.to(torch.cuda.current_device())
+
+        def _move_to_device(obj):
+            """Safely move tensors (and tensors inside containers) to the local CUDA device.
+
+            Non-tensor Python scalars (e.g., float, int) and other types are returned unchanged.
+            """
+            if isinstance(obj, torch.Tensor):
+                return obj.to(torch.cuda.current_device())
+            if isinstance(obj, dict):
+                return {k: _move_to_device(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                moved = [_move_to_device(v) for v in obj]
+                return type(obj)(moved)
+            return obj
+
+        local_state_dict = _move_to_device(local_state_dict)
         return local_state_dict
     return local_state_dict
 

@@ -5,7 +5,7 @@ experiment:
   device_map: auto # auto, cuda, cpu
 
 distributed:
-  enabled: true
+  enabled: false
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5

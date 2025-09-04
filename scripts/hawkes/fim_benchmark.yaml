@@ -2,10 +2,10 @@
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
   - retweet
-  # - taobao
-  # - stackoverflow
-  # - amazon
-  # - taxi
+  - taobao
+  - stackoverflow
+  - amazon
+  - taxi
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
@@ -13,7 +13,7 @@ datasets:
 
 # - 'checkpoints' list of FIM-Hawkes checkpoint directories
 checkpoints:
-  - results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-24-1124/checkpoints/best-model
+  - results/FIM_Hawkes_10-22st_big_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-02-0937/checkpoints/best-model
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
@@ -40,9 +40,9 @@ parallel: 1
 # - For long_horizon: local CDiff dataset path is used (resolved from data/external/CDiff_dataset/<name> if needed)
 # - The best validation checkpoint (best-model) is automatically selected for evaluation
 # - Each dataset starts fine-tune from the base checkpoint again (no carry-over)
-fine_tune: false
+fine_tune: true
 # Required when fine_tune: true — path to a train YAML used by fim_finetune.py
-# finetune_config: configs/train/hawkes/david_small.yaml
+# finetune_config: configs/train/hawkes/david.yaml
 # Fine-tune hyperparameters
 fine_tune_lr: 5e-5
 fine_tune_epochs: 500

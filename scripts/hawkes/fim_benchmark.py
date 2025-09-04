@@ -154,8 +154,14 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
                 base_ckpt,
                 "--save_dir",
                 str(ft_save_root),
+                "--grad-accum-steps",
+                str(cfg.get("finetune_grad_accum_steps", 1)),
             ]
         )
+        # Constrain memory during fine-tune regardless of eval settings
+        ft_max_paths = int(cfg.get("finetune_max_paths", 2000))
+        ft_max_events = int(cfg.get("finetune_max_events", cfg.get("max_num_events") or 100))
+        ft_cmd.extend(["--max_paths", str(ft_max_paths), "--max_events", str(ft_max_events)])
 
         with run_log.open("a") as log_f:
             log_f.write(f"\n===== [FINETUNE {for_task}] =====\n{' '.join(ft_cmd)}\n\n")
