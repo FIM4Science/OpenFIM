@@ -599,8 +599,18 @@ class HawkesEvaluationPlots(EvaluationEpoch):
         pred_int = predicted_intensities[0, :, inference_path_idx, :].detach().cpu()  # [M, L_inference]
         eval_times = evaluation_times[0, inference_path_idx, :].detach().cpu()  # [L_inference]
 
+        # Defensive alignment for heterogeneous batches/datasets:
+        # - Ensure the same evaluation length across x/y
+        # - Cap number of plotted marks to available ones
+        marks_available = min(target_int.shape[0], pred_int.shape[0])
+        num_marks_to_plot = min(num_marks, marks_available)
+        L = min(eval_times.shape[-1], target_int.shape[-1], pred_int.shape[-1])
+        eval_times = eval_times[:L].flatten()
+        target_int = target_int[:, :L]
+        pred_int = pred_int[:, :L]
+
         # Create individual plots for each mark
-        for mark_idx in range(num_marks):
+        for mark_idx in range(num_marks_to_plot):
             fig, ax = plt.subplots(figsize=(10, 6))
 
             # Create scatter plots for target and predicted intensity for this mark
@@ -636,11 +646,11 @@ class HawkesEvaluationPlots(EvaluationEpoch):
         # Create combined plot with all marks
         fig_combined, ax_combined = plt.subplots(figsize=(12, 8))
 
-        colors = plt.cm.tab10(range(num_marks))
+        colors = plt.cm.tab10(range(num_marks_to_plot))
         markers_target = ["o", "s", "D", "v", "^", "<", ">", "p", "*", "h"]
         markers_pred = ["^", "v", "X", "<", ">", "P", "d", "8", "H", "+"]
 
-        for mark_idx in range(num_marks):
+        for mark_idx in range(num_marks_to_plot):
             # Use different markers for target vs predicted, same color for same mark
             ax_combined.scatter(
                 eval_times,

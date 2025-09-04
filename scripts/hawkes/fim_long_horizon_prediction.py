@@ -33,7 +33,6 @@ import torch
 
 # Import the new OTD metric functions
 from otd_metrics import get_distances_otd
-from safetensors import safe_open
 
 
 # ============================
@@ -53,30 +52,8 @@ FIMHawkes.register_for_auto_class("AutoModel")
 # Utilities: model + data IO
 # ============================
 def load_fimhawkes_with_proper_weights(checkpoint_path: str) -> FIMHawkes:
-    checkpoint_path = Path(checkpoint_path)
-    if not checkpoint_path.is_dir():
-        raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_path}")
-
-    config_path = checkpoint_path / "config.json"
-    if not config_path.exists():
-        raise FileNotFoundError(f"config.json not found in checkpoint directory: {config_path}")
-    with open(config_path, "r") as f:
-        config_dict = json.load(f)
-    if "model_type" not in config_dict:
-        config_dict["model_type"] = "fimhawkes"
-
-    config = FIMHawkesConfig.from_dict(config_dict)
-    model = FIMHawkes(config)
-
-    safetensors_path = checkpoint_path / "model.safetensors"
-    if not safetensors_path.exists():
-        raise FileNotFoundError(f"model.safetensors not found in checkpoint directory: {safetensors_path}")
-
-    with safe_open(safetensors_path, framework="pt", device="cpu") as f:
-        state_dict = {key: f.get_tensor(key) for key in f.keys()}
-
-    model.load_state_dict(state_dict, strict=False)
-    return model
+    # Delegate loading to the generic loader which reads config.json and model-checkpoint.pth
+    return FIMHawkes.load_model(Path(checkpoint_path))
 
 
 def load_local_dataset(dataset_path: str, split: str) -> Dict:

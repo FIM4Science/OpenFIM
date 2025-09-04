@@ -731,12 +731,16 @@ class FIMHawkes(AModel):
             )
 
     def _smape(self, predicted_intensity_values: Tensor, target_intensity_values: Tensor) -> Tensor:
-        """Symmetric Mean Absolute Percentage Error."""
-        return torch.mean(
-            2.0
-            * torch.abs(predicted_intensity_values - target_intensity_values)
-            / (torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8)
-        )
+        """Symmetric Mean Absolute Percentage Error.
+
+        Any NaN/inf contributions (e.g., from NaN targets) are replaced with 2.0
+        before averaging so the loss never returns NaN.
+        """
+        numerator = 2.0 * torch.abs(predicted_intensity_values - target_intensity_values)
+        denominator = torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8
+        smape_values = numerator / denominator
+        smape_values = torch.nan_to_num(smape_values, nan=2.0, posinf=2.0, neginf=2.0)
+        return torch.mean(smape_values)
 
     def _nll_loss(
         self,
