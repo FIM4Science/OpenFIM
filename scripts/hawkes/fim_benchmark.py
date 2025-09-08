@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -41,7 +42,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     """
     dataset = cfg["dataset"]
     checkpoint: Path = Path(cfg["checkpoint"]) if cfg.get("checkpoint") else Path("")
-    checkpoint_name = checkpoint.name or str(cfg.get("checkpoint"))
+    # Human-friendly label when no checkpoint is provided
+    checkpoint_name = checkpoint.name or (str(cfg.get("checkpoint")) if cfg.get("checkpoint") else "scratch")
     results_root: Path = cfg["results_root"]
     task = str(cfg.get("task", "next_event"))
 
@@ -106,6 +108,17 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         candidates.sort(key=lambda x: x[0], reverse=True)
         return candidates[0][1]
 
+    def _is_valid_checkpoint_dir(p: Path) -> bool:
+        try:
+            return p.is_dir() and (
+                (p / "config.json").exists()
+                and (
+                    ((p / "model-checkpoint.pth").exists()) or ((p / "model.safetensors").exists()) or ((p / "pytorch_model.bin").exists())
+                )
+            )
+        except Exception:
+            return False
+
     def _maybe_finetune(for_task: str) -> Path:
         """Run finetuning for the specific sub-task and return best checkpoint dir.
 
@@ -113,6 +126,10 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         For long_horizon: use local CDiff dataset folder path.
         """
         if not bool(cfg.get("fine_tune", False)):
+            # If no checkpoint was provided and fine-tuning is disabled, we cannot proceed.
+            # Downstream loaders require a valid checkpoint directory.
+            if not (str(checkpoint) and Path(str(checkpoint)).exists()):
+                raise ValueError("No checkpoint provided and fine_tune is False; cannot initialize model from scratch for evaluation.")
             return checkpoint
 
         finetune_config = cfg.get("finetune_config")
@@ -133,8 +150,9 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             ds_arg = str(cdiff_path)
             dataset_name_for_ft = Path(ds_arg).name
 
-        # Always resume from the original base checkpoint for each dataset/task
-        base_ckpt = str(checkpoint)
+        # Always resume from the original base checkpoint when provided explicitly in config
+        base_ckpt_str = cfg.get("checkpoint") if cfg.get("checkpoint") else None
+        base_ckpt_path = Path(base_ckpt_str) if base_ckpt_str else None
 
         ft_cmd = [
             sys.executable,
@@ -150,29 +168,47 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
                 str(finetune_epochs),
                 "--lr",
                 str(finetune_lr),
-                "--resume_model",
-                base_ckpt,
                 "--save_dir",
                 str(ft_save_root),
                 "--grad-accum-steps",
                 str(cfg.get("finetune_grad_accum_steps", 1)),
             ]
         )
+        # Only append resume_model if a valid checkpoint directory exists (not current '.')
+        if base_ckpt_path is not None and _is_valid_checkpoint_dir(base_ckpt_path):
+            ft_cmd.extend(["--resume_model", str(base_ckpt_path)])
+        else:
+            # Starting from scratch: require a finetune config to construct the model
+            if not finetune_config:
+                raise ValueError("Starting from scratch requires 'finetune_config' in the benchmark YAML so the model can be constructed.")
         # Constrain memory during fine-tune regardless of eval settings
         ft_max_paths = int(cfg.get("finetune_max_paths", 2000))
         ft_max_events = int(cfg.get("finetune_max_events", cfg.get("max_num_events") or 100))
         ft_cmd.extend(["--max_paths", str(ft_max_paths), "--max_events", str(ft_max_events)])
 
+        # Ensure child processes can import 'fim' by adding repo src to PYTHONPATH
+        env = os.environ.copy()
+        repo_src = str(Path(__file__).resolve().parents[2] / "src")
+        if env.get("PYTHONPATH"):
+            if repo_src not in env["PYTHONPATH"].split(":"):
+                env["PYTHONPATH"] = repo_src + ":" + env["PYTHONPATH"]
+        else:
+            env["PYTHONPATH"] = repo_src
+
         with run_log.open("a") as log_f:
             log_f.write(f"\n===== [FINETUNE {for_task}] =====\n{' '.join(ft_cmd)}\n\n")
             log_f.flush()
-            proc = subprocess.run(ft_cmd, stdout=log_f, stderr=subprocess.STDOUT)
+            proc = subprocess.run(ft_cmd, stdout=log_f, stderr=subprocess.STDOUT, env=env)
             if proc.returncode != 0:
                 print(
-                    f"[FINETUNE FAIL] task={for_task} dataset={dataset} rc={proc.returncode}; falling back to base checkpoint",
+                    f"[FINETUNE FAIL] task={for_task} dataset={dataset} rc={proc.returncode}",
                     flush=True,
                 )
-                return checkpoint
+                # If no valid base checkpoint is available, fail fast instead of passing '.' downstream
+                if base_ckpt_path is None or not _is_valid_checkpoint_dir(base_ckpt_path):
+                    raise RuntimeError("Fine-tune failed and no base checkpoint provided; cannot proceed with evaluation.")
+                # Otherwise fall back to the provided base checkpoint
+                return base_ckpt_path
 
         # Locate newest best-model for this dataset under save root
         best_dir = _latest_best_model_dir(Path(ft_save_root), dataset_name_for_ft)
@@ -211,6 +247,9 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             str(Path(__file__).with_name("fim_next_event_prediction.py")),
             *build_common_args_for_dataset(sub_run_dir, dataset_ne, eff_ckpt_ne),
         ]
+        # Validate checkpoint directory
+        if not _is_valid_checkpoint_dir(Path(str(eff_ckpt_ne))):
+            raise FileNotFoundError(f"Next-event checkpoint directory invalid: {eff_ckpt_ne}")
         if cfg.get("num_bootstrap_samples") is not None:
             cmd.extend(["--num-bootstrap-samples", str(cfg.get("num_bootstrap_samples"))])
         commands.append(cmd)
@@ -226,6 +265,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             str(Path(__file__).with_name("fim_long_horizon_prediction.py")),
             *build_common_args_for_dataset(sub_run_dir, str(dataset), eff_ckpt_lh),
         ]
+        if not _is_valid_checkpoint_dir(Path(str(eff_ckpt_lh))):
+            raise FileNotFoundError(f"Long-horizon checkpoint directory invalid: {eff_ckpt_lh}")
         if cfg.get("forecast_horizon_size") is None:
             raise ValueError("long_horizon task requires 'forecast_horizon_size'")
         cmd.extend(["--forecast-horizon-size", str(cfg.get("forecast_horizon_size"))])
@@ -236,11 +277,20 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         command_run_dirs.append(sub_run_dir)
 
     rc = 0
+    # Ensure child processes can import 'fim' in eval as well
+    env = os.environ.copy()
+    repo_src = str(Path(__file__).resolve().parents[2] / "src")
+    if env.get("PYTHONPATH"):
+        if repo_src not in env["PYTHONPATH"].split(":"):
+            env["PYTHONPATH"] = repo_src + ":" + env["PYTHONPATH"]
+    else:
+        env["PYTHONPATH"] = repo_src
+
     with run_log.open("w") as log_f:
         for idx, cmd in enumerate(commands, start=1):
             log_f.write(f"\n===== [RUNNING COMMAND {idx}/{len(commands)}] =====\n{' '.join(cmd)}\n\n")
             log_f.flush()
-            proc = subprocess.run(cmd, stdout=log_f, stderr=subprocess.STDOUT)
+            proc = subprocess.run(cmd, stdout=log_f, stderr=subprocess.STDOUT, env=env)
             rc = proc.returncode
             # If the just-finished command is the next-event eval and succeeded, persist its loglike as a simple file
             try:
@@ -512,8 +562,8 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
 def main() -> None:
     args = parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
-    if not cfg.get("datasets") or not cfg.get("checkpoints"):
-        sys.exit("[ERROR] Config must define 'datasets' and 'checkpoints'.")
+    if not cfg.get("datasets"):
+        sys.exit("[ERROR] Config must define 'datasets'.")
 
     ts_root = datetime.now().strftime("%y%m%d-%H%M")
     task = args.task or str(cfg.get("task", "next_event"))
@@ -523,7 +573,18 @@ def main() -> None:
         "results_root": Path(cfg.get("results_root", "results/fim_benchmark")) / ts_root,
     }
 
-    run_confs = [{**base, "dataset": d, "checkpoint": ck} for d in cfg.get("datasets", []) for ck in cfg.get("checkpoints", [])]
+    # Determine checkpoints list. If empty or missing, interpret as "from scratch" and
+    # require fine-tuning to be enabled so a model can be trained per dataset.
+    checkpoints_list = cfg.get("checkpoints")
+    if not checkpoints_list:
+        if not bool(cfg.get("fine_tune", False)):
+            sys.exit(
+                "[ERROR] 'checkpoints' is empty and fine_tune is False. Enable fine_tune and provide 'finetune_config' to start from scratch."
+            )
+        # Use a single placeholder per dataset; run_single will fine-tune from scratch
+        checkpoints_list = [None]
+
+    run_confs = [{**base, "dataset": d, "checkpoint": ck} for d in cfg.get("datasets", []) for ck in checkpoints_list]
     total = len(run_confs)
     parallel = int(cfg.get("parallel", 1))
     print(f"[GRID] Total evaluations: {total} | parallel={parallel}")
