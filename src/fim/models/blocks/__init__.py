@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -64,7 +65,15 @@ class AModel(PreTrainedModel, ABC):
     def load_model(cls, model_path: Path):
         model_path = Path(model_path)
         config_path = model_path / "config.json"
-        model_config = AutoConfig.from_pretrained(config_path)
+        try:
+            model_config = AutoConfig.from_pretrained(config_path)
+        except Exception:
+            # Fallback: if config.json lacks a recognizable model_type, default to fimhawkes
+            with open(config_path, "r") as f:
+                cfg_dict = json.load(f)
+            if not cfg_dict.get("model_type"):
+                cfg_dict["model_type"] = "fimhawkes"
+            model_config = PretrainedConfig.from_dict(cfg_dict)
         model_weights_path = model_path / "model-checkpoint.pth"
 
         if not model_path.exists() or not config_path.exists() or not model_weights_path.exists():

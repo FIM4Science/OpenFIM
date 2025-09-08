@@ -1,11 +1,11 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  - retweet
   - taobao
   - stackoverflow
   - amazon
   - taxi
+  - retweet
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
@@ -13,7 +13,7 @@ datasets:
 
 # - 'checkpoints' list of FIM-Hawkes checkpoint directories
 checkpoints:
-  - results/FIM_Hawkes_10-22st_big_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-02-0937/checkpoints/best-model
+  - results/FIM_Hawkes_10-22st_big_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-05-0854/checkpoints/best-model
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
