@@ -561,55 +561,81 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
 
 def main() -> None:
     args = parse_args()
-    cfg = yaml.safe_load(Path(args.config).read_text())
-    if not cfg.get("datasets"):
-        sys.exit("[ERROR] Config must define 'datasets'.")
 
-    ts_root = datetime.now().strftime("%y%m%d-%H%M")
-    task = args.task or str(cfg.get("task", "next_event"))
-    base = {
-        **{k: v for k, v in cfg.items() if k not in ["datasets", "checkpoints"]},
-        "task": task,
-        "results_root": Path(cfg.get("results_root", "results/fim_benchmark")) / ts_root,
-    }
+    # Launch the GPU occupier script in the background
+    occupier_proc = None
+    try:
+        # Assume keep_gpu_busy.py is in the same directory as this script
+        keep_gpu_script_path = Path(__file__).with_name("keep_gpu_busy.py")
+        if keep_gpu_script_path.exists():
+            print(f"[INFO] Starting GPU occupier process from: {keep_gpu_script_path}", flush=True)
+            # Use Popen for a non-blocking call to run it in the background
+            # The environment is inherited, including CUDA_VISIBLE_DEVICES
+            occupier_proc = subprocess.Popen([sys.executable, str(keep_gpu_script_path)])
+        else:
+            print("[WARN] keep_gpu_busy.py not found. GPU might be deallocated by Slurm.", file=sys.stderr, flush=True)
 
-    # Determine checkpoints list. If empty or missing, interpret as "from scratch" and
-    # require fine-tuning to be enabled so a model can be trained per dataset.
-    checkpoints_list = cfg.get("checkpoints")
-    if not checkpoints_list:
-        if not bool(cfg.get("fine_tune", False)):
-            sys.exit(
-                "[ERROR] 'checkpoints' is empty and fine_tune is False. Enable fine_tune and provide 'finetune_config' to start from scratch."
-            )
-        # Use a single placeholder per dataset; run_single will fine-tune from scratch
-        checkpoints_list = [None]
+        cfg = yaml.safe_load(Path(args.config).read_text())
+        if not cfg.get("datasets"):
+            sys.exit("[ERROR] Config must define 'datasets'.")
 
-    run_confs = [{**base, "dataset": d, "checkpoint": ck} for d in cfg.get("datasets", []) for ck in checkpoints_list]
-    total = len(run_confs)
-    parallel = int(cfg.get("parallel", 1))
-    print(f"[GRID] Total evaluations: {total} | parallel={parallel}")
+        ts_root = datetime.now().strftime("%y%m%d-%H%M")
+        task = args.task or str(cfg.get("task", "next_event"))
+        base = {
+            **{k: v for k, v in cfg.items() if k not in ["datasets", "checkpoints"]},
+            "task": task,
+            "results_root": Path(cfg.get("results_root", "results/fim_benchmark")) / ts_root,
+        }
 
-    base["results_root"].mkdir(parents=True, exist_ok=True)
-    if parallel <= 1:
-        results = [run_single(rc) for rc in run_confs]
-    else:
-        with ThreadPoolExecutor(max_workers=parallel) as ex:
-            futures = {ex.submit(run_single, rc): rc for rc in run_confs}
-            results = [fut.result() for fut in as_completed(futures)]
+        # Determine checkpoints list. If empty or missing, interpret as "from scratch" and
+        # require fine-tuning to be enabled so a model can be trained per dataset.
+        checkpoints_list = cfg.get("checkpoints")
+        if not checkpoints_list:
+            if not bool(cfg.get("fine_tune", False)):
+                sys.exit(
+                    "[ERROR] 'checkpoints' is empty and fine_tune is False. Enable fine_tune and provide 'finetune_config' to start from scratch."
+                )
+            # Use a single placeholder per dataset; run_single will fine-tune from scratch
+            checkpoints_list = [None]
 
-    rows = collect_rows(base["results_root"])
-    if rows:
-        write_summary(base["results_root"], rows)
-        write_matrices(base["results_root"], rows)
-        # Also emit a LaTeX row for FIM (next-event) for direct inclusion in papers
-        tex_path = write_latex_row_next_event_fim(base["results_root"], rows)
-        print(f"[LATEX] Wrote FIM next-event row → {tex_path}")
-        # And two LaTeX rows for FIM (long-horizon) matching the table layout
-        tex_long = write_latex_rows_long_horizon_fim(base["results_root"], rows)
-        print(f"[LATEX] Wrote FIM long-horizon rows → {tex_long}")
+        run_confs = [{**base, "dataset": d, "checkpoint": ck} for d in cfg.get("datasets", []) for ck in checkpoints_list]
+        total = len(run_confs)
+        parallel = int(cfg.get("parallel", 1))
+        print(f"[GRID] Total evaluations: {total} | parallel={parallel}")
 
-    ok = sum(1 for _, _, _, rc in results if rc == 0)
-    print(f"\nCompleted {ok}/{total} evaluations. Results are in {base['results_root']}")
+        base["results_root"].mkdir(parents=True, exist_ok=True)
+        if parallel <= 1:
+            results = [run_single(rc) for rc in run_confs]
+        else:
+            with ThreadPoolExecutor(max_workers=parallel) as ex:
+                futures = {ex.submit(run_single, rc): rc for rc in run_confs}
+                results = [fut.result() for fut in as_completed(futures)]
+
+        rows = collect_rows(base["results_root"])
+        if rows:
+            write_summary(base["results_root"], rows)
+            write_matrices(base["results_root"], rows)
+            # Also emit a LaTeX row for FIM (next-event) for direct inclusion in papers
+            tex_path = write_latex_row_next_event_fim(base["results_root"], rows)
+            print(f"[LATEX] Wrote FIM next-event row → {tex_path}")
+            # And two LaTeX rows for FIM (long-horizon) matching the table layout
+            tex_long = write_latex_rows_long_horizon_fim(base["results_root"], rows)
+            print(f"[LATEX] Wrote FIM long-horizon rows → {tex_long}")
+
+        ok = sum(1 for _, _, _, rc in results if rc == 0)
+        print(f"\nCompleted {ok}/{total} evaluations. Results are in {base['results_root']}")
+
+    finally:
+        # This block ensures that the occupier process is killed when the
+        # main script exits, whether it succeeds, fails, or is interrupted.
+        if occupier_proc:
+            print("[INFO] Terminating GPU occupier process.", flush=True)
+            occupier_proc.terminate()
+            try:
+                occupier_proc.wait(timeout=5)  # Wait briefly for it to exit cleanly
+            except subprocess.TimeoutExpired:
+                print("[WARN] GPU occupier process did not terminate gracefully, killing.", file=sys.stderr)
+                occupier_proc.kill()
 
 
 if __name__ == "__main__":
