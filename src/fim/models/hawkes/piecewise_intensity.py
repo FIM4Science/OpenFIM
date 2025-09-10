@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -13,7 +12,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
     all possible target marks **after** that event.  Between two consecutive
     events the intensity is assumed to follow the functional form
 
-        \\lambda_i(t) = Softplus(\\mu_i + (\alpha_i - \\mu_i) \\exp(-\beta_i (t - t_i)))
+        \\lambda_i(t) = \\mu_i + (\alpha_i - \\mu_i) \\exp(-\beta_i (t - t_i))
 
     where ``t_i`` is the timestamp of the *latest* event before *t*.
 
@@ -121,8 +120,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
 
         # Piece-wise intensity formula
         exponent = torch.exp(-beta_last * delta_t)
-        base = mu_last + (alpha_last - mu_last) * exponent
-        intensity = F.softplus(base)
+        intensity = mu_last + (alpha_last - mu_last) * exponent
 
         # ------------------------------------------------------------------
         # 2) Optional intensity de-normalisation (back to original scale)

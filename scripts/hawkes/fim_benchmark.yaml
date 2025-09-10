@@ -1,8 +1,8 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  - taobao
-  - stackoverflow
+  # - taobao
+  # - stackoverflow
   - amazon
   - taxi
   # - retweet
@@ -42,7 +42,7 @@ parallel: 1
 # - For long_horizon: local CDiff dataset path is used (resolved from data/external/CDiff_dataset/<name> if needed)
 # - The best validation checkpoint (best-model) is automatically selected for evaluation
 # - Each dataset starts fine-tune from the base checkpoint again (no carry-over)
-fine_tune: true
+fine_tune: false
 # Required when fine_tune: true — path to a train YAML used by fim_finetune.py
 # When 'checkpoints' is empty, this is also required to build the model from scratch.
 # finetune_config: configs/train/hawkes/david_big.yaml
