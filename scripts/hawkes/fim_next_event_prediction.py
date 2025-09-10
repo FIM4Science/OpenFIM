@@ -292,13 +292,18 @@ def predict_next_event_for_sequence(
                 # [B, P, T, M]. We permute the dimensions to match.
                 return intensity_per_mark.permute(0, 2, 3, 1)
 
-            accepted_dtimes, weights = model.event_sampler.draw_next_time_one_step(
-                time_seq=hist_times,
-                time_delta_seq=hist_dtimes,
-                event_seq=hist_types,
-                intensity_fn=intensity_fn_for_sampler,
-                compute_last_step_only=True,
-            )
+            if getattr(model.event_sampler, "sampling_method", "thinning") == "inverse_transform":
+                accepted_dtimes, weights = model.event_sampler.draw_next_time_one_step_inverse_transform(
+                    intensity_obj, compute_last_step_only=True
+                )
+            else:
+                accepted_dtimes, weights = model.event_sampler.draw_next_time_one_step(
+                    time_seq=hist_times,
+                    time_delta_seq=hist_dtimes,
+                    event_seq=hist_types,
+                    intensity_fn=intensity_fn_for_sampler,
+                    compute_last_step_only=True,
+                )
 
             # `accepted_dtimes` returned by the sampler are ABSOLUTE timestamps. To obtain
             # the inter-event time we need to subtract the timestamp of the last observed
@@ -765,6 +770,7 @@ def run_next_event_evaluation(
     num_integration_points: int = 5000,
     plot_intensity_predictions: bool = False,
     num_bootstrap_samples: int = 1000,
+    sampling_method: Optional[str] = None,
 ):
     """
     Programmatic entry point for evaluating next-event prediction on a dataset.
@@ -783,6 +789,8 @@ def run_next_event_evaluation(
 
     # Make sampler more robust (match defaults used in main)
     model.event_sampler.num_samples_boundary = 50
+    if sampling_method in ("thinning", "inverse_transform"):
+        model.event_sampler.sampling_method = sampling_method
 
     # Always use Hugging Face EasyTPP datasets for next-event prediction.
     # Coerce short names like "amazon" to "easytpp/amazon".
@@ -1104,6 +1112,7 @@ def run_next_event_evaluation(
     result = {
         "dataset": dataset_id if use_easytpp else dataset,
         "model_checkpoint": model_checkpoint_path,
+        "sampling_method": model.event_sampler.sampling_method,
         "ground_truth_available": bool(ground_truth_available),
         "num_events": int(total_events),
         "num_inference_sequences": int(num_inference_sequences),
@@ -1810,6 +1819,13 @@ if __name__ == "__main__":
     parser.add_argument("--sample-idx", type=int, default=0, help="Sample index (for local datasets)")
     parser.add_argument("--num-integration-points", type=int, default=5000, help="NLL integration points")
     parser.add_argument("--num-bootstrap-samples", type=int, default=1000, help="Number of bootstrap samples for 95% CI")
+    parser.add_argument(
+        "--sampling-method",
+        type=str,
+        choices=["thinning", "inverse_transform"],
+        default=None,
+        help="Sampling method for next-event time generation",
+    )
 
     args = parser.parse_args()
 
@@ -1822,6 +1838,13 @@ if __name__ == "__main__":
         max_num_events = None if (args.max_num_events is not None and args.max_num_events < 0) else args.max_num_events
 
         try:
+            # Optional: configure sampling method on the model's sampler
+            if args.sampling_method:
+                try:
+                    # model not yet loaded here; set via environment in child run_next_event_evaluation call instead
+                    pass
+                except Exception:
+                    pass
             result = run_next_event_evaluation(
                 model_checkpoint_path=args.checkpoint,
                 dataset=args.dataset,
@@ -1832,6 +1855,7 @@ if __name__ == "__main__":
                 num_integration_points=args.num_integration_points,
                 plot_intensity_predictions=False,
                 num_bootstrap_samples=args.num_bootstrap_samples,
+                sampling_method=args.sampling_method,
             )
             status = "OK"
         except Exception as e:

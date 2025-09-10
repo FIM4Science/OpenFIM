@@ -76,6 +76,21 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         flush=True,
     )
 
+    # Persist a snapshot of the effective configuration for this run
+    try:
+
+        def _stringify(o):
+            from pathlib import Path as _P
+
+            if isinstance(o, _P):
+                return str(o)
+            return o
+
+        cfg_snapshot = {k: _stringify(v) for k, v in cfg.items()}
+        (start_dir / "config_used.json").write_text(json.dumps(cfg_snapshot, indent=2))
+    except Exception:
+        pass
+
     commands: List[List[str]] = []
     command_labels: List[str] = []  # "next_event" or "long_horizon"
     command_run_dirs: List[Path] = []
@@ -247,6 +262,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             str(Path(__file__).with_name("fim_next_event_prediction.py")),
             *build_common_args_for_dataset(sub_run_dir, dataset_ne, eff_ckpt_ne),
         ]
+        if cfg.get("sampling_method") is not None:
+            cmd.extend(["--sampling-method", str(cfg.get("sampling_method"))])
         # Validate checkpoint directory
         if not _is_valid_checkpoint_dir(Path(str(eff_ckpt_ne))):
             raise FileNotFoundError(f"Next-event checkpoint directory invalid: {eff_ckpt_ne}")
@@ -265,6 +282,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             str(Path(__file__).with_name("fim_long_horizon_prediction.py")),
             *build_common_args_for_dataset(sub_run_dir, str(dataset), eff_ckpt_lh),
         ]
+        if cfg.get("sampling_method") is not None:
+            cmd.extend(["--sampling-method", str(cfg.get("sampling_method"))])
         if not _is_valid_checkpoint_dir(Path(str(eff_ckpt_lh))):
             raise FileNotFoundError(f"Long-horizon checkpoint directory invalid: {eff_ckpt_lh}")
         if cfg.get("forecast_horizon_size") is None:
