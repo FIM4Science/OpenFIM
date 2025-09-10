@@ -243,13 +243,16 @@ def sample_next_event(
     def intensity_fn_for_sampler(query_times, _ignored):
         return intensity_obj.evaluate(query_times).permute(0, 2, 3, 1)
 
-    accepted_dtimes, weights = model.event_sampler.draw_next_time_one_step(
-        time_seq=hist_times_sampler,
-        time_delta_seq=hist_dtimes_sampler,
-        event_seq=hist_types_sampler,
-        intensity_fn=intensity_fn_for_sampler,
-        compute_last_step_only=True,
-    )
+    if getattr(model.event_sampler, "sampling_method", "thinning") == "inverse_transform":
+        accepted_dtimes, weights = model.event_sampler.draw_next_time_one_step_inverse_transform(intensity_obj, compute_last_step_only=True)
+    else:
+        accepted_dtimes, weights = model.event_sampler.draw_next_time_one_step(
+            time_seq=hist_times_sampler,
+            time_delta_seq=hist_dtimes_sampler,
+            event_seq=hist_types_sampler,
+            intensity_fn=intensity_fn_for_sampler,
+            compute_last_step_only=True,
+        )
 
     raw_delta_samples = accepted_dtimes - t_last_tensor
     delta_samples = torch.clamp(raw_delta_samples, min=0.0)
@@ -332,6 +335,7 @@ def run_long_horizon_evaluation(
     max_num_events: Optional[int] = None,
     sample_index: int = 0,
     num_integration_points: int = 5000,
+    sampling_method: Optional[str] = None,
 ) -> Dict:
     start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -339,6 +343,8 @@ def run_long_horizon_evaluation(
     model = load_fimhawkes_with_proper_weights(model_checkpoint_path)
     model.eval().to(device)
     model.event_sampler.num_samples_boundary = 50
+    if sampling_method in ("thinning", "inverse_transform"):
+        model.event_sampler.sampling_method = sampling_method
 
     # Resolve CDiff_dataset path
     dataset_path = Path(dataset)
@@ -478,6 +484,7 @@ def run_long_horizon_evaluation(
     return {
         "dataset": dataset,
         "model_checkpoint": model_checkpoint_path,
+        "sampling_method": getattr(model.event_sampler, "sampling_method", "thinning"),
         "num_eval_sequences": int(num_eval),
         "duration_seconds": duration_seconds,
         "metrics": {
@@ -503,6 +510,7 @@ def main():
     ap.add_argument("--max-num-events", type=int, default=None)
     ap.add_argument("--sample-idx", type=int, default=0)
     ap.add_argument("--num-integration-points", type=int, default=5000)
+    ap.add_argument("--sampling-method", type=str, choices=["thinning", "inverse_transform"], default=None)
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -520,6 +528,7 @@ def main():
             max_num_events=max_num_events,
             sample_index=args.sample_idx,
             num_integration_points=args.num_integration_points,
+            sampling_method=args.sampling_method,
         )
         status = "OK"
     except Exception as e:

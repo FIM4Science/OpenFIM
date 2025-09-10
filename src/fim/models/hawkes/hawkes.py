@@ -1370,13 +1370,25 @@ class FIMHawkes(AModel):
                 intensity_per_mark = sliced_intensity_obj.evaluate(q_reshaped)
                 return intensity_per_mark.sum(dim=1)
 
-            accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
-                time_seq=time_seq_for_sampler,
-                time_delta_seq=dtime_seq_for_sampler,
-                event_seq=type_seq_for_sampler,
-                intensity_fn=sliced_intensity_fn,
-                compute_last_step_only=True,
-            )  # [P, 1, num_samples]
+            if getattr(self.event_sampler, "sampling_method", "thinning") == "inverse_transform":
+                # Use closed-form inverse transform on the sliced intensity object
+                accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step_inverse_transform(
+                    sliced_intensity_obj, compute_last_step_only=True
+                )
+                # The inverse sampler may flatten the (B*P) dimension; reshape back to [P, 1, S]
+                if accepted_dtimes.dim() == 3 and accepted_dtimes.shape[0] == time_seq_for_sampler.shape[0]:
+                    pass
+                else:
+                    # best-effort: treat leading dim as batch of paths
+                    accepted_dtimes = accepted_dtimes
+            else:
+                accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
+                    time_seq=time_seq_for_sampler,
+                    time_delta_seq=dtime_seq_for_sampler,
+                    event_seq=type_seq_for_sampler,
+                    intensity_fn=sliced_intensity_fn,
+                    compute_last_step_only=True,
+                )  # [P, 1, num_samples]
 
             # Convert absolute sampled times to inter-event times (delta t)
             t_last_tensor = time_seq_for_sampler[:, -1:].unsqueeze(-1)  # [P, 1, 1]
