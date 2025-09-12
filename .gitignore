@@ -72,3 +72,4 @@ venv/
 *.jpg
 
 .env
+.cursorrules

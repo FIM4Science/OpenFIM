@@ -22,7 +22,6 @@ class FIMHawkesConfig(PretrainedConfig):
         mark_encoder: dict = None,
         time_encoder: dict = None,
         delta_time_encoder: dict = None,
-        intensity_evaluation_time_encoder: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
         inference_ts_encoder: dict = None,
@@ -46,7 +45,6 @@ class FIMHawkesConfig(PretrainedConfig):
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
-        self.intensity_evaluation_time_encoder = intensity_evaluation_time_encoder
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.inference_ts_encoder = inference_ts_encoder
@@ -108,7 +106,6 @@ class FIMHawkes(AModel):
         mark_encoder = copy.deepcopy(self.config.mark_encoder)
         time_encoder = copy.deepcopy(self.config.time_encoder)
         delta_time_encoder = copy.deepcopy(self.config.delta_time_encoder)
-        intensity_evaluation_time_encoder = copy.deepcopy(self.config.intensity_evaluation_time_encoder)
         evaluation_mark_encoder = copy.deepcopy(self.config.evaluation_mark_encoder)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
         inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
@@ -122,15 +119,22 @@ class FIMHawkes(AModel):
 
         mark_encoder["in_features"] = self.max_num_marks
         self.mark_encoder = create_class_instance(mark_encoder.pop("name"), mark_encoder)
-        time_encoder["in_features"] = 1
-        self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
-        delta_time_encoder["in_features"] = 1
-        self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
-        intensity_evaluation_time_encoder["in_features"] = 1
-        intensity_evaluation_time_encoder["out_features"] = self.hidden_dim
-        self.intensity_evaluation_time_encoder = create_class_instance(
-            intensity_evaluation_time_encoder.pop("name"), intensity_evaluation_time_encoder
-        )
+        # Support both Linear and custom time encoders (e.g., SineTimeEncoding)
+        _te_name = time_encoder.get("name", "")
+        if _te_name.endswith("SineTimeEncoding"):
+            # SineTimeEncoding expects only out_features
+            time_encoder["out_features"] = self.hidden_dim
+            self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
+        else:
+            time_encoder["in_features"] = 1
+            self.time_encoder = create_class_instance(time_encoder.pop("name"), time_encoder)
+        _dte_name = delta_time_encoder.get("name", "")
+        if _dte_name.endswith("SineTimeEncoding"):
+            delta_time_encoder["out_features"] = self.hidden_dim
+            self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
+        else:
+            delta_time_encoder["in_features"] = 1
+            self.delta_time_encoder = create_class_instance(delta_time_encoder.pop("name"), delta_time_encoder)
         evaluation_mark_encoder["in_features"] = self.max_num_marks
         evaluation_mark_encoder["out_features"] = self.hidden_dim
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
@@ -173,6 +177,60 @@ class FIMHawkes(AModel):
             self.event_sampler = EventSampler(num_sample=1, num_exp=500, over_sample_rate=5, num_samples_boundary=5, dtime_max=5)
 
         self.loss_weights = self.config.loss_weights
+
+    def encode_context(self, x: Dict[str, Tensor]) -> Tensor:
+        """
+        Compute and return the enhanced context embeddings given only context tensors.
+
+        Expected keys in `x`:
+            - "context_event_times": [B, P_context, L, 1]
+            - "context_event_types": [B, P_context, L, 1]
+            - "context_seq_lengths": [B, P_context]
+
+        Returns:
+            Tensor of shape [B, P_context, D] with enhanced context embeddings.
+        """
+        # Make a shallow copy so we can insert temporary fields
+        ctx: Dict[str, Tensor] = {
+            "context_event_times": x["context_event_times"],
+            "context_event_types": x["context_event_types"],
+            "context_seq_lengths": x["context_seq_lengths"],
+        }
+
+        # Compute delta times and normalization (consistent with forward)
+        self._compute_delta_times_inplace(ctx, "context")
+        if self.normalize_times:
+            _, x_norm = self._normalize_input_times(
+                {
+                    # Minimal inputs required by _normalize_input_times
+                    "context_event_times": ctx["context_event_times"],
+                    "context_seq_lengths": ctx["context_seq_lengths"],
+                    # Provide placeholders for inference keys (not used here)
+                    "inference_event_times": ctx["context_event_times"],
+                    "intensity_evaluation_times": ctx["context_event_times"].squeeze(-1),
+                    "context_delta_times": ctx["context_delta_times"],
+                    "inference_delta_times": ctx["context_event_times"],
+                }
+            )
+            ctx.update(x_norm)
+
+        # Encode observations for context and build enhanced context
+        sequence_encodings_context = self._encode_observations_optimized(ctx, "context")  # [B, P_context, L, D]
+
+        B, P_context, L, D = sequence_encodings_context.shape
+        context_flat = sequence_encodings_context.view(B * P_context, L, D)
+        q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
+        context_seq_lengths_flat = ctx["context_seq_lengths"].view(-1)
+        positions = torch.arange(L, device=self.device).unsqueeze(0)
+        key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
+        h_k_context_flat = self.functional_attention(
+            q_expanded,
+            context_flat.unsqueeze(2),
+            observations_padding_mask=key_padding_mask.unsqueeze(-1),
+        )
+        h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
+        enhanced_context = h_k_context + self.context_self_attn(h_k_context, h_k_context, h_k_context)[0]
+        return enhanced_context
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
         """
@@ -235,48 +293,32 @@ class FIMHawkes(AModel):
         # ------------------------------------------------------------------
         # Encoding of observations (context & target/inference)
         # ------------------------------------------------------------------
-        sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
-        sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-
-        # ------------------------------------------------------------------
-        # (10) Path Summary: obtain h_k^{context} via functional attention
-        # ------------------------------------------------------------------
-        # For each context path k, we compute h_k^{context} = ψ_attn(q, H_k^{context}, H_k^{context})
-        # where H_k^{context} = {h_{k,1}^{context}, ..., h_{k,I_k}^{context}} are the event encodings
-
-        B, P_context, L, D = sequence_encodings_context.shape
-
-        # Reshape for batch processing: [B*P_context, L, D]
-        context_flat = sequence_encodings_context.view(B * P_context, L, D)
-
-        # Expand the learnable query q for each path: [B*P_context, 1, D]
-        q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
-
-        # Create attention mask for padded positions
-        context_seq_lengths_flat = x["context_seq_lengths"].view(-1)  # [B*P_context]
-        positions = torch.arange(L, device=self.device).unsqueeze(0)  # [1, L]
-        key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)  # [B*P_context, L]
-
-        # Apply functional attention: q attends to H_k^{context}
-        # This implements Eq. (4): h_k^{context} = ψ_attn(q, H_k^{context}, H_k^{context})
-        h_k_context_flat = self.functional_attention(
-            q_expanded,  # locations_encoding: [B*P_context, 1, D]
-            context_flat.unsqueeze(2),  # observations_encoding: [B*P_context, L, 1, D]
-            observations_padding_mask=key_padding_mask.unsqueeze(-1),  # [B*P_context, L, 1]
-        )  # Result shape: [B*P_context, 1, D]
-
-        # Reshape back to [B, P_context, D] (squeeze the singleton query dimension)
-        h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
-
-        # ------------------------------------------------------------------
-        # (5) Concatenate all context path summaries: H_context = {h_1^{context}, ..., h_K^{context}}
-        # ------------------------------------------------------------------
-        H_context = h_k_context  # [B, P_context, D] - this is already the concatenation
-
-        # ------------------------------------------------------------------
-        # (6) Enhance context embeddings via self-attention across paths
-        # ------------------------------------------------------------------
-        enhanced_context = H_context + self.context_self_attn(H_context, H_context, H_context)[0]  # [B, P_context, D]
+        # Allow re-using precomputed enhanced context embeddings to avoid repeated encoding
+        precomputed_enhanced_context = x.get("precomputed_enhanced_context", None)
+        if precomputed_enhanced_context is not None:
+            enhanced_context = precomputed_enhanced_context
+            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
+        else:
+            sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
+            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
+            # ------------------------------------------------------------------
+            # (10) Path Summary: obtain h_k^{context} via functional attention
+            # ------------------------------------------------------------------
+            B, P_context, L, D = sequence_encodings_context.shape
+            context_flat = sequence_encodings_context.view(B * P_context, L, D)
+            q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
+            context_seq_lengths_flat = x["context_seq_lengths"].view(-1)
+            positions = torch.arange(L, device=self.device).unsqueeze(0)
+            key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
+            h_k_context_flat = self.functional_attention(
+                q_expanded,
+                context_flat.unsqueeze(2),
+                observations_padding_mask=key_padding_mask.unsqueeze(-1),
+            )
+            h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
+            H_context = h_k_context
+            enhanced_context = H_context + self.context_self_attn(H_context, H_context, H_context)[0]
+        # At this point, `enhanced_context` is available
 
         # ------------------------------------------------------------------
         # Convert event representations to intensity parameters
@@ -426,6 +468,7 @@ class FIMHawkes(AModel):
                 x["inference_seq_lengths"],
                 norm_constants,
                 num_marks=num_marks,
+                inference_time_offsets=x.get("inference_time_offsets", None),
             )
             out["target_intensity_values"] = target_intensity_values
 
@@ -439,6 +482,26 @@ class FIMHawkes(AModel):
                 schedulers=schedulers,
                 step=step,
             )
+        else:
+            # No ground-truth functions available: fall back to NLL-only fine-tuning
+            # Compute NLL on normalized time domain (internally denormalized if needed)
+            nll_only = self._nll_loss(
+                intensity_fn=intensity_fn,
+                event_times=event_times,
+                event_types=x["inference_event_types"].squeeze(-1),
+                seq_lengths=x["inference_seq_lengths"],
+            )
+
+            # Weight with configured loss weight for compatibility
+            total_loss = self.loss_weights.get("nll", 1.0) * nll_only
+
+            out["losses"] = {
+                "loss": total_loss,
+                "nll_loss": nll_only.detach().item(),
+                # Placeholders for logging consistency
+                "smape_loss": 0.0,
+                "mae_loss": 0.0,
+            }
 
         if self.normalize_times:
             self._denormalize_output(out, norm_constants)
@@ -479,17 +542,6 @@ class FIMHawkes(AModel):
         )
 
         return h.view(B, P, L, -1)
-
-    def _trunk_net_encoder(self, x: dict) -> Tensor:
-        kernel_grids = x["kernel_grids"]  # TODO: Dont work with the full grid
-        (B, M, L_kernel) = kernel_grids.shape
-        time_encodings = self.kernel_time_encoder(kernel_grids.reshape(B * M * L_kernel, -1))
-        encodings_per_event_mark = self.evaluation_mark_encoder(
-            torch.nn.functional.one_hot(torch.arange(self.max_num_marks, device=self.device), num_classes=self.max_num_marks).float()
-        )
-        marks = torch.arange(M, device=self.device).repeat_interleave(L_kernel).repeat(B)
-        mark_encodings = encodings_per_event_mark[marks]
-        return (time_encodings + mark_encodings).view(B, M, L_kernel, -1)
 
     def _intensity_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
         B, M, P_inference, L_inference, D = time_dependent_path_summary.shape
@@ -615,30 +667,6 @@ class FIMHawkes(AModel):
 
         return h.view(B, P, L, -1)
 
-    def _trunk_net_encoder_optimized(self, x: dict, num_marks: int) -> Tensor:
-        """Optimized trunk net encoding using cached one-hot encodings"""
-        intensity_evaluation_times = x["intensity_evaluation_times"]
-        B, P_inference, L_inference = intensity_evaluation_times.shape
-
-        past_event_shifted_intensity_evaluation_times = self._get_past_event_shifted_intensity_evaluation_times(
-            intensity_evaluation_times, x["inference_event_times"], num_marks
-        )
-
-        # More efficient reshaping and encoding
-        time_encodings = self.intensity_evaluation_time_encoder(past_event_shifted_intensity_evaluation_times.reshape(-1, 1)).reshape(
-            B, num_marks, P_inference, L_inference, -1
-        )
-
-        # Use cached one-hot encodings for evaluation marks
-        marks = torch.arange(num_marks, device=intensity_evaluation_times.device)
-        one_hot_eval_marks = self.mark_one_hot[marks]  # [M, max_num_marks]
-        eval_mark_encodings = self.evaluation_mark_encoder(one_hot_eval_marks)  # [M, hidden_dim]
-        mark_encodings = (
-            eval_mark_encodings.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand(B, -1, P_inference, L_inference, -1)
-        )  # [B, M, P_inference, L_inference, D]
-
-        return time_encodings + mark_encodings
-
     def _functional_attention_encoder_optimized(self, queries: Tensor, keys_values: Tensor, attention_mask: Tensor) -> Tensor:
         """
         Performs functional attention for a single inference target.
@@ -703,12 +731,16 @@ class FIMHawkes(AModel):
             )
 
     def _smape(self, predicted_intensity_values: Tensor, target_intensity_values: Tensor) -> Tensor:
-        """Symmetric Mean Absolute Percentage Error."""
-        return torch.mean(
-            2.0
-            * torch.abs(predicted_intensity_values - target_intensity_values)
-            / (torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8)
-        )
+        """Symmetric Mean Absolute Percentage Error.
+
+        Any NaN/inf contributions (e.g., from NaN targets) are replaced with 2.0
+        before averaging so the loss never returns NaN.
+        """
+        numerator = 2.0 * torch.abs(predicted_intensity_values - target_intensity_values)
+        denominator = torch.abs(predicted_intensity_values) + torch.abs(target_intensity_values) + 1e-8
+        smape_values = numerator / denominator
+        smape_values = torch.nan_to_num(smape_values, nan=2.0, posinf=2.0, neginf=2.0)
+        return torch.mean(smape_values)
 
     def _nll_loss(
         self,
@@ -848,6 +880,7 @@ class FIMHawkes(AModel):
         norm_constants: Tensor,
         num_marks: int,
         num_samples: int = 100,
+        inference_time_offsets: Tensor | None = None,
     ):
         """
         Computes the ground-truth integrated intensity Λ(t) = ∫λ(s)ds from 0 to t
@@ -881,6 +914,7 @@ class FIMHawkes(AModel):
             inference_seq_lengths,
             norm_constants,
             num_marks,
+            inference_time_offsets=inference_time_offsets,
         )
         # Result shape: [B, M, P, L_eval * num_samples]
 
@@ -908,6 +942,7 @@ class FIMHawkes(AModel):
         inference_seq_lengths: Tensor,
         norm_constants: Tensor,
         num_marks: int,
+        inference_time_offsets: Tensor | None = None,
     ):
         """
         Compute the target intensity values based on the formula:
@@ -933,6 +968,8 @@ class FIMHawkes(AModel):
             norm_constants (Tensor): The normalization constants.
                 Shape: [B].
             num_marks (int): The number of marks for the batch.
+            inference_time_offsets (Tensor): The time offsets for the inference paths (since we shifted events to zero).
+                Shape: [B, P].
 
         Returns:
             Tensor: The computed target intensity values, scaled for the normalized time domain.
@@ -943,7 +980,6 @@ class FIMHawkes(AModel):
         _, _, L_hist, _ = inference_event_times.shape
         D = num_marks
 
-        # --- START: MODIFICATION ---
         # The input times are normalized. We must denormalize them to use with the
         # original kernel and base intensity functions.
         norm_constants_eval = norm_constants.view(B, 1, 1)
@@ -951,7 +987,13 @@ class FIMHawkes(AModel):
 
         intensity_evaluation_times_orig = intensity_evaluation_times * norm_constants_eval
         inference_event_times_orig = inference_event_times * norm_constants_hist
-        # --- END: MODIFICATION ---
+
+        # If offsets are provided (events originally shifted to start at 0), add them back
+        if inference_time_offsets is not None:
+            # Add to evaluation times [B, P, L_eval]
+            intensity_evaluation_times_orig = intensity_evaluation_times_orig + inference_time_offsets.unsqueeze(-1)
+            # Add to historical event times [B, P, L_hist, 1]
+            inference_event_times_orig = inference_event_times_orig + inference_time_offsets.unsqueeze(-1).unsqueeze(-1)
 
         # Ensure tensors are 3D for easier processing by removing the trailing dimension
         event_times = inference_event_times_orig.squeeze(-1)  # Use original times
@@ -1328,13 +1370,25 @@ class FIMHawkes(AModel):
                 intensity_per_mark = sliced_intensity_obj.evaluate(q_reshaped)
                 return intensity_per_mark.sum(dim=1)
 
-            accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
-                time_seq=time_seq_for_sampler,
-                time_delta_seq=dtime_seq_for_sampler,
-                event_seq=type_seq_for_sampler,
-                intensity_fn=sliced_intensity_fn,
-                compute_last_step_only=True,
-            )  # [P, 1, num_samples]
+            if getattr(self.event_sampler, "sampling_method", "thinning") == "inverse_transform":
+                # Use closed-form inverse transform on the sliced intensity object
+                accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step_inverse_transform(
+                    sliced_intensity_obj, compute_last_step_only=True
+                )
+                # The inverse sampler may flatten the (B*P) dimension; reshape back to [P, 1, S]
+                if accepted_dtimes.dim() == 3 and accepted_dtimes.shape[0] == time_seq_for_sampler.shape[0]:
+                    pass
+                else:
+                    # best-effort: treat leading dim as batch of paths
+                    accepted_dtimes = accepted_dtimes
+            else:
+                accepted_dtimes, weights = self.event_sampler.draw_next_time_one_step(
+                    time_seq=time_seq_for_sampler,
+                    time_delta_seq=dtime_seq_for_sampler,
+                    event_seq=type_seq_for_sampler,
+                    intensity_fn=sliced_intensity_fn,
+                    compute_last_step_only=True,
+                )  # [P, 1, num_samples]
 
             # Convert absolute sampled times to inter-event times (delta t)
             t_last_tensor = time_seq_for_sampler[:, -1:].unsqueeze(-1)  # [P, 1, 1]

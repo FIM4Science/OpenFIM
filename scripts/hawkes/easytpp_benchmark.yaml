@@ -1,0 +1,49 @@
+# Example config for easytpp_grid.py
+# - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
+datasets:
+  # - easytpp/retweet
+  # - easytpp/taobao
+  # - easytpp/stackoverflow
+  # - easytpp/amazon
+  # - easytpp/taxi
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
+  - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
+  # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_sin_base_exp_kernel
+
+# - 'models' are EasyTPP model ids (e.g., NHP, SAHP, THP, ...) passed to easy_tpp
+models:
+  # - AttNHP
+  # - ANHN -> not working
+  - RMTPP
+  # - NHP
+  # # - FullyNN -> not working
+  # # - SAHP -> not working
+  # - THP
+  # - IntensityFree -> not working
+  # - ODETPP -> not working
+# - 'epochs' is the maximum number of epochs to train; early stopping (below) may stop earlier
+epochs: 10000
+# - 'batch_size' is the EasyTPP trainer batch size
+batch_size: 512
+# - 'max_num_events' truncates each sequence length; set to null for no truncation
+max_num_events: null
+# - 'num_train_paths' / 'num_eval_paths' let you subsample sequences (paths)
+#   set to null to use the full split; set to an integer to limit
+num_train_paths: null
+num_eval_paths: null
+# - 'sample_idx' selects the sample along the B axis for local datasets (ignored for HF datasets)
+sample_idx: 0
+# - 'output_dir' is where EasyTPP checkpoints and the generated YAML are written
+output_dir: checkpoints
+# - 'results_root' stores per-run folders with run.log and metrics.json, plus summary/matrices
+results_root: results/easytpp
+# - 'parallel' controls how many runs are executed concurrently; increase based on available GPU/CPU/memory
+parallel: 1
+# Early stopping (optional)
+# - patience: number of epochs without improvement before stopping
+early_stop_patience: 50
+# - metric: which validation metric to monitor ('rmse', 'acc', 'loglike')
+early_stop_metric: loglike
+# - mode: 'min' for metrics to minimize (e.g., rmse), 'max' for metrics to maximize (e.g., acc, loglike)
+early_stop_mode: max

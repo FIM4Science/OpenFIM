@@ -1,7 +1,9 @@
 import logging
 
+import numpy as np
 import torch
 import torch.nn as nn
+from scipy.special import lambertw
 
 from ...trainers.utils import get_accel_type
 from ...utils.logging import RankLoggerAdapter
@@ -45,6 +47,8 @@ class EventSampler(nn.Module):
         self.patience_counter = patience_counter
         self.device = device if device is not None else get_accel_type()
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+        # Sampling method: 'thinning' (default) or 'inverse_transform'
+        self.sampling_method: str = "thinning"
 
     def compute_intensity_upper_bound(self, time_seq, time_delta_seq, event_seq, intensity_fn, compute_last_step_only):
         """Compute the upper bound of intensity at each event timestamp.
@@ -220,3 +224,106 @@ class EventSampler(nn.Module):
 
         # add a upper bound here in case it explodes, e.g., in ODE models
         return res.clamp(max=1e5), weights
+
+    @torch.no_grad()
+    def draw_next_time_one_step_inverse_transform(self, intensity_obj, compute_last_step_only: bool = True):
+        """Inverse-transform sampling for the next-event time using the closed-form CDF inversion.
+
+        Implements Eq. (12) for λ(t+s|H_t) = μ + (α − μ) e^{−β s}.
+
+        For multivariate marks, draws S candidates per mark and returns the
+        minimum time (competing risks) per sample. We return absolute
+        timestamps with a dummy seq_len dimension for compatibility with the
+        thinning API: [B, 1, S]. We also return uniform weights 1/S.
+        """
+        device = intensity_obj.event_times.device
+        dtype = intensity_obj.event_times.dtype
+
+        # Last event time per path
+        event_times = intensity_obj.event_times
+        if event_times.dim() == 3:
+            # [B, P, L]
+            t_last = event_times[:, :, -1]  # [B,P]
+            B_eff, P_eff = t_last.shape
+        elif event_times.dim() == 2:
+            # [B_eff, L] (common for sliced single-path objects)
+            t_last = event_times[:, -1].unsqueeze(1)  # [B_eff,1]
+            B_eff, P_eff = t_last.shape[0], 1
+        else:
+            raise ValueError(f"Unexpected event_times shape: {tuple(event_times.shape)}")
+
+        # Parameters for last event along L; support both 4D [B,M,P,L] and 3D [B,M,L]
+        def _last_params(param_tensor: torch.Tensor) -> torch.Tensor:
+            if param_tensor.dim() == 4:
+                out = param_tensor[..., -1]  # [B,M,P]
+            elif param_tensor.dim() == 3:
+                out = param_tensor[..., -1]  # [B,M]
+                out = out.unsqueeze(-1)  # [B,M,1]
+            else:
+                raise ValueError(f"Unexpected param tensor shape: {tuple(param_tensor.shape)}")
+            return out
+
+        mu_last = _last_params(intensity_obj.mu)
+        alpha_last = _last_params(intensity_obj.alpha)
+        beta_last = _last_params(intensity_obj.beta)
+
+        B, M, P = mu_last.shape
+        S = int(getattr(self, "num_sample", 1))
+
+        # Convert to numpy float64 for SciPy
+        mu_np = mu_last.detach().cpu().double().numpy()
+        alpha_np = alpha_last.detach().cpu().double().numpy()
+        beta_np = beta_last.detach().cpu().double().numpy()
+
+        U = np.random.rand(B, M, P, S)
+        eps = 1e-12
+        mu_safe = np.clip(mu_np, a_min=eps, a_max=None)
+        delta = alpha_np - mu_np
+
+        # Expand params with a trailing sample axis for vectorized computation
+        mu4 = mu_safe[..., None]  # [B,M,P,1]
+        delta4 = delta[..., None]  # [B,M,P,1]
+        beta4 = beta_np[..., None]  # [B,M,P,1]
+
+        # Poisson special-case (α≈μ)
+        tau_poisson = -np.log(1.0 - U) / mu4  # [B,M,P,S]
+
+        # General case using Lambert W (principal branch)
+        # ratio = (α-μ)/μ
+        ratio = delta4 / mu4
+        arg_W = ratio * np.exp(ratio) * np.power(1.0 - U, beta4 / mu4)
+        W = lambertw(arg_W, k=0).real
+        inner = (mu4 / delta4) * W
+        inner = np.clip(inner, a_min=eps, a_max=None)
+        tau_general = -(1.0 / beta4) * np.log(inner)
+
+        # Where |α-μ| is very small, use the Poisson limit; else use general
+        same_mask = np.abs(delta4) <= 1e-9
+        tau = np.where(same_mask, tau_poisson, tau_general)
+        # Numerical safety
+        tau = np.clip(tau, a_min=0.0, a_max=None)
+
+        # Competing risks across marks → take minimum along M
+        tau_min = tau.min(axis=1)  # [B, P, S]
+
+        # Rescale to original time domain if model normalized
+        if getattr(intensity_obj, "norm_constants", None) is not None:
+            c = intensity_obj.norm_constants.detach().cpu().double().numpy().reshape(B, 1, 1)
+            tau_min = tau_min * c
+
+        # Clamp to sampler cap if set
+        if self.dtime_max is not None and self.dtime_max > 0:
+            tau_min = np.clip(tau_min, a_min=0.0, a_max=float(self.dtime_max))
+
+        t_last_np = t_last.detach().cpu().double().numpy().reshape(B_eff, P_eff, 1)
+        accepted_abs = t_last_np + tau_min  # [B_eff, P_eff, S]
+
+        # Convert back to torch and return shape [B_eff, 1, S] (assumes P_eff==1 in current call sites)
+        accepted_t = torch.from_numpy(accepted_abs).to(device=device, dtype=dtype)
+        if P_eff > 1:
+            # Select first path dimension for compatibility
+            accepted_t = accepted_t[:, 0:1, :]
+        else:
+            accepted_t = accepted_t.squeeze(1).unsqueeze(1)  # [B_eff,1,S]
+        weights = torch.ones_like(accepted_t) / float(S)
+        return accepted_t, weights

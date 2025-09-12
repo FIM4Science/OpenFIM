@@ -1,14 +1,13 @@
 """
 CUDA_VISIBILE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py \
---checkpoint "results/FIM_Hawkes_1-3st_optimized_mixed_rmse_norm_2000_paths_mixed_250_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_08-05-0848/checkpoints/epoch-6619"  \
---dataset "data/synthetic_data/hawkes/1k_3D_1k_paths_sin_base_exp_kernel/test" \
+--checkpoint "results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-10-0759/checkpoints/best-model"  \
+--dataset "data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/test" \
 --sample_idx 0 \
 --path_idx 0
 """
 
 #!/usr/bin/env python
 import argparse
-import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -22,6 +21,18 @@ from fim.models.hawkes import FIMHawkes, FIMHawkesConfig
 # This fixes the from_pretrained method by ensuring proper config loading
 FIMHawkesConfig.register_for_auto_class()
 FIMHawkes.register_for_auto_class("AutoModel")
+
+
+def _move_to_device(obj, device):
+    """Recursively move tensors in nested containers to the specified device."""
+    if torch.is_tensor(obj):
+        return obj.to(device)
+    if isinstance(obj, dict):
+        return {k: _move_to_device(v, device) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        seq = [_move_to_device(v, device) for v in obj]
+        return type(obj)(seq) if isinstance(obj, tuple) else seq
+    return obj
 
 
 def load_data_from_dir(dir_path: Path) -> dict:
@@ -211,6 +222,17 @@ def prepare_batch_for_model(data_sample, inference_path_idx=0, num_points_betwee
     else:
         model_data["num_marks"] = 1
 
+    # If dataset provides per-path time offsets (absolute start times), pass the
+    # offsets for the selected inference path so ground truth μ(t) is evaluated
+    # at absolute time t'+offset while we plot over the shifted axis t'.
+    if "time_offsets" in data_sample:
+        offsets = data_sample["time_offsets"]  # shape [B, P] or [B, P, 1]
+        # Ensure shape [B, P]
+        if offsets.ndim == 3 and offsets.shape[-1] == 1:
+            offsets = offsets.squeeze(-1)
+        # Select offsets for the inference path(s); resulting shape [B, P_inference]
+        model_data["inference_time_offsets"] = offsets[:, inference_indices]
+
     return model_data
 
 
@@ -230,6 +252,14 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
     inference_event_times = model_data["inference_event_times"].detach().cpu().numpy()
     inference_event_types = model_data["inference_event_types"].detach().cpu().numpy()
     inference_seq_lengths = model_data["inference_seq_lengths"].detach().cpu().numpy()
+    # Optional: per-path absolute-time offset (if events were shifted to 0)
+    offsets_np = None
+    if "inference_time_offsets" in model_data:
+        off = model_data["inference_time_offsets"].detach().cpu().numpy()
+        # Accept shapes [B,P] or [B,P,1]
+        if off.ndim == 3 and off.shape[-1] == 1:
+            off = off[..., 0]
+        offsets_np = off
 
     B, M, P_inference, _ = predicted_intensities.shape
 
@@ -273,8 +303,15 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             eval_times_p = np.array([0.0])
             pred_intensity_p_m = np.array([0.0])
 
+        # If offsets are available, shift the x-axis to absolute time for plotting
+        if offsets_np is not None:
+            offset_bp = offsets_np[b, p]
+            eval_times_plot = eval_times_p + offset_bp
+        else:
+            eval_times_plot = eval_times_p
+
         # Plot smooth lines for intensity functions
-        ax.plot(eval_times_p, pred_intensity_p_m, "b-", linewidth=2, label="Predicted Intensity", alpha=0.8)
+        ax.plot(eval_times_plot, pred_intensity_p_m, "b-", linewidth=2, label="Predicted Intensity", alpha=0.8)
 
         if target_intensities is not None:
             target_intensity_p_m = target_intensities[b, m, p]
@@ -286,7 +323,7 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             else:
                 target_intensity_p_m = np.array([0.0])
 
-            ax.plot(eval_times_p, target_intensity_p_m, "r--", linewidth=2, label="Ground Truth Intensity", alpha=0.8)
+            ax.plot(eval_times_plot, target_intensity_p_m, "r--", linewidth=2, label="Ground Truth Intensity", alpha=0.8)
 
         # Plot event scatter marks prominently
         # Events of the current mark
@@ -296,11 +333,18 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             event_intensities = []
             for event_time in events_this_mark:
                 # Find closest evaluation time to get intensity value
+                # Use shifted timeline for indexing; plotting x is shifted later if offset available
                 closest_idx = np.argmin(np.abs(eval_times_p - event_time))
                 event_intensities.append(pred_intensity_p_m[closest_idx])
 
+            # Shift x for scatter if offsets are available
+            if offsets_np is not None:
+                events_plot = events_this_mark + offsets_np[b, p]
+            else:
+                events_plot = events_this_mark
+
             ax.scatter(
-                events_this_mark,
+                events_plot,
                 event_intensities,
                 s=100,
                 c="green",
@@ -322,8 +366,13 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 closest_idx = np.argmin(np.abs(eval_times_p - event_time))
                 other_event_intensities.append(pred_intensity_p_m[closest_idx])
 
+            if offsets_np is not None:
+                events_other_plot = events_other_marks + offsets_np[b, p]
+            else:
+                events_other_plot = events_other_marks
+
             ax.scatter(
-                events_other_marks, other_event_intensities, s=60, c="gray", marker="x", label="Events (Other Marks)", zorder=8, alpha=0.7
+                events_other_plot, other_event_intensities, s=60, c="gray", marker="x", label="Events (Other Marks)", zorder=8, alpha=0.7
             )
 
         ax.set_ylabel("Intensity", fontsize=12)
@@ -348,49 +397,17 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
 
 def load_fimhawkes_with_proper_weights(checkpoint_path):
     """
-    Load FIMHawkes model with all weights properly loaded.
+    Load FIMHawkes model from a checkpoint directory using the generic AModel loader.
 
-    This bypasses transformers' from_pretrained() weight loading issues.
+    Expects files: config.json and model-checkpoint.pth inside the checkpoint directory.
     """
-    import json
-
-    from safetensors import safe_open
-
     checkpoint_path = Path(checkpoint_path)
-
-    # Load config
-    config_path = checkpoint_path / "config.json"
-    with open(config_path, "r") as f:
-        config_dict = json.load(f)
-
-    # Ensure model_type is set (our fix ensures this)
-    if "model_type" not in config_dict:
-        config_dict["model_type"] = "fimhawkes"
-
-    # Create model
-    config = FIMHawkesConfig.from_dict(config_dict)
-    model = FIMHawkes(config)
-
-    # Load weights from safetensors
-    safetensors_path = checkpoint_path / "model.safetensors"
-    with safe_open(safetensors_path, framework="pt", device="cpu") as f:
-        state_dict = {key: f.get_tensor(key) for key in f.keys()}
-
-    # Load weights with proper matching
-    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-
-    print("✅ Model loaded with proper weight loading")
-    if missing_keys:
-        print(f"⚠️  Missing keys: {len(missing_keys)} (likely architecture differences)")
-    if unexpected_keys:
-        print(f"⚠️  Unexpected keys: {len(unexpected_keys)} (likely old model version)")
-
-    return model
+    return FIMHawkes.load_model(checkpoint_path)
 
 
 def main(args):
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    device = torch.device("cpu")
+    # Select device dynamically; do not hide CUDA
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model_checkpoint = Path(args.checkpoint)
     dataset_dir = Path(args.dataset)
@@ -446,6 +463,9 @@ def main(args):
             print(f"  {key}: {value.shape}")
 
     print(f"Using path index: {args.path_idx}")
+
+    # Ensure model inputs are on the same device as the model
+    model_data = _move_to_device(model_data, device)
 
     with torch.no_grad():
         model_output = model(model_data)

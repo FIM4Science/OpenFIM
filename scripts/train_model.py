@@ -7,7 +7,7 @@ import logging
 import os
 import warnings
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import click
 import numpy as np
@@ -48,7 +48,7 @@ def main(cfg_path: Path, log_level: int, resume: Path, epoch: str):
     train(gs_configs, resume, epoch)
 
 
-def train(configs: List[GenericConfig], resume: Path, epoch: str):
+def train(configs: List[GenericConfig], resume: Optional[Path] = None, epoch: str = "last-epoch"):
     for config in configs:
         if config.distributed.enabled:
             train_distributed(config, resume, epoch)
@@ -56,7 +56,7 @@ def train(configs: List[GenericConfig], resume: Path, epoch: str):
             train_single(config, resume, epoch)
 
 
-def train_distributed(config: List[GenericConfig], resume: Path, epoch: str):
+def train_distributed(config: GenericConfig, resume: Optional[Path] = None, epoch: str = "last-epoch"):
     torch.manual_seed(int(config.experiment.seed))
     torch.cuda.manual_seed(int(config.experiment.seed))
     np.random.seed(int(config.experiment.seed))
@@ -90,7 +90,7 @@ def train_distributed(config: List[GenericConfig], resume: Path, epoch: str):
     cleanup()
 
 
-def train_single(config: List[GenericConfig], resume: Path, epoch: str):
+def train_single(config: GenericConfig, resume: Optional[Path] = None, epoch: str = "last-epoch"):
     logger.info("Starting Experiment: %s", config.experiment.name)
 
     torch.manual_seed(int(config.experiment.seed))

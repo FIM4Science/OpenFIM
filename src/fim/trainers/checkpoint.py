@@ -500,6 +500,16 @@ class TrainCheckpointFSDPFullStateDict(TrainCheckpoint):
                 },
                 "commit": latest_commit(),
             }
+            # Ensure model_type is present in saved config for downstream loaders
+            try:
+                # Inherit model_type from config if set, else use lower-case class name
+                mt_value = getattr(self.model.config, "model_type", None)
+                if not mt_value:
+                    mt_value = self.train_config.model.get("model_type", self.model.__class__.__name__.lower())
+                # Temporarily ensure the attribute exists for save_pretrained
+                setattr(self.model.config, "model_type", mt_value)
+            except Exception:
+                pass
             self.model.config.save_pretrained(save_dir)
             torch.save(model_state, save_dir / "model-checkpoint.pth")
             torch.save(state, train_state_path)

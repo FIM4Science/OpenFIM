@@ -2,12 +2,12 @@
 Run examples:
   Local Hawkes dataset:
     python scripts/hawkes/easytpp_fit.py \
-      data/synthetic_data/hawkes/EVAL_10_3D_1k_paths_diag_only_large_scale \
-      --sample-idx 0 --model NHP --epochs 100 --batch-size 256 \
-      --max-num-events 100 --num-train-paths 1000 --num-eval-paths 100
+      data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions \
+      --sample-idx 0 --model RMTPP --epochs 1000 --batch-size 256 \
+      --max-num-events 100 --num-train-paths 2000 --num-eval-paths 100
   HuggingFace EasyTPP dataset:
     python scripts/hawkes/easytpp_fit.py easytpp/retweet \
-      --model NHP --epochs 100 --batch-size 256 \
+      --model RMTPP --epochs 1000 --batch-size 256 \
       --max-num-events 100 --num-train-paths 1000 --num-eval-paths 100
 
 Script to fit an EasyTPP model on either
@@ -50,6 +50,8 @@ import json
 import os
 import shutil
 import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Union
 
@@ -98,6 +100,18 @@ def parse_args() -> argparse.Namespace:  # noqa: D401
         help="Directory where EasyTPP stores its checkpoints.",
     )
     parser.add_argument(
+        "--results-dir",
+        type=Path,
+        default=Path("results/easytpp"),
+        help="Directory where this script writes run artifacts (metrics, logs).",
+    )
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help="Optional explicit name for this run; if omitted, one is auto-generated.",
+    )
+    parser.add_argument(
         "--max-num-events",
         type=int,
         default=100,
@@ -114,6 +128,25 @@ def parse_args() -> argparse.Namespace:  # noqa: D401
         type=int,
         default=None,
         help="Number of sequences (paths) to use for evaluation (analogous to inference paths).",
+    )
+    parser.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=10,
+        help="Enable early stopping with given patience (in epochs). Default: 10 (based on validation log-likelihood).",
+    )
+    parser.add_argument(
+        "--early-stop-metric",
+        type=str,
+        default="loglike",
+        help="Validation metric to monitor for early stopping (e.g., loglike, rmse, acc).",
+    )
+    parser.add_argument(
+        "--early-stop-mode",
+        type=str,
+        default="max",
+        choices=["min", "max"],
+        help="Direction for early stopping: min (e.g., rmse) or max (e.g., acc).",
     )
 
     return parser.parse_args()
@@ -137,9 +170,9 @@ def _load_local_sample(sample_dir: Path, sample_idx: int) -> Dict[str, List[List
     # ------------------------------------------------------------
     # Required tensor files
     # ------------------------------------------------------------
-    event_times_t = torch.load(sample_dir / "event_times.pt")  # [B, P, L, 1]
-    event_types_t = torch.load(sample_dir / "event_types.pt")  # [B, P, L, 1]
-    seq_lengths_t = torch.load(sample_dir / "seq_lengths.pt")  # [B, P]
+    event_times_t = torch.load(sample_dir / "event_times.pt", weights_only=True)  # [B, P, L, 1]
+    event_types_t = torch.load(sample_dir / "event_types.pt", weights_only=True)  # [B, P, L, 1]
+    seq_lengths_t = torch.load(sample_dir / "seq_lengths.pt", weights_only=True)  # [B, P]
 
     if sample_idx >= event_times_t.shape[0]:
         raise IndexError(f"sample_idx {sample_idx} exceeds available samples ({event_times_t.shape[0]}).")
@@ -203,7 +236,7 @@ def convert_local_dataset_to_json(
     sample_dict = _load_local_sample(sample_dir, sample_idx)
 
     # Truncate sequences longer than max_num_events if specified
-    if max_num_events is not None:
+    if max_num_events is not None and max_num_events >= 0:
         sample_dict["time_since_start"] = [seq[:max_num_events] for seq in sample_dict["time_since_start"]]
         sample_dict["type_event"] = [seq[:max_num_events] for seq in sample_dict["type_event"]]
         sample_dict["time_since_last_event"] = [seq[:max_num_events] for seq in sample_dict["time_since_last_event"]]
@@ -252,13 +285,13 @@ def convert_hf_dataset_to_json(
         for example in ds:
             # Truncate sequences longer than max_num_events if specified
             tss = example.get("time_since_start", [])
-            if max_num_events is not None:
+            if max_num_events is not None and max_num_events >= 0:
                 tss = tss[:max_num_events]
             tsl = example.get("time_since_last_event", [])
-            if max_num_events is not None:
+            if max_num_events is not None and max_num_events >= 0:
                 tsl = tsl[:max_num_events]
             tev = example.get("type_event") or example.get("type_seqs") or []
-            if max_num_events is not None:
+            if max_num_events is not None and max_num_events >= 0:
                 tev = tev[:max_num_events]
 
             record: Dict[str, Union[int, List]] = {
@@ -284,9 +317,9 @@ def write_training_config(
     epochs: int,
     batch_size: int,
     checkpoint_dir: Path,
-    sampler_dtime_max: float,  # <-- NEW ARGUMENT
-    sampler_num_samples_boundary: int,  # <-- NEW ARGUMENT
-    sampler_over_sample_rate: float,  # <-- NEW ARGUMENT
+    sampler_dtime_max: float,
+    sampler_num_samples_boundary: int,
+    sampler_over_sample_rate: float,
     gpu: int = -1,
 ) -> Path:
     """Render the YAML config file that EasyTPP expects."""
@@ -371,6 +404,29 @@ def write_training_config(
 # -----------------------------------------------------------------------------
 
 
+def _monkey_patch_easytpp_float32() -> None:
+    """Force EasyTPP collator to cast time tensors to float32 even without padding."""
+    try:
+        import torch  # noqa: WPS433
+        from easy_tpp.preprocess.data_collator import TPPDataCollator  # type: ignore
+
+        if not hasattr(TPPDataCollator, "__orig_call__"):
+            TPPDataCollator.__orig_call__ = TPPDataCollator.__call__  # type: ignore[attr-defined]
+
+            def __patched_call__(self, features, return_tensors=None):  # type: ignore[no-redef]
+                batch = TPPDataCollator.__orig_call__(self, features, return_tensors)  # type: ignore[attr-defined]
+                if return_tensors in (None, "pt"):
+                    if "time_seqs" in batch:
+                        batch["time_seqs"] = batch["time_seqs"].to(dtype=torch.float32)
+                    if "time_delta_seqs" in batch:
+                        batch["time_delta_seqs"] = batch["time_delta_seqs"].to(dtype=torch.float32)
+                return batch
+
+            TPPDataCollator.__call__ = __patched_call__  # type: ignore[assignment]
+    except Exception:
+        pass
+
+
 def main() -> None:  # noqa: D401
     args = parse_args()
 
@@ -378,13 +434,30 @@ def main() -> None:  # noqa: D401
     try:
         import torch  # noqa: WPS433 (optional import)
 
-        torch.set_default_dtype(torch.float64)
-        torch.set_default_tensor_type(torch.DoubleTensor)
+        torch.set_default_dtype(torch.float32)
     except ImportError:
         pass
 
+    # Force EasyTPP to emit float32 tensors for time fields
+    _monkey_patch_easytpp_float32()
+
     dataset_arg = args.dataset
     dataset_path = Path(dataset_arg)
+
+    def _slugify(value: str) -> str:
+        value = value.replace(os.sep, "-").replace("/", "-")
+        value = value.replace(" ", "_").replace(":", "-")
+        value = value.replace("\\", "-")
+        return value
+
+    # Prepare results directory and run identification
+    safe_dataset = dataset_path.name if dataset_path.exists() else _slugify(dataset_arg)
+    auto_run_name = f"{args.model}__{safe_dataset}__s{args.sample_idx}__e{args.epochs}__bs{args.batch_size}"
+    run_name = args.run_name or auto_run_name
+    results_dir = Path(args.results_dir) / run_name
+    results_dir.mkdir(parents=True, exist_ok=True)
+    run_started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    t_start = time.time()
 
     # Prepare a tmp directory that will hold the converted dataset and config.
     tmp_dir = Path(tempfile.mkdtemp(prefix="easytpp_data_"))
@@ -531,6 +604,7 @@ def main() -> None:  # noqa: D401
         # need for spawning a subprocess.
         # ------------------------------------------------------------
 
+        metrics_written = False
         if os.getenv("TRAIN_EASYTPP", "1") != "0":
             try:
                 from easy_tpp.config_factory import Config  # type: ignore
@@ -540,7 +614,37 @@ def main() -> None:  # noqa: D401
                 runner = Runner.build_from_config(config)
 
                 print("[INFO] Starting EasyTPP training via Python API …")
-                runner.run()
+                # If early stopping requested, run epoch-by-epoch with validation monitoring
+                if args.early_stop_patience is not None and args.early_stop_patience > 0:
+                    from easy_tpp.runner.base_runner import RunnerPhase
+
+                    train_loader = runner._data_loader.train_loader()
+                    valid_loader = runner._data_loader.valid_loader()
+
+                    best_score = float("inf") if args.early_stop_mode == "min" else float("-inf")
+                    epochs_no_improve = 0
+                    history = []
+                    for epoch in range(args.epochs):
+                        _ = runner.run_one_epoch(train_loader, RunnerPhase.TRAIN)
+                        val_metrics = runner.run_one_epoch(valid_loader, RunnerPhase.VALIDATE)
+                        history.append(val_metrics)
+                        metric_value = val_metrics.get(args.early_stop_metric)
+                        if metric_value is None:
+                            # If desired metric not available, disable early stopping fallback
+                            print("[WARNING] Early stop metric not found in validation metrics; continuing without early stop.")
+                            epochs_no_improve = 0
+                            continue
+                        improved = metric_value < best_score if args.early_stop_mode == "min" else metric_value > best_score
+                        if improved:
+                            best_score = metric_value
+                            epochs_no_improve = 0
+                        else:
+                            epochs_no_improve += 1
+                            if epochs_no_improve >= args.early_stop_patience:
+                                print(f"[INFO] Early stopping at epoch {epoch + 1} (no improvement on {args.early_stop_metric}).")
+                                break
+                else:
+                    runner.run()
 
                 # ----------------------------------------------------
                 # Optional: Evaluate the trained model (next-event
@@ -560,13 +664,76 @@ def main() -> None:  # noqa: D401
                     metrics = runner.run_one_epoch(test_loader, RunnerPhase.VALIDATE)
 
                     # Display standard metrics if present.
+                    # Compute and add event type error (100 - accuracy). Handle both [0,1] and [0,100] scales.
+                    if "acc" in metrics and metrics["acc"] is not None:
+                        try:
+                            acc_value = float(metrics["acc"])  # type: ignore[arg-type]
+                            error_value = (1.0 - acc_value) * 100.0 if acc_value <= 1.0 else 100.0 - acc_value
+                            metrics["type_error"] = error_value
+                        except Exception:
+                            # If conversion fails, skip error computation gracefully
+                            pass
+
                     print("[INFO] Evaluation metrics:")
-                    for key in ["rmse", "acc", "loglike", "num_events"]:
+                    for key in ["rmse", "type_error", "loglike", "num_events"]:
                         if key in metrics:
                             print(f"    {key}: {metrics[key]}")
 
+                    # Persist metrics to JSON for downstream aggregation
+                    results_payload = {
+                        "status": "ok",
+                        "started_at": run_started_at,
+                        "finished_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "duration_seconds": round(time.time() - t_start, 3),
+                        "dataset": dataset_arg,
+                        "model": args.model,
+                        "sample_idx": args.sample_idx,
+                        "epochs": args.epochs,
+                        "batch_size": args.batch_size,
+                        "max_num_events": args.max_num_events,
+                        "num_train_paths": args.num_train_paths,
+                        "num_eval_paths": args.num_eval_paths,
+                        "gpu_index": gpu_index,
+                        "config_path": str(cfg_path),
+                        "checkpoint_dir": str(args.output_dir),
+                        "sampler": {
+                            "dtime_max": sampler_dtime_max,
+                            "num_samples_boundary": sampler_num_samples_boundary,
+                            "over_sample_rate": sampler_over_sample_rate,
+                        },
+                        "metrics": metrics,
+                    }
+                    (results_dir / "metrics.json").write_text(json.dumps(results_payload, indent=2))
+                    metrics_written = True
+
                 except Exception as eval_err:  # pragma: no cover – evaluation is optional
                     print("[WARNING] Automatic evaluation failed. Reason: " + str(eval_err))
+                    # Even if evaluation fails, persist a minimal run record
+                    if not metrics_written:
+                        results_payload = {
+                            "status": "train_ok_eval_failed",
+                            "error": str(eval_err),
+                            "started_at": run_started_at,
+                            "finished_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            "duration_seconds": round(time.time() - t_start, 3),
+                            "dataset": dataset_arg,
+                            "model": args.model,
+                            "sample_idx": args.sample_idx,
+                            "epochs": args.epochs,
+                            "batch_size": args.batch_size,
+                            "max_num_events": args.max_num_events,
+                            "num_train_paths": args.num_train_paths,
+                            "num_eval_paths": args.num_eval_paths,
+                            "gpu_index": gpu_index,
+                            "config_path": str(cfg_path),
+                            "checkpoint_dir": str(args.output_dir),
+                            "sampler": {
+                                "dtime_max": sampler_dtime_max,
+                                "num_samples_boundary": sampler_num_samples_boundary,
+                                "over_sample_rate": sampler_over_sample_rate,
+                            },
+                        }
+                        (results_dir / "metrics.json").write_text(json.dumps(results_payload, indent=2))
 
             except ImportError as err:
                 raise SystemExit(
@@ -574,6 +741,30 @@ def main() -> None:  # noqa: D401
                 ) from err
         else:
             print("[INFO] TRAIN_EASYTPP=0 → Skipping the actual training run.")
+            # Persist a minimal run record for completeness
+            results_payload = {
+                "status": "skipped",
+                "started_at": run_started_at,
+                "finished_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "duration_seconds": round(time.time() - t_start, 3),
+                "dataset": dataset_arg,
+                "model": args.model,
+                "sample_idx": args.sample_idx,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "max_num_events": args.max_num_events,
+                "num_train_paths": args.num_train_paths,
+                "num_eval_paths": args.num_eval_paths,
+                "gpu_index": gpu_index,
+                "config_path": str(cfg_path),
+                "checkpoint_dir": str(args.output_dir),
+                "sampler": {
+                    "dtime_max": sampler_dtime_max,
+                    "num_samples_boundary": sampler_num_samples_boundary,
+                    "over_sample_rate": sampler_over_sample_rate,
+                },
+            }
+            (results_dir / "metrics.json").write_text(json.dumps(results_payload, indent=2))
 
     finally:
         # Clean up temporary directory.  Comment-in the following line to *persist*
