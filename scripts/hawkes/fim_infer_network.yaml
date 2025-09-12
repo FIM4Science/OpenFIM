@@ -11,9 +11,14 @@ checkpoints:
   - results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-10-0759/checkpoints/best-model
 
 # Data subset sizes
-context_size: 2000   # null => full train split
+context_size: 20   # null => full train split
 inference_size: null # null => full test split
-max_num_events: 100  # -1 => no truncation
+max_num_events: 10  # -1 => no truncation
+
+# Kernel plotting settings
+kernel_num_points: 200       # number of s-grid points for kernels
+kernel_quantile: 0.9         # quantile of 1/beta to set s_max
+kernel_time_scale_factor: 8.0 # multiplier on that time scale
 
 # Output root; a timestamped subdirectory will be created
 results_root: results/fim_network

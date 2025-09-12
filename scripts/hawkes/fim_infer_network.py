@@ -203,7 +203,178 @@ def infer_interaction_matrix(
     return mean_matrix.astype(np.float32)
 
 
-def write_outputs(run_dir: Path, matrix: np.ndarray, dataset: str, checkpoint: str) -> None:
+@torch.no_grad()
+def infer_interaction_and_kernels(
+    model: FIMHawkes,
+    context_data_raw: Dict,
+    inference_data_raw: Dict,
+    max_num_events: int | None,
+    device: torch.device,
+    inference_batch_size: int | None = 1,
+    kernel_num_points: int = 200,
+    kernel_quantile: float = 0.9,
+    kernel_time_scale_factor: float = 8.0,
+):
+    """
+    Compute the interaction matrix as in infer_interaction_matrix and, in addition,
+    the per-entry kernel functions phi_{k,j}(s) on a grid of lags s.
+
+    Returns (matrix: [M,M], kernels: [M,M,S], s_grid: [S]).
+    """
+
+    # Truncate
+    context_data_raw = _truncate_batch(context_data_raw, max_num_events)
+    inference_data_raw = _truncate_batch(inference_data_raw, max_num_events)
+
+    # Detect number of marks
+    num_marks = detect_num_event_types_from_data(context_data_raw, inference_data_raw)
+    model.config.max_num_marks = num_marks
+
+    # Build context batch (pad to max length)
+    num_ctx = len(context_data_raw.get("seq_len", []))
+    max_ctx_len = max((len(s) for s in context_data_raw.get("time_since_start", [])), default=0)
+    ctx = {"time_seqs": [], "type_seqs": [], "seq_len": []}
+    for i in range(num_ctx):
+        pad = max_ctx_len - len(context_data_raw["time_since_start"][i])
+        ctx["time_seqs"].append(context_data_raw["time_since_start"][i] + [0] * pad)
+        ctx["type_seqs"].append([int(t) for t in context_data_raw["type_event"][i]] + [0] * pad)
+        ctx["seq_len"].append(int(context_data_raw["seq_len"][i]))
+    if num_ctx == 0:
+        ctx = {"time_seqs": [[0.0]], "type_seqs": [[0]], "seq_len": [1]}
+        max_ctx_len = 1
+        num_ctx = 1
+    ctx = {k: torch.tensor(v, device=device) for k, v in ctx.items()}
+    ctx["seq_non_pad_mask"] = torch.arange(max_ctx_len, device=device).expand(num_ctx, max_ctx_len) < ctx["seq_len"].unsqueeze(1)
+
+    # Build inference batch (pad all sequences to same length)
+    num_inf = len(inference_data_raw.get("seq_len", []))
+    if num_inf == 0:
+        zero = np.zeros((num_marks, num_marks), dtype=np.float32)
+        s_grid_np = np.linspace(0.0, 1.0, int(max(2, kernel_num_points)), dtype=np.float32)
+        kernels = np.zeros((num_marks, num_marks, s_grid_np.shape[0]), dtype=np.float32)
+        return zero, kernels, s_grid_np
+    max_inf_len = max(int(l) for l in inference_data_raw["seq_len"]) if num_inf > 0 else 0
+    inf = {"time_seqs": [], "type_seqs": [], "seq_len": []}
+    for i in range(num_inf):
+        pad = max_inf_len - len(inference_data_raw["time_since_start"][i])
+        inf["time_seqs"].append(inference_data_raw["time_since_start"][i] + [0] * pad)
+        inf["type_seqs"].append([int(t) for t in inference_data_raw["type_event"][i]] + [0] * pad)
+        inf["seq_len"].append(int(inference_data_raw["seq_len"][i]))
+    inf = {k: torch.tensor(v, device=device) for k, v in inf.items()}
+    inf["seq_non_pad_mask"] = torch.arange(max_inf_len, device=device).expand(num_inf, max_inf_len) < inf["seq_len"].unsqueeze(1)
+
+    # Precompute enhanced context once
+    precomp_ctx = {
+        "context_event_times": ctx["time_seqs"].unsqueeze(0).unsqueeze(-1),
+        "context_event_types": ctx["type_seqs"].unsqueeze(0).unsqueeze(-1),
+        "context_seq_lengths": ctx["seq_non_pad_mask"].sum(dim=1).unsqueeze(0),
+    }
+    enhanced_context = model.encode_context(precomp_ctx)
+
+    running_sum = torch.zeros(num_marks, num_marks, device=device)
+    kernels_running_sum: torch.Tensor | None = None
+    s_grid: torch.Tensor | None = None
+    total_paths = 0
+    bsz = max(1, int(inference_batch_size or 1))
+
+    for start in range(0, num_inf, bsz):
+        end = min(num_inf, start + bsz)
+        p_batch = end - start
+
+        x = {
+            "context_event_times": ctx["time_seqs"].unsqueeze(0).unsqueeze(-1),
+            "context_event_types": ctx["type_seqs"].unsqueeze(0).unsqueeze(-1),
+            "context_seq_lengths": ctx["seq_non_pad_mask"].sum(dim=1).unsqueeze(0),
+            "inference_event_times": inf["time_seqs"][start:end].unsqueeze(0).unsqueeze(-1),
+            "inference_event_types": inf["type_seqs"][start:end].unsqueeze(0).unsqueeze(-1),
+            "inference_seq_lengths": inf["seq_non_pad_mask"][start:end].sum(dim=1).unsqueeze(0),
+            "intensity_evaluation_times": torch.zeros(1, p_batch, 1, device=device),
+            "precomputed_enhanced_context": enhanced_context,
+            "num_marks": torch.tensor([num_marks], device=device),
+        }
+
+        model_out = model.forward(x)
+        intensity_fn = model_out["intensity_function"]
+        mu = intensity_fn.mu.squeeze(0)  # [M,P,L]
+        alpha = intensity_fn.alpha.squeeze(0)
+        beta = intensity_fn.beta.squeeze(0)
+
+        event_types_b = inf["type_seqs"][start:end].to(dtype=torch.long)  # [P,L]
+        seq_lengths_b = inf["seq_len"][start:end]  # [P]
+        positions = torch.arange(event_types_b.shape[1], device=device).view(1, -1)
+        valid_mask = positions < seq_lengths_b.unsqueeze(1)  # [P,L]
+
+        eps = 1e-9
+        contrib = (alpha - mu) / (beta + eps)  # [M,P,L]
+        et_clamped = torch.clamp(event_types_b, 0, num_marks - 1)
+        one_hot_src = torch.nn.functional.one_hot(et_clamped, num_classes=num_marks).to(contrib.dtype)  # [P,L,M]
+        one_hot_src = one_hot_src * valid_mask.unsqueeze(-1)
+
+        contrib_e = contrib.unsqueeze(0).unsqueeze(-1)  # [1,M,P,L,1]
+        src_mask_e = one_hot_src.unsqueeze(0).unsqueeze(0)  # [1,1,P,L,M]
+        sum_contrib = (contrib_e * src_mask_e).sum(dim=3)  # [1,M,P,M]
+
+        counts = one_hot_src.sum(dim=1)  # [P,M]
+        counts_e = counts.unsqueeze(0).unsqueeze(0)
+        mean_per_path = torch.where(counts_e > 0, sum_contrib / (counts_e + eps), torch.zeros_like(sum_contrib))  # [1,M,P,M]
+
+        running_sum = running_sum + mean_per_path.sum(dim=2).squeeze(0)
+
+        # Kernel computations
+        if s_grid is None:
+            inv_beta = 1.0 / (beta + eps)
+            inv_beta_flat = inv_beta.reshape(-1)
+            inv_beta_flat = inv_beta_flat[torch.isfinite(inv_beta_flat)]
+            if inv_beta_flat.numel() == 0:
+                s_max = 5.0
+            else:
+                try:
+                    q = float(torch.quantile(inv_beta_flat, float(kernel_quantile)).item())
+                except Exception:
+                    q = float(inv_beta_flat.median().item())
+                s_max = float(max(1e-3, min(100.0, kernel_time_scale_factor * q)))
+            s_grid = torch.linspace(0.0, s_max, steps=int(max(2, kernel_num_points)), device=device)
+
+        amplitude = alpha - mu  # [M,P,L]
+        amplitude_s = amplitude.unsqueeze(-1) * torch.exp(-(beta.unsqueeze(-1)) * s_grid.view(1, 1, 1, -1))  # [M,P,L,S]
+        amplitude_s = amplitude_s * valid_mask.unsqueeze(0).unsqueeze(-1)
+
+        amplitude_s_e = amplitude_s.unsqueeze(-1)  # [M,P,L,S,1]
+        src_mask_e = one_hot_src.unsqueeze(0).unsqueeze(3)  # [1,P,L,1,M]
+        sum_contrib_s = (amplitude_s_e * src_mask_e).sum(dim=2)  # [M,P,S,M]
+
+        counts = one_hot_src.sum(dim=1)  # [P,M]
+        counts_e = counts.unsqueeze(0).unsqueeze(-1)  # [1,P,M,1]
+        mean_per_path_s = torch.where(
+            counts_e > 0,
+            sum_contrib_s.permute(0, 1, 3, 2) / (counts_e + eps),  # [M,P,M,S]
+            torch.zeros_like(sum_contrib_s.permute(0, 1, 3, 2)),
+        )
+        agg_s = mean_per_path_s.sum(dim=1)  # [M,M,S]
+        kernels_running_sum = agg_s if kernels_running_sum is None else (kernels_running_sum + agg_s)
+
+        total_paths += p_batch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    mean_matrix = (running_sum / max(1, total_paths)).detach().cpu().numpy().astype(np.float32)
+    kernels_mean = (
+        (kernels_running_sum / max(1, total_paths)).detach().cpu().numpy().astype(np.float32)
+        if kernels_running_sum is not None
+        else np.zeros((num_marks, num_marks, int(max(2, kernel_num_points))), dtype=np.float32)
+    )
+    s_grid_np = (
+        s_grid.detach().cpu().numpy().astype(np.float32)
+        if s_grid is not None
+        else np.linspace(0.0, 5.0, int(max(2, kernel_num_points)), dtype=np.float32)
+    )
+    return mean_matrix, kernels_mean, s_grid_np
+
+
+def write_outputs(
+    run_dir: Path, matrix: np.ndarray, dataset: str, checkpoint: str, kernels: np.ndarray | None = None, s_grid: np.ndarray | None = None
+) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     npy_path = run_dir / "interaction_matrix.npy"
     csv_path = run_dir / "interaction_matrix.csv"
@@ -222,6 +393,9 @@ def write_outputs(run_dir: Path, matrix: np.ndarray, dataset: str, checkpoint: s
         "matrix_shape": list(matrix.shape),
         "matrix": matrix.tolist(),
     }
+    if kernels is not None and s_grid is not None:
+        payload["kernels_shape"] = list(kernels.shape)
+        payload["s_grid"] = s_grid.tolist()
     json_path.write_text(json.dumps(payload, indent=2))
 
     # Heatmap visualization (best-effort; skip if matplotlib is unavailable)
@@ -261,6 +435,33 @@ def write_outputs(run_dir: Path, matrix: np.ndarray, dataset: str, checkpoint: s
     except Exception:
         pass
 
+    # Save kernel arrays and per-entry plots if provided
+    if kernels is not None and s_grid is not None:
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg", force=True)
+            import matplotlib.pyplot as plt
+
+            kernels_dir = run_dir / "kernels"
+            kernels_dir.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(kernels_dir / "kernels.npz", s=s_grid, phi=kernels)
+
+            m = kernels.shape[0]
+            for k in range(m):
+                for j in range(m):
+                    fig, ax = plt.subplots(figsize=(4.5, 3.2))
+                    ax.plot(s_grid, kernels[k, j], lw=1.5)
+                    ax.set_xlabel("time lag s")
+                    ax.set_ylabel("phi_{k,j}(s)")
+                    ax.set_title(f"Kernel k={k + 1} – j={j + 1}")
+                    ax.grid(True, alpha=0.3)
+                    plt.tight_layout()
+                    fig.savefig(kernels_dir / f"kernel_k{k + 1}_j{j + 1}.pdf")
+                    plt.close(fig)
+        except Exception:
+            pass
+
 
 def _is_valid_checkpoint_dir(p: Path) -> bool:
     try:
@@ -295,15 +496,18 @@ def _run_single_grid(cfg: Dict) -> Tuple[str, str, Path, int]:
 
         ctx_raw, inf_raw = load_dataset_hf(dataset, cfg.get("context_size"), cfg.get("inference_size"))
         max_events = None if (cfg.get("max_num_events") is not None and int(cfg.get("max_num_events")) < 0) else cfg.get("max_num_events")
-        matrix = infer_interaction_matrix(
+        matrix, kernels, s_grid = infer_interaction_and_kernels(
             model,
             ctx_raw,
             inf_raw,
             max_events,
             device,
             inference_batch_size=cfg.get("inference_batch_size", 16),
+            kernel_num_points=int(cfg.get("kernel_num_points", 200)),
+            kernel_quantile=float(cfg.get("kernel_quantile", 0.9)),
+            kernel_time_scale_factor=float(cfg.get("kernel_time_scale_factor", 8.0)),
         )
-        write_outputs(result_dir, matrix, dataset, str(checkpoint))
+        write_outputs(result_dir, matrix, dataset, str(checkpoint), kernels=kernels, s_grid=s_grid)
         rc = 0
     except Exception as e:
         rc = 1
@@ -326,6 +530,9 @@ def main():
     ap.add_argument("--context-size", type=int, default=None)
     ap.add_argument("--inference-size", type=int, default=None)
     ap.add_argument("--max-num-events", type=int, default=100, help="-1 means no truncation")
+    ap.add_argument("--kernel-num-points", type=int, default=200, help="Number of points for kernel s-grid")
+    ap.add_argument("--kernel-quantile", type=float, default=0.9, help="Quantile of 1/beta to set s_max")
+    ap.add_argument("--kernel-time-scale-factor", type=float, default=8.0, help="Multiplier for s_max from 1/beta")
     args = ap.parse_args()
 
     if args.config:
@@ -366,8 +573,18 @@ def main():
 
     ctx_raw, inf_raw = load_dataset_hf(args.dataset, args.context_size, args.inference_size)
     max_events = None if (args.max_num_events is not None and args.max_num_events < 0) else args.max_num_events
-    matrix = infer_interaction_matrix(model, ctx_raw, inf_raw, max_events, device, inference_batch_size=16)
-    write_outputs(Path(args.run_dir), matrix, str(args.dataset), str(args.checkpoint))
+    matrix, kernels, s_grid = infer_interaction_and_kernels(
+        model,
+        ctx_raw,
+        inf_raw,
+        max_events,
+        device,
+        inference_batch_size=16,
+        kernel_num_points=args.kernel_num_points,
+        kernel_quantile=args.kernel_quantile,
+        kernel_time_scale_factor=args.kernel_time_scale_factor,
+    )
+    write_outputs(Path(args.run_dir), matrix, str(args.dataset), str(args.checkpoint), kernels=kernels, s_grid=s_grid)
 
 
 if __name__ == "__main__":
