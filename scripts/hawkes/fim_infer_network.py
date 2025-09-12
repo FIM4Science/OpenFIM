@@ -97,6 +97,7 @@ def infer_interaction_matrix(
     inference_data_raw: Dict,
     max_num_events: int | None,
     device: torch.device,
+    inference_batch_size: int | None = 1,
 ) -> np.ndarray:
     # Truncate
     context_data_raw = _truncate_batch(context_data_raw, max_num_events)
@@ -145,59 +146,60 @@ def infer_interaction_matrix(
     }
     enhanced_context = model.encode_context(precomp_ctx)
 
-    # Assemble x for a single forward pass covering all inference paths
-    x = {
-        "context_event_times": ctx["time_seqs"].unsqueeze(0).unsqueeze(-1),
-        "context_event_types": ctx["type_seqs"].unsqueeze(0).unsqueeze(-1),
-        "context_seq_lengths": ctx["seq_non_pad_mask"].sum(dim=1).unsqueeze(0),
-        "inference_event_times": inf["time_seqs"].unsqueeze(0).unsqueeze(-1),
-        "inference_event_types": inf["type_seqs"].unsqueeze(0).unsqueeze(-1),
-        "inference_seq_lengths": inf["seq_non_pad_mask"].sum(dim=1).unsqueeze(0),
-        "intensity_evaluation_times": torch.zeros(1, num_inf, 1, device=device),
-        "precomputed_enhanced_context": enhanced_context,
-        "num_marks": torch.tensor([num_marks], device=device),
-    }
+    # Process inference paths in mini-batches to reduce memory
+    running_sum = torch.zeros(num_marks, num_marks, device=device)
+    total_paths = 0
+    bsz = max(1, int(inference_batch_size or 1))
 
-    model_out = model.forward(x)
-    intensity_fn = model_out["intensity_function"]  # PiecewiseHawkesIntensity
+    for start in range(0, num_inf, bsz):
+        end = min(num_inf, start + bsz)
+        p_batch = end - start
 
-    # Parameters: [B, M, P, L]; we have B=1
-    mu = intensity_fn.mu.squeeze(0)
-    alpha = intensity_fn.alpha.squeeze(0)
-    beta = intensity_fn.beta.squeeze(0)
-    # Shapes: [M, P, L]
+        x = {
+            "context_event_times": ctx["time_seqs"].unsqueeze(0).unsqueeze(-1),
+            "context_event_types": ctx["type_seqs"].unsqueeze(0).unsqueeze(-1),
+            "context_seq_lengths": ctx["seq_non_pad_mask"].sum(dim=1).unsqueeze(0),
+            "inference_event_times": inf["time_seqs"][start:end].unsqueeze(0).unsqueeze(-1),
+            "inference_event_types": inf["type_seqs"][start:end].unsqueeze(0).unsqueeze(-1),
+            "inference_seq_lengths": inf["seq_non_pad_mask"][start:end].sum(dim=1).unsqueeze(0),
+            "intensity_evaluation_times": torch.zeros(1, p_batch, 1, device=device),
+            "precomputed_enhanced_context": enhanced_context,
+            "num_marks": torch.tensor([num_marks], device=device),
+        }
 
-    # Event types and valid mask
-    event_types = inf["type_seqs"].to(dtype=torch.long)  # [P, L]
-    seq_lengths = inf["seq_len"]  # [P]
-    positions = torch.arange(event_types.shape[1], device=device).view(1, -1)
-    valid_mask = positions < seq_lengths.unsqueeze(1)  # [P, L]
+        model_out = model.forward(x)
+        intensity_fn = model_out["intensity_function"]  # PiecewiseHawkesIntensity
 
-    # Compute per-event contribution for every target mark k
-    eps = 1e-9
-    contrib = (alpha - mu) / (beta + eps)  # [M, P, L]
+        mu = intensity_fn.mu.squeeze(0)  # [M, P, L]
+        alpha = intensity_fn.alpha.squeeze(0)
+        beta = intensity_fn.beta.squeeze(0)
 
-    # Build one-hot of source marks j at events (masked)
-    et_clamped = torch.clamp(event_types, 0, num_marks - 1)  # [P, L]
-    one_hot_src = torch.nn.functional.one_hot(et_clamped, num_classes=num_marks).to(contrib.dtype)  # [P, L, M]
-    one_hot_src = one_hot_src * valid_mask.unsqueeze(-1)  # zero out padding
+        event_types_b = inf["type_seqs"][start:end].to(dtype=torch.long)  # [P, L]
+        seq_lengths_b = inf["seq_len"][start:end]  # [P]
+        positions = torch.arange(event_types_b.shape[1], device=device).view(1, -1)
+        valid_mask = positions < seq_lengths_b.unsqueeze(1)  # [P, L]
 
-    # Bring tensors to shapes for broadcasting
-    # contrib: [M, P, L] -> [1, M, P, L, 1]
-    contrib_e = contrib.unsqueeze(0).unsqueeze(-1)
-    # one_hot_src: [P, L, M] -> [1, 1, P, L, M]
-    src_mask_e = one_hot_src.unsqueeze(0).unsqueeze(0)
+        eps = 1e-9
+        contrib = (alpha - mu) / (beta + eps)  # [M, P, L]
+        et_clamped = torch.clamp(event_types_b, 0, num_marks - 1)
+        one_hot_src = torch.nn.functional.one_hot(et_clamped, num_classes=num_marks).to(contrib.dtype)  # [P, L, M]
+        one_hot_src = one_hot_src * valid_mask.unsqueeze(-1)
 
-    # Sum over events i to get per-path matrix [1, M_k, P, M_j]
-    sum_contrib = (contrib_e * src_mask_e).sum(dim=3)  # [1, M, P, M]
+        contrib_e = contrib.unsqueeze(0).unsqueeze(-1)  # [1, M, P, L, 1]
+        src_mask_e = one_hot_src.unsqueeze(0).unsqueeze(0)  # [1, 1, P, L, M]
+        sum_contrib = (contrib_e * src_mask_e).sum(dim=3)  # [1, M, P, M]
 
-    # Counts N_j per path: [P, M]
-    counts = one_hot_src.sum(dim=1)  # [P, M]
-    counts_e = counts.unsqueeze(0).unsqueeze(0)  # [1, 1, P, M]
-    mean_per_path = torch.where(counts_e > 0, sum_contrib / (counts_e + eps), torch.zeros_like(sum_contrib))
+        counts = one_hot_src.sum(dim=1)  # [P, M]
+        counts_e = counts.unsqueeze(0).unsqueeze(0)
+        mean_per_path = torch.where(counts_e > 0, sum_contrib / (counts_e + eps), torch.zeros_like(sum_contrib))  # [1,M,P,M]
 
-    # Average across paths P
-    mean_matrix = mean_per_path.mean(dim=2).squeeze(0).cpu().numpy()  # [M, M]
+        running_sum = running_sum + mean_per_path.sum(dim=2).squeeze(0)
+        total_paths += p_batch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    mean_matrix = (running_sum / max(1, total_paths)).detach().cpu().numpy()
     return mean_matrix.astype(np.float32)
 
 
@@ -228,11 +230,18 @@ def write_outputs(run_dir: Path, matrix: np.ndarray, dataset: str, checkpoint: s
 
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
+        from matplotlib.colors import TwoSlopeNorm
 
         m = matrix.shape[0]
         fig_size = (min(12, 0.4 * m + 2), min(10, 0.4 * m + 2))
         fig, ax = plt.subplots(figsize=fig_size)
-        im = ax.imshow(matrix, cmap="Reds", interpolation="nearest", aspect="auto")
+        # Use a diverging colormap centered at 0 so negatives and positives differ,
+        # with white at zero.
+        sym = float(np.nanmax(np.abs(matrix)))
+        if not np.isfinite(sym) or sym == 0.0:
+            sym = 1.0
+        norm = TwoSlopeNorm(vmin=-sym, vcenter=0.0, vmax=sym)
+        im = ax.imshow(matrix, cmap="bwr", norm=norm, interpolation="nearest", aspect="auto")
         cbar = plt.colorbar(im, ax=ax)
         cbar.ax.set_ylabel("influence", rotation=90, va="center")
         # Tick labels start at 1 for readability
@@ -286,7 +295,14 @@ def _run_single_grid(cfg: Dict) -> Tuple[str, str, Path, int]:
 
         ctx_raw, inf_raw = load_dataset_hf(dataset, cfg.get("context_size"), cfg.get("inference_size"))
         max_events = None if (cfg.get("max_num_events") is not None and int(cfg.get("max_num_events")) < 0) else cfg.get("max_num_events")
-        matrix = infer_interaction_matrix(model, ctx_raw, inf_raw, max_events, device)
+        matrix = infer_interaction_matrix(
+            model,
+            ctx_raw,
+            inf_raw,
+            max_events,
+            device,
+            inference_batch_size=cfg.get("inference_batch_size", 16),
+        )
         write_outputs(result_dir, matrix, dataset, str(checkpoint))
         rc = 0
     except Exception as e:
@@ -350,7 +366,7 @@ def main():
 
     ctx_raw, inf_raw = load_dataset_hf(args.dataset, args.context_size, args.inference_size)
     max_events = None if (args.max_num_events is not None and args.max_num_events < 0) else args.max_num_events
-    matrix = infer_interaction_matrix(model, ctx_raw, inf_raw, max_events, device)
+    matrix = infer_interaction_matrix(model, ctx_raw, inf_raw, max_events, device, inference_batch_size=16)
     write_outputs(Path(args.run_dir), matrix, str(args.dataset), str(args.checkpoint))
 
 
