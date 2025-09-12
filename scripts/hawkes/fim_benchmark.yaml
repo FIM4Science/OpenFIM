@@ -21,7 +21,7 @@ checkpoints:
 # task: next_event | long_horizon | both
 task: both
 # Sampling method for next-event time: thinning | inverse_transform
-sampling_method: inverse_transform
+sampling_method: thinning
 context_size: 2000   # null => use full train split
 inference_size: null  # null => use full test split
 max_num_events: 100   # null => no truncation
