@@ -82,6 +82,135 @@ def _truncate_batch(data_dict: Dict, max_num_events: int | None) -> Dict:
 
 def load_dataset_hf(dataset: str, context_size: int | None, inference_size: int | None) -> Tuple[Dict, Dict]:
     dataset_str = str(dataset)
+    # If the provided dataset is a local path, load directly from files in that directory.
+    ds_path = Path(dataset_str)
+    if ds_path.exists():
+        # First, support local tensor format: split subdirs with *.pt tensors
+        def _exists_tensor_split(split_name: str) -> bool:
+            sp = ds_path / split_name
+            return (
+                sp.exists() and (sp / "event_times.pt").exists() and (sp / "event_types.pt").exists() and (sp / "seq_lengths.pt").exists()
+            )
+
+        def _load_tensor_split(split_name: str) -> Dict:
+            split_path = ds_path / split_name
+            event_times = torch.load(split_path / "event_times.pt")  # [N, P, K, 1]
+            event_types = torch.load(split_path / "event_types.pt")  # [N, P, K, 1]
+            seq_lengths = torch.load(split_path / "seq_lengths.pt")  # [N, P]
+
+            N, P, _ = int(event_times.shape[0]), int(event_times.shape[1]), int(event_times.shape[2])
+            time_since_start: list[list[float]] = []
+            time_since_last_event: list[list[float]] = []
+            type_event: list[list[int]] = []
+            seq_len: list[int] = []
+
+            # Squeeze final dim if present
+            if event_times.dim() == 4 and event_times.shape[-1] == 1:
+                event_times_flat = event_times.squeeze(-1)
+                event_types_flat = event_types.squeeze(-1)
+            else:
+                event_times_flat = event_times
+                event_types_flat = event_types
+
+            for n in range(N):
+                for p in range(P):
+                    L = int(seq_lengths[n, p].item())
+                    times_t = event_times_flat[n, p, :L]
+                    types_t = event_types_flat[n, p, :L]
+                    times = [float(x) for x in times_t.tolist()]
+                    types = [int(x) for x in types_t.tolist()]
+                    deltas = [0.0] + [times[j] - times[j - 1] for j in range(1, len(times))]
+                    time_since_start.append(times)
+                    time_since_last_event.append(deltas)
+                    type_event.append(types)
+                    seq_len.append(L)
+
+            return {
+                "time_since_start": time_since_start,
+                "time_since_last_event": time_since_last_event,
+                "type_event": type_event,
+                "seq_len": seq_len,
+            }
+
+        # Prefer tensor splits if present
+        has_ctx_tensor = _exists_tensor_split("context")
+        has_test_tensor = _exists_tensor_split("test") or _exists_tensor_split("val")
+        if has_ctx_tensor and has_test_tensor:
+            ctx_split = "context"
+            inf_split = "test" if _exists_tensor_split("test") else "val"
+            train_col = _load_tensor_split(ctx_split)
+            test_col = _load_tensor_split(inf_split)
+
+            def _take_first_n(col: Dict, n: int | None) -> Dict:
+                if n is None:
+                    return col
+                n_eff = max(0, int(n))
+                return {k: v[:n_eff] for k, v in col.items()}
+
+            return _take_first_n(train_col, context_size), _take_first_n(test_col, inference_size)
+
+        def _read_json_or_jsonl(file_path: Path) -> list | dict:
+            try:
+                # Try JSON first (single JSON object or list)
+                return json.loads(file_path.read_text())
+            except Exception:
+                # Try JSON Lines
+                try:
+                    items = []
+                    with file_path.open("r") as fh:
+                        for line in fh:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            items.append(json.loads(line))
+                    return items
+                except Exception as _:
+                    raise
+
+        def _to_columnar(obj: list | dict) -> Dict:
+            # Expected keys
+            keys = ["time_since_start", "time_since_last_event", "type_event", "seq_len"]
+            if isinstance(obj, dict) and all(k in obj for k in keys):
+                return {k: list(obj[k]) for k in keys}
+            if isinstance(obj, list):
+                col = {k: [] for k in keys}
+                for ex in obj:
+                    # Minimal robustness: compute seq_len if absent
+                    tss = ex.get("time_since_start")
+                    tsl = ex.get("time_since_last_event")
+                    te = ex.get("type_event")
+                    L = ex.get("seq_len")
+                    if L is None:
+                        L = int(len(te) if isinstance(te, (list, tuple)) else len(tss or []))
+                    col["time_since_start"].append(list(tss))
+                    col["time_since_last_event"].append(list(tsl))
+                    col["type_event"].append(list(te))
+                    col["seq_len"].append(int(L))
+                return col
+            raise ValueError("Unsupported dataset file structure; expected dict-of-lists or list-of-dicts.")
+
+        def _load_split(split_names: list[str]) -> Dict:
+            candidates = []
+            for name in split_names:
+                for ext in [".json", ".jsonl"]:
+                    candidates.append(ds_path / f"{name}{ext}")
+            for fp in candidates:
+                if fp.exists():
+                    return _to_columnar(_read_json_or_jsonl(fp))
+            raise FileNotFoundError(f"Could not locate any of {[str(p) for p in candidates]} under {ds_path}")
+
+        train_col = _load_split(["train", "context"])  # prefer train, fallback to context
+        test_col = _load_split(["test", "valid", "validation", "eval", "inference"])  # prefer test
+
+        def _take_first_n(col: Dict, n: int | None) -> Dict:
+            if n is None:
+                return col
+            n_eff = max(0, int(n))
+            return {k: v[:n_eff] for k, v in col.items()}
+
+        return _take_first_n(train_col, context_size), _take_first_n(test_col, inference_size)
+
+    # Otherwise, load from HuggingFace EasyTPP datasets
     dataset_id = dataset_str if dataset_str.startswith("easytpp/") else f"easytpp/{dataset_str}"
     train = load_dataset(dataset_id, split="train")
     test = load_dataset(dataset_id, split="test")
