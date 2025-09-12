@@ -18,8 +18,7 @@ max_num_events: 10  # -1 => no truncation
 
 # Kernel plotting settings
 kernel_num_points: 200       # number of s-grid points for kernels
-kernel_quantile: 0.9         # quantile of 1/beta to set s_max
-kernel_time_scale_factor: 8.0 # multiplier on that time scale
+mean_time_factor: 3.0        # evaluate up to mean_time_factor * mean_delta_time
 
 # Output root; a timestamped subdirectory will be created
 results_root: results/fim_network
