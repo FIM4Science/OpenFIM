@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,7 @@ from datasets import load_dataset
 # ============================
 try:
     from fim.models.hawkes import FIMHawkes, FIMHawkesConfig
+    from fim.utils.helper import decode_byte_string
 except ImportError:
     print("Error: Could not import FIMHawkes. Ensure 'fim' is on PYTHONPATH.")
     raise
@@ -341,8 +343,7 @@ def infer_interaction_and_kernels(
     device: torch.device,
     inference_batch_size: int | None = 1,
     kernel_num_points: int = 200,
-    kernel_quantile: float = 0.9,
-    kernel_time_scale_factor: float = 8.0,
+    mean_time_factor: float = 8.0,
 ):
     """
     Compute the interaction matrix as in infer_interaction_matrix and, in addition,
@@ -406,6 +407,21 @@ def infer_interaction_and_kernels(
     total_paths = 0
     bsz = max(1, int(inference_batch_size or 1))
 
+    # Determine kernel evaluation horizon from mean inter-event time in inference data
+    # Compute on raw lists to respect per-sequence lengths
+    all_deltas: list[float] = []
+    for deltas, L in zip(inference_data_raw.get("time_since_last_event", []), inference_data_raw.get("seq_len", [])):
+        try:
+            li = int(L)
+        except Exception:
+            li = len(deltas)
+        # Skip the first delta (usually 0.0), take positive deltas only
+        for d in deltas[1:li]:
+            if d > 0:
+                all_deltas.append(float(d))
+    mean_dt = float(np.mean(all_deltas)) if len(all_deltas) > 0 else 0.0
+    s_max = float(max(1e-6, mean_time_factor * mean_dt)) if mean_dt > 0 else 5.0
+
     for start in range(0, num_inf, bsz):
         end = min(num_inf, start + bsz)
         p_batch = end - start
@@ -451,17 +467,6 @@ def infer_interaction_and_kernels(
 
         # Kernel computations
         if s_grid is None:
-            inv_beta = 1.0 / (beta + eps)
-            inv_beta_flat = inv_beta.reshape(-1)
-            inv_beta_flat = inv_beta_flat[torch.isfinite(inv_beta_flat)]
-            if inv_beta_flat.numel() == 0:
-                s_max = 5.0
-            else:
-                try:
-                    q = float(torch.quantile(inv_beta_flat, float(kernel_quantile)).item())
-                except Exception:
-                    q = float(inv_beta_flat.median().item())
-                s_max = float(max(1e-3, min(100.0, kernel_time_scale_factor * q)))
             s_grid = torch.linspace(0.0, s_max, steps=int(max(2, kernel_num_points)), device=device)
 
         amplitude = alpha - mu  # [M,P,L]
@@ -501,8 +506,150 @@ def infer_interaction_and_kernels(
     return mean_matrix, kernels_mean, s_grid_np
 
 
+def _try_parse_exp_kernel_integral(kernel_str: str) -> float | None:
+    """
+    Attempt to parse an exponential kernel of the form:
+      lambda t: A * torch.exp(-B * torch.as_tensor(t, ...)) * (...)
+    and return A / B. Returns None if parsing fails.
+    """
+    try:
+        # Strip spaces to simplify regex matching slightly
+        s = kernel_str.replace(" ", "")
+        m = re.search(r"lambda t:([0-9eE\.+\-]+)\*torch\.exp\(\-([0-9eE\.+\-]+)\*", s)
+        if m:
+            A = float(m.group(1))
+            B = float(m.group(2))
+            if B != 0.0:
+                return A / B
+    except Exception:
+        pass
+    return None
+
+
+def _load_ground_truth_functions_if_available(dataset: str) -> tuple[torch.Tensor | None, torch.Tensor | None, str | None]:
+    """
+    If `dataset` is a local path and contains kernel/base function tensors in the inference split
+    (prefer 'test', else 'val'), load and return (kernel_functions, base_intensity_functions, split_name).
+    Otherwise return (None, None, None).
+    """
+    ds_path = Path(str(dataset))
+    if not ds_path.exists():
+        return None, None, None
+
+    def exists(split: str, name: str) -> bool:
+        return (ds_path / split / f"{name}.pt").exists()
+
+    inf_split = "test" if exists("test", "kernel_functions") else ("val" if exists("val", "kernel_functions") else None)
+    if inf_split is None:
+        return None, None, None
+
+    try:
+        kf = torch.load(ds_path / inf_split / "kernel_functions.pt")  # [B, M, M, bytes]
+        bf = torch.load(ds_path / inf_split / "base_intensity_functions.pt")  # [B, M, bytes]
+        return kf, bf, inf_split
+    except Exception:
+        return None, None, None
+
+
+@torch.no_grad()
+def compute_ground_truth_matrix_and_kernels(
+    kernel_functions_tensor: torch.Tensor,
+    base_functions_tensor: torch.Tensor,
+    s_grid: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Decode ground-truth functions and compute:
+      - interaction matrix by integrating kernels over s_grid (trapezoidal rule), averaged over B
+      - kernel curves evaluated on s_grid, averaged over B
+
+    Shapes:
+      kernel_functions_tensor: [B, M, M, Lbytes]
+      base_functions_tensor: [B, M, Lbytes]  (unused here but reserved for future)
+      s_grid: [S]
+    Returns:
+      (gt_matrix [M,M], gt_kernels [M,M,S])
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    B, M, _, _ = kernel_functions_tensor.shape
+    S = int(s_grid.shape[0])
+    # Accumulators
+    kernels_sum = np.zeros((M, M, S), dtype=np.float32)
+    matrix_sum = np.zeros((M, M), dtype=np.float32)
+
+    # Precompute torch tensor for s_grid
+    s_t = torch.tensor(s_grid, dtype=torch.float32, device=device)
+
+    # Trapezoidal weights for integral over provided s_grid
+    # Handle non-uniform spacing
+    s_np = s_grid.astype(np.float32)
+    if S >= 2:
+        ds = np.diff(s_np)
+        # Build trapz weights w: length S
+        w = np.zeros_like(s_np)
+        w[1:-1] = (ds[:-1] + ds[1:]) * 0.5
+        w[0] = ds[0] * 0.5
+        w[-1] = ds[-1] * 0.5
+    else:
+        w = np.ones_like(s_np)
+
+    for b in range(B):
+        # Optionally fast-path via parsing A/B for exponential kernels
+        integral_fast = np.zeros((M, M), dtype=np.float32)
+        can_fast = True
+        for k in range(M):
+            for j in range(M):
+                try:
+                    s = decode_byte_string(kernel_functions_tensor[b, k, j])
+                    val = _try_parse_exp_kernel_integral(s)
+                    if val is None:
+                        can_fast = False
+                        raise ValueError
+                    integral_fast[k, j] = float(val)
+                except Exception:
+                    pass
+
+        for k in range(M):
+            for j in range(M):
+                # Decode function string to callable
+                f_str = decode_byte_string(kernel_functions_tensor[b, k, j])
+                try:
+                    phi = eval(f_str)
+                except Exception:
+                    # Fallback to zero kernel if eval fails
+                    def phi(t):
+                        t = torch.as_tensor(t, dtype=torch.float32, device=device)
+                        return torch.zeros_like(t)
+
+                # Evaluate on s_grid
+                try:
+                    vals = phi(s_t)
+                    if isinstance(vals, torch.Tensor):
+                        vals = vals.detach().to("cpu").numpy().astype(np.float32)
+                    else:
+                        vals = np.asarray(vals, dtype=np.float32)
+                except Exception:
+                    vals = np.zeros(S, dtype=np.float32)
+
+                kernels_sum[k, j] += vals
+                if can_fast and S >= 2:
+                    matrix_sum[k, j] += integral_fast[k, j]
+                else:
+                    matrix_sum[k, j] += float(np.sum(vals * w))
+
+    gt_kernels = kernels_sum / max(1, B)
+    gt_matrix = matrix_sum / max(1, B)
+    return gt_matrix.astype(np.float32), gt_kernels.astype(np.float32)
+
+
 def write_outputs(
-    run_dir: Path, matrix: np.ndarray, dataset: str, checkpoint: str, kernels: np.ndarray | None = None, s_grid: np.ndarray | None = None
+    run_dir: Path,
+    matrix: np.ndarray,
+    dataset: str,
+    checkpoint: str,
+    kernels: np.ndarray | None = None,
+    s_grid: np.ndarray | None = None,
+    gt_matrix: np.ndarray | None = None,
+    gt_kernels: np.ndarray | None = None,
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     npy_path = run_dir / "interaction_matrix.npy"
@@ -525,6 +672,10 @@ def write_outputs(
     if kernels is not None and s_grid is not None:
         payload["kernels_shape"] = list(kernels.shape)
         payload["s_grid"] = s_grid.tolist()
+    if gt_matrix is not None:
+        payload["ground_truth_matrix_shape"] = list(gt_matrix.shape)
+    if gt_kernels is not None:
+        payload["ground_truth_kernels_shape"] = list(gt_kernels.shape)
     json_path.write_text(json.dumps(payload, indent=2))
 
     # Heatmap visualization (best-effort; skip if matplotlib is unavailable)
@@ -564,6 +715,41 @@ def write_outputs(
     except Exception:
         pass
 
+    # Save ground-truth matrix visualization if provided
+    if gt_matrix is not None:
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg", force=True)
+            import matplotlib.pyplot as plt
+            from matplotlib.colors import TwoSlopeNorm
+
+            m = gt_matrix.shape[0]
+            fig_size = (min(12, 0.4 * m + 2), min(10, 0.4 * m + 2))
+            fig, ax = plt.subplots(figsize=fig_size)
+            sym = float(np.nanmax(np.abs(gt_matrix)))
+            if not np.isfinite(sym) or sym == 0.0:
+                sym = 1.0
+            norm = TwoSlopeNorm(vmin=-sym, vcenter=0.0, vmax=sym)
+            im = ax.imshow(gt_matrix, cmap="bwr", norm=norm, interpolation="nearest", aspect="auto")
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.ax.set_ylabel("influence", rotation=90, va="center")
+            step = 1 if m <= 25 else max(1, m // 25)
+            ticks = list(range(0, m, step))
+            ax.set_xticks(ticks)
+            ax.set_yticks(ticks)
+            ax.set_xticklabels([str(t + 1) for t in ticks])
+            ax.set_yticklabels([str(t + 1) for t in ticks])
+            ax.set_xlabel("source mark j")
+            ax.set_ylabel("target mark k")
+            ax.set_title("Ground-Truth Interaction Matrix")
+            plt.tight_layout()
+            fig.savefig(run_dir / "interaction_matrix_truth.png", dpi=200)
+            fig.savefig(run_dir / "interaction_matrix_truth.pdf", bbox_inches="tight")
+            plt.close(fig)
+        except Exception:
+            pass
+
     # Save kernel arrays and per-entry plots if provided
     if kernels is not None and s_grid is not None:
         try:
@@ -575,16 +761,22 @@ def write_outputs(
             kernels_dir = run_dir / "kernels"
             kernels_dir.mkdir(parents=True, exist_ok=True)
             np.savez_compressed(kernels_dir / "kernels.npz", s=s_grid, phi=kernels)
+            if gt_kernels is not None:
+                np.savez_compressed(kernels_dir / "kernels_truth.npz", s=s_grid, phi=gt_kernels)
 
             m = kernels.shape[0]
             for k in range(m):
                 for j in range(m):
                     fig, ax = plt.subplots(figsize=(4.5, 3.2))
-                    ax.plot(s_grid, kernels[k, j], lw=1.5)
+                    ax.plot(s_grid, kernels[k, j], lw=1.5, label="inferred")
+                    if gt_kernels is not None:
+                        ax.plot(s_grid, gt_kernels[k, j], lw=1.2, ls="--", color="black", label="ground truth")
                     ax.set_xlabel("time lag s")
                     ax.set_ylabel("phi_{k,j}(s)")
                     ax.set_title(f"Kernel k={k + 1} – j={j + 1}")
                     ax.grid(True, alpha=0.3)
+                    if gt_kernels is not None:
+                        ax.legend(loc="best", frameon=False)
                     plt.tight_layout()
                     fig.savefig(kernels_dir / f"kernel_k{k + 1}_j{j + 1}.pdf")
                     plt.close(fig)
@@ -633,10 +825,24 @@ def _run_single_grid(cfg: Dict) -> Tuple[str, str, Path, int]:
             device,
             inference_batch_size=cfg.get("inference_batch_size", 16),
             kernel_num_points=int(cfg.get("kernel_num_points", 200)),
-            kernel_quantile=float(cfg.get("kernel_quantile", 0.9)),
-            kernel_time_scale_factor=float(cfg.get("kernel_time_scale_factor", 8.0)),
+            mean_time_factor=float(cfg.get("mean_time_factor", 8.0)),
         )
-        write_outputs(result_dir, matrix, dataset, str(checkpoint), kernels=kernels, s_grid=s_grid)
+        # Attempt to load ground-truth functions for local datasets
+        kf, bf, _ = _load_ground_truth_functions_if_available(dataset)
+        if kf is not None and bf is not None:
+            gt_matrix, gt_kernels = compute_ground_truth_matrix_and_kernels(kf, bf, s_grid)
+        else:
+            gt_matrix, gt_kernels = None, None
+        write_outputs(
+            result_dir,
+            matrix,
+            dataset,
+            str(checkpoint),
+            kernels=kernels,
+            s_grid=s_grid,
+            gt_matrix=gt_matrix,
+            gt_kernels=gt_kernels,
+        )
         rc = 0
     except Exception as e:
         rc = 1
@@ -660,8 +866,7 @@ def main():
     ap.add_argument("--inference-size", type=int, default=None)
     ap.add_argument("--max-num-events", type=int, default=100, help="-1 means no truncation")
     ap.add_argument("--kernel-num-points", type=int, default=200, help="Number of points for kernel s-grid")
-    ap.add_argument("--kernel-quantile", type=float, default=0.9, help="Quantile of 1/beta to set s_max")
-    ap.add_argument("--kernel-time-scale-factor", type=float, default=8.0, help="Multiplier for s_max from 1/beta")
+    ap.add_argument("--mean-time-factor", type=float, default=8.0, help="Evaluate kernels up to mean_time_factor * mean_delta_time")
     args = ap.parse_args()
 
     if args.config:
@@ -710,10 +915,24 @@ def main():
         device,
         inference_batch_size=16,
         kernel_num_points=args.kernel_num_points,
-        kernel_quantile=args.kernel_quantile,
-        kernel_time_scale_factor=args.kernel_time_scale_factor,
+        mean_time_factor=args.mean_time_factor,
     )
-    write_outputs(Path(args.run_dir), matrix, str(args.dataset), str(args.checkpoint), kernels=kernels, s_grid=s_grid)
+    # Attempt to load ground-truth functions for local datasets
+    kf, bf, _ = _load_ground_truth_functions_if_available(str(args.dataset))
+    if kf is not None and bf is not None:
+        gt_matrix, gt_kernels = compute_ground_truth_matrix_and_kernels(kf, bf, s_grid)
+    else:
+        gt_matrix, gt_kernels = None, None
+    write_outputs(
+        Path(args.run_dir),
+        matrix,
+        str(args.dataset),
+        str(args.checkpoint),
+        kernels=kernels,
+        s_grid=s_grid,
+        gt_matrix=gt_matrix,
+        gt_kernels=gt_kernels,
+    )
 
 
 if __name__ == "__main__":
