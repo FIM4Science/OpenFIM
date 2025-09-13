@@ -493,11 +493,13 @@ class FIMHawkes(AModel):
             )
 
             # Weight with configured loss weight for compatibility
-            total_loss = self.loss_weights.get("nll", 1.0) * nll_only
+            relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
+            total_loss = self.loss_weights.get("nll", 1.0) * nll_only + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
 
             out["losses"] = {
                 "loss": total_loss,
                 "nll_loss": nll_only.detach().item(),
+                "relative_spike_loss": relative_spike_loss.detach().item(),
                 # Placeholders for logging consistency
                 "smape_loss": 0.0,
                 "mae_loss": 0.0,
@@ -742,6 +744,16 @@ class FIMHawkes(AModel):
         smape_values = torch.nan_to_num(smape_values, nan=2.0, posinf=2.0, neginf=2.0)
         return torch.mean(smape_values)
 
+    def _relative_spike(self, mu: Tensor, alpha: Tensor, epsilon: float = 1e-8) -> Tensor:
+        """Relative spike regularization term averaged over all elements.
+
+        L_relative_spike = mean( 2 * |alpha - mu| / (|alpha| + |mu| + eps) )
+        """
+        diff = torch.abs(alpha - mu)
+        denom = torch.abs(alpha) + torch.abs(mu) + epsilon
+        rel = 2.0 * diff / denom
+        return rel.mean()
+
     def _nll_loss(
         self,
         intensity_fn: "PiecewiseHawkesIntensity",
@@ -854,8 +866,15 @@ class FIMHawkes(AModel):
         # --- 2. Negative Log-Likelihood Loss ---
         nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
 
+        # --- 2.5 Relative spike regularization ---
+        relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
+
         # --- 3. Hybrid weighting of sMAPE and NLL ---
-        total_loss = self.loss_weights["nll"] * nll_loss + self.loss_weights["smape"] * smape_loss
+        total_loss = (
+            self.loss_weights["nll"] * nll_loss
+            + self.loss_weights["smape"] * smape_loss
+            + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
+        )
 
         mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
 
@@ -864,6 +883,7 @@ class FIMHawkes(AModel):
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
             "nll_loss": nll_loss.detach().item(),
             "smape_loss": smape_loss.detach().item(),
+            "relative_spike_loss": relative_spike_loss.detach().item(),
             "mae_loss": mae_loss.detach().item(),
         }
 
