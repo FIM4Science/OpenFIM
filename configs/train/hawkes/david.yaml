@@ -193,8 +193,9 @@ model:
   thinning: null
 
   loss_weights:
-    nll: 1.0
+    nll: 0.5
     smape: 1.0
+    relative_spike: 0.1
 
 trainer:
   name: Trainer
