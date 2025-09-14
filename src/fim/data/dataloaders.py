@@ -303,6 +303,7 @@ class HawkesDataLoader(BaseDataLoader):
             self.dataset[name] = StreamingHawkesDataset(
                 data_dirs=paths,
                 batch_size=effective_bs,
+                prefetch_rows=effective_bs * 8,
                 **dataset_kwargs,
             )
             if self.variable_num_of_paths and name == "train":

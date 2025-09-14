@@ -1663,6 +1663,7 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         files_to_load: Optional[dict] = None,
         data_limit: Optional[int] = None,
         field_name_for_dimension_grouping: Optional[str | list[str]] = None,
+        prefetch_rows: Optional[int] = None,
         **kwargs,
     ):
         # config
@@ -1670,6 +1671,8 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         self.files_to_load = files_to_load or {}
         self.data_limit = data_limit
         self.batch_size = batch_size
+        # prefetch multiple rows per IO to reduce h5 decompression overhead
+        self.prefetch_rows = prefetch_rows if prefetch_rows is not None else max(1, 4 * int(batch_size))
         self.field_name_for_dimension_grouping = field_name_for_dimension_grouping
 
         # collect file paths per key
@@ -1797,24 +1800,31 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                 num_items = min(num_items, int(self.data_limit))
 
             try:
-                # yield individual items
-                for i in range(num_items):
-                    item = {}
+                # vectorized block reads to minimize I/O and decompression overhead
+                rows_per_block = max(int(self.prefetch_rows), 1)
+                for batch_start in range(0, num_items, rows_per_block):
+                    batch_end = min(batch_start + rows_per_block, num_items)
+
+                    batch_block: dict[str, torch.Tensor] = {}
                     for key, src in streams.items():
                         if src is None:
                             continue
                         if isinstance(src, h5py.File):
-                            # load single row and convert
-                            arr = src["data"][i]
-                            item[key] = torch.as_tensor(arr)
+                            arr = src["data"][batch_start:batch_end]
+                            batch_block[key] = torch.as_tensor(arr)
                         else:
-                            item[key] = src[i]
+                            batch_block[key] = src[batch_start:batch_end]
 
-                    # add grouping key if marks differ across directories
-                    if self._different_marks_dim:
-                        item["_group_dim"] = self._marks_per_dir[dir_idx]
+                    # yield individual items from the preloaded block
+                    local_rows = batch_end - batch_start
+                    for i in range(local_rows):
+                        item = {k: v[i] for k, v in batch_block.items()}
 
-                    yield item
+                        # add grouping key if marks differ across directories
+                        if self._different_marks_dim:
+                            item["_group_dim"] = self._marks_per_dir[dir_idx]
+
+                        yield item
             finally:
                 # close any opened h5 files
                 for s in streams.values():
