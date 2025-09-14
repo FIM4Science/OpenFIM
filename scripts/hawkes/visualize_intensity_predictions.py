@@ -1,6 +1,6 @@
 """
 CUDA_VISIBILE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py \
---checkpoint "results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-10-0759/checkpoints/best-model"  \
+--checkpoint "results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-13-1555/checkpoints/best-model"  \
 --dataset "data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/test" \
 --sample_idx 0 \
 --path_idx 0

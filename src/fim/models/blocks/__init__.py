@@ -78,7 +78,18 @@ class AModel(PreTrainedModel, ABC):
 
         if not model_path.exists() or not config_path.exists() or not model_weights_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
-        model_state = torch.load(model_path / "model-checkpoint.pth", weights_only=True)
+        # Load weights safely on systems without CUDA by mapping tensors to CPU
+        try:
+            model_state = torch.load(model_path / "model-checkpoint.pth", weights_only=True)
+        except RuntimeError as e:
+            if "Attempting to deserialize object on a CUDA device" in str(e) or (not torch.cuda.is_available()):
+                model_state = torch.load(
+                    model_path / "model-checkpoint.pth",
+                    map_location=torch.device("cpu"),
+                    weights_only=True,
+                )
+            else:
+                raise
         # model_config = cls.config_class.from_pretrained(config_path)
         model = ModelFactory.create(model_config)
         model.load_state_dict(model_state)

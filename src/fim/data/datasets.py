@@ -1640,6 +1640,188 @@ class StreamingFIMSDEDataset(torch.utils.data.IterableDataset):
             return combined_iterator
 
 
+class StreamingHawkesDataset(torch.utils.data.IterableDataset):
+    """
+    Stream Hawkes process datasets from directories of .pt files without loading everything into memory.
+
+    Expects per-directory files specified via `files_to_load`, e.g.:
+      {
+        "base_intensity_functions": "base_intensity_functions.pt",
+        "event_times": "event_times.pt",
+        "event_types": "event_types.pt",
+        "kernel_functions": "kernel_functions.pt",
+        "time_offsets": "time_offsets.pt"  # optional
+      }
+
+    Yields single items (dicts) which are later collated by the HawkesDataLoader's custom collate.
+    """
+
+    def __init__(
+        self,
+        data_dirs: Path | Paths,
+        batch_size: int,
+        files_to_load: Optional[dict] = None,
+        data_limit: Optional[int] = None,
+        field_name_for_dimension_grouping: Optional[str | list[str]] = None,
+        **kwargs,
+    ):
+        # config
+        self.data_dirs = data_dirs
+        self.files_to_load = files_to_load or {}
+        self.data_limit = data_limit
+        self.batch_size = batch_size
+        self.field_name_for_dimension_grouping = field_name_for_dimension_grouping
+
+        # collect file paths per key
+        self.all_file_paths: dict[str, list[Path]] = get_file_paths(self.data_dirs, self.files_to_load)
+
+        # choose a reference key to determine per-directory sample counts
+        # prefer event_times, otherwise fall back to any available key
+        if "event_times" in self.all_file_paths:
+            self._ref_key = "event_times"
+        else:
+            self._ref_key = next(iter(self.all_file_paths.keys()))
+
+        # lazily computed
+        self._num_dirs: int = len(self.all_file_paths[self._ref_key])
+        self._num_items_per_dir: Optional[list[int]] = None
+        self._num_batches: Optional[int] = None
+        self._marks_per_dir: Optional[list[int]] = None
+        self._different_marks_dim: bool = False
+
+    # HawkesDataLoader relies on this attribute
+    @property
+    def is_last_dim_varying(self):
+        # True if different number of marks across directories
+        if self._marks_per_dir is None:
+            self._compute_marks_per_dir()
+        return self._different_marks_dim
+
+    def __len__(self):
+        # Return number of batches (not items), matching IterableDataset convention used elsewhere in this repo
+        if self._num_batches is None:
+            total_items = self._compute_total_items()
+            # ceil division
+            self._num_batches = (total_items + self.batch_size - 1) // self.batch_size
+        return self._num_batches
+
+    def _compute_total_items(self) -> int:
+        if self._num_items_per_dir is None:
+            self._num_items_per_dir = []
+            for ref_path in self.all_file_paths[self._ref_key]:
+                # Prefer .h5 if available (same basename)
+                h5_path = ref_path.with_suffix(".h5")
+                if h5_path.exists():
+                    with h5py.File(h5_path, "r") as f:
+                        num_items = int(f["data"].shape[0])
+                else:
+                    tensor = torch.load(ref_path, weights_only=True)
+                    num_items = int(tensor.shape[0])
+                if self.data_limit is not None:
+                    num_items = min(num_items, int(self.data_limit))
+                self._num_items_per_dir.append(num_items)
+        return int(sum(self._num_items_per_dir))
+
+    def _compute_marks_per_dir(self):
+        marks_key = None
+        if "kernel_functions" in self.all_file_paths:
+            marks_key = "kernel_functions"
+        elif "base_intensity_functions" in self.all_file_paths:
+            marks_key = "base_intensity_functions"
+
+        self._marks_per_dir = []
+        if marks_key is None:
+            # fallback: assume same marks everywhere
+            self._marks_per_dir = [0] * self._num_dirs
+            self._different_marks_dim = False
+            return
+
+        for p in self.all_file_paths[marks_key]:
+            h5p = p.with_suffix(".h5")
+            if h5p.exists():
+                with h5py.File(h5p, "r") as f:
+                    shape = f["data"].shape
+            else:
+                t = torch.load(p, weights_only=True)
+                shape = t.shape
+            # For Hawkes, marks dimension is at index 1
+            marks_dim = int(shape[1])
+            self._marks_per_dir.append(marks_dim)
+
+        self._different_marks_dim = len(set(self._marks_per_dir)) > 1
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:
+            dir_indices = list(range(self._num_dirs))
+        else:
+            # even distribution of directories across workers
+            num_workers = worker_info.num_workers
+            dir_indices = [i for i in range(self._num_dirs) if (i % num_workers) == worker_info.id]
+
+        # ensure marks info known
+        if self._marks_per_dir is None:
+            self._compute_marks_per_dir()
+
+        # iterate directories assigned to this worker
+        for dir_idx in dir_indices:
+            # load all keys for this directory
+            dir_files = {k: v[dir_idx] for k, v in self.all_file_paths.items()}
+            # Prefer h5 files if available; open streams once per directory
+            streams = {}
+            use_h5 = False
+            for key, path in dir_files.items():
+                h5p = path.with_suffix(".h5")
+                if h5p.exists():
+                    streams[key] = h5py.File(h5p, "r")
+                    use_h5 = True
+                elif path.exists():
+                    streams[key] = torch.load(path, weights_only=True)
+                else:
+                    streams[key] = None
+
+            # determine number of items from reference
+            if use_h5 and streams.get(self._ref_key) is not None and isinstance(streams[self._ref_key], h5py.File):
+                num_items = int(streams[self._ref_key]["data"].shape[0])
+            else:
+                ref_tensor = streams.get(self._ref_key)
+                if ref_tensor is None:
+                    # close any opened h5 files
+                    for s in streams.values():
+                        if isinstance(s, h5py.File):
+                            s.close()
+                    continue
+                num_items = int(ref_tensor.shape[0])
+
+            if self.data_limit is not None:
+                num_items = min(num_items, int(self.data_limit))
+
+            try:
+                # yield individual items
+                for i in range(num_items):
+                    item = {}
+                    for key, src in streams.items():
+                        if src is None:
+                            continue
+                        if isinstance(src, h5py.File):
+                            # load single row and convert
+                            arr = src["data"][i]
+                            item[key] = torch.as_tensor(arr)
+                        else:
+                            item[key] = src[i]
+
+                    # add grouping key if marks differ across directories
+                    if self._different_marks_dim:
+                        item["_group_dim"] = self._marks_per_dir[dir_idx]
+
+                    yield item
+            finally:
+                # close any opened h5 files
+                for s in streams.values():
+                    if isinstance(s, h5py.File):
+                        s.close()
+
+
 def h5_files_dict_iterator(files_dict: dict, batch_size: int, process_batch: Optional[callable]):
     """
     Return (consecutive) batches of data extracted from file paths in dict.

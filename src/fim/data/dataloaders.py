@@ -14,7 +14,7 @@ import torch.distributed as dist
 import torch.utils
 from datasets import get_dataset_split_names
 from torch import Tensor
-from torch.utils.data import default_collate
+from torch.utils.data import IterableDataset, default_collate
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset
 from transformers.trainer_pt_utils import IterableDatasetShard
@@ -35,6 +35,7 @@ from ..data.datasets import (
     JsonSDEDataset,
     PaddedFIMSDEDataset,
     StreamingFIMSDEDataset,
+    StreamingHawkesDataset,
     TimeSeriesImputationDatasetTorch,
 )
 from ..trainers.utils import is_distributed
@@ -75,20 +76,21 @@ class BaseDataLoader:
         for n, d in dataset.items():
             clean_split_n = clean_split_from_size_info(n)
             sampler = None
-            if is_distributed():
+            # Avoid samplers/shuffle for IterableDataset
+            if is_distributed() and not isinstance(d, IterableDataset):
                 sampler = DistributedSampler(d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train")
             self.samplers[clean_split_n] = sampler
             batch_size = self.batch_size
             if clean_split_n != "train":
                 batch_size = self.test_batch_size
-            if batch_size == "all":
+            if batch_size == "all" and not isinstance(d, IterableDataset):
                 batch_size = len(d)
 
             self.iter[clean_split_n] = DataLoader(
                 d,
                 drop_last=False,
                 sampler=sampler,
-                shuffle=sampler is None,
+                shuffle=(sampler is None) and (not isinstance(d, IterableDataset)) and (clean_split_n == "train"),
                 batch_size=batch_size,
                 collate_fn=self._get_collate_fn(clean_split_n, d),
                 **self.loader_kwargs,
@@ -265,7 +267,6 @@ class FIMDataLoader(BaseDataLoader):
         return minibatch_sizes_per_worker
 
 
-# FIXME: MERGE WITH FIMDataLoader by adding key names that depend on the number of paths
 class HawkesDataLoader(BaseDataLoader):
     def __init__(self, path: dict[str, list[str | Path]], dataset_kwargs: dict, loader_kwargs: dict):
         self.max_path_count = loader_kwargs.pop("max_path_count", None)
@@ -292,7 +293,18 @@ class HawkesDataLoader(BaseDataLoader):
 
         self.path = path
         for name, paths in path.items():
-            self.dataset[name] = HawkesDataset(paths, **dataset_kwargs)
+            # choose per-split batch size for accurate __len__ on iterable dataset
+            effective_bs = self.batch_size if name == "train" else self.test_batch_size
+            if effective_bs == "all":
+                # fallback to 1 to avoid huge memory; DataLoader will still collate up to dataset size
+                effective_bs = 1
+
+            # stream from storage to avoid loading all into memory
+            self.dataset[name] = StreamingHawkesDataset(
+                data_dirs=paths,
+                batch_size=effective_bs,
+                **dataset_kwargs,
+            )
             if self.variable_num_of_paths and name == "train":
                 self.num_paths_for_batch = get_path_counts(
                     len(self.dataset[name]),
