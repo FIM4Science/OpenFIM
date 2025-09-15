@@ -472,6 +472,23 @@ class FIMHawkes(AModel):
             )
             out["target_intensity_values"] = target_intensity_values
 
+            # Prepare decomposed supervision targets at event times
+            mu_star_at_events, lambda_pre_at_events, lambda_post_at_events = self.compute_decomposed_targets_at_events(
+                kernel_functions_list=kernel_functions_list,
+                base_intensity_functions_list=base_intensity_functions_list,
+                inference_event_times=x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
+                inference_event_types=x["inference_event_types"],
+                inference_seq_lengths=x["inference_seq_lengths"],
+                norm_constants=norm_constants,
+                num_marks=num_marks,
+                inference_time_offsets=x.get("inference_time_offsets", None),
+            )
+
+            # Valid mask for (B, P, L) positions excluding padding
+            B, P, L = event_times.shape
+            positions = torch.arange(L, device=self.device).view(1, 1, L)
+            valid_event_mask = positions < x["inference_seq_lengths"].unsqueeze(2)
+
             out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
                 predicted_intensity_values=out["predicted_intensity_values"],
@@ -481,6 +498,9 @@ class FIMHawkes(AModel):
                 seq_lengths=x["inference_seq_lengths"],
                 schedulers=schedulers,
                 step=step,
+                mu_targets_at_events=mu_star_at_events,
+                lambda_post_targets_at_events=lambda_post_at_events,
+                valid_event_mask=valid_event_mask,
             )
         else:
             # No ground-truth functions available: fall back to NLL-only fine-tuning
@@ -744,6 +764,24 @@ class FIMHawkes(AModel):
         smape_values = torch.nan_to_num(smape_values, nan=2.0, posinf=2.0, neginf=2.0)
         return torch.mean(smape_values)
 
+    def _smape_masked(self, y_pred: Tensor, y_true: Tensor, valid_mask: Tensor) -> Tensor:
+        """Masked sMAPE over [B, M, P, L].
+
+        Args:
+            y_pred: Tensor [B, M, P, L]
+            y_true: Tensor [B, M, P, L]
+            valid_mask: Bool tensor [B, P, L] with True for valid events.
+        """
+        # Broadcast mask across mark dim
+        mask = valid_mask.unsqueeze(1).expand_as(y_pred)
+        numerator = 2.0 * torch.abs(y_pred - y_true)
+        denominator = torch.abs(y_pred) + torch.abs(y_true) + 1e-8
+        smape_values = numerator / denominator
+        smape_values = torch.nan_to_num(smape_values, nan=2.0, posinf=2.0, neginf=2.0)
+        smape_values = smape_values * mask
+        denom = mask.sum().clamp(min=1)
+        return smape_values.sum() / denom
+
     def _relative_spike(self, mu: Tensor, alpha: Tensor, epsilon: float = 1e-8) -> Tensor:
         """Relative spike regularization term averaged over all elements.
 
@@ -855,16 +893,26 @@ class FIMHawkes(AModel):
         seq_lengths: Tensor,
         schedulers: dict = None,
         step: int = None,
+        mu_targets_at_events: Tensor | None = None,
+        lambda_post_targets_at_events: Tensor | None = None,
+        valid_event_mask: Tensor | None = None,
     ) -> dict:
         """Hybrid loss combining negative log-likelihood and symmetric mean absolute percentage error.
 
-        L_total = w_nll * L_NLL + w_smape * L_sMAPE
+        L_total = w_nll * L_NLL + w_smape * L_sMAPE + w_mu * L_mu + w_alpha * L_alpha
         """
         # --- 1. Symmetric Mean Absolute Percentage Error ---
         smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
 
         # --- 2. Negative Log-Likelihood Loss ---
         nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
+
+        # --- 2.25 Decomposed supervision on μ and α at event times ---
+        mu_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
+        alpha_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
+        if (mu_targets_at_events is not None) and (lambda_post_targets_at_events is not None) and (valid_event_mask is not None):
+            mu_loss = self._smape_masked(intensity_fn.mu, mu_targets_at_events, valid_event_mask)
+            alpha_loss = self._smape_masked(intensity_fn.alpha, lambda_post_targets_at_events, valid_event_mask)
 
         # --- 2.5 Relative spike regularization ---
         relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
@@ -873,6 +921,8 @@ class FIMHawkes(AModel):
         total_loss = (
             self.loss_weights["nll"] * nll_loss
             + self.loss_weights["smape"] * smape_loss
+            + self.loss_weights.get("mu", 0.0) * mu_loss
+            + self.loss_weights.get("alpha", 0.0) * alpha_loss
             + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
         )
 
@@ -883,6 +933,8 @@ class FIMHawkes(AModel):
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
             "nll_loss": nll_loss.detach().item(),
             "smape_loss": smape_loss.detach().item(),
+            "mu_smape_loss": mu_loss.detach().item() if isinstance(mu_loss, Tensor) else float(mu_loss),
+            "alpha_smape_loss": alpha_loss.detach().item() if isinstance(alpha_loss, Tensor) else float(alpha_loss),
             "relative_spike_loss": relative_spike_loss.detach().item(),
             "mae_loss": mae_loss.detach().item(),
         }
@@ -1067,6 +1119,73 @@ class FIMHawkes(AModel):
         target_intensity_values_normalized = target_intensity_values_orig * norm_constants_final
 
         return target_intensity_values_normalized
+
+    def compute_decomposed_targets_at_events(
+        self,
+        kernel_functions_list: list,
+        base_intensity_functions_list: list,
+        inference_event_times: Tensor,
+        inference_event_types: Tensor,
+        inference_seq_lengths: Tensor,
+        norm_constants: Tensor,
+        num_marks: int,
+        inference_time_offsets: Tensor | None = None,
+        post_epsilon: float = 1e-6,
+        pre_epsilon: float = 1e-6,
+    ):
+        """Compute μ*(t_i), λ*(t_i^-) and λ*(t_i^+) at event times in normalized intensity scale.
+
+        `inference_event_times` are expected in the normalized time domain with shape [B, P, L, 1].
+        """
+        device = inference_event_times.device
+        B, P, L, _ = inference_event_times.shape
+        D = num_marks
+
+        # Denormalize to query python callables
+        times_orig = inference_event_times * norm_constants.view(B, 1, 1, 1)
+        if inference_time_offsets is not None:
+            times_orig = times_orig + inference_time_offsets.view(B, P, 1, 1)
+
+        # μ*(t_i)
+        mu_star = torch.zeros(B, D, P, L, device=device)
+        for b in range(B):
+            actual_marks_b = len(base_intensity_functions_list[b])
+            t_b = times_orig[b, :, :, 0]  # [P, L]
+            for i in range(actual_marks_b):
+                mu_func = base_intensity_functions_list[b][i]
+                mu_star[b, i, :, :] = mu_func(t_b)
+        # Scale to normalized intensity
+        mu_star = mu_star * norm_constants.view(B, 1, 1, 1)
+
+        # λ*(t_i^-) evaluated safely at t_i - ε (clamped to 0)
+        eps_pre = torch.full((B, P, L), pre_epsilon, device=device)
+        lambda_pre = self.compute_target_intensity_values(
+            kernel_functions_list,
+            base_intensity_functions_list,
+            torch.clamp(inference_event_times.squeeze(-1) - eps_pre, min=0.0),
+            inference_event_times,
+            inference_event_types,
+            inference_seq_lengths,
+            norm_constants,
+            D,
+            inference_time_offsets=inference_time_offsets,
+        )
+
+        # λ*(t_i^+) approximated with t_i + ε
+        eps = torch.full((B, P, L), post_epsilon, device=device)
+        lambda_post = self.compute_target_intensity_values(
+            kernel_functions_list,
+            base_intensity_functions_list,
+            (inference_event_times.squeeze(-1) + eps),
+            inference_event_times,
+            inference_event_types,
+            inference_seq_lengths,
+            norm_constants,
+            D,
+            inference_time_offsets=inference_time_offsets,
+        )
+
+        return mu_star, lambda_pre, lambda_post
 
     def _get_past_event_shifted_intensity_evaluation_times(
         self, intensity_evaluation_times: Tensor, inference_event_times: Tensor, num_marks: int
