@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_10-22st_nll_only_2000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_10-22st_decomposed_loss_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -193,9 +193,11 @@ model:
   thinning: null
 
   loss_weights:
-    nll: 1.0
-    smape: 0.0
+    nll: 0.0
+    smape: 1.0
     relative_spike: 0.0
+    mu: 0.25
+    alpha: 0.25
 
 trainer:
   name: Trainer
