@@ -222,9 +222,10 @@ class Trainer:
         self.logger.info("Saving training configuration to %s", params_path)
         yaml.dump(self.config.to_dict(), open(params_path, "w", encoding="utf-8"), default_flow_style=False)
         model_architecture_path = self.experiment_dir / "model_architecture.txt"
+        # For iterable datasets and map-style datasets alike, prefer taking a collated batch
+        # directly from the DataLoader so that any custom collate logic is applied.
         if isinstance(self.dataloader.train_it.dataset, IterableDataset):
-            x = next(iter(self.dataloader.train_it.dataset))
-            x = {key: val[0][None].to(self.model.device) for key, val in x.items()}
+            x = next(iter(self.dataloader.train_it))
 
         elif isinstance(self.dataloader.train_it.dataset[0], tuple):
             logging.warning("Saving model architecture is not supported for tuple datasets!")
@@ -232,10 +233,13 @@ class Trainer:
 
         else:
             x = next(iter(self.dataloader.train_it))
-            if isinstance(next(iter(x.keys())), int):  # Catch case where we use groupings
-                # Select a random value of x
-                x = x[random.choice(list(x.keys()))]
-            x = {key: val.to(self.model.device) for key, val in x.items()}
+        # NOTE: This block is ONLY used for writing the model architecture summary at startup.
+        # If the collate returns a grouped batch (keys are ints, e.g. different mark dimensions),
+        # we pick one subgroup to form a valid example batch for summary. Training is unaffected.
+        if isinstance(next(iter(x.keys())), int):  # Catch case where we use groupings
+            # Select a random value of x
+            x = x[random.choice(list(x.keys()))]
+        x = {key: val.to(self.model.device) for key, val in x.items()}
 
         with open(model_architecture_path, "w") as f:
             f.write(str(self.model.summary(x)))
