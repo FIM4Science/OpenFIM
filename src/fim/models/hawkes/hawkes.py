@@ -1,6 +1,6 @@
 import copy
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -420,45 +420,63 @@ class FIMHawkes(AModel):
         }
 
         if "kernel_functions" in x:
-            # Compute target intensities for plotting and loss computation
-            kernel_functions_list, base_intensity_functions_list = self._decode_functions(
-                x["kernel_functions"], x["base_intensity_functions"]
-            )
-            # Compute target intensities using same normalized times
-            target_intensity_values = self.compute_target_intensity_values(
-                kernel_functions_list,
-                base_intensity_functions_list,
-                x["intensity_evaluation_times_norm"] if self.normalize_times else x["intensity_evaluation_times"],
-                x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
-                x["inference_event_types"],
-                x["inference_seq_lengths"],
-                norm_constants,
-                num_marks=num_marks,
-                inference_time_offsets=x.get("inference_time_offsets", None),
-            )
-            out["target_intensity_values"] = target_intensity_values
+            # Determine which supervised targets are actually needed based on loss weights
+            w_smape = self.loss_weights.get("smape", 0.0)
+            w_mu = self.loss_weights.get("mu", 0.0)
+            w_alpha = self.loss_weights.get("alpha", 0.0)
 
-            # Prepare decomposed supervision targets at event times
-            mu_star_at_events, _, lambda_post_at_events = self.compute_decomposed_targets_at_events(
-                kernel_functions_list=kernel_functions_list,
-                base_intensity_functions_list=base_intensity_functions_list,
-                inference_event_times=x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
-                inference_event_types=x["inference_event_types"],
-                inference_seq_lengths=x["inference_seq_lengths"],
-                norm_constants=norm_constants,
-                num_marks=num_marks,
-                inference_time_offsets=x.get("inference_time_offsets", None),
-            )
+            need_targets = w_smape != 0.0
+            need_decomposed = (w_mu != 0.0) or (w_alpha != 0.0)
 
-            # Valid mask for (B, P, L) positions excluding padding
-            B, P, L = event_times.shape
-            positions = torch.arange(L, device=self.device).view(1, 1, L)
-            valid_event_mask = positions < x["inference_seq_lengths"].unsqueeze(2)
+            kernel_functions_list = None
+            base_intensity_functions_list = None
+            target_intensity_values: Optional[Tensor] = None
+            mu_star_at_events: Optional[Tensor] = None
+            lambda_post_at_events: Optional[Tensor] = None
+            valid_event_mask: Optional[Tensor] = None
+
+            if need_targets or need_decomposed:
+                kernel_functions_list, base_intensity_functions_list = self._decode_functions(
+                    x["kernel_functions"], x["base_intensity_functions"]
+                )
+
+            if need_targets:
+                # Compute target intensities using same normalized times
+                target_intensity_values = self.compute_target_intensity_values(
+                    kernel_functions_list,
+                    base_intensity_functions_list,
+                    x["intensity_evaluation_times_norm"] if self.normalize_times else x["intensity_evaluation_times"],
+                    x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
+                    x["inference_event_types"],
+                    x["inference_seq_lengths"],
+                    norm_constants,
+                    num_marks=num_marks,
+                    inference_time_offsets=x.get("inference_time_offsets", None),
+                )
+                out["target_intensity_values"] = target_intensity_values
+
+            if need_decomposed:
+                # Prepare decomposed supervision targets at event times
+                mu_star_at_events, _, lambda_post_at_events = self.compute_decomposed_targets_at_events(
+                    kernel_functions_list=kernel_functions_list,
+                    base_intensity_functions_list=base_intensity_functions_list,
+                    inference_event_times=x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
+                    inference_event_types=x["inference_event_types"],
+                    inference_seq_lengths=x["inference_seq_lengths"],
+                    norm_constants=norm_constants,
+                    num_marks=num_marks,
+                    inference_time_offsets=x.get("inference_time_offsets", None),
+                )
+
+                # Valid mask for (B, P, L) positions excluding padding
+                B, P, L = event_times.shape
+                positions = torch.arange(L, device=self.device).view(1, 1, L)
+                valid_event_mask = positions < x["inference_seq_lengths"].unsqueeze(2)
 
             out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
                 predicted_intensity_values=out["predicted_intensity_values"],
-                target_intensity_values=out["target_intensity_values"],
+                target_intensity_values=out.get("target_intensity_values", None),
                 event_times=event_times,
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
@@ -469,27 +487,20 @@ class FIMHawkes(AModel):
                 valid_event_mask=valid_event_mask,
             )
         else:
-            # No ground-truth functions available: fall back to NLL-only fine-tuning
-            # Compute NLL on normalized time domain (internally denormalized if needed)
-            nll_only = self._nll_loss(
+            # No ground-truth functions available: defer to generic loss with only NLL/regularizers
+            out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
+                predicted_intensity_values=out["predicted_intensity_values"],
+                target_intensity_values=None,
                 event_times=event_times,
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
+                schedulers=schedulers,
+                step=step,
+                mu_targets_at_events=None,
+                lambda_post_targets_at_events=None,
+                valid_event_mask=None,
             )
-
-            # Weight with configured loss weight for compatibility
-            relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
-            total_loss = self.loss_weights.get("nll", 1.0) * nll_only + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
-
-            out["losses"] = {
-                "loss": total_loss,
-                "nll_loss": nll_only.detach().item(),
-                "relative_spike_loss": relative_spike_loss.detach().item(),
-                # Placeholders for logging consistency
-                "smape_loss": 0.0,
-                "mae_loss": 0.0,
-            }
 
         if self.normalize_times:
             self._denormalize_output(out, norm_constants)
@@ -812,7 +823,7 @@ class FIMHawkes(AModel):
         self,
         intensity_fn: "PiecewiseHawkesIntensity",
         predicted_intensity_values: Tensor,
-        target_intensity_values: Tensor,
+        target_intensity_values: Optional[Tensor],
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
@@ -826,42 +837,68 @@ class FIMHawkes(AModel):
 
         L_total = w_nll * L_NLL + w_smape * L_sMAPE + w_mu * L_mu + w_alpha * L_alpha
         """
+        device = predicted_intensity_values.device
+
+        w_nll = self.loss_weights.get("nll", 0.0)
+        w_smape = self.loss_weights.get("smape", 0.0)
+        w_mu = self.loss_weights.get("mu", 0.0)
+        w_alpha = self.loss_weights.get("alpha", 0.0)
+        w_rel_spike = self.loss_weights.get("relative_spike", 0.1)
+
+        # Base accumulator to ensure a tensor result even if all weights are zero
+        total_loss = torch.zeros((), device=device)
+
         # --- 1. Symmetric Mean Absolute Percentage Error ---
-        smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
+        if (w_smape != 0.0) and (target_intensity_values is not None):
+            smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
+            total_loss = total_loss + w_smape * smape_loss
+        else:
+            smape_loss = torch.tensor(0.0, device=device)
 
         # --- 2. Negative Log-Likelihood Loss ---
-        nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
+        if w_nll != 0.0:
+            nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
+            total_loss = total_loss + w_nll * nll_loss
+        else:
+            nll_loss = torch.tensor(0.0, device=device)
 
         # --- 2.25 Decomposed supervision on μ and α at event times ---
-        mu_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
-        alpha_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
-        if (mu_targets_at_events is not None) and (lambda_post_targets_at_events is not None) and (valid_event_mask is not None):
+        if (w_mu != 0.0) and (mu_targets_at_events is not None) and (valid_event_mask is not None):
             mu_loss = self._smape_masked(intensity_fn.mu, mu_targets_at_events, valid_event_mask)
+            total_loss = total_loss + w_mu * mu_loss
+        else:
+            mu_loss = torch.tensor(0.0, device=device)
+
+        if (w_alpha != 0.0) and (lambda_post_targets_at_events is not None) and (valid_event_mask is not None):
             alpha_loss = self._smape_masked(intensity_fn.alpha, lambda_post_targets_at_events, valid_event_mask)
+            total_loss = total_loss + w_alpha * alpha_loss
+        else:
+            alpha_loss = torch.tensor(0.0, device=device)
 
         # --- 2.5 Relative spike regularization ---
-        relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
+        if w_rel_spike != 0.0:
+            relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
+            total_loss = total_loss + w_rel_spike * relative_spike_loss
+        else:
+            relative_spike_loss = torch.tensor(0.0, device=device)
 
-        # --- 3. Hybrid weighting of sMAPE and NLL ---
-        total_loss = (
-            self.loss_weights["nll"] * nll_loss
-            + self.loss_weights["smape"] * smape_loss
-            + self.loss_weights.get("mu", 0.0) * mu_loss
-            + self.loss_weights.get("alpha", 0.0) * alpha_loss
-            + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
-        )
-
-        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+        # Logging-only metric: compute only if targets are available
+        if target_intensity_values is not None:
+            mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+        else:
+            mae_loss = torch.tensor(0.0, device=device)
 
         # Prepare a logging-friendly dictionary: tensors -> Python floats
         losses_out = {
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
-            "nll_loss": nll_loss.detach().item(),
-            "smape_loss": smape_loss.detach().item(),
-            "mu_smape_loss": mu_loss.detach().item() if isinstance(mu_loss, Tensor) else float(mu_loss),
-            "alpha_smape_loss": alpha_loss.detach().item() if isinstance(alpha_loss, Tensor) else float(alpha_loss),
-            "relative_spike_loss": relative_spike_loss.detach().item(),
-            "mae_loss": mae_loss.detach().item(),
+            "nll_loss": float(nll_loss.detach().item()) if isinstance(nll_loss, Tensor) else float(nll_loss),
+            "smape_loss": float(smape_loss.detach().item()) if isinstance(smape_loss, Tensor) else float(smape_loss),
+            "mu_smape_loss": float(mu_loss.detach().item()) if isinstance(mu_loss, Tensor) else float(mu_loss),
+            "alpha_smape_loss": float(alpha_loss.detach().item()) if isinstance(alpha_loss, Tensor) else float(alpha_loss),
+            "relative_spike_loss": float(relative_spike_loss.detach().item())
+            if isinstance(relative_spike_loss, Tensor)
+            else float(relative_spike_loss),
+            "mae_loss": float(mae_loss.detach().item()) if isinstance(mae_loss, Tensor) else float(mae_loss),
         }
 
         return losses_out
