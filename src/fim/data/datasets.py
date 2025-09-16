@@ -1711,12 +1711,10 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         return self._different_marks_dim
 
     def __len__(self):
-        # Return number of batches (not items), matching IterableDataset convention used elsewhere in this repo
-        if self._num_batches is None:
-            total_items = self._compute_total_items()
-            # ceil division
-            self._num_batches = (total_items + self.batch_size - 1) // self.batch_size
-        return self._num_batches
+        # Return the total number of items. The DataLoader will compute the number of
+        # batches based on its own batch_size. Returning batches here would cause an
+        # unintended double division by batch_size.
+        return self._compute_total_items()
 
     def _compute_total_items(self) -> int:
         if self._num_items_per_dir is None:
