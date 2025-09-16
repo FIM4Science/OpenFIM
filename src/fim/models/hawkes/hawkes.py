@@ -325,25 +325,14 @@ class FIMHawkes(AModel):
             enhanced_context = precomputed_enhanced_context
             sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
         else:
-            sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
             sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-            # ------------------------------------------------------------------
-            # (10) Path Summary: obtain h_k^{context} via functional attention
-            # ------------------------------------------------------------------
-            B, P_context, L, D = sequence_encodings_context.shape
-            context_flat = sequence_encodings_context.view(B * P_context, L, D)
-            context_seq_lengths_flat = x["context_seq_lengths"].view(-1)
-            positions = torch.arange(L, device=self.device).unsqueeze(0)
-            key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
-            q_expanded = self.path_summary_query.expand(B * P_context, 1, -1)
-            path_summary = self.context_summary_pooling(
-                q_expanded,
-                context_flat.unsqueeze(2),
-                observations_padding_mask=key_padding_mask.unsqueeze(-1),
-            )  # [B*P, 1, D]
-            h_k_context = path_summary.squeeze(1).view(B, P_context, D)
-            H_context = h_k_context
-            enhanced_context = self.context_summary_encoder(H_context)
+            enhanced_context = self.encode_context(
+                {
+                    "context_event_times": x["context_event_times"],
+                    "context_event_types": x["context_event_types"],
+                    "context_seq_lengths": x["context_seq_lengths"],
+                }
+            )
         # At this point, `enhanced_context` is available
 
         # ------------------------------------------------------------------
