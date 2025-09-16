@@ -25,9 +25,9 @@ class FIMHawkesConfig(PretrainedConfig):
         context_summary_pooling: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
-        inference_ts_encoder: dict = None,
+        decoder_ts: dict = None,
+        mark_fusion_attention: dict = None,
         context_summary_encoder: dict = None,
-        functional_attention: dict = None,
         context_self_attention: dict = None,
         mu_decoder: dict = None,
         alpha_decoder: dict = None,
@@ -50,10 +50,10 @@ class FIMHawkesConfig(PretrainedConfig):
         self.context_summary_pooling = context_summary_pooling
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
-        self.inference_ts_encoder = inference_ts_encoder
         self.context_summary_encoder = context_summary_encoder
-        self.functional_attention = functional_attention
         self.context_self_attention = context_self_attention
+        self.decoder_ts = decoder_ts
+        self.mark_fusion_attention = mark_fusion_attention
         self.mu_decoder = mu_decoder
         self.alpha_decoder = alpha_decoder
         self.beta_decoder = beta_decoder
@@ -113,10 +113,10 @@ class FIMHawkes(AModel):
         evaluation_mark_encoder = copy.deepcopy(self.config.evaluation_mark_encoder)
         context_summary_pooling = copy.deepcopy(self.config.context_summary_pooling)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
-        inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
         context_summary_encoder = copy.deepcopy(self.config.context_summary_encoder)
-        functional_attention = copy.deepcopy(self.config.functional_attention)
         context_self_attention = copy.deepcopy(self.config.context_self_attention)
+        decoder_ts = copy.deepcopy(self.config.decoder_ts)
+        mark_fusion_attention = copy.deepcopy(getattr(self.config, "mark_fusion_attention", None))
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
         alpha_decoder = copy.deepcopy(self.config.alpha_decoder)
         beta_decoder = copy.deepcopy(self.config.beta_decoder)
@@ -159,9 +159,6 @@ class FIMHawkes(AModel):
 
         context_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
         self.context_ts_encoder = create_class_instance(context_ts_encoder.pop("name"), context_ts_encoder)
-        inference_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
-        self.inference_ts_encoder = create_class_instance(inference_ts_encoder.pop("name"), inference_ts_encoder)
-
         # Optional TransformerEncoder to enhance per-path context summaries with residuals and MLPs
         if context_summary_encoder is not None:
             context_summary_encoder["encoder_layer"]["d_model"] = self.hidden_dim
@@ -169,12 +166,18 @@ class FIMHawkes(AModel):
         else:
             self.context_summary_encoder = None
 
+        decoder_ts["decoder_layer"]["d_model"] = self.hidden_dim
+        self.ts_decoder = create_class_instance(decoder_ts.pop("name"), decoder_ts)
+
         self.input_layernorm = torch.nn.LayerNorm(self.hidden_dim)
 
-        self.functional_attention = AttentionOperator(embed_dim=self.hidden_dim, out_features=self.hidden_dim, **functional_attention)
-
-        # Learnable mark-specific query embeddings q(m)
-        self.mark_queries = torch.nn.Parameter(torch.randn(self.max_num_marks, self.hidden_dim))
+        # Mark fusion attention (ResidualAttentionLayer) to combine decoded tokens with per-mark embeddings
+        if mark_fusion_attention is not None:
+            mark_fusion_attention["d_model"] = self.hidden_dim
+            mark_fusion_attention.setdefault("batch_first", True)
+            self.mark_fusion_attn = create_class_instance(mark_fusion_attention.pop("name"), mark_fusion_attention)
+        else:
+            self.mark_fusion_attn = None
 
         # Separate decoders for the three Hawkes parameters
         # Each maps the final event representation h_i^m to a single parameter
@@ -193,7 +196,6 @@ class FIMHawkes(AModel):
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
 
-        # Self-attention layer to enhance context summaries
         self.context_self_attn = torch.nn.MultiheadAttention(embed_dim=self.hidden_dim, **context_self_attention)
 
         if self.config.thinning is not None:
@@ -319,114 +321,70 @@ class FIMHawkes(AModel):
         # ------------------------------------------------------------------
         # Encoding of observations (context & target/inference)
         # ------------------------------------------------------------------
-        # Allow re-using precomputed enhanced context embeddings to avoid repeated encoding
-        precomputed_enhanced_context = x.get("precomputed_enhanced_context", None)
-        if precomputed_enhanced_context is not None:
-            enhanced_context = precomputed_enhanced_context
-            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-        else:
-            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-            enhanced_context = self.encode_context(
-                {
-                    "context_event_times": x["context_event_times"],
-                    "context_event_types": x["context_event_types"],
-                    "context_seq_lengths": x["context_seq_lengths"],
-                }
-            )
-        # At this point, `enhanced_context` is available
+        # Build target/inference token embeddings (decoder inputs)
+        sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B, P_inference, L, D]
 
         # ------------------------------------------------------------------
-        # Convert event representations to intensity parameters
+        # Convert event representations to intensity parameters using TransformerDecoder
         # ------------------------------------------------------------------
-        # (11) Cross-Attention: q(m) = φ_meval(m) - learnable mark queries
-        mark_queries = self.mark_queries[:num_marks]  # [M, D] - these are q(m)
+        # Build memory from context via attention pooling with ResidualAttentionLayer
+        # This yields one summary token per context path
+        enhanced_context = self.encode_context(
+            {
+                "context_event_times": x["context_event_times"],
+                "context_event_types": x["context_event_types"],
+                "context_seq_lengths": x["context_seq_lengths"],
+            }
+        )  # [B, P_context, D]
+        B, P_context, D = enhanced_context.shape
+        memory = enhanced_context  # [B, P_context, D]
 
-        # (8) Cross-attention: h_final^{i,m} = ψ_attn(q(m), H_combined^i, H_combined^i)
-        # where H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
-
-        # Vectorized implementation to avoid nested loops
+        # Prepare target from inference sequences
         B, P_inference, L, D = sequence_encodings_inference.shape
-        P_context = enhanced_context.shape[1]
+        tgt = sequence_encodings_inference  # [B, P_inference, L, D]
+        # Causal mask for tgt (size L x L) and pad mask up to seq_len
+        tgt_causal_mask = torch.triu(torch.ones(L, L, device=self.device), diagonal=1).bool()
+        positions_inf = torch.arange(L, device=self.device).view(1, 1, L)
+        tgt_key_padding_mask = (positions_inf >= x["inference_seq_lengths"].unsqueeze(2)).reshape(B * P_inference, L)
 
-        # Prepare queries: q(m) replicated across paths and events
-        # Shape: [B, M, P_inference, L, D]
-        mark_queries_expanded = mark_queries.view(1, num_marks, 1, 1, D).expand(B, -1, P_inference, L, -1)  # [B, M, P_inference, L, D]
+        # Repeat memory for each inference path
+        mem_repeated = memory.unsqueeze(1).expand(-1, P_inference, -1, -1).reshape(B * P_inference, P_context, D)
+        # Path-level memory tokens: no padding mask required (already pooled over length)
 
-        # Prepare keys/values: H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
-        # For each event i, we need context + target history up to i
-        # We'll create a large tensor with proper causal masking
+        # Reshape tgt to [B*P_inference, L, D]
+        tgt_reshaped = tgt.reshape(B * P_inference, L, D)
 
-        # Context part: same for all events (fully visible)
-        # Shape: [B, P_context, D] -> [B, P_inference, L, P_context, D]
-        context_expanded = enhanced_context.unsqueeze(1).unsqueeze(2).expand(-1, P_inference, L, -1, -1)
+        # Decode with TransformerDecoder
+        decoded = self.ts_decoder(
+            tgt=tgt_reshaped,
+            memory=mem_repeated,
+            tgt_mask=tgt_causal_mask,
+            tgt_key_padding_mask=tgt_key_padding_mask,
+        )  # [B*P_inference, L, D]
 
-        # Target part: causal history for each event
-        # Shape: [B, P_inference, L, L, D] where the last L dimension is causal
-        target_causal = sequence_encodings_inference.unsqueeze(2).expand(-1, -1, L, -1, -1)  # [B, P_inference, L, L, D]
+        decoded = decoded.reshape(B, P_inference, L, D)
 
-        # Create causal mask for target part: event i can see events 0 to i
-        causal_mask = torch.triu(torch.ones(L, L, device=self.device), diagonal=1).bool()  # [L, L]
-        causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(B, P_inference, -1, -1)  # [B, P_inference, L, L]
-
-        # Apply causal mask to target part
-        target_causal = target_causal.masked_fill(causal_mask.unsqueeze(-1), 0.0)
-
-        # Combine context and target parts
-        # Shape: [B, P_inference, L, P_context + L, D]
-        combined_keys_values = torch.cat([context_expanded, target_causal], dim=3)
-
-        # Reshape for batch attention
-        # Queries: [B, M, P_inference, L, D] -> [B * M * P_inference * L, 1, D]
-        mark_queries_flat = mark_queries_expanded.reshape(B * num_marks * P_inference * L, 1, D)
-
-        # Keys/Values: [B, P_inference, L, P_context + L, D] -> [B * P_inference * L, P_context + L, D]
-        # We need to expand this for each mark
-        keys_values_expanded = combined_keys_values.unsqueeze(1).expand(
-            -1, num_marks, -1, -1, -1, -1
-        )  # [B, M, P_inference, L, P_context + L, D]
-        keys_values_flat = keys_values_expanded.reshape(B * num_marks * P_inference * L, P_context + L, D)
-
-        # Create attention mask for padded positions
-        # Context part: use context sequence lengths
-        context_seq_lengths_expanded = x["context_seq_lengths"].unsqueeze(1).unsqueeze(2)  # [B, 1, 1, P_context]
-        context_positions = torch.arange(P_context, device=self.device).view(1, 1, 1, P_context)  # [1, 1, 1, P_context]
-        context_padding_mask = context_positions >= context_seq_lengths_expanded  # [B, 1, 1, P_context]
-        context_padding_mask = context_padding_mask.expand(-1, P_inference, L, -1)  # [B, P_inference, L, P_context]
-
-        # Target part: use inference sequence lengths and causal mask
-        inference_seq_lengths_expanded = x["inference_seq_lengths"].unsqueeze(2)  # [B, P_inference, 1]
-        target_positions = torch.arange(L, device=self.device).view(1, 1, L)  # [1, 1, L]
-        target_seq_padding_mask = target_positions >= inference_seq_lengths_expanded  # [B, P_inference, L]
-        target_seq_padding_mask = target_seq_padding_mask.unsqueeze(2).expand(-1, -1, L, -1)  # [B, P_inference, L, L]
-
-        # Combine sequence padding mask with causal mask for target part
-        target_final_mask = target_seq_padding_mask | causal_mask  # [B, P_inference, L, L]
-
-        # Combine context and target masks
-        combined_padding_mask = torch.cat(
-            [
-                context_padding_mask,  # [B, P_inference, L, P_context]
-                target_final_mask,  # [B, P_inference, L, L]
-            ],
-            dim=3,
-        )  # [B, P_inference, L, P_context + L]
-
-        # Expand for marks and flatten
-        combined_padding_mask_expanded = combined_padding_mask.unsqueeze(1).expand(
-            -1, num_marks, -1, -1, -1
-        )  # [B, M, P_inference, L, P_context + L]
-        combined_padding_mask_flat = combined_padding_mask_expanded.reshape(B * num_marks * P_inference * L, P_context + L)
-
-        # Apply cross-attention
-        h_final_flat = self.functional_attention(
-            mark_queries_flat,  # locations_encoding: [B * M * P_inference * L, 1, D]
-            keys_values_flat.unsqueeze(2),  # observations_encoding: [B * M * P_inference * L, P_context + L, 1, D]
-            observations_padding_mask=combined_padding_mask_flat.unsqueeze(-1),  # [B * M * P_inference * L, P_context + L, 1]
-        )  # Result shape: [B * M * P_inference * L, 1, D]
-
-        # Reshape back to original structure
-        # [B * M * P_inference * L, 1, D] -> [B, M, P_inference, L, D]
-        combined_enc = h_final_flat.squeeze(1).reshape(B, num_marks, P_inference, L, D)
+        # Fuse decoded tokens with evaluation mark embeddings using ResidualAttentionLayer over full causal sequence
+        mark_basis = self.evaluation_mark_encoder(self.mark_one_hot[:num_marks])  # [M, D]
+        # Prepare keys/values as the full causal sequence per (B,P)
+        decoded_bp = decoded.view(B * P_inference, L, D)  # [B*P, L, D]
+        # Build per-time-step queries by repeating mark queries at each position t
+        mark_queries = mark_basis.view(1, 1, num_marks, D).expand(B * P_inference, L, -1, -1)  # [B*P, L, M, D]
+        # Flatten time into batch for attention calls
+        queries = mark_queries.reshape(B * P_inference * L, num_marks, D)  # [B*P*L, M, D]
+        keys_values = decoded_bp.unsqueeze(1).expand(-1, L, -1, -1).reshape(B * P_inference * L, L, D)  # [B*P*L, L, D]
+        # Create a strictly causal key padding mask per step t: mask future keys j>t
+        pos = torch.arange(L, device=self.device)
+        causal_k_mask = pos.view(1, L) > pos.view(L, 1)  # [L, L] True where j>t
+        causal_k_mask = causal_k_mask.unsqueeze(0).expand(B * P_inference, -1, -1)  # [B*P, L, L]
+        causal_k_mask = causal_k_mask.reshape(B * P_inference * L, L)  # [B*P*L, L]
+        # Also mask padded target positions
+        tgt_kpm = (positions_inf >= x["inference_seq_lengths"].unsqueeze(2)).reshape(B * P_inference, L)  # [B*P, L]
+        tgt_kpm_expanded = tgt_kpm.unsqueeze(1).expand(-1, L, -1)  # [B*P, L, L]
+        tgt_kpm_expanded = tgt_kpm_expanded.reshape(B * P_inference * L, L)
+        kpm = causal_k_mask | tgt_kpm_expanded  # [B*P*L, L]
+        fused = self.mark_fusion_attn(queries, keys_values, keys_values, key_padding_mask=kpm.unsqueeze(-1))  # [B*P*L, M, D]
+        combined_enc = fused.view(B, P_inference, L, num_marks, D).permute(0, 3, 1, 2, 4)  # [B, M, P_inference, L, D]
 
         # Decode raw parameters and apply Softplus to ensure positivity.
         raw_params = self.mu_decoder(combined_enc.reshape(-1, self.hidden_dim))  # [...,1]
@@ -674,9 +632,6 @@ class FIMHawkes(AModel):
         # The key insight is that the original combined both causal and padding masks
         # We need to create the exact same combined mask but handle the head dimension properly
 
-        # 1. Create base causal mask [L, L]
-        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-
         # This prevents them from contributing to the LayerNorm statistics inside the encoder,
         # which is the source of the unstable gradients in the backward pass.
         path = path.view(B * P, L, -1)
@@ -692,11 +647,9 @@ class FIMHawkes(AModel):
                 src_key_padding_mask=key_padding_mask,  # 2D key padding mask
             )
         elif type == "inference":
-            h = self.inference_ts_encoder(
-                path.view(B * P, L, -1),
-                mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
-                src_key_padding_mask=key_padding_mask,  # 2D key padding mask
-            )
+            # Bypass any TransformerEncoder: use token embeddings directly for the decoder
+            # We still zero out padded tokens and rely on the decoder's causal + padding masks
+            h = path.view(B * P, L, -1)
         else:
             raise ValueError(f"Invalid type: {type}")
 

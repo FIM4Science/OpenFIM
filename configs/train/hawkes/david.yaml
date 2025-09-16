@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_10-22st_multigpu_sanity_check_2000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_10-22st_smape_and_nll_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -155,15 +155,25 @@ model:
       nhead: 4
       batch_first: true
 
-  inference_ts_encoder:
-    name: torch.nn.TransformerEncoder
-    num_layers: 4
+  # Transformer decoder to fuse target (tgt) with context (memory)
+  decoder_ts:
+    name: torch.nn.TransformerDecoder
+    num_layers: 2
 
-    encoder_layer:
-      name: torch.nn.TransformerEncoderLayer
+    decoder_layer:
+      name: torch.nn.TransformerDecoderLayer
       dropout: 0.0
       nhead: 4
       batch_first: true
+
+  # ResidualAttentionLayer used to fuse decoded tokens with evaluation mark embeddings
+  mark_fusion_attention:
+    name: fim.models.blocks.neural_operators.ResidualAttentionLayer
+    nhead: 4
+    dim_feedforward: 1024
+    dropout: 0.0
+    activation: torch.nn.GELU
+    query_residual: true
 
   # Transformer to enhance per-path context summaries (residual + MLPs)
   context_summary_encoder:
@@ -176,15 +186,6 @@ model:
       nhead: 4
       batch_first: true
 
-  functional_attention:
-    # name: fim.models.blocks.neural_operators.AttentionOperator
-    paths_block_attention: false
-    num_res_layers: 1 # TODO: if 1 layer remains, replace by ResidualAttentionLayer
-    attention:
-      nhead: 4
-    # projection:     # if AttentionOperator receives no projection key, it won't apply an output projection
-    #   name: fim.models.blocks.base.MLP
-    #   hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
   # New attention configurations for the paper architecture
   context_self_attention:
@@ -216,11 +217,11 @@ model:
   thinning: null
 
   loss_weights:
-    nll: 0.0
+    nll: 1.0
     smape: 1.0
     relative_spike: 0.0
-    mu: 0.25
-    alpha: 0.25
+    mu: 0.0
+    alpha: 0.0
 
 trainer:
   name: Trainer
