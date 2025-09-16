@@ -14,6 +14,7 @@ from typing import Any, List, Optional, Union
 import h5py
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.utils
 import torch.utils.data
 from datasets import Dataset, DatasetDict, DownloadMode, get_dataset_split_names, load_dataset
@@ -1664,6 +1665,7 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         data_limit: Optional[int] = None,
         field_name_for_dimension_grouping: Optional[str | list[str]] = None,
         prefetch_rows: Optional[int] = None,
+        shuffle: bool = False,
         **kwargs,
     ):
         # config
@@ -1691,6 +1693,14 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         self._num_batches: Optional[int] = None
         self._marks_per_dir: Optional[list[int]] = None
         self._different_marks_dim: bool = False
+
+        # shuffling across epochs (like DistributedSampler)
+        self._shuffle = shuffle
+        self._epoch: int = 0
+        self._seed: int = 0
+
+    def set_epoch(self, epoch: int):
+        self._epoch = int(epoch)
 
     # HawkesDataLoader relies on this attribute
     @property
@@ -1755,18 +1765,33 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
-        if worker_info is None:
-            dir_indices = list(range(self._num_dirs))
+
+        # shard by rank first, then by worker
+        if dist.is_available() and dist.is_initialized():
+            world_size = dist.get_world_size()
+            rank = dist.get_rank()
+            rank_indices = [i for i in range(self._num_dirs) if (i % world_size) == rank]
         else:
-            # even distribution of directories across workers
+            rank_indices = list(range(self._num_dirs))
+
+        if worker_info is None:
+            dir_indices = rank_indices
+        else:
             num_workers = worker_info.num_workers
-            dir_indices = [i for i in range(self._num_dirs) if (i % num_workers) == worker_info.id]
+            dir_indices = [i for i in rank_indices if (i % num_workers) == worker_info.id]
+
+        # optional deterministic shuffle per epoch
+        if self._shuffle and len(dir_indices) > 1:
+            g = torch.Generator()
+            g.manual_seed(self._seed + self._epoch)
+            perm = torch.randperm(len(dir_indices), generator=g).tolist()
+            dir_indices = [dir_indices[j] for j in perm]
 
         # ensure marks info known
         if self._marks_per_dir is None:
             self._compute_marks_per_dir()
 
-        # iterate directories assigned to this worker
+        # iterate directories assigned to this rank/worker
         for dir_idx in dir_indices:
             # load all keys for this directory
             dir_files = {k: v[dir_idx] for k, v in self.all_file_paths.items()}

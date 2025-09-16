@@ -22,9 +22,11 @@ class FIMHawkesConfig(PretrainedConfig):
         mark_encoder: dict = None,
         time_encoder: dict = None,
         delta_time_encoder: dict = None,
+        context_summary_pooling: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
         inference_ts_encoder: dict = None,
+        context_summary_encoder: dict = None,
         functional_attention: dict = None,
         context_self_attention: dict = None,
         mu_decoder: dict = None,
@@ -45,9 +47,11 @@ class FIMHawkesConfig(PretrainedConfig):
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
+        self.context_summary_pooling = context_summary_pooling
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.inference_ts_encoder = inference_ts_encoder
+        self.context_summary_encoder = context_summary_encoder
         self.functional_attention = functional_attention
         self.context_self_attention = context_self_attention
         self.mu_decoder = mu_decoder
@@ -107,8 +111,10 @@ class FIMHawkes(AModel):
         time_encoder = copy.deepcopy(self.config.time_encoder)
         delta_time_encoder = copy.deepcopy(self.config.delta_time_encoder)
         evaluation_mark_encoder = copy.deepcopy(self.config.evaluation_mark_encoder)
+        context_summary_pooling = copy.deepcopy(self.config.context_summary_pooling)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
         inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
+        context_summary_encoder = copy.deepcopy(self.config.context_summary_encoder)
         functional_attention = copy.deepcopy(self.config.functional_attention)
         context_self_attention = copy.deepcopy(self.config.context_self_attention)
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
@@ -139,10 +145,29 @@ class FIMHawkes(AModel):
         evaluation_mark_encoder["out_features"] = self.hidden_dim
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
 
+        # Context summarization via AttentionOperator with a static learnable query
+        csd_cfg = copy.deepcopy(context_summary_pooling)
+        csd_name = csd_cfg.pop("name")
+        if csd_name.endswith("neural_operators.AttentionOperator"):
+            csd_cfg["embed_dim"] = self.hidden_dim
+            csd_cfg["out_features"] = self.hidden_dim
+            self.context_summary_pooling = AttentionOperator(**csd_cfg)
+        else:
+            csd_cfg["embed_dim"] = self.hidden_dim
+            csd_cfg["out_features"] = self.hidden_dim
+            self.context_summary_pooling = create_class_instance(csd_name, csd_cfg)
+
         context_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
         self.context_ts_encoder = create_class_instance(context_ts_encoder.pop("name"), context_ts_encoder)
         inference_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
         self.inference_ts_encoder = create_class_instance(inference_ts_encoder.pop("name"), inference_ts_encoder)
+
+        # Optional TransformerEncoder to enhance per-path context summaries with residuals and MLPs
+        if context_summary_encoder is not None:
+            context_summary_encoder["encoder_layer"]["d_model"] = self.hidden_dim
+            self.context_summary_encoder = create_class_instance(context_summary_encoder.pop("name"), context_summary_encoder)
+        else:
+            self.context_summary_encoder = None
 
         self.input_layernorm = torch.nn.LayerNorm(self.hidden_dim)
 
@@ -223,13 +248,14 @@ class FIMHawkes(AModel):
         context_seq_lengths_flat = ctx["context_seq_lengths"].view(-1)
         positions = torch.arange(L, device=self.device).unsqueeze(0)
         key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
-        h_k_context_flat = self.functional_attention(
+        # Use AttentionOperator: query attends over path tokens
+        path_summary = self.context_summary_pooling(
             q_expanded,
             context_flat.unsqueeze(2),
             observations_padding_mask=key_padding_mask.unsqueeze(-1),
-        )
-        h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
-        enhanced_context = h_k_context + self.context_self_attn(h_k_context, h_k_context, h_k_context)[0]
+        )  # [B*P, 1, D]
+        h_k_context = path_summary.squeeze(1).view(B, P_context, D)
+        enhanced_context = self.context_summary_encoder(h_k_context)
         return enhanced_context
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
@@ -299,25 +325,14 @@ class FIMHawkes(AModel):
             enhanced_context = precomputed_enhanced_context
             sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
         else:
-            sequence_encodings_context = self._encode_observations_optimized(x, "context")  # [B, P_context, L, D]
             sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-            # ------------------------------------------------------------------
-            # (10) Path Summary: obtain h_k^{context} via functional attention
-            # ------------------------------------------------------------------
-            B, P_context, L, D = sequence_encodings_context.shape
-            context_flat = sequence_encodings_context.view(B * P_context, L, D)
-            q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
-            context_seq_lengths_flat = x["context_seq_lengths"].view(-1)
-            positions = torch.arange(L, device=self.device).unsqueeze(0)
-            key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
-            h_k_context_flat = self.functional_attention(
-                q_expanded,
-                context_flat.unsqueeze(2),
-                observations_padding_mask=key_padding_mask.unsqueeze(-1),
+            enhanced_context = self.encode_context(
+                {
+                    "context_event_times": x["context_event_times"],
+                    "context_event_types": x["context_event_types"],
+                    "context_seq_lengths": x["context_seq_lengths"],
+                }
             )
-            h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
-            H_context = h_k_context
-            enhanced_context = H_context + self.context_self_attn(H_context, H_context, H_context)[0]
         # At this point, `enhanced_context` is available
 
         # ------------------------------------------------------------------
@@ -326,18 +341,16 @@ class FIMHawkes(AModel):
         # (11) Cross-Attention: q(m) = φ_meval(m) - learnable mark queries
         mark_queries = self.mark_queries[:num_marks]  # [M, D] - these are q(m)
 
-        # (8) Cross-attention: h_final^{i,m} = ψ_attn(q(m) + h_i^{target}, H_combined^i, H_combined^i)
+        # (8) Cross-attention: h_final^{i,m} = ψ_attn(q(m), H_combined^i, H_combined^i)
         # where H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
 
         # Vectorized implementation to avoid nested loops
         B, P_inference, L, D = sequence_encodings_inference.shape
         P_context = enhanced_context.shape[1]
 
-        # Prepare queries: q(m) + h_i^{target} for all combinations
+        # Prepare queries: q(m) replicated across paths and events
         # Shape: [B, M, P_inference, L, D]
-        target_expanded = sequence_encodings_inference.unsqueeze(1).expand(-1, num_marks, -1, -1, -1)  # [B, M, P_inference, L, D]
         mark_queries_expanded = mark_queries.view(1, num_marks, 1, 1, D).expand(B, -1, P_inference, L, -1)  # [B, M, P_inference, L, D]
-        queries = target_expanded + mark_queries_expanded  # [B, M, P_inference, L, D]
 
         # Prepare keys/values: H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
         # For each event i, we need context + target history up to i
@@ -364,7 +377,7 @@ class FIMHawkes(AModel):
 
         # Reshape for batch attention
         # Queries: [B, M, P_inference, L, D] -> [B * M * P_inference * L, 1, D]
-        queries_flat = queries.reshape(B * num_marks * P_inference * L, 1, D)
+        mark_queries_flat = mark_queries_expanded.reshape(B * num_marks * P_inference * L, 1, D)
 
         # Keys/Values: [B, P_inference, L, P_context + L, D] -> [B * P_inference * L, P_context + L, D]
         # We need to expand this for each mark
@@ -406,7 +419,7 @@ class FIMHawkes(AModel):
 
         # Apply cross-attention
         h_final_flat = self.functional_attention(
-            queries_flat,  # locations_encoding: [B * M * P_inference * L, 1, D]
+            mark_queries_flat,  # locations_encoding: [B * M * P_inference * L, 1, D]
             keys_values_flat.unsqueeze(2),  # observations_encoding: [B * M * P_inference * L, P_context + L, 1, D]
             observations_padding_mask=combined_padding_mask_flat.unsqueeze(-1),  # [B * M * P_inference * L, P_context + L, 1]
         )  # Result shape: [B * M * P_inference * L, 1, D]
@@ -472,6 +485,23 @@ class FIMHawkes(AModel):
             )
             out["target_intensity_values"] = target_intensity_values
 
+            # Prepare decomposed supervision targets at event times
+            mu_star_at_events, _, lambda_post_at_events = self.compute_decomposed_targets_at_events(
+                kernel_functions_list=kernel_functions_list,
+                base_intensity_functions_list=base_intensity_functions_list,
+                inference_event_times=x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
+                inference_event_types=x["inference_event_types"],
+                inference_seq_lengths=x["inference_seq_lengths"],
+                norm_constants=norm_constants,
+                num_marks=num_marks,
+                inference_time_offsets=x.get("inference_time_offsets", None),
+            )
+
+            # Valid mask for (B, P, L) positions excluding padding
+            B, P, L = event_times.shape
+            positions = torch.arange(L, device=self.device).view(1, 1, L)
+            valid_event_mask = positions < x["inference_seq_lengths"].unsqueeze(2)
+
             out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
                 predicted_intensity_values=out["predicted_intensity_values"],
@@ -481,6 +511,9 @@ class FIMHawkes(AModel):
                 seq_lengths=x["inference_seq_lengths"],
                 schedulers=schedulers,
                 step=step,
+                mu_targets_at_events=mu_star_at_events,
+                lambda_post_targets_at_events=lambda_post_at_events,
+                valid_event_mask=valid_event_mask,
             )
         else:
             # No ground-truth functions available: fall back to NLL-only fine-tuning
@@ -669,56 +702,56 @@ class FIMHawkes(AModel):
 
         return h.view(B, P, L, -1)
 
-    def _functional_attention_encoder_optimized(self, queries: Tensor, keys_values: Tensor, attention_mask: Tensor) -> Tensor:
-        """
-        Performs functional attention for a single inference target.
-        This version formats its output to be compatible with the unmodified AttentionOperator.
+    # def _functional_attention_encoder_optimized(self, queries: Tensor, keys_values: Tensor, attention_mask: Tensor) -> Tensor:
+    #     """
+    #     Performs functional attention for a single inference target.
+    #     This version formats its output to be compatible with the unmodified AttentionOperator.
 
-        Args:
-            queries (Tensor): Query embeddings from the trunk net.
-                            Shape: [B, M, L_inference, D]
-            keys_values (Tensor): Key/Value embeddings from context + one inference path.
-                                Shape: [B, P_context + 1, L, D]
-            attention_mask (Tensor): The corresponding dynamic attention mask.
-                                    Shape: [B, L_inference, P_context + 1, L]
+    #     Args:
+    #         queries (Tensor): Query embeddings from the trunk net.
+    #                         Shape: [B, M, L_inference, D]
+    #         keys_values (Tensor): Key/Value embeddings from context + one inference path.
+    #                             Shape: [B, P_context + 1, L, D]
+    #         attention_mask (Tensor): The corresponding dynamic attention mask.
+    #                                 Shape: [B, L_inference, P_context + 1, L]
 
-        Returns:
-            Tensor: The final time-dependent encodings after attention.
-                    Shape: [B, M, L_inference, D]
-        """
-        B, M, L_inference, D = queries.shape
-        _, P_relevant, L, _ = keys_values.shape
+    #     Returns:
+    #         Tensor: The final time-dependent encodings after attention.
+    #                 Shape: [B, M, L_inference, D]
+    #     """
+    #     B, M, L_inference, D = queries.shape
+    #     _, P_relevant, L, _ = keys_values.shape
 
-        # Reshape for batched attention. Each (L_inference) query gets its own mask.
-        # We treat the L_inference dimension as part of the batch.
+    #     # Reshape for batched attention. Each (L_inference) query gets its own mask.
+    #     # We treat the L_inference dimension as part of the batch.
 
-        # Reshape queries: [B, M, L_inf, D] -> [B * L_inf, M, D]
-        queries_reshaped = queries.permute(0, 2, 1, 3).reshape(B * L_inference, M, D)
+    #     # Reshape queries: [B, M, L_inf, D] -> [B * L_inf, M, D]
+    #     queries_reshaped = queries.permute(0, 2, 1, 3).reshape(B * L_inference, M, D)
 
-        # Expand and reshape keys/values: [B, P_rel, L, D] -> [B, 1, P_rel*L, D] -> [B*L_inf, P_rel*L, D]
-        keys_values_expanded = keys_values.unsqueeze(1).expand(-1, L_inference, -1, -1, -1)
-        keys_values_reshaped = keys_values_expanded.reshape(B * L_inference, P_relevant * L, D)
+    #     # Expand and reshape keys/values: [B, P_rel, L, D] -> [B, 1, P_rel*L, D] -> [B*L_inf, P_rel*L, D]
+    #     keys_values_expanded = keys_values.unsqueeze(1).expand(-1, L_inference, -1, -1, -1)
+    #     keys_values_reshaped = keys_values_expanded.reshape(B * L_inference, P_relevant * L, D)
 
-        # Reshape mask: [B, L_inf, P_rel, L] -> [B * L_inf, P_rel * L]
-        mask_reshaped = attention_mask.reshape(B * L_inference, P_relevant * L)
+    #     # Reshape mask: [B, L_inf, P_rel, L] -> [B * L_inf, P_rel * L]
+    #     mask_reshaped = attention_mask.reshape(B * L_inference, P_relevant * L)
 
-        # Shape: [B*L_inf, P_rel*L, D] -> [B*L_inf, P_rel*L, 1, D]
-        keys_values_4d = keys_values_reshaped.unsqueeze(2)
+    #     # Shape: [B*L_inf, P_rel*L, D] -> [B*L_inf, P_rel*L, 1, D]
+    #     keys_values_4d = keys_values_reshaped.unsqueeze(2)
 
-        # The padding mask is already prepared in the correct 3D shape for the operator's internal layers.
-        # Shape: [B*L_inf, P_rel*L, 1]
-        padding_mask_3d = mask_reshaped.unsqueeze(-1)
+    #     # The padding mask is already prepared in the correct 3D shape for the operator's internal layers.
+    #     # Shape: [B*L_inf, P_rel*L, 1]
+    #     padding_mask_3d = mask_reshaped.unsqueeze(-1)
 
-        # Apply functional attention with the correctly shaped tensors
-        result = self.functional_attention(
-            queries_reshaped,
-            keys_values_4d,  # Pass the 4D tensor here
-            observations_padding_mask=padding_mask_3d,
-        )  # Result shape: [B * L_inf, M, D]
+    #     # Apply functional attention with the correctly shaped tensors
+    #     result = self.functional_attention(
+    #         queries_reshaped,
+    #         keys_values_4d,  # Pass the 4D tensor here
+    #         observations_padding_mask=padding_mask_3d,
+    #     )  # Result shape: [B * L_inf, M, D]
 
-        # Reshape back to original format
-        # [B * L_inf, M, D] -> [B, L_inf, M, D] -> [B, M, L_inf, D]
-        return result.reshape(B, L_inference, M, D).permute(0, 2, 1, 3)
+    #     # Reshape back to original format
+    #     # [B * L_inf, M, D] -> [B, L_inf, M, D] -> [B, M, L_inf, D]
+    #     return result.reshape(B, L_inference, M, D).permute(0, 2, 1, 3)
 
     def _denormalize_output(self, out: dict, norm_constants: Tensor) -> None:
         """
@@ -744,6 +777,24 @@ class FIMHawkes(AModel):
         smape_values = torch.nan_to_num(smape_values, nan=2.0, posinf=2.0, neginf=2.0)
         return torch.mean(smape_values)
 
+    def _smape_masked(self, y_pred: Tensor, y_true: Tensor, valid_mask: Tensor) -> Tensor:
+        """Masked sMAPE over [B, M, P, L].
+
+        Args:
+            y_pred: Tensor [B, M, P, L]
+            y_true: Tensor [B, M, P, L]
+            valid_mask: Bool tensor [B, P, L] with True for valid events.
+        """
+        # Broadcast mask across mark dim
+        mask = valid_mask.unsqueeze(1).expand_as(y_pred)
+        numerator = 2.0 * torch.abs(y_pred - y_true)
+        denominator = torch.abs(y_pred) + torch.abs(y_true) + 1e-8
+        smape_values = numerator / denominator
+        smape_values = torch.nan_to_num(smape_values, nan=2.0, posinf=2.0, neginf=2.0)
+        smape_values = smape_values * mask
+        denom = mask.sum().clamp(min=1)
+        return smape_values.sum() / denom
+
     def _relative_spike(self, mu: Tensor, alpha: Tensor, epsilon: float = 1e-8) -> Tensor:
         """Relative spike regularization term averaged over all elements.
 
@@ -761,32 +812,37 @@ class FIMHawkes(AModel):
         event_types: Tensor,
         seq_lengths: Tensor,
         apply_log_c_correction: bool = False,
-        num_integration_points: int = 100,
     ) -> Tensor:
         """
         Negative log-likelihood loss normalized by number of events.
-
-        Args:
-            num_integration_points (int): number of Monte Carlo samples for integral estimation.
         """
         B, P, L = event_times.shape
 
-        # Create a mask for all valid (non-padded) events in the original sequence
-        original_positions = torch.arange(L, device=self.device).view(1, 1, L)
-        original_valid_mask = original_positions < seq_lengths.unsqueeze(2)
+        # Closed-form integral of intensity over [0, T]
+        # Build inter-event gaps Δ_i with Δ_0 = t_1 - 0 and Δ_i = t_{i+1} - t_i for i ≥ 1.
+        # We integrate up to the last valid event time per path, so the terminal gap Δ_N is 0.
+        t = event_times.clone().squeeze(-1)  # [B, P, L]
+        deltas = torch.zeros_like(t)
+        deltas[:, :, 0] = t[:, :, 0]
+        if t.size(2) > 1:
+            deltas[:, :, 1:] = t[:, :, 1:] - t[:, :, :-1]
 
-        # Integral of intensity from 0 to T (∫ λ'(t') dt')
-        t_start = torch.zeros(B, P, device=self.device)
-        t_end_times = event_times.clone().squeeze(-1)
-        t_end_times[~original_valid_mask] = 0  # Mask out padded values to find the true max time
-        t_end = t_end_times.max(dim=2).values
-        integral_per_mark_path = intensity_fn.integral(
-            t_start=t_start,
-            t_end=t_end,
-            num_samples=num_integration_points,
-            normalized_times=True,
-        )
-        integral_sum_per_path = integral_per_mark_path.sum(dim=1)
+        # Mask out padded intervals (i >= seq_length)
+        positions = torch.arange(L, device=self.device).view(1, 1, L)
+        valid_interval_mask = positions < seq_lengths.unsqueeze(2)  # [B, P, L]
+        deltas = deltas * valid_interval_mask
+
+        # Broadcast Δ over marks and apply the closed-form integral per interval and mark
+        delta_expanded = deltas.unsqueeze(1)  # [B, 1, P, L]
+        mu = intensity_fn.mu  # [B, M, P, L]
+        alpha = intensity_fn.alpha  # [B, M, P, L]
+        beta = intensity_fn.beta  # [B, M, P, L]
+        eps = 1e-8
+        integral_terms = mu * delta_expanded + (alpha - mu) / (beta + eps) * (1.0 - torch.exp(-beta * delta_expanded))  # [B, M, P, L]
+
+        # Sum over intervals to obtain ∫ λ dt for each mark and path
+        integral_per_mark_path = integral_terms.sum(dim=3)  # [B, M, P]
+        integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B, P]
 
         # To align with EasyTPP, we exclude the first event from the log-likelihood's summation term.
         # The model is evaluated on its ability to predict events t_1, ..., t_N given t_0.
@@ -855,16 +911,26 @@ class FIMHawkes(AModel):
         seq_lengths: Tensor,
         schedulers: dict = None,
         step: int = None,
+        mu_targets_at_events: Tensor | None = None,
+        lambda_post_targets_at_events: Tensor | None = None,
+        valid_event_mask: Tensor | None = None,
     ) -> dict:
         """Hybrid loss combining negative log-likelihood and symmetric mean absolute percentage error.
 
-        L_total = w_nll * L_NLL + w_smape * L_sMAPE
+        L_total = w_nll * L_NLL + w_smape * L_sMAPE + w_mu * L_mu + w_alpha * L_alpha
         """
         # --- 1. Symmetric Mean Absolute Percentage Error ---
         smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
 
         # --- 2. Negative Log-Likelihood Loss ---
         nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
+
+        # --- 2.25 Decomposed supervision on μ and α at event times ---
+        mu_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
+        alpha_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
+        if (mu_targets_at_events is not None) and (lambda_post_targets_at_events is not None) and (valid_event_mask is not None):
+            mu_loss = self._smape_masked(intensity_fn.mu, mu_targets_at_events, valid_event_mask)
+            alpha_loss = self._smape_masked(intensity_fn.alpha, lambda_post_targets_at_events, valid_event_mask)
 
         # --- 2.5 Relative spike regularization ---
         relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
@@ -873,6 +939,8 @@ class FIMHawkes(AModel):
         total_loss = (
             self.loss_weights["nll"] * nll_loss
             + self.loss_weights["smape"] * smape_loss
+            + self.loss_weights.get("mu", 0.0) * mu_loss
+            + self.loss_weights.get("alpha", 0.0) * alpha_loss
             + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
         )
 
@@ -883,6 +951,8 @@ class FIMHawkes(AModel):
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
             "nll_loss": nll_loss.detach().item(),
             "smape_loss": smape_loss.detach().item(),
+            "mu_smape_loss": mu_loss.detach().item() if isinstance(mu_loss, Tensor) else float(mu_loss),
+            "alpha_smape_loss": alpha_loss.detach().item() if isinstance(alpha_loss, Tensor) else float(alpha_loss),
             "relative_spike_loss": relative_spike_loss.detach().item(),
             "mae_loss": mae_loss.detach().item(),
         }
@@ -1067,6 +1137,73 @@ class FIMHawkes(AModel):
         target_intensity_values_normalized = target_intensity_values_orig * norm_constants_final
 
         return target_intensity_values_normalized
+
+    def compute_decomposed_targets_at_events(
+        self,
+        kernel_functions_list: list,
+        base_intensity_functions_list: list,
+        inference_event_times: Tensor,
+        inference_event_types: Tensor,
+        inference_seq_lengths: Tensor,
+        norm_constants: Tensor,
+        num_marks: int,
+        inference_time_offsets: Tensor | None = None,
+        post_epsilon: float = 1e-6,
+        pre_epsilon: float = 1e-6,
+    ):
+        """Compute μ*(t_i), λ*(t_i^-) and λ*(t_i^+) at event times in normalized intensity scale.
+
+        `inference_event_times` are expected in the normalized time domain with shape [B, P, L, 1].
+        """
+        device = inference_event_times.device
+        B, P, L, _ = inference_event_times.shape
+        D = num_marks
+
+        # Denormalize to query python callables
+        times_orig = inference_event_times * norm_constants.view(B, 1, 1, 1)
+        if inference_time_offsets is not None:
+            times_orig = times_orig + inference_time_offsets.view(B, P, 1, 1)
+
+        # μ*(t_i)
+        mu_star = torch.zeros(B, D, P, L, device=device)
+        for b in range(B):
+            actual_marks_b = len(base_intensity_functions_list[b])
+            t_b = times_orig[b, :, :, 0]  # [P, L]
+            for i in range(actual_marks_b):
+                mu_func = base_intensity_functions_list[b][i]
+                mu_star[b, i, :, :] = mu_func(t_b)
+        # Scale to normalized intensity
+        mu_star = mu_star * norm_constants.view(B, 1, 1, 1)
+
+        # λ*(t_i^-) evaluated safely at t_i - ε (clamped to 0)
+        eps_pre = torch.full((B, P, L), pre_epsilon, device=device)
+        lambda_pre = self.compute_target_intensity_values(
+            kernel_functions_list,
+            base_intensity_functions_list,
+            torch.clamp(inference_event_times.squeeze(-1) - eps_pre, min=0.0),
+            inference_event_times,
+            inference_event_types,
+            inference_seq_lengths,
+            norm_constants,
+            D,
+            inference_time_offsets=inference_time_offsets,
+        )
+
+        # λ*(t_i^+) approximated with t_i + ε
+        eps = torch.full((B, P, L), post_epsilon, device=device)
+        lambda_post = self.compute_target_intensity_values(
+            kernel_functions_list,
+            base_intensity_functions_list,
+            (inference_event_times.squeeze(-1) + eps),
+            inference_event_times,
+            inference_event_types,
+            inference_seq_lengths,
+            norm_constants,
+            D,
+            inference_time_offsets=inference_time_offsets,
+        )
+
+        return mu_star, lambda_pre, lambda_post
 
     def _get_past_event_shifted_intensity_evaluation_times(
         self, intensity_evaluation_times: Tensor, inference_event_times: Tensor, num_marks: int
