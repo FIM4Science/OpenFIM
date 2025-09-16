@@ -22,6 +22,7 @@ class FIMHawkesConfig(PretrainedConfig):
         mark_encoder: dict = None,
         time_encoder: dict = None,
         delta_time_encoder: dict = None,
+        context_summary_pooling: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
         inference_ts_encoder: dict = None,
@@ -45,6 +46,7 @@ class FIMHawkesConfig(PretrainedConfig):
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
+        self.context_summary_pooling = context_summary_pooling
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.inference_ts_encoder = inference_ts_encoder
@@ -107,6 +109,7 @@ class FIMHawkes(AModel):
         time_encoder = copy.deepcopy(self.config.time_encoder)
         delta_time_encoder = copy.deepcopy(self.config.delta_time_encoder)
         evaluation_mark_encoder = copy.deepcopy(self.config.evaluation_mark_encoder)
+        context_summary_pooling = copy.deepcopy(self.config.context_summary_pooling)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
         inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
         functional_attention = copy.deepcopy(self.config.functional_attention)
@@ -138,6 +141,18 @@ class FIMHawkes(AModel):
         evaluation_mark_encoder["in_features"] = self.max_num_marks
         evaluation_mark_encoder["out_features"] = self.hidden_dim
         self.evaluation_mark_encoder = create_class_instance(evaluation_mark_encoder.pop("name"), evaluation_mark_encoder)
+
+        # Context summarization via AttentionOperator with a static learnable query
+        csd_cfg = copy.deepcopy(context_summary_pooling)
+        csd_name = csd_cfg.pop("name")
+        if csd_name.endswith("neural_operators.AttentionOperator"):
+            csd_cfg["embed_dim"] = self.hidden_dim
+            csd_cfg["out_features"] = self.hidden_dim
+            self.context_summary_pooling = AttentionOperator(**csd_cfg)
+        else:
+            csd_cfg["embed_dim"] = self.hidden_dim
+            csd_cfg["out_features"] = self.hidden_dim
+            self.context_summary_pooling = create_class_instance(csd_name, csd_cfg)
 
         context_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
         self.context_ts_encoder = create_class_instance(context_ts_encoder.pop("name"), context_ts_encoder)
@@ -223,12 +238,13 @@ class FIMHawkes(AModel):
         context_seq_lengths_flat = ctx["context_seq_lengths"].view(-1)
         positions = torch.arange(L, device=self.device).unsqueeze(0)
         key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
-        h_k_context_flat = self.functional_attention(
+        # Use AttentionOperator: query attends over path tokens
+        path_summary = self.context_summary_pooling(
             q_expanded,
             context_flat.unsqueeze(2),
             observations_padding_mask=key_padding_mask.unsqueeze(-1),
-        )
-        h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
+        )  # [B*P, 1, D]
+        h_k_context = path_summary.squeeze(1).view(B, P_context, D)
         enhanced_context = h_k_context + self.context_self_attn(h_k_context, h_k_context, h_k_context)[0]
         return enhanced_context
 
@@ -306,16 +322,16 @@ class FIMHawkes(AModel):
             # ------------------------------------------------------------------
             B, P_context, L, D = sequence_encodings_context.shape
             context_flat = sequence_encodings_context.view(B * P_context, L, D)
-            q_expanded = self.path_summary_query.expand(B * P_context, -1, -1)
             context_seq_lengths_flat = x["context_seq_lengths"].view(-1)
             positions = torch.arange(L, device=self.device).unsqueeze(0)
             key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
-            h_k_context_flat = self.functional_attention(
+            q_expanded = self.path_summary_query.expand(B * P_context, 1, -1)
+            decoded = self.context_summary_pooling(
                 q_expanded,
                 context_flat.unsqueeze(2),
                 observations_padding_mask=key_padding_mask.unsqueeze(-1),
-            )
-            h_k_context = h_k_context_flat.squeeze(1).view(B, P_context, D)
+            )  # [B*P, 1, D]
+            h_k_context = decoded.squeeze(1).view(B, P_context, D)
             H_context = h_k_context
             enhanced_context = H_context + self.context_self_attn(H_context, H_context, H_context)[0]
         # At this point, `enhanced_context` is available
@@ -799,32 +815,37 @@ class FIMHawkes(AModel):
         event_types: Tensor,
         seq_lengths: Tensor,
         apply_log_c_correction: bool = False,
-        num_integration_points: int = 100,
     ) -> Tensor:
         """
         Negative log-likelihood loss normalized by number of events.
-
-        Args:
-            num_integration_points (int): number of Monte Carlo samples for integral estimation.
         """
         B, P, L = event_times.shape
 
-        # Create a mask for all valid (non-padded) events in the original sequence
-        original_positions = torch.arange(L, device=self.device).view(1, 1, L)
-        original_valid_mask = original_positions < seq_lengths.unsqueeze(2)
+        # Closed-form integral of intensity over [0, T]
+        # Build inter-event gaps Δ_i with Δ_0 = t_1 - 0 and Δ_i = t_{i+1} - t_i for i ≥ 1.
+        # We integrate up to the last valid event time per path, so the terminal gap Δ_N is 0.
+        t = event_times.clone().squeeze(-1)  # [B, P, L]
+        deltas = torch.zeros_like(t)
+        deltas[:, :, 0] = t[:, :, 0]
+        if t.size(2) > 1:
+            deltas[:, :, 1:] = t[:, :, 1:] - t[:, :, :-1]
 
-        # Integral of intensity from 0 to T (∫ λ'(t') dt')
-        t_start = torch.zeros(B, P, device=self.device)
-        t_end_times = event_times.clone().squeeze(-1)
-        t_end_times[~original_valid_mask] = 0  # Mask out padded values to find the true max time
-        t_end = t_end_times.max(dim=2).values
-        integral_per_mark_path = intensity_fn.integral(
-            t_start=t_start,
-            t_end=t_end,
-            num_samples=num_integration_points,
-            normalized_times=True,
-        )
-        integral_sum_per_path = integral_per_mark_path.sum(dim=1)
+        # Mask out padded intervals (i >= seq_length)
+        positions = torch.arange(L, device=self.device).view(1, 1, L)
+        valid_interval_mask = positions < seq_lengths.unsqueeze(2)  # [B, P, L]
+        deltas = deltas * valid_interval_mask
+
+        # Broadcast Δ over marks and apply the closed-form integral per interval and mark
+        delta_expanded = deltas.unsqueeze(1)  # [B, 1, P, L]
+        mu = intensity_fn.mu  # [B, M, P, L]
+        alpha = intensity_fn.alpha  # [B, M, P, L]
+        beta = intensity_fn.beta  # [B, M, P, L]
+        eps = 1e-8
+        integral_terms = mu * delta_expanded + (alpha - mu) / (beta + eps) * (1.0 - torch.exp(-beta * delta_expanded))  # [B, M, P, L]
+
+        # Sum over intervals to obtain ∫ λ dt for each mark and path
+        integral_per_mark_path = integral_terms.sum(dim=3)  # [B, M, P]
+        integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B, P]
 
         # To align with EasyTPP, we exclude the first event from the log-likelihood's summation term.
         # The model is evaluated on its ability to predict events t_1, ..., t_N given t_0.
