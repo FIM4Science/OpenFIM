@@ -341,18 +341,16 @@ class FIMHawkes(AModel):
         # (11) Cross-Attention: q(m) = φ_meval(m) - learnable mark queries
         mark_queries = self.mark_queries[:num_marks]  # [M, D] - these are q(m)
 
-        # (8) Cross-attention: h_final^{i,m} = ψ_attn(q(m) + h_i^{target}, H_combined^i, H_combined^i)
+        # (8) Cross-attention: h_final^{i,m} = ψ_attn(q(m), H_combined^i, H_combined^i)
         # where H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
 
         # Vectorized implementation to avoid nested loops
         B, P_inference, L, D = sequence_encodings_inference.shape
         P_context = enhanced_context.shape[1]
 
-        # Prepare queries: q(m) + h_i^{target} for all combinations
+        # Prepare queries: q(m) replicated across paths and events
         # Shape: [B, M, P_inference, L, D]
-        target_expanded = sequence_encodings_inference.unsqueeze(1).expand(-1, num_marks, -1, -1, -1)  # [B, M, P_inference, L, D]
         mark_queries_expanded = mark_queries.view(1, num_marks, 1, 1, D).expand(B, -1, P_inference, L, -1)  # [B, M, P_inference, L, D]
-        queries = target_expanded + mark_queries_expanded  # [B, M, P_inference, L, D]
 
         # Prepare keys/values: H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
         # For each event i, we need context + target history up to i
@@ -379,7 +377,7 @@ class FIMHawkes(AModel):
 
         # Reshape for batch attention
         # Queries: [B, M, P_inference, L, D] -> [B * M * P_inference * L, 1, D]
-        queries_flat = queries.reshape(B * num_marks * P_inference * L, 1, D)
+        mark_queries_flat = mark_queries_expanded.reshape(B * num_marks * P_inference * L, 1, D)
 
         # Keys/Values: [B, P_inference, L, P_context + L, D] -> [B * P_inference * L, P_context + L, D]
         # We need to expand this for each mark
@@ -421,7 +419,7 @@ class FIMHawkes(AModel):
 
         # Apply cross-attention
         h_final_flat = self.functional_attention(
-            queries_flat,  # locations_encoding: [B * M * P_inference * L, 1, D]
+            mark_queries_flat,  # locations_encoding: [B * M * P_inference * L, 1, D]
             keys_values_flat.unsqueeze(2),  # observations_encoding: [B * M * P_inference * L, P_context + L, 1, D]
             observations_padding_mask=combined_padding_mask_flat.unsqueeze(-1),  # [B * M * P_inference * L, P_context + L, 1]
         )  # Result shape: [B * M * P_inference * L, 1, D]
@@ -488,7 +486,7 @@ class FIMHawkes(AModel):
             out["target_intensity_values"] = target_intensity_values
 
             # Prepare decomposed supervision targets at event times
-            mu_star_at_events, lambda_pre_at_events, lambda_post_at_events = self.compute_decomposed_targets_at_events(
+            mu_star_at_events, _, lambda_post_at_events = self.compute_decomposed_targets_at_events(
                 kernel_functions_list=kernel_functions_list,
                 base_intensity_functions_list=base_intensity_functions_list,
                 inference_event_times=x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
@@ -704,56 +702,56 @@ class FIMHawkes(AModel):
 
         return h.view(B, P, L, -1)
 
-    def _functional_attention_encoder_optimized(self, queries: Tensor, keys_values: Tensor, attention_mask: Tensor) -> Tensor:
-        """
-        Performs functional attention for a single inference target.
-        This version formats its output to be compatible with the unmodified AttentionOperator.
+    # def _functional_attention_encoder_optimized(self, queries: Tensor, keys_values: Tensor, attention_mask: Tensor) -> Tensor:
+    #     """
+    #     Performs functional attention for a single inference target.
+    #     This version formats its output to be compatible with the unmodified AttentionOperator.
 
-        Args:
-            queries (Tensor): Query embeddings from the trunk net.
-                            Shape: [B, M, L_inference, D]
-            keys_values (Tensor): Key/Value embeddings from context + one inference path.
-                                Shape: [B, P_context + 1, L, D]
-            attention_mask (Tensor): The corresponding dynamic attention mask.
-                                    Shape: [B, L_inference, P_context + 1, L]
+    #     Args:
+    #         queries (Tensor): Query embeddings from the trunk net.
+    #                         Shape: [B, M, L_inference, D]
+    #         keys_values (Tensor): Key/Value embeddings from context + one inference path.
+    #                             Shape: [B, P_context + 1, L, D]
+    #         attention_mask (Tensor): The corresponding dynamic attention mask.
+    #                                 Shape: [B, L_inference, P_context + 1, L]
 
-        Returns:
-            Tensor: The final time-dependent encodings after attention.
-                    Shape: [B, M, L_inference, D]
-        """
-        B, M, L_inference, D = queries.shape
-        _, P_relevant, L, _ = keys_values.shape
+    #     Returns:
+    #         Tensor: The final time-dependent encodings after attention.
+    #                 Shape: [B, M, L_inference, D]
+    #     """
+    #     B, M, L_inference, D = queries.shape
+    #     _, P_relevant, L, _ = keys_values.shape
 
-        # Reshape for batched attention. Each (L_inference) query gets its own mask.
-        # We treat the L_inference dimension as part of the batch.
+    #     # Reshape for batched attention. Each (L_inference) query gets its own mask.
+    #     # We treat the L_inference dimension as part of the batch.
 
-        # Reshape queries: [B, M, L_inf, D] -> [B * L_inf, M, D]
-        queries_reshaped = queries.permute(0, 2, 1, 3).reshape(B * L_inference, M, D)
+    #     # Reshape queries: [B, M, L_inf, D] -> [B * L_inf, M, D]
+    #     queries_reshaped = queries.permute(0, 2, 1, 3).reshape(B * L_inference, M, D)
 
-        # Expand and reshape keys/values: [B, P_rel, L, D] -> [B, 1, P_rel*L, D] -> [B*L_inf, P_rel*L, D]
-        keys_values_expanded = keys_values.unsqueeze(1).expand(-1, L_inference, -1, -1, -1)
-        keys_values_reshaped = keys_values_expanded.reshape(B * L_inference, P_relevant * L, D)
+    #     # Expand and reshape keys/values: [B, P_rel, L, D] -> [B, 1, P_rel*L, D] -> [B*L_inf, P_rel*L, D]
+    #     keys_values_expanded = keys_values.unsqueeze(1).expand(-1, L_inference, -1, -1, -1)
+    #     keys_values_reshaped = keys_values_expanded.reshape(B * L_inference, P_relevant * L, D)
 
-        # Reshape mask: [B, L_inf, P_rel, L] -> [B * L_inf, P_rel * L]
-        mask_reshaped = attention_mask.reshape(B * L_inference, P_relevant * L)
+    #     # Reshape mask: [B, L_inf, P_rel, L] -> [B * L_inf, P_rel * L]
+    #     mask_reshaped = attention_mask.reshape(B * L_inference, P_relevant * L)
 
-        # Shape: [B*L_inf, P_rel*L, D] -> [B*L_inf, P_rel*L, 1, D]
-        keys_values_4d = keys_values_reshaped.unsqueeze(2)
+    #     # Shape: [B*L_inf, P_rel*L, D] -> [B*L_inf, P_rel*L, 1, D]
+    #     keys_values_4d = keys_values_reshaped.unsqueeze(2)
 
-        # The padding mask is already prepared in the correct 3D shape for the operator's internal layers.
-        # Shape: [B*L_inf, P_rel*L, 1]
-        padding_mask_3d = mask_reshaped.unsqueeze(-1)
+    #     # The padding mask is already prepared in the correct 3D shape for the operator's internal layers.
+    #     # Shape: [B*L_inf, P_rel*L, 1]
+    #     padding_mask_3d = mask_reshaped.unsqueeze(-1)
 
-        # Apply functional attention with the correctly shaped tensors
-        result = self.functional_attention(
-            queries_reshaped,
-            keys_values_4d,  # Pass the 4D tensor here
-            observations_padding_mask=padding_mask_3d,
-        )  # Result shape: [B * L_inf, M, D]
+    #     # Apply functional attention with the correctly shaped tensors
+    #     result = self.functional_attention(
+    #         queries_reshaped,
+    #         keys_values_4d,  # Pass the 4D tensor here
+    #         observations_padding_mask=padding_mask_3d,
+    #     )  # Result shape: [B * L_inf, M, D]
 
-        # Reshape back to original format
-        # [B * L_inf, M, D] -> [B, L_inf, M, D] -> [B, M, L_inf, D]
-        return result.reshape(B, L_inference, M, D).permute(0, 2, 1, 3)
+    #     # Reshape back to original format
+    #     # [B * L_inf, M, D] -> [B, L_inf, M, D] -> [B, M, L_inf, D]
+    #     return result.reshape(B, L_inference, M, D).permute(0, 2, 1, 3)
 
     def _denormalize_output(self, out: dict, norm_constants: Tensor) -> None:
         """
