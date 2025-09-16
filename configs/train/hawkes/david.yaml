@@ -165,6 +165,17 @@ model:
       nhead: 4
       batch_first: true
 
+  # Transformer to enhance per-path context summaries (residual + MLPs)
+  context_summary_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 1
+
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.0
+      nhead: 4
+      batch_first: true
+
   functional_attention:
     # name: fim.models.blocks.neural_operators.AttentionOperator
     paths_block_attention: false

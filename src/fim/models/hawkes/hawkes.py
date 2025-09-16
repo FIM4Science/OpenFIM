@@ -26,6 +26,7 @@ class FIMHawkesConfig(PretrainedConfig):
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
         inference_ts_encoder: dict = None,
+        context_summary_encoder: dict = None,
         functional_attention: dict = None,
         context_self_attention: dict = None,
         mu_decoder: dict = None,
@@ -50,6 +51,7 @@ class FIMHawkesConfig(PretrainedConfig):
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.inference_ts_encoder = inference_ts_encoder
+        self.context_summary_encoder = context_summary_encoder
         self.functional_attention = functional_attention
         self.context_self_attention = context_self_attention
         self.mu_decoder = mu_decoder
@@ -112,6 +114,7 @@ class FIMHawkes(AModel):
         context_summary_pooling = copy.deepcopy(self.config.context_summary_pooling)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
         inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
+        context_summary_encoder = copy.deepcopy(self.config.context_summary_encoder)
         functional_attention = copy.deepcopy(self.config.functional_attention)
         context_self_attention = copy.deepcopy(self.config.context_self_attention)
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
@@ -158,6 +161,13 @@ class FIMHawkes(AModel):
         self.context_ts_encoder = create_class_instance(context_ts_encoder.pop("name"), context_ts_encoder)
         inference_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
         self.inference_ts_encoder = create_class_instance(inference_ts_encoder.pop("name"), inference_ts_encoder)
+
+        # Optional TransformerEncoder to enhance per-path context summaries with residuals and MLPs
+        if context_summary_encoder is not None:
+            context_summary_encoder["encoder_layer"]["d_model"] = self.hidden_dim
+            self.context_summary_encoder = create_class_instance(context_summary_encoder.pop("name"), context_summary_encoder)
+        else:
+            self.context_summary_encoder = None
 
         self.input_layernorm = torch.nn.LayerNorm(self.hidden_dim)
 
@@ -245,7 +255,7 @@ class FIMHawkes(AModel):
             observations_padding_mask=key_padding_mask.unsqueeze(-1),
         )  # [B*P, 1, D]
         h_k_context = path_summary.squeeze(1).view(B, P_context, D)
-        enhanced_context = h_k_context + self.context_self_attn(h_k_context, h_k_context, h_k_context)[0]
+        enhanced_context = self.context_summary_encoder(h_k_context)
         return enhanced_context
 
     def forward(self, x: dict[str, Tensor], schedulers: dict = None, step: int = None) -> dict:
@@ -326,14 +336,14 @@ class FIMHawkes(AModel):
             positions = torch.arange(L, device=self.device).unsqueeze(0)
             key_padding_mask = positions >= context_seq_lengths_flat.unsqueeze(1)
             q_expanded = self.path_summary_query.expand(B * P_context, 1, -1)
-            decoded = self.context_summary_pooling(
+            path_summary = self.context_summary_pooling(
                 q_expanded,
                 context_flat.unsqueeze(2),
                 observations_padding_mask=key_padding_mask.unsqueeze(-1),
             )  # [B*P, 1, D]
-            h_k_context = decoded.squeeze(1).view(B, P_context, D)
+            h_k_context = path_summary.squeeze(1).view(B, P_context, D)
             H_context = h_k_context
-            enhanced_context = H_context + self.context_self_attn(H_context, H_context, H_context)[0]
+            enhanced_context = self.context_summary_encoder(H_context)
         # At this point, `enhanced_context` is available
 
         # ------------------------------------------------------------------
