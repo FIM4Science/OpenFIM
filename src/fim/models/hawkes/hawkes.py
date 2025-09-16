@@ -688,7 +688,7 @@ class FIMHawkes(AModel):
         if type == "context":
             h = self.context_ts_encoder(
                 path.view(B * P, L, -1),
-                mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
+                # No causal mask for context sequences; keep padding mask only
                 src_key_padding_mask=key_padding_mask,  # 2D key padding mask
             )
         elif type == "inference":
