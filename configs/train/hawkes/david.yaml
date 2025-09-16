@@ -16,41 +16,41 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel_no_interactions/train
-      # - data/synthetic_data/hawkes/1k_1D_2k_paths_Gamma_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel_no_interactions/train
-      # - data/synthetic_data/hawkes/1k_5D_2k_paths_Gamma_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_no_interactions/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_poisson/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_no_interactions/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/train
-      # - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/train
-      # - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel_sparse/train
-      # - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_rayleigh_kernel/train
-      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_rayleigh_kernel/train
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_rayleigh_kernel/train
-      # - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel/train
-      # - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_rayleigh_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_rayleigh_kernel_sparse/train
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_rayleigh_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_Gamma_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_Gamma_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_poisson/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel_sparse/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_rayleigh_kernel/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_rayleigh_kernel/train
+      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_rayleigh_kernel/train
+      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel/train
+      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_rayleigh_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_rayleigh_kernel_sparse/train
+      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_rayleigh_kernel_sparse/train
       - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel_sparse/train
 
 
@@ -75,20 +75,20 @@ dataset:
 
 
   loader_kwargs:
-    batch_size: 1
+    batch_size: 7
     num_workers: 16
     test_batch_size: 2
 
     num_inference_paths: 1
 
     # Training settings - variable paths and sequence lengths
-    variable_num_of_paths: false
+    variable_num_of_paths: true
     min_path_count: 400
     max_path_count: 2000
     max_number_of_minibatch_sizes: 8
 
     variable_sequence_lens:
-      train: false          # Variable sequence lengths for training
+      train: true          # Variable sequence lengths for training
       validation: false    # Fixed sequence lengths for consistent validation
     min_sequence_len: 15
     max_sequence_len: 100
