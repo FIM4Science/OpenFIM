@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_10-22st_decomposed_loss_2000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_10-22st_multigpu_sanity_check_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -134,6 +134,17 @@ model:
   evaluation_mark_encoder:
     name: torch.nn.Linear
 
+  # Transformer-based attention pooling with static query
+  context_summary_pooling:
+    name: fim.models.blocks.neural_operators.AttentionOperator
+    paths_block_attention: false
+    num_res_layers: 1
+    attention:
+      nhead: 4
+    projection:
+      name: fim.models.blocks.base.MLP
+      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+
   context_ts_encoder:
     name: torch.nn.TransformerEncoder
     num_layers: 2
@@ -155,10 +166,11 @@ model:
       batch_first: true
 
   functional_attention:
+    # name: fim.models.blocks.neural_operators.AttentionOperator
     paths_block_attention: false
     num_res_layers: 1
     attention:
-      nhead: 1
+      nhead: 4
     projection:
       name: fim.models.blocks.base.MLP
       hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]

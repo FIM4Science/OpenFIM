@@ -322,7 +322,10 @@ class Trainer:
         if self.debug_mode:
             data_it = islice(data_it, self.number_of_debug_iterations)
         if self.is_distributed and "train" in self.dataloader.samplers.keys():
-            self.dataloader.samplers["train"].set_epoch(epoch)
+            # Some samplers are proxies for IterableDatasets and only expose set_epoch
+            sampler = self.dataloader.samplers["train"]
+            if hasattr(sampler, "set_epoch") and callable(getattr(sampler, "set_epoch")):
+                sampler.set_epoch(epoch)
         step = epoch * self.steps_in_epoch
 
         if self.profiler_config is not None:

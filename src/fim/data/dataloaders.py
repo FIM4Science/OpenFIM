@@ -113,15 +113,26 @@ class BaseDataLoader:
             if batch_size == "all" and not isinstance(d, IterableDataset):
                 batch_size = len(d)
 
-            self.iter[clean_split_n] = DataLoader(
-                d,
-                drop_last=False,
-                sampler=sampler,
-                shuffle=(sampler is None) and (not isinstance(d, IterableDataset)) and (clean_split_n == "train"),
-                batch_size=batch_size,
-                collate_fn=self._get_collate_fn(clean_split_n, d),
-                **self.loader_kwargs,
-            )
+            # Build DataLoader without sampler for IterableDatasets (PyTorch forbids passing sampler)
+            if isinstance(d, IterableDataset):
+                self.iter[clean_split_n] = DataLoader(
+                    d,
+                    drop_last=False,
+                    shuffle=False,
+                    batch_size=batch_size,
+                    collate_fn=self._get_collate_fn(clean_split_n, d),
+                    **self.loader_kwargs,
+                )
+            else:
+                self.iter[clean_split_n] = DataLoader(
+                    d,
+                    drop_last=False,
+                    sampler=sampler,
+                    shuffle=(sampler is None) and (clean_split_n == "train"),
+                    batch_size=batch_size,
+                    collate_fn=self._get_collate_fn(clean_split_n, d),
+                    **self.loader_kwargs,
+                )
 
     @property
     def train(self):
