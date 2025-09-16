@@ -168,7 +168,7 @@ model:
   # Transformer to enhance per-path context summaries (residual + MLPs)
   context_summary_encoder:
     name: torch.nn.TransformerEncoder
-    num_layers: 1
+    num_layers: 2
 
     encoder_layer:
       name: torch.nn.TransformerEncoderLayer
