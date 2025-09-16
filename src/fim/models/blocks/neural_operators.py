@@ -102,8 +102,15 @@ class AttentionOperator(Block):
                 [ResidualAttentionLayer(d_model=embed_dim, batch_first=True, **deepcopy(attention)) for _ in range(num_res_layers)]
             )
 
-        projection.update({"in_features": embed_dim, "out_features": out_features})
-        self.projection = create_class_instance(projection.pop("name"), projection)
+        if projection != {}:
+            projection.update({"in_features": embed_dim, "out_features": out_features})
+            self.projection = create_class_instance(projection.pop("name"), projection)
+
+        else:
+            assert embed_dim == out_features, (
+                f"Without output projection, need require embed_dim == out_features, got {embed_dim} and {out_features}."
+            )
+            self.projection = lambda x: x
 
     @torch.profiler.record_function("attention_operator")
     def forward(
