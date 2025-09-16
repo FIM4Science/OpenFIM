@@ -28,7 +28,6 @@ class FIMHawkesConfig(PretrainedConfig):
         decoder_ts: dict = None,
         mark_fusion_attention: dict = None,
         context_summary_encoder: dict = None,
-        context_self_attention: dict = None,
         mu_decoder: dict = None,
         alpha_decoder: dict = None,
         beta_decoder: dict = None,
@@ -51,7 +50,6 @@ class FIMHawkesConfig(PretrainedConfig):
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
         self.context_summary_encoder = context_summary_encoder
-        self.context_self_attention = context_self_attention
         self.decoder_ts = decoder_ts
         self.mark_fusion_attention = mark_fusion_attention
         self.mu_decoder = mu_decoder
@@ -114,7 +112,6 @@ class FIMHawkes(AModel):
         context_summary_pooling = copy.deepcopy(self.config.context_summary_pooling)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
         context_summary_encoder = copy.deepcopy(self.config.context_summary_encoder)
-        context_self_attention = copy.deepcopy(self.config.context_self_attention)
         decoder_ts = copy.deepcopy(self.config.decoder_ts)
         mark_fusion_attention = copy.deepcopy(getattr(self.config, "mark_fusion_attention", None))
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
@@ -195,8 +192,6 @@ class FIMHawkes(AModel):
 
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
-
-        self.context_self_attn = torch.nn.MultiheadAttention(embed_dim=self.hidden_dim, **context_self_attention)
 
         if self.config.thinning is not None:
             self.event_sampler = EventSampler(**self.config.thinning)
@@ -500,47 +495,6 @@ class FIMHawkes(AModel):
             self._denormalize_output(out, norm_constants)
 
         return out
-
-    def _encode_observations(self, x: dict) -> Tensor:
-        obs_grid_normalized = x["event_times"]
-
-        encodings_per_event_mark = self.mark_encoder(
-            torch.nn.functional.one_hot(torch.arange(self.max_num_marks, device=self.device), num_classes=self.max_num_marks).float()
-        )
-        B, P, L = obs_grid_normalized.shape[:3]
-
-        time_enc = self.time_encoder(obs_grid_normalized)
-        delta_time_enc = self.delta_time_encoder(x["delta_times"])
-        # Select encoding from encodings_per_event_mark from event_types
-        state_enc = encodings_per_event_mark[x["event_types"].reshape(-1).int()].reshape(B, P, L, -1)
-        path = time_enc + delta_time_enc + state_enc
-        # Approach: Use the original mask logic but make PyTorch handle it properly
-        # The key insight is that the original combined both causal and padding masks
-        # We need to create the exact same combined mask but handle the head dimension properly
-
-        # 1. Create base causal mask [L, L]
-        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-
-        # 2. Create padding mask [B*P, L] for keys
-        positions = torch.arange(L, device=self.device).unsqueeze(0)  # (1, L)
-        seq_lengths_flat = x["seq_lengths"].view(B * P)  # (B*P,)
-        key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)  # (B*P, L)
-
-        # 3. For now, let's use the simpler approach that should be functionally equivalent
-        # The causal mask handles temporal dependencies, key_padding_mask handles sequence lengths
-        h = self.ts_encoder(
-            path.view(B * P, L, -1),
-            mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
-            src_key_padding_mask=key_padding_mask,  # 2D key padding mask
-        )
-
-        return h.view(B, P, L, -1)
-
-    def _intensity_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
-        B, M, P_inference, L_inference, D = time_dependent_path_summary.shape
-        time_dependent_path_summary = time_dependent_path_summary.view(B * M * P_inference * L_inference, D)
-        h = self.intensity_decoder(time_dependent_path_summary)
-        return h.view(B, M, P_inference, L_inference)
 
     def _normalize_input_times(self, x: dict) -> Tuple[Tensor, Dict[str, Tensor]]:
         """
