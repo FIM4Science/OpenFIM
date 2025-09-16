@@ -136,14 +136,14 @@ model:
 
   # Transformer-based attention pooling with static query
   context_summary_pooling:
-    name: fim.models.blocks.neural_operators.AttentionOperator
+    name: fim.models.blocks.neural_operators.AttentionOperator # TODO: if 1 layer remains, replace by ResidualAttentionLayer
     paths_block_attention: false
     num_res_layers: 1
     attention:
       nhead: 4
-    projection:
-      name: fim.models.blocks.base.MLP
-      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+      # projection:     # if AttentionOperator receives no projection key, it won't apply an output projection
+    #   name: fim.models.blocks.base.MLP
+    #   hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
   context_ts_encoder:
     name: torch.nn.TransformerEncoder
@@ -179,12 +179,12 @@ model:
   functional_attention:
     # name: fim.models.blocks.neural_operators.AttentionOperator
     paths_block_attention: false
-    num_res_layers: 1
+    num_res_layers: 1 # TODO: if 1 layer remains, replace by ResidualAttentionLayer
     attention:
       nhead: 4
-    projection:
-      name: fim.models.blocks.base.MLP
-      hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
+    # projection:     # if AttentionOperator receives no projection key, it won't apply an output projection
+    #   name: fim.models.blocks.base.MLP
+    #   hidden_layers: !!python/tuple [*hidden_dim, *hidden_dim]
 
   # New attention configurations for the paper architecture
   context_self_attention:
