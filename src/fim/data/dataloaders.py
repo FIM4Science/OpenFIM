@@ -46,6 +46,24 @@ from .utils import clean_split_from_size_info, get_path_counts, sample_from_gmm
 DistributedSampler = torch.utils.data.distributed.DistributedSampler
 
 
+class _EpochProxySampler:
+    """
+    Lightweight proxy that exposes set_epoch(epoch) so Trainer can signal
+    epoch boundaries to IterableDatasets (e.g., streaming datasets) in DDP.
+
+    When set_epoch is called, it forwards the call to the underlying dataset
+    if it implements set_epoch.
+    """
+
+    def __init__(self, dataset: IterableDataset):
+        self._dataset = dataset
+
+    def set_epoch(self, epoch: int):
+        if hasattr(self._dataset, "set_epoch") and callable(getattr(self._dataset, "set_epoch")):
+            self._dataset.set_epoch(epoch)
+        # No other sampler APIs are required by Trainer
+
+
 def convert_to_pandas_data_range(date: List[datetime], periods: List[int], freq: str):
     pr = [pd.date_range(d, periods=p, freq=freq) for d, p in zip(date, periods)]
 
@@ -76,9 +94,18 @@ class BaseDataLoader:
         for n, d in dataset.items():
             clean_split_n = clean_split_from_size_info(n)
             sampler = None
-            # Avoid samplers/shuffle for IterableDataset
-            if is_distributed() and not isinstance(d, IterableDataset):
-                sampler = DistributedSampler(d, num_replicas=dist.get_world_size(), rank=dist.get_rank(), shuffle=n == "train")
+            # Use DistributedSampler for map-style datasets; for IterableDataset, create
+            # an epoch-proxy so Trainer can call set_epoch and the dataset can reshuffle per epoch.
+            if is_distributed():
+                if not isinstance(d, IterableDataset):
+                    sampler = DistributedSampler(
+                        d,
+                        num_replicas=dist.get_world_size(),
+                        rank=dist.get_rank(),
+                        shuffle=n == "train",
+                    )
+                else:
+                    sampler = _EpochProxySampler(d)
             self.samplers[clean_split_n] = sampler
             batch_size = self.batch_size
             if clean_split_n != "train":
@@ -304,6 +331,7 @@ class HawkesDataLoader(BaseDataLoader):
                 data_dirs=paths,
                 batch_size=effective_bs,
                 prefetch_rows=effective_bs * 8,
+                shuffle=(name == "train"),
                 **dataset_kwargs,
             )
             if self.variable_num_of_paths and name == "train":
