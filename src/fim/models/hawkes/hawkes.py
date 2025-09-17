@@ -119,6 +119,8 @@ class FIMHawkes(AModel):
         beta_decoder = copy.deepcopy(self.config.beta_decoder)
         self.hidden_dim = self.config.hidden_dim
         self.normalize_times = self.config.normalize_times
+        # Event representation dimension after concatenation of decoded token and mark embedding
+        self.event_repr_dim = self.hidden_dim * 2
 
         mark_encoder["in_features"] = self.max_num_marks
         self.mark_encoder = create_class_instance(mark_encoder.pop("name"), mark_encoder)
@@ -178,15 +180,15 @@ class FIMHawkes(AModel):
 
         # Separate decoders for the three Hawkes parameters
         # Each maps the final event representation h_i^m to a single parameter
-        mu_decoder["in_features"] = self.hidden_dim
+        mu_decoder["in_features"] = self.event_repr_dim
         mu_decoder["out_features"] = 1
         self.mu_decoder = create_class_instance(mu_decoder.pop("name"), mu_decoder)
 
-        alpha_decoder["in_features"] = self.hidden_dim
+        alpha_decoder["in_features"] = self.event_repr_dim
         alpha_decoder["out_features"] = 1
         self.alpha_decoder = create_class_instance(alpha_decoder.pop("name"), alpha_decoder)
 
-        beta_decoder["in_features"] = self.hidden_dim
+        beta_decoder["in_features"] = self.event_repr_dim
         beta_decoder["out_features"] = 1
         self.beta_decoder = create_class_instance(beta_decoder.pop("name"), beta_decoder)
 
@@ -359,40 +361,28 @@ class FIMHawkes(AModel):
 
         decoded = decoded.reshape(B, P_inference, L, D)
 
-        # Fuse decoded tokens with evaluation mark embeddings using ResidualAttentionLayer over full causal sequence
-        mark_basis = self.evaluation_mark_encoder(self.mark_one_hot[:num_marks])  # [M, D]
-        # Prepare keys/values as the full causal sequence per (B,P)
-        decoded_bp = decoded.view(B * P_inference, L, D)  # [B*P, L, D]
-        # Build per-time-step queries by repeating mark queries at each position t
-        mark_queries = mark_basis.view(1, 1, num_marks, D).expand(B * P_inference, L, -1, -1)  # [B*P, L, M, D]
-        # Flatten time into batch for attention calls
-        queries = mark_queries.reshape(B * P_inference * L, num_marks, D)  # [B*P*L, M, D]
-        keys_values = decoded_bp.unsqueeze(1).expand(-1, L, -1, -1).reshape(B * P_inference * L, L, D)  # [B*P*L, L, D]
-        # Create a strictly causal key padding mask per step t: mask future keys j>t
-        pos = torch.arange(L, device=self.device)
-        causal_k_mask = pos.view(1, L) > pos.view(L, 1)  # [L, L] True where j>t
-        causal_k_mask = causal_k_mask.unsqueeze(0).expand(B * P_inference, -1, -1)  # [B*P, L, L]
-        causal_k_mask = causal_k_mask.reshape(B * P_inference * L, L)  # [B*P*L, L]
-        # Also mask padded target positions
-        tgt_kpm = (positions_inf >= x["inference_seq_lengths"].unsqueeze(2)).reshape(B * P_inference, L)  # [B*P, L]
-        tgt_kpm_expanded = tgt_kpm.unsqueeze(1).expand(-1, L, -1)  # [B*P, L, L]
-        tgt_kpm_expanded = tgt_kpm_expanded.reshape(B * P_inference * L, L)
-        kpm = causal_k_mask | tgt_kpm_expanded  # [B*P*L, L]
-        fused = self.mark_fusion_attn(queries, keys_values, keys_values, key_padding_mask=kpm.unsqueeze(-1))  # [B*P*L, M, D]
-        combined_enc = fused.view(B, P_inference, L, num_marks, D).permute(0, 3, 1, 2, 4)  # [B, M, P_inference, L, D]
+        # Concatenate the decoded token representation with the target mark embedding
+        # mark_basis: [M, D]
+        mark_basis = self.evaluation_mark_encoder(self.mark_one_hot[:num_marks])
+        # Expand to [B, M, P_inference, L, D]
+        mark_expanded = mark_basis.view(1, num_marks, 1, 1, D).expand(B, num_marks, P_inference, L, D)
+        # Expand decoded to [B, M, P_inference, L, D]
+        decoded_expanded = decoded.view(B, 1, P_inference, L, D).expand(-1, num_marks, -1, -1, -1)
+        # Concatenate on feature dim -> [B, M, P_inference, L, 2D]
+        combined_enc = torch.cat([decoded_expanded, mark_expanded], dim=-1)
 
         # Decode raw parameters and apply Softplus to ensure positivity.
-        raw_params = self.mu_decoder(combined_enc.reshape(-1, self.hidden_dim))  # [...,1]
+        raw_params = self.mu_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
         raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
 
         mu = torch.nn.functional.softplus(raw_params[..., 0])
 
-        raw_params = self.alpha_decoder(combined_enc.reshape(-1, self.hidden_dim))  # [...,1]
+        raw_params = self.alpha_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
         raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
 
         alpha = torch.nn.functional.softplus(raw_params[..., 0])
 
-        raw_params = self.beta_decoder(combined_enc.reshape(-1, self.hidden_dim))  # [...,1]
+        raw_params = self.beta_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
         raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
 
         beta = torch.nn.functional.softplus(raw_params[..., 0])
