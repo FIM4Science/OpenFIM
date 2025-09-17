@@ -1,5 +1,5 @@
 experiment:
-  name: FIM_Hawkes_10-22st_smape_and_nll_2000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_10-22st_smape_only_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
@@ -75,7 +75,7 @@ dataset:
 
 
   loader_kwargs:
-    batch_size: 7
+    batch_size: 6
     num_workers: 16
     test_batch_size: 2
 
@@ -166,14 +166,8 @@ model:
       nhead: 4
       batch_first: true
 
-  # ResidualAttentionLayer used to fuse decoded tokens with evaluation mark embeddings
-  mark_fusion_attention:
-    name: fim.models.blocks.neural_operators.ResidualAttentionLayer
-    nhead: 4
-    dim_feedforward: 1024
-    dropout: 0.0
-    activation: torch.nn.GELU
-    query_residual: true
+  # Mark fusion attention disabled in favor of simple concatenation of mark embedding and decoder output
+  mark_fusion_attention: null
 
   # Transformer to enhance per-path context summaries (residual + MLPs)
   context_summary_encoder:
@@ -205,7 +199,7 @@ model:
   thinning: null
 
   loss_weights:
-    nll: 1.0
+    nll: 0.0
     smape: 1.0
     relative_spike: 0.0
     mu: 0.0
