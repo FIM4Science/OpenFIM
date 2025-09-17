@@ -342,27 +342,10 @@ class FIMHawkes(AModel):
         # Prepare target from inference sequences
         B, P_inference, L, D = sequence_encodings_inference.shape
         tgt = sequence_encodings_inference  # [B, P_inference, L, D]
-        # Causal mask for tgt (size L x L) and pad mask up to seq_len
-        tgt_causal_mask = torch.triu(torch.ones(L, L, device=self.device), diagonal=1).bool()
-        positions_inf = torch.arange(L, device=self.device).view(1, 1, L)
-        tgt_key_padding_mask = (positions_inf >= x["inference_seq_lengths"].unsqueeze(2)).reshape(B * P_inference, L)
 
         # Repeat memory for each inference path
         mem_repeated = memory.unsqueeze(1).expand(-1, P_inference, -1, -1).reshape(B * P_inference, P_context, D)
         # Path-level memory tokens: no padding mask required (already pooled over length)
-
-        # Reshape tgt to [B*P_inference, L, D]
-        tgt_reshaped = tgt.reshape(B * P_inference, L, D)
-
-        # Decode with TransformerDecoder
-        decoded = self.ts_decoder(
-            tgt=tgt_reshaped,
-            memory=mem_repeated,
-            tgt_mask=tgt_causal_mask,
-            tgt_key_padding_mask=tgt_key_padding_mask,
-        )  # [B*P_inference, L, D]
-
-        decoded = decoded.reshape(B, P_inference, L, D)
 
         # ------------------------------------------------------------------
         # CLS-style mark tokens appended to the decoder target sequence
