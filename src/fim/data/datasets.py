@@ -1734,17 +1734,34 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         return self._different_marks_dim
 
     def __len__(self):
-        # Return the total number of ITEMS that will actually be yielded after
-        # optionally enforcing batch-aligned drops at directory boundaries.
-        total = 0
+        # Return the number of BATCHES when pre-batching is enabled, otherwise the
+        # number of ITEMS. Ensures that raising batch_size reduces the number of steps.
         if self._num_items_per_dir is None:
             self._compute_total_items()
-        for n in self._num_items_per_dir:
+
+        def _aligned_items(n: int) -> int:
             if self.enforce_batch_alignment and self.batch_size > 0:
-                total += (n // self.batch_size) * self.batch_size
+                return int((n // self.batch_size) * self.batch_size)
+            return int(n)
+
+        if self.return_collated_batches and self.batch_size > 0:
+            # If distributed, compute per-rank batches and return the global min to keep all ranks consistent
+            if dist.is_available() and dist.is_initialized():
+                world_size = dist.get_world_size()
+                rank = dist.get_rank()
+                rank_indices = [i for i in range(self._num_dirs) if (i % world_size) == rank]
+                total_items_rank = sum(_aligned_items(self._num_items_per_dir[i]) for i in rank_indices)
+                local_batches = total_items_rank // self.batch_size
+                local_tensor = torch.tensor([local_batches], dtype=torch.long)
+                gathered = [torch.zeros_like(local_tensor) for _ in range(world_size)]
+                dist.all_gather(gathered, local_tensor)
+                return int(torch.stack(gathered).min().item())
             else:
-                total += n
-        return int(total)
+                total_items = sum(_aligned_items(n) for n in self._num_items_per_dir)
+                return int(total_items // self.batch_size)
+        else:
+            total_items = sum(_aligned_items(n) for n in self._num_items_per_dir)
+            return int(total_items)
 
     def _compute_total_items(self) -> int:
         if self._num_items_per_dir is None:
