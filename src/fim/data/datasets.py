@@ -1745,17 +1745,17 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
             return int(n)
 
         if self.return_collated_batches and self.batch_size > 0:
-            # If distributed, compute per-rank batches and return the global min to keep all ranks consistent
+            # If distributed, deterministically compute per-rank batches and return
+            # the global minimum across ranks (no collectives needed).
             if dist.is_available() and dist.is_initialized():
                 world_size = dist.get_world_size()
-                rank = dist.get_rank()
-                rank_indices = [i for i in range(self._num_dirs) if (i % world_size) == rank]
-                total_items_rank = sum(_aligned_items(self._num_items_per_dir[i]) for i in rank_indices)
-                local_batches = total_items_rank // self.batch_size
-                local_tensor = torch.tensor([local_batches], dtype=torch.long)
-                gathered = [torch.zeros_like(local_tensor) for _ in range(world_size)]
-                dist.all_gather(gathered, local_tensor)
-                return int(torch.stack(gathered).min().item())
+
+                def batches_for_rank(r: int) -> int:
+                    idxs = [i for i in range(self._num_dirs) if (i % world_size) == r]
+                    items = sum(_aligned_items(self._num_items_per_dir[i]) for i in idxs)
+                    return int(items // self.batch_size)
+
+                return min(batches_for_rank(r) for r in range(world_size))
             else:
                 total_items = sum(_aligned_items(n) for n in self._num_items_per_dir)
                 return int(total_items // self.batch_size)
@@ -1841,19 +1841,20 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         if dist.is_available() and dist.is_initialized() and self.batch_size > 0:
             if self._num_items_per_dir is None:
                 self._compute_total_items()
-            # number of aligned items and batches for dirs handled by this rank/worker
-            aligned_items_sum = 0
-            for di in dir_indices:
-                n = int(self._num_items_per_dir[di])
-                if self.enforce_batch_alignment:
-                    n = (n // self.batch_size) * self.batch_size
-                aligned_items_sum += n
-            local_batches = aligned_items_sum // self.batch_size
-            # gather across ranks and cap to the minimum
-            local_tensor = torch.tensor([local_batches], dtype=torch.long)
-            gathered = [torch.zeros_like(local_tensor) for _ in range(dist.get_world_size())]
-            dist.all_gather(gathered, local_tensor)
-            max_rank_batches = int(torch.stack(gathered).min().item())
+            # deterministically compute global minimum batches across ranks
+            world_size = dist.get_world_size()
+
+            def batches_for_rank(r: int) -> int:
+                idxs = [i for i in range(self._num_dirs) if (i % world_size) == r]
+                items = 0
+                for di in idxs:
+                    n = int(self._num_items_per_dir[di])
+                    if self.enforce_batch_alignment:
+                        n = (n // self.batch_size) * self.batch_size
+                    items += n
+                return int(items // self.batch_size)
+
+            max_rank_batches = min(batches_for_rank(r) for r in range(world_size))
 
         yielded_batches = 0
 
