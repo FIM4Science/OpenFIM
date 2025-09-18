@@ -35,7 +35,6 @@ from ..data.datasets import (
     JsonSDEDataset,
     PaddedFIMSDEDataset,
     StreamingFIMSDEDataset,
-    StreamingHawkesDataset,
     TimeSeriesImputationDatasetTorch,
 )
 from ..trainers.utils import is_distributed
@@ -331,20 +330,8 @@ class HawkesDataLoader(BaseDataLoader):
 
         self.path = path
         for name, paths in path.items():
-            # choose per-split batch size for accurate __len__ on iterable dataset
-            effective_bs = self.batch_size if name == "train" else self.test_batch_size
-            if effective_bs == "all":
-                # fallback to 1 to avoid huge memory; DataLoader will still collate up to dataset size
-                effective_bs = 1
-
-            # stream from storage to avoid loading all into memory
-            self.dataset[name] = StreamingHawkesDataset(
-                data_dirs=paths,
-                batch_size=effective_bs,
-                prefetch_rows=effective_bs * 8,
-                shuffle=(name == "train"),
-                **dataset_kwargs,
-            )
+            # Use in-memory dataset
+            self.dataset[name] = HawkesDataset(paths, **dataset_kwargs)
             if self.variable_num_of_paths and name == "train":
                 self.num_paths_for_batch = get_path_counts(
                     len(self.dataset[name]),
