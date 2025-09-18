@@ -1666,6 +1666,14 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         field_name_for_dimension_grouping: Optional[str | list[str]] = None,
         prefetch_rows: Optional[int] = None,
         shuffle: bool = False,
+        # batching/processing options
+        return_collated_batches: bool = True,
+        variable_sequence_lens: bool = False,
+        full_len_ratio: float = 0.0,
+        min_sequence_len: Optional[int] = None,
+        max_sequence_len: Optional[int] = None,
+        num_inference_paths: int = 1,
+        num_inference_times: int = 1,
         **kwargs,
     ):
         # config
@@ -1673,8 +1681,23 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         self.files_to_load = files_to_load or {}
         self.data_limit = data_limit
         self.batch_size = batch_size
+        # streaming settings
         # prefetch multiple rows per IO to reduce h5 decompression overhead
         self.prefetch_rows = prefetch_rows if prefetch_rows is not None else max(1, 4 * int(batch_size))
+        # enforce that we only yield rows that align with the external DataLoader batch size
+        # so batches never span across directories with different mark counts
+        self.enforce_batch_alignment: bool = True
+        self.return_collated_batches: bool = return_collated_batches
+        # expose for dataloader to recognize pre-batched output
+        self.yields_collated_batches: bool = bool(return_collated_batches)
+
+        # per-batch processing configuration
+        self.enable_variable_seq_lens: bool = bool(variable_sequence_lens)
+        self.full_len_ratio: float = float(full_len_ratio)
+        self.min_sequence_len: Optional[int] = min_sequence_len
+        self.max_sequence_len: Optional[int] = max_sequence_len
+        self.num_inference_paths: int = int(num_inference_paths)
+        self.num_inference_times: int = int(num_inference_times)
         self.field_name_for_dimension_grouping = field_name_for_dimension_grouping
 
         # collect file paths per key
@@ -1711,10 +1734,17 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         return self._different_marks_dim
 
     def __len__(self):
-        # Return the total number of items. The DataLoader will compute the number of
-        # batches based on its own batch_size. Returning batches here would cause an
-        # unintended double division by batch_size.
-        return self._compute_total_items()
+        # Return the total number of ITEMS that will actually be yielded after
+        # optionally enforcing batch-aligned drops at directory boundaries.
+        total = 0
+        if self._num_items_per_dir is None:
+            self._compute_total_items()
+        for n in self._num_items_per_dir:
+            if self.enforce_batch_alignment and self.batch_size > 0:
+                total += (n // self.batch_size) * self.batch_size
+            else:
+                total += n
+        return int(total)
 
     def _compute_total_items(self) -> int:
         if self._num_items_per_dir is None:
@@ -1789,6 +1819,27 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         if self._marks_per_dir is None:
             self._compute_marks_per_dir()
 
+        # Pre-compute a cap on number of batches per rank to keep DDP in lockstep
+        max_rank_batches = None
+        if dist.is_available() and dist.is_initialized() and self.batch_size > 0:
+            if self._num_items_per_dir is None:
+                self._compute_total_items()
+            # number of aligned items and batches for dirs handled by this rank/worker
+            aligned_items_sum = 0
+            for di in dir_indices:
+                n = int(self._num_items_per_dir[di])
+                if self.enforce_batch_alignment:
+                    n = (n // self.batch_size) * self.batch_size
+                aligned_items_sum += n
+            local_batches = aligned_items_sum // self.batch_size
+            # gather across ranks and cap to the minimum
+            local_tensor = torch.tensor([local_batches], dtype=torch.long)
+            gathered = [torch.zeros_like(local_tensor) for _ in range(dist.get_world_size())]
+            dist.all_gather(gathered, local_tensor)
+            max_rank_batches = int(torch.stack(gathered).min().item())
+
+        yielded_batches = 0
+
         # iterate directories assigned to this rank/worker
         for dir_idx in dir_indices:
             # load all keys for this directory
@@ -1822,6 +1873,12 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
             if self.data_limit is not None:
                 num_items = min(num_items, int(self.data_limit))
 
+            # optionally drop trailing remainder so DataLoader never builds a batch
+            # that crosses directory boundaries (and therefore mixes different marks)
+            if self.enforce_batch_alignment and self.batch_size > 0:
+                aligned_items = (num_items // self.batch_size) * self.batch_size
+                num_items = int(aligned_items)
+
             try:
                 # vectorized block reads to minimize I/O and decompression overhead
                 rows_per_block = max(int(self.prefetch_rows), 1)
@@ -1838,8 +1895,9 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                         else:
                             batch_block[key] = src[batch_start:batch_end]
 
-                    # yield individual items from the preloaded block
+                    # accumulate items into full per-directory batches
                     local_rows = batch_end - batch_start
+                    current_batch: list[dict] = []
                     for i in range(local_rows):
                         item = {k: v[i] for k, v in batch_block.items()}
 
@@ -1847,12 +1905,125 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                         if self._different_marks_dim:
                             item["_group_dim"] = self._marks_per_dir[dir_idx]
 
-                        yield item
+                        # ensure seq_lengths exists
+                        self._ensure_seq_lengths(item)
+                        # optionally apply variable sequence lengths
+                        if self.enable_variable_seq_lens:
+                            self._maybe_apply_variable_seq_lens(item)
+                        # select inference paths and times
+                        self._select_inference_paths_inplace(item)
+                        self._select_inference_times_inplace(item)
+                        # infer num_marks
+                        self._set_num_marks(item)
+
+                        current_batch.append(item)
+
+                        if len(current_batch) == self.batch_size:
+                            if self.return_collated_batches:
+                                collated = default_collate(current_batch)
+                                # collapse num_marks to scalar when consistent
+                                if isinstance(collated.get("num_marks"), torch.Tensor) and collated["num_marks"].ndim > 0:
+                                    collated["num_marks"] = collated["num_marks"][0]
+                                yield collated
+                            else:
+                                yield current_batch
+                            current_batch = []
+                            yielded_batches += 1
+                            if max_rank_batches is not None and yielded_batches >= max_rank_batches:
+                                # stop early to keep all ranks in sync
+                                break
+                    if max_rank_batches is not None and yielded_batches >= max_rank_batches:
+                        break
             finally:
                 # close any opened h5 files
                 for s in streams.values():
                     if isinstance(s, h5py.File):
                         s.close()
+
+    def _ensure_seq_lengths(self, item: dict):
+        if "event_times" in item and "seq_lengths" not in item:
+            P, L = item["event_times"].shape[:2]
+            seq_lengths = []
+            for p in range(P):
+                times = item["event_times"][p]
+                non_zero_mask = times > 0
+                seq_len = int(non_zero_mask.sum().item()) if non_zero_mask.any() else 1
+                seq_lengths.append(seq_len)
+            item["seq_lengths"] = torch.tensor(seq_lengths, dtype=torch.long)
+
+    def _maybe_apply_variable_seq_lens(self, item: dict):
+        # apply with probability (1 - full_len_ratio)
+        if torch.rand(1) <= self.full_len_ratio:
+            return
+        if self.min_sequence_len is None or self.max_sequence_len is None:
+            return
+        upper_bound = int(torch.randint(self.min_sequence_len + 1, self.max_sequence_len + 1, (1,)).item())
+        lower_bound = int(torch.randint(self.min_sequence_len, upper_bound, (1,)).item())
+        if "event_times" in item:
+            item["event_times"] = item["event_times"][:, :upper_bound]
+        if "event_types" in item:
+            item["event_types"] = item["event_types"][:, :upper_bound]
+        if "event_times" in item:
+            P = item["event_times"].shape[0]
+            seq_lens = torch.tensor(torch.randint(lower_bound, upper_bound + 1, (P,)).tolist(), dtype=torch.long)
+            item["seq_lengths"] = seq_lens
+
+    def _select_inference_paths_inplace(self, item: dict):
+        if "event_times" not in item:
+            return
+        P = int(item["event_times"].shape[0])
+        if P <= self.num_inference_paths:
+            raise ValueError(f"Number of paths {P} is less than or equal to the number of inference paths {self.num_inference_paths}.")
+        event_times = item.pop("event_times")
+        event_types = item.pop("event_types")
+        seq_lengths = item.pop("seq_lengths")
+        item["inference_event_times"] = event_times[: self.num_inference_paths]
+        item["inference_event_types"] = event_types[: self.num_inference_paths]
+        item["context_event_times"] = event_times[self.num_inference_paths :]
+        item["context_event_types"] = event_types[self.num_inference_paths :]
+        item["context_seq_lengths"] = seq_lengths[self.num_inference_paths :]
+        item["inference_seq_lengths"] = seq_lengths[: self.num_inference_paths]
+
+    def _select_inference_times_inplace(self, item: dict):
+        if "inference_event_times" not in item:
+            return
+        P = self.num_inference_paths
+        T = self.num_inference_times
+        dtype = item["inference_event_times"].dtype
+        item["intensity_evaluation_times"] = torch.zeros(P, T, dtype=dtype)
+        for i in range(P):
+            ev_times = item["inference_event_times"][i]
+            seq_len = (
+                item["inference_seq_lengths"][i].item()
+                if isinstance(item["inference_seq_lengths"], torch.Tensor)
+                else item["inference_seq_lengths"][i]
+            )
+            seq_len = min(seq_len, ev_times.shape[0])
+            intervals = max(seq_len - 1, 0)
+            if intervals <= 0:
+                max_t = ev_times[seq_len - 1] if seq_len > 0 else 0
+                samples = torch.rand(T, dtype=dtype) * max_t
+            else:
+                base = T // intervals
+                rem = T % intervals
+                counts = [base + 1 if j < rem else base for j in range(intervals)]
+                parts: list[torch.Tensor] = []
+                for j, cnt in enumerate(counts):
+                    if cnt <= 0:
+                        continue
+                    start = ev_times[j]
+                    end = ev_times[j + 1]
+                    parts.append(torch.rand(cnt, dtype=dtype) * (end - start) + start)
+                samples = torch.cat(parts) if parts else torch.empty(0, dtype=dtype)
+            item["intensity_evaluation_times"][i] = torch.sort(samples)[0]
+
+    def _set_num_marks(self, item: dict):
+        if "kernel_functions" in item:
+            item["num_marks"] = int(item["kernel_functions"].shape[0])
+        elif "base_intensity_functions" in item:
+            item["num_marks"] = int(item["base_intensity_functions"].shape[0])
+        else:
+            item["num_marks"] = 0
 
 
 def h5_files_dict_iterator(files_dict: dict, batch_size: int, process_batch: Optional[callable]):

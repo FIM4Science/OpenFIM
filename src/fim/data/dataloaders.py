@@ -35,6 +35,7 @@ from ..data.datasets import (
     JsonSDEDataset,
     PaddedFIMSDEDataset,
     StreamingFIMSDEDataset,
+    StreamingHawkesDataset,
     TimeSeriesImputationDatasetTorch,
 )
 from ..trainers.utils import is_distributed
@@ -114,12 +115,14 @@ class BaseDataLoader:
 
             # Build DataLoader without sampler for IterableDatasets (PyTorch forbids passing sampler)
             if isinstance(d, IterableDataset):
+                # If dataset yields pre-collated batches, do not let DataLoader batch again
+                dataset_batches_itself = getattr(d, "yields_collated_batches", False)
                 self.iter[clean_split_n] = DataLoader(
                     d,
                     drop_last=False,
                     shuffle=False,
-                    batch_size=batch_size,
-                    collate_fn=self._get_collate_fn(clean_split_n, d),
+                    batch_size=None if dataset_batches_itself else batch_size,
+                    collate_fn=None if dataset_batches_itself else self._get_collate_fn(clean_split_n, d),
                     **self.loader_kwargs,
                 )
             else:
@@ -321,6 +324,12 @@ class HawkesDataLoader(BaseDataLoader):
         self.max_sequence_len = loader_kwargs.pop("max_sequence_len", None)
 
         self.current_minibatch_index = 0
+        # Use streaming Hawkes by default; allow opt-out via dataset_kwargs.get("use_streaming", True)
+        use_streaming = dataset_kwargs.pop("use_streaming", True)
+        # Avoid mixing elements with different mark sizes across workers: default to single worker for streaming
+        if use_streaming:
+            loader_kwargs = {**loader_kwargs}
+            loader_kwargs.setdefault("num_workers", 0)
         super().__init__(dataset_kwargs, loader_kwargs)
         if self.variable_num_of_paths:
             assert self.max_number_of_minibatch_sizes is not None, (
@@ -330,8 +339,18 @@ class HawkesDataLoader(BaseDataLoader):
 
         self.path = path
         for name, paths in path.items():
-            # Use in-memory dataset
-            self.dataset[name] = HawkesDataset(paths, **dataset_kwargs)
+            if use_streaming:
+                # Streaming dataset reads items sequentially per directory ensuring uniform marks per batch
+                # Pass batch_size for internal prefetch tuning; dataset still yields single items
+                split_batch_size = self.batch_size if name == "train" else self.test_batch_size
+                self.dataset[name] = StreamingHawkesDataset(
+                    data_dirs=paths,
+                    batch_size=split_batch_size,
+                    **dataset_kwargs,
+                )
+            else:
+                # In-memory dataset
+                self.dataset[name] = HawkesDataset(paths, **dataset_kwargs)
             if self.variable_num_of_paths and name == "train":
                 self.num_paths_for_batch = get_path_counts(
                     len(self.dataset[name]),
@@ -345,7 +364,7 @@ class HawkesDataLoader(BaseDataLoader):
 
         self._init_dataloaders(self.dataset)
 
-    def _get_collate_fn(self, dataset_name: str, dataset: HawkesDataset) -> Union[None, callable]:
+    def _get_collate_fn(self, dataset_name: str, dataset: Dataset) -> Union[None, callable]:
         def custom_collate(batch):
             # Apply variable path selection only for training data when enabled
             if self.variable_num_of_paths and dataset_name == "train":
@@ -354,50 +373,6 @@ class HawkesDataLoader(BaseDataLoader):
             # Apply variable sequence lengths only when enabled for this dataset
             if self.variable_sequence_lens.get(dataset_name, False) and torch.rand(1) > self.full_len_ratio:
                 batch = self.custom_hawkes_collate_fun(batch)
-
-            # Tensors whose second dimension is the number of marks (M) for Hawkes processes
-            tensors_to_pad = dataset.field_name_for_dimension_grouping
-            # Ensure `tensors_to_pad` is always iterable to avoid runtime errors
-            if tensors_to_pad is None:
-                tensors_to_pad = []
-            elif isinstance(tensors_to_pad, str):
-                tensors_to_pad = [tensors_to_pad]
-
-            # Find the maximum number of marks in the current batch. The mark dimension is
-            # always the FIRST dimension (index 0) for the Hawkes tensors we work with
-            # (e.g. [M], [M, L_char] or [M, M, L_char]). Using dim-0 works for both
-            # `kernel_functions` and `base_intensity_functions`.
-            max_marks = 0
-            for item in batch:
-                for key in tensors_to_pad:
-                    if key in item:
-                        tensor = item[key]
-                        mark_dim = tensor.shape[0]
-                        max_marks = max(max_marks, mark_dim)
-                        break  # Move to next item once a mark-dependent tensor is found
-
-            if max_marks > 0:
-                for item in batch:
-                    # Store the original number of marks for this item
-                    # Use a default of 0 if no mark-dependent tensors are present
-                    current_marks = 0
-                    for key in tensors_to_pad:
-                        if key in item:
-                            current_marks = item[key].shape[0]
-                            break
-                    item["num_marks"] = current_marks
-
-                    # Pad the relevant tensors
-                    pad_size = max_marks - current_marks
-                    if pad_size > 0:
-                        for key in tensors_to_pad:
-                            if key in item:
-                                tensor = item[key]
-                                # Create a padding tensor with the correct trailing dimensions
-                                # For Hawkes: pad the second dimension (marks dimension)
-                                pad_shape = (tensor.shape[0], pad_size) + tensor.shape[2:]
-                                padding = torch.zeros(pad_shape, dtype=tensor.dtype, device=tensor.device)
-                                item[key] = torch.cat([tensor, padding], dim=1)
 
             # Ensure seq_lengths exists for all items (needed for inference path selection)
             for item in batch:
@@ -421,24 +396,21 @@ class HawkesDataLoader(BaseDataLoader):
             batch = self.select_inference_paths(batch)
             batch = self.select_inference_times(batch)
 
-            # Guarantee that every item contains the `num_marks` field. If it has not been
-            # created in the padding logic above (e.g. because the mark dimension was
-            # already consistent across the batch) we infer it directly from one of the
-            # mark-dependent tensors.
+            # Enforce uniform mark dimension per batch and set num_marks without padding
+            marks_per_item = []
             for item in batch:
-                if "num_marks" not in item:
-                    # Prefer kernel_functions -> base_intensity_functions
-                    if "kernel_functions" in item:
-                        item["num_marks"] = item["kernel_functions"].shape[0]
-                    elif "base_intensity_functions" in item:
-                        item["num_marks"] = item["base_intensity_functions"].shape[0]
-                    else:
-                        # As a final fallback, set to max_marks computed earlier (may be zero)
-                        item["num_marks"] = max_marks
-
-            # Handle variable dimensions if needed
-            if dataset.is_last_dim_varying:
-                return self.__custom_var_dim_collate_fn(batch)
+                if "kernel_functions" in item:
+                    marks_per_item.append(int(item["kernel_functions"].shape[0]))
+                elif "base_intensity_functions" in item:
+                    marks_per_item.append(int(item["base_intensity_functions"].shape[0]))
+                else:
+                    marks_per_item.append(None)
+            unique_marks = {m for m in marks_per_item if m is not None}
+            if len(unique_marks) > 1:
+                raise ValueError("Detected mixed mark dimensions within a single batch. Use streaming with num_workers=0 to avoid mixing.")
+            inferred_marks = next(iter(unique_marks)) if len(unique_marks) == 1 else 0
+            for idx, item in enumerate(batch):
+                item["num_marks"] = marks_per_item[idx] if marks_per_item[idx] is not None else inferred_marks
 
             # Use torch default collate for the final step
             collated = default_collate(batch)
