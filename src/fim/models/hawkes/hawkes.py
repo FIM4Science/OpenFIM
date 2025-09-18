@@ -119,11 +119,8 @@ class FIMHawkes(AModel):
         beta_decoder = copy.deepcopy(self.config.beta_decoder)
         self.hidden_dim = self.config.hidden_dim
         self.normalize_times = self.config.normalize_times
-        # Event representation dimension passed to the parameter MLPs.
-        # With CLS-style mark tokens, we feed the decoder outputs of these
-        # tokens directly to the parameter heads, so the feature dimension
-        # equals the Transformer hidden size.
-        self.event_repr_dim = self.hidden_dim
+        # Event representation dimension after concatenation of decoded token and mark embedding
+        self.event_repr_dim = self.hidden_dim * 2
 
         mark_encoder["in_features"] = self.max_num_marks
         self.mark_encoder = create_class_instance(mark_encoder.pop("name"), mark_encoder)
@@ -342,64 +339,53 @@ class FIMHawkes(AModel):
         # Prepare target from inference sequences
         B, P_inference, L, D = sequence_encodings_inference.shape
         tgt = sequence_encodings_inference  # [B, P_inference, L, D]
+        # Causal mask for tgt (size L x L) and pad mask up to seq_len
+        tgt_causal_mask = torch.triu(torch.ones(L, L, device=self.device), diagonal=1).bool()
+        positions_inf = torch.arange(L, device=self.device).view(1, 1, L)
+        tgt_key_padding_mask = (positions_inf >= x["inference_seq_lengths"].unsqueeze(2)).reshape(B * P_inference, L)
 
         # Repeat memory for each inference path
         mem_repeated = memory.unsqueeze(1).expand(-1, P_inference, -1, -1).reshape(B * P_inference, P_context, D)
         # Path-level memory tokens: no padding mask required (already pooled over length)
 
-        # ------------------------------------------------------------------
-        # CLS-style mark tokens appended to the decoder target sequence
-        # ------------------------------------------------------------------
-        # Build mark query tokens once per batch using a learnable projection
-        # of one-hot marks
-        mark_basis = self.evaluation_mark_encoder(self.mark_one_hot[:num_marks])  # [M, D]
-        # Repeat for each [B, P_inference]
-        mark_tokens = mark_basis.view(1, 1, num_marks, D).expand(B, P_inference, -1, -1)  # [B, P, M, D]
+        # Reshape tgt to [B*P_inference, L, D]
+        tgt_reshaped = tgt.reshape(B * P_inference, L, D)
 
-        # Compose final target sequence: [u_1..u_L, q(1)..q(M)]
-        # Shapes: tgt = [B, P, L, D], cls = [B, P, M, D] -> [B, P, L+M, D]
-        tgt_full = torch.cat([tgt, mark_tokens], dim=2)
-
-        # Build causal mask where:
-        # - event tokens cannot attend to future events
-        # - CLS (mark) tokens are always visible to everyone
-        N = L + num_marks
-        causal_mask = torch.zeros(N, N, device=self.device, dtype=torch.bool)  # False = visible
-        # Mask future among the first L (event) tokens only
-        future_mask = torch.triu(torch.ones(L, L, device=self.device, dtype=torch.bool), diagonal=1)
-        causal_mask[:L, :L] = future_mask
-        # All other entries remain False to keep CLS tokens visible
-
-        # Key padding mask: pad events beyond length, keep CLS tokens unmasked
-        positions_inf = torch.arange(L, device=self.device).view(1, 1, L)
-        pad_events = positions_inf >= x["inference_seq_lengths"].unsqueeze(2)  # [B, P, L]
-        pad_events = pad_events.reshape(B * P_inference, L)
-        pad_cls = torch.zeros(B * P_inference, num_marks, device=self.device, dtype=torch.bool)
-        tgt_key_padding_mask_full = torch.cat([pad_events, pad_cls], dim=1)  # [B*P, L+M]
-
-        # Decode with TransformerDecoder over the extended sequence
-        decoded_full = self.ts_decoder(
-            tgt=tgt_full.reshape(B * P_inference, N, D),
+        # Decode with TransformerDecoder
+        decoded = self.ts_decoder(
+            tgt=tgt_reshaped,
             memory=mem_repeated,
-            tgt_mask=causal_mask,
-            tgt_key_padding_mask=tgt_key_padding_mask_full,
-        )  # [B*P, N, D]
+            tgt_mask=tgt_causal_mask,
+            tgt_key_padding_mask=tgt_key_padding_mask,
+        )  # [B*P_inference, L, D]
 
-        # Split back
+        decoded = decoded.reshape(B, P_inference, L, D)
 
-        decoded_mark = decoded_full[:, L:, :].reshape(B, P_inference, num_marks, D)  # [B, P, M, D]
+        # Concatenate the decoded token representation with the target mark embedding
+        # mark_basis: [M, D]
+        mark_basis = self.evaluation_mark_encoder(self.mark_one_hot[:num_marks])
+        # Expand to [B, M, P_inference, L, D]
+        mark_expanded = mark_basis.view(1, num_marks, 1, 1, D).expand(B, num_marks, P_inference, L, D)
+        # Expand decoded to [B, M, P_inference, L, D]
+        decoded_expanded = decoded.view(B, 1, P_inference, L, D).expand(-1, num_marks, -1, -1, -1)
+        # Concatenate on feature dim -> [B, M, P_inference, L, 2D]
+        combined_enc = torch.cat([decoded_expanded, mark_expanded], dim=-1)
 
-        # Parameter heads consume CLS-style mark tokens only and get broadcast over time
-        heads_in = decoded_mark.reshape(-1, D)  # [B*P*M, D]
+        # Decode raw parameters and apply Softplus to ensure positivity.
+        raw_params = self.mu_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
+        raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
 
-        mu_mark = torch.nn.functional.softplus(self.mu_decoder(heads_in).view(B, P_inference, num_marks))  # [B, P, M]
-        alpha_mark = torch.nn.functional.softplus(self.alpha_decoder(heads_in).view(B, P_inference, num_marks))
-        beta_mark = torch.nn.functional.softplus(self.beta_decoder(heads_in).view(B, P_inference, num_marks))
+        mu = torch.nn.functional.softplus(raw_params[..., 0])
 
-        # Broadcast across time dimension L to match expected shapes [B, M, P, L]
-        mu = mu_mark.permute(0, 2, 1).unsqueeze(-1).expand(-1, -1, -1, L)
-        alpha = alpha_mark.permute(0, 2, 1).unsqueeze(-1).expand(-1, -1, -1, L)
-        beta = beta_mark.permute(0, 2, 1).unsqueeze(-1).expand(-1, -1, -1, L)
+        raw_params = self.alpha_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
+        raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
+
+        alpha = torch.nn.functional.softplus(raw_params[..., 0])
+
+        raw_params = self.beta_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
+        raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
+
+        beta = torch.nn.functional.softplus(raw_params[..., 0])
 
         # ------------------------------------------------------------------
         # Build piece-wise intensity object and evaluate at requested times
