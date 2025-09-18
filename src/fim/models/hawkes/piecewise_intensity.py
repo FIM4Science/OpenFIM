@@ -177,10 +177,19 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         if L > 1:
             deltas[:, :, 1:] = self.event_times[:, :, 1:] - self.event_times[:, :, :-1]
 
-        eps = 1e-8
-        interval_terms = self.mu * deltas.unsqueeze(1) + (self.alpha - self.mu) / (self.beta + eps) * (
-            1.0 - torch.exp(-self.beta * deltas.unsqueeze(1))
-        )  # [B, M, P, L]
+        # Numerically stable integral over full inter-event gaps with small-beta branching
+        small_eps = 1e-6
+        delta_full = deltas.unsqueeze(1)  # [B,1,P,L]
+        beta_full = self.beta  # [B,M,P,L]
+        small_mask_full = torch.abs(beta_full) < small_eps
+        safe_beta_full = torch.where(small_mask_full, torch.ones_like(beta_full), beta_full)
+        expm1_term_full = -torch.expm1(-beta_full * delta_full)
+        exp_part_full = torch.where(
+            small_mask_full,
+            (self.alpha - self.mu) * delta_full,
+            (self.alpha - self.mu) / safe_beta_full * expm1_term_full,
+        )
+        interval_terms = self.mu * delta_full + exp_part_full  # [B, M, P, L]
         cumsum_terms = interval_terms.cumsum(dim=3)  # [B, M, P, L]
         cumsum_padded = torch.cat([torch.zeros_like(cumsum_terms[..., :1]), cumsum_terms], dim=3)  # [B,M,P,L+1]
 
@@ -210,9 +219,16 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
 
             # Partial interval from t_last to t_bound_n
             delta_partial = (t_flat - t_last).unsqueeze(1)  # [B,1,P,E]
-            partial = mu_last * delta_partial + (alpha_last - mu_last) / (beta_last + eps) * (
-                1.0 - torch.exp(-beta_last * delta_partial)
-            )  # [B,M,P,E]
+            # Numerically stable partial interval using small-beta branching
+            small_mask_part = torch.abs(beta_last) < small_eps
+            safe_beta_last = torch.where(small_mask_part, torch.ones_like(beta_last), beta_last)
+            expm1_term_part = -torch.expm1(-beta_last * delta_partial)
+            exp_part_partial = torch.where(
+                small_mask_part,
+                (alpha_last - mu_last) * delta_partial,
+                (alpha_last - mu_last) / safe_beta_last * expm1_term_part,
+            )
+            partial = mu_last * delta_partial + exp_part_partial  # [B,M,P,E]
 
             result = sum_full + partial  # [B,M,P,E]
             return result.reshape(B, self.mu.shape[1], P, *t_bound_n.shape[2:])

@@ -745,8 +745,22 @@ class FIMHawkes(AModel):
         mu = intensity_fn.mu  # [B, M, P, L]
         alpha = intensity_fn.alpha  # [B, M, P, L]
         beta = intensity_fn.beta  # [B, M, P, L]
-        eps = 1e-8
-        integral_terms = mu * delta_expanded + (alpha - mu) / (beta + eps) * (1.0 - torch.exp(-beta * delta_expanded))  # [B, M, P, L]
+        # Numerically stable integral for small beta using Taylor branching
+        # integral = mu * Δ + (alpha - mu)/beta * (1 - exp(-beta * Δ))
+        # For |beta| ~ 0, use limit: (alpha - mu) * Δ
+        small_eps = 1e-6
+        beta_dt = beta * delta_expanded  # [B, M, P, L]
+        small_mask = torch.abs(beta) < small_eps
+        # Safe denominator to avoid division by 0/very small in the non-small branch
+        safe_beta = torch.where(small_mask, torch.ones_like(beta), beta)
+        # Use expm1 for improved accuracy when beta*Δ is small: 1 - exp(-x) = -expm1(-x)
+        expm1_term = -torch.expm1(-beta_dt)
+        integral_exp_part = torch.where(
+            small_mask,
+            (alpha - mu) * delta_expanded,
+            (alpha - mu) / safe_beta * expm1_term,
+        )
+        integral_terms = mu * delta_expanded + integral_exp_part  # [B, M, P, L]
 
         # Sum over intervals to obtain ∫ λ dt for each mark and path
         integral_per_mark_path = integral_terms.sum(dim=3)  # [B, M, P]
