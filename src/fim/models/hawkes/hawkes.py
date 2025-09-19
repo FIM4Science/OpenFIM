@@ -36,6 +36,7 @@ class FIMHawkesConfig(PretrainedConfig):
         max_num_marks: int = 1,
         normalize_times: bool = True,
         normalize_by_max_time: bool = True,
+        nll: dict | None = None,
         thinning: dict = None,
         loss_weights: dict = None,
         **kwargs,
@@ -43,6 +44,7 @@ class FIMHawkesConfig(PretrainedConfig):
         self.max_num_marks = max_num_marks
         self.normalize_times = normalize_times
         self.normalize_by_max_time = normalize_by_max_time
+        self.nll = nll
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
@@ -719,6 +721,39 @@ class FIMHawkes(AModel):
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
+    ) -> Tensor:
+        """Dispatch to the configured NLL method (closed_form or monte_carlo)."""
+        cfg = getattr(self.config, "nll", None) or {}
+        method = (cfg.get("method") or "closed_form").lower()
+        # Training: no correction (normalized domain). Evaluation: apply correction (original domain).
+        apply_log_c_correction = not self.training
+        if method == "monte_carlo":
+            num_points = int(cfg.get("num_integration_points", 100))
+            return self._nll_loss_monte_carlo(
+                intensity_fn=intensity_fn,
+                event_times=event_times,
+                event_types=event_types,
+                seq_lengths=seq_lengths,
+                apply_log_c_correction=apply_log_c_correction,
+                num_integration_points=num_points,
+            )
+        elif method == "closed_form":
+            return self._nll_loss_closed_form(
+                intensity_fn=intensity_fn,
+                event_times=event_times,
+                event_types=event_types,
+                seq_lengths=seq_lengths,
+                apply_log_c_correction=apply_log_c_correction,
+            )
+        else:
+            raise ValueError(f"Unknown NLL method '{method}'. Use 'closed_form' or 'monte_carlo'.")
+
+    def _nll_loss_closed_form(
+        self,
+        intensity_fn: "PiecewiseHawkesIntensity",
+        event_times: Tensor,
+        event_types: Tensor,
+        seq_lengths: Tensor,
         apply_log_c_correction: bool = False,
     ) -> Tensor:
         """
@@ -765,6 +800,97 @@ class FIMHawkes(AModel):
         # Sum over intervals to obtain ∫ λ dt for each mark and path
         integral_per_mark_path = integral_terms.sum(dim=3)  # [B, M, P]
         integral_sum_per_path = integral_per_mark_path.sum(dim=1)  # [B, P]
+
+        # To align with EasyTPP, we exclude the first event from the log-likelihood's summation term.
+        # The model is evaluated on its ability to predict events t_1, ..., t_N given t_0.
+        event_times_for_ll = event_times[:, :, 1:]
+        event_types_for_ll = event_types[:, :, 1:]
+
+        # Adjust sequence lengths for the sliced view. A sequence of length L has L-1 events to evaluate.
+        seq_lengths_for_ll = (seq_lengths - 1).clamp(min=0)
+        L_eval = L - 1
+
+        # --- 1. Calculate NLL' Summation Term in the Normalized Time Domain ---
+
+        # Intensity and its log at event times (from the second event onwards)
+        intensity_at_events = intensity_fn.evaluate(event_times_for_ll, normalized_times=True)
+        log_intensity_at_events = torch.log(intensity_at_events + 1e-9)  # Add epsilon for stability
+
+        # Gather the log-intensity for the specific event type (mark) that occurred
+        # Clamp event types to avoid out-of-bounds access with padding tokens.
+        num_marks = log_intensity_at_events.shape[1]
+        event_types_for_ll_clamped = torch.clamp(event_types_for_ll, 0, num_marks - 1)
+        type_idx = event_types_for_ll_clamped.unsqueeze(1).expand(-1, 1, -1, -1)
+        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
+
+        # Create a mask for all valid (non-padded) events in the SLICED sequences
+        positions = torch.arange(L_eval, device=self.device).view(1, 1, L_eval)
+        valid_mask = positions < seq_lengths_for_ll.unsqueeze(2)
+
+        # Sum of log-intensities for all valid events (Σ log(λ'(t'_i))) from i=1 to N
+        log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)
+
+        # NLL' = ∫ λ'(t') dt' - Σ log(λ'(t'_i))
+        nll_prime_per_path = integral_sum_per_path - log_ll_per_path
+        total_nll_prime = nll_prime_per_path.sum()
+
+        total_nll = total_nll_prime  # Initialize with the normalized-scale NLL
+
+        # --- 2. Apply Correction for Time Scaling (if requested) ---
+        # The true NLL is related to the normalized-scale NLL (NLL') by:
+        # NLL = NLL' + N * log(c), where N is the event count and c is the normalization constant.
+        # This correction is crucial for evaluation but should be omitted during training
+        # to keep the loss scale consistent with the normalized model parameters.
+        if self.normalize_times and apply_log_c_correction and intensity_fn.norm_constants is not None:
+            # Number of events per batch item (N_b), using the corrected event count (excluding the first event)
+            events_per_batch_item = valid_mask.sum(dim=[1, 2])  # Shape: [B]
+
+            # Normalization constants per batch item (c_b)
+            norm_constants = intensity_fn.norm_constants  # Shape: [B]
+
+            # Correction term: sum over batch { N_b * log(c_b) }
+            nll_correction = (events_per_batch_item * torch.log(norm_constants + 1e-9)).sum()
+
+            total_nll = total_nll_prime + nll_correction
+
+        # --- 3. Normalize by Event Count ---
+        # The total number of events is now based on the sliced sequences
+        total_events = valid_mask.sum()
+        return total_nll / (total_events + 1e-8)
+
+    def _nll_loss_monte_carlo(
+        self,
+        intensity_fn: "PiecewiseHawkesIntensity",
+        event_times: Tensor,
+        event_types: Tensor,
+        seq_lengths: Tensor,
+        apply_log_c_correction: bool = False,
+        num_integration_points: int = 100,
+    ) -> Tensor:
+        """
+        Negative log-likelihood loss normalized by number of events.
+
+        Args:
+            num_integration_points (int): number of Monte Carlo samples for integral estimation.
+        """
+        B, P, L = event_times.shape
+
+        # Create a mask for all valid (non-padded) events in the original sequence
+        original_positions = torch.arange(L, device=self.device).view(1, 1, L)
+        original_valid_mask = original_positions < seq_lengths.unsqueeze(2)
+
+        # Integral of intensity from 0 to T (∫ λ'(t') dt')
+        t_start = torch.zeros(B, P, device=self.device)
+        t_end_times = event_times.clone().squeeze(-1)
+        t_end_times[~original_valid_mask] = 0  # Mask out padded values to find the true max time
+        t_end = t_end_times.max(dim=2).values
+        integral_per_mark_path = intensity_fn.integral(
+            t_start=t_start,
+            t_end=t_end,
+            num_samples=num_integration_points,
+            normalized_times=True,
+        )
+        integral_sum_per_path = integral_per_mark_path.sum(dim=1)
 
         # To align with EasyTPP, we exclude the first event from the log-likelihood's summation term.
         # The model is evaluated on its ability to predict events t_1, ..., t_N given t_0.
