@@ -295,6 +295,7 @@ def _load_easytpp_split(dataset: str, split: str) -> Dict[str, List]:
 @click.option("--val_integration_points", default=5000, type=int, help="Monte Carlo samples for validation NLL integral")
 @click.option("--deterministic_val", is_flag=True, default=True, help="Use fixed RNG seed for validation NLL")
 @click.option("--grad-accum-steps", default=1, type=int, help="Gradient accumulation steps per epoch")
+@click.option("--val-every", default=100, type=int, help="Run validation every N epochs (set 1 to validate each epoch)")
 def main(
     cfg_path: Optional[str],
     dataset: str,
@@ -309,6 +310,7 @@ def main(
     val_integration_points: int,
     deterministic_val: bool,
     grad_accum_steps: int,
+    val_every: int,
 ):
     setup_logging()
 
@@ -536,8 +538,9 @@ def main(
             loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        # Validation NLL
-        if has_val:
+        # Validation NLL (run only at specified frequency or on the final epoch)
+        should_validate = has_val and (epoch % max(1, int(val_every)) == 0 or epoch == epochs)
+        if should_validate:
             model.eval()
             with torch.no_grad():
                 # 2) Validation step: evaluate NLL across all possible target paths and average
@@ -609,7 +612,7 @@ def main(
         writer.add_scalar("train/loss", float(epoch_loss_sum), epoch)
         if nll_train == nll_train:  # not NaN
             writer.add_scalar("train/nll", float(nll_train), epoch)
-        if has_val and nll_val == nll_val:
+        if should_validate and nll_val == nll_val:
             writer.add_scalar("val/nll", float(nll_val), epoch)
         # log current LR from optimizer
         try:

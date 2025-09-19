@@ -187,6 +187,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
                 str(ft_save_root),
                 "--grad-accum-steps",
                 str(cfg.get("finetune_grad_accum_steps", 1)),
+                "--val-every",
+                str(cfg.get("finetune_val_every", 100)),
             ]
         )
         # Only append resume_model if a valid checkpoint directory exists (not current '.')

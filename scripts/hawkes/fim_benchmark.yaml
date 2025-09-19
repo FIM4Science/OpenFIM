@@ -50,6 +50,7 @@ fine_tune: true
 finetune_config: configs/train/hawkes/david.yaml
 # Fine-tune hyperparameters
 fine_tune_lr: 5e-5
-fine_tune_epochs: 1000
+fine_tune_epochs: 5000
+finetune_val_every: 100 # Only evaluate on val set every 100 epochs
 # Optional custom save root for fine-tuning artifacts
 # finetune_save_root: results/finetuned_cdiff
