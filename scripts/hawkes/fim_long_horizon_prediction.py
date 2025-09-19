@@ -336,11 +336,27 @@ def run_long_horizon_evaluation(
     sample_index: int = 0,
     num_integration_points: int = 5000,
     sampling_method: Optional[str] = None,
+    nll_method: Optional[str] = None,
 ) -> Dict:
     start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = load_fimhawkes_with_proper_weights(model_checkpoint_path)
+    # Optional: override NLL method from caller
+    if nll_method in ("closed_form", "monte_carlo"):
+        try:
+            nll_cfg = getattr(model.config, "nll", None)
+            if isinstance(nll_cfg, dict):
+                nll_cfg["method"] = nll_method
+            elif nll_cfg is None:
+                model.config.nll = {"method": nll_method}
+            else:
+                setattr(nll_cfg, "method", nll_method)
+        except Exception:
+            try:
+                model.config.nll = {"method": nll_method}
+            except Exception:
+                pass
     model.eval().to(device)
     model.event_sampler.num_samples_boundary = 50
     if sampling_method in ("thinning", "inverse_transform"):
@@ -511,6 +527,7 @@ def main():
     ap.add_argument("--sample-idx", type=int, default=0)
     ap.add_argument("--num-integration-points", type=int, default=5000)
     ap.add_argument("--sampling-method", type=str, choices=["thinning", "inverse_transform"], default=None)
+    ap.add_argument("--nll-method", type=str, choices=["closed_form", "monte_carlo"], default=None)
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -529,6 +546,7 @@ def main():
             sample_index=args.sample_idx,
             num_integration_points=args.num_integration_points,
             sampling_method=args.sampling_method,
+            nll_method=args.nll_method,
         )
         status = "OK"
     except Exception as e:
