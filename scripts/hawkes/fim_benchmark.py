@@ -266,6 +266,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         ]
         if cfg.get("sampling_method") is not None:
             cmd.extend(["--sampling-method", str(cfg.get("sampling_method"))])
+        if cfg.get("nll_method") is not None:
+            cmd.extend(["--nll-method", str(cfg.get("nll_method"))])
         # Validate checkpoint directory
         if not _is_valid_checkpoint_dir(Path(str(eff_ckpt_ne))):
             raise FileNotFoundError(f"Next-event checkpoint directory invalid: {eff_ckpt_ne}")
@@ -286,6 +288,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         ]
         if cfg.get("sampling_method") is not None:
             cmd.extend(["--sampling-method", str(cfg.get("sampling_method"))])
+        if cfg.get("nll_method") is not None:
+            cmd.extend(["--nll-method", str(cfg.get("nll_method"))])
         if not _is_valid_checkpoint_dir(Path(str(eff_ckpt_lh))):
             raise FileNotFoundError(f"Long-horizon checkpoint directory invalid: {eff_ckpt_lh}")
         if cfg.get("forecast_horizon_size") is None:

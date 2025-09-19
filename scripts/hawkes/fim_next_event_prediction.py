@@ -635,8 +635,6 @@ def compute_nll(
         event_times=event_times_for_nll.squeeze(-1),
         event_types=inf_types.squeeze(-1),
         seq_lengths=inf_lengths,
-        apply_log_c_correction=True,
-        num_integration_points=NUM_INTEGRATION_POINTS,
     ).item()
     results["model_nll"] = model_nll
 
@@ -654,8 +652,6 @@ def compute_nll(
             event_times=event_times_for_gt_nll.squeeze(-1),
             event_types=inf_types.squeeze(-1),
             seq_lengths=inf_lengths,
-            apply_log_c_correction=True,
-            num_integration_points=NUM_INTEGRATION_POINTS,
         ).item()
         results["gt_nll"] = gt_nll
 
@@ -771,6 +767,7 @@ def run_next_event_evaluation(
     plot_intensity_predictions: bool = False,
     num_bootstrap_samples: int = 1000,
     sampling_method: Optional[str] = None,
+    nll_method: Optional[str] = None,
 ):
     """
     Programmatic entry point for evaluating next-event prediction on a dataset.
@@ -784,6 +781,21 @@ def run_next_event_evaluation(
 
     # Load model
     model = load_fimhawkes_with_proper_weights(model_checkpoint_path)
+    # Optional: override NLL method from caller
+    if nll_method in ("closed_form", "monte_carlo"):
+        try:
+            nll_cfg = getattr(model.config, "nll", None)
+            if isinstance(nll_cfg, dict):
+                nll_cfg["method"] = nll_method
+            elif nll_cfg is None:
+                model.config.nll = {"method": nll_method}
+            else:
+                setattr(nll_cfg, "method", nll_method)
+        except Exception:
+            try:
+                model.config.nll = {"method": nll_method}
+            except Exception:
+                pass
     model.eval()
     model.to(device)
 
@@ -1818,6 +1830,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-num-events", type=int, default=100, help="Truncate sequences to this many events; -1 means no truncation")
     parser.add_argument("--sample-idx", type=int, default=0, help="Sample index (for local datasets)")
     parser.add_argument("--num-integration-points", type=int, default=5000, help="NLL integration points")
+    parser.add_argument("--nll-method", type=str, choices=["closed_form", "monte_carlo"], default=None, help="NLL method override")
     parser.add_argument("--num-bootstrap-samples", type=int, default=1000, help="Number of bootstrap samples for 95% CI")
     parser.add_argument(
         "--sampling-method",
@@ -1856,6 +1869,7 @@ if __name__ == "__main__":
                 plot_intensity_predictions=False,
                 num_bootstrap_samples=args.num_bootstrap_samples,
                 sampling_method=args.sampling_method,
+                nll_method=args.nll_method,
             )
             status = "OK"
         except Exception as e:
