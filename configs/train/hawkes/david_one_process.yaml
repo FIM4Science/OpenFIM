@@ -1,11 +1,11 @@
 experiment:
-  name: FIM_Hawkes_10-22st_smape_only_multi_gpu_2000_paths_mixed_100_events_mixed
+  name: FIM_Hawkes_5st_only_smape_norm_var_seq_len_2000_paths_mixed_100_events_mixed
   name_add_date: true # if true, the current date & time will be added to the experiment name
   seed: [10]
   device_map: auto # auto, cuda, cpu
 
 distributed:
-  enabled: true
+  enabled: false
   sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
   wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
   min_num_params: 1e5
@@ -16,73 +16,24 @@ dataset:
   name: HawkesDataLoader
   path:
     train: !!python/tuple
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_poisson/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_rayleigh_kernel/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_rayleigh_kernel/train
-      - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_rayleigh_kernel/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel/train
-      - data/synthetic_data/hawkes/1k_1D_2k_paths_const_base_rayleigh_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_rayleigh_kernel_sparse/train
-      - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_rayleigh_kernel_sparse/train
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel_sparse/train
+      - data/synthetic_data/hawkes/1_5D_2k_paths_const_base_exp_kernel_no_interactions/train
+      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/train
 
 
     validation: !!python/tuple
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel/val
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_exp_kernel_no_interactions/val
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_poisson/val
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_Gamma_base_exp_kernel/val
-      # - data/synthetic_data/hawkes/1k_10D_2k_paths_sin_base_exp_kernel/val
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel/val
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_const_base_exp_kernel_no_interactions/val
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_poisson/val
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_Gamma_base_exp_kernel/val
-      # - data/synthetic_data/hawkes/1k_15D_2k_paths_sin_base_exp_kernel/val
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel/val
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_exp_kernel_no_interactions/val
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_poisson/val
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_Gamma_base_exp_kernel/val
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_sin_base_exp_kernel/val
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel/val
-      - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel_sparse/val
+      - data/synthetic_data/hawkes/1_5D_2k_paths_const_base_exp_kernel_no_interactions/val
+      # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_exp_kernel/val
 
 
   loader_kwargs:
-    batch_size: 6
-    num_workers: 16
-    test_batch_size: 2
+    batch_size: 1
+    num_workers: 1
+    test_batch_size: 1
 
     num_inference_paths: 1
 
     # Training settings - variable paths and sequence lengths
-    variable_num_of_paths: true
+    variable_num_of_paths: false
     min_path_count: 400
     max_path_count: 2000
     max_number_of_minibatch_sizes: 8
@@ -112,7 +63,7 @@ model:
   normalize_times: true
   normalize_by_max_time: false # Otherwise normalize by the delta times
 
-  max_num_marks: &max_num_marks 22
+  max_num_marks: &max_num_marks 5
   hidden_dim: &hidden_dim 256
 
   hidden_act: &hidden_act
@@ -216,7 +167,7 @@ trainer:
   precision: bf16_mixed # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
   epochs: &epochs 100000
   detect_anomaly: false
-  save_every: 1
+  save_every: 100
   gradient_accumulation_steps: 6
   # hub_model_id: FIM4Science/fim-hawkes-small
   best_metric: loss
