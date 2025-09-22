@@ -326,7 +326,8 @@ class HawkesDataLoader(BaseDataLoader):
         self.current_minibatch_index = 0
         # Use streaming Hawkes by default; allow opt-out via dataset_kwargs.get("use_streaming", True)
         use_streaming = dataset_kwargs.pop("use_streaming", True)
-        # Avoid mixing elements with different mark sizes across workers: default to single worker for streaming
+        # For streaming mode, the dataset yields pre-collated batches per directory to avoid cross-directory mixing.
+        # We no longer force single-worker; callers may set num_workers>0 for performance.
         if use_streaming:
             loader_kwargs = {**loader_kwargs}
             loader_kwargs.setdefault("num_workers", 0)
@@ -370,9 +371,15 @@ class HawkesDataLoader(BaseDataLoader):
             if self.variable_num_of_paths and dataset_name == "train":
                 batch = self.var_path_collate_fn(batch)
 
-            # Apply variable sequence lengths only when enabled for this dataset
+            # Apply variable sequence lengths only when enabled and bounds are valid
             if self.variable_sequence_lens.get(dataset_name, False) and torch.rand(1) > self.full_len_ratio:
-                batch = self.custom_hawkes_collate_fun(batch)
+                if (
+                    self.min_sequence_len is not None
+                    and self.max_sequence_len is not None
+                    and int(self.max_sequence_len) > int(self.min_sequence_len)
+                ):
+                    batch = self.custom_hawkes_collate_fun(batch)
+                # else: silently skip when not configured
 
             # Ensure seq_lengths exists for all items (needed for inference path selection)
             for item in batch:

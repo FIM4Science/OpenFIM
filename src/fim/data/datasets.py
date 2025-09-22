@@ -1816,6 +1816,10 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
             world_size = dist.get_world_size()
             rank = dist.get_rank()
             rank_indices = [i for i in range(self._num_dirs) if (i % world_size) == rank]
+            # Fallback: if there are fewer directories than ranks, let all ranks iterate all directories
+            # and rely on per-rank caps to keep steps in sync.
+            if len(rank_indices) == 0:
+                rank_indices = list(range(self._num_dirs))
         else:
             rank_indices = list(range(self._num_dirs))
 
@@ -1836,58 +1840,43 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
         if self._marks_per_dir is None:
             self._compute_marks_per_dir()
 
-        # Pre-compute a cap on number of batches per rank and per worker to keep iteration lengths consistent
+        # Pre-compute a cap on number of batches per rank to keep DDP in lockstep
         max_rank_batches = None
-        worker_max_batches = None
-        if self.batch_size > 0:
+        per_worker_cap = None
+        if dist.is_available() and dist.is_initialized() and self.batch_size > 0:
             if self._num_items_per_dir is None:
                 self._compute_total_items()
+            # deterministically compute global minimum batches across ranks
+            world_size = dist.get_world_size()
 
-            def _aligned_items(n: int) -> int:
-                return int((n // self.batch_size) * self.batch_size) if self.enforce_batch_alignment else int(n)
+            def batches_for_rank(r: int) -> int:
+                idxs = [i for i in range(self._num_dirs) if (i % world_size) == r]
+                items = 0
+                for di in idxs:
+                    n = int(self._num_items_per_dir[di])
+                    if self.enforce_batch_alignment:
+                        n = (n // self.batch_size) * self.batch_size
+                    items += n
+                return int(items // self.batch_size)
 
-            # Rank-level cap (DDP lockstep)
-            if dist.is_available() and dist.is_initialized():
-                world_size = dist.get_world_size()
-
-                def batches_for_rank(r: int) -> int:
-                    idxs = [i for i in range(self._num_dirs) if (i % world_size) == r]
-                    items = sum(_aligned_items(int(self._num_items_per_dir[di])) for di in idxs)
-                    return int(items // self.batch_size)
-
-                max_rank_batches = min(batches_for_rank(r) for r in range(world_size))
-
-                # Worker-level cap: split the per-rank cap across workers and also respect data actually assigned to this worker
-                items_for_rank = sum(_aligned_items(int(self._num_items_per_dir[di])) for di in rank_indices)
-                items_for_worker = sum(_aligned_items(int(self._num_items_per_dir[di])) for di in dir_indices)
-
-                if worker_info is None or len(dir_indices) == 0:
-                    # Single-worker case on this rank
-                    worker_max_batches = max_rank_batches
-                else:
-                    # Even split with remainder across workers
-                    num_workers = worker_info.num_workers
-                    base_quota = max_rank_batches // num_workers
-                    remainder = max_rank_batches % num_workers
-                    even_quota = base_quota + (1 if worker_info.id < remainder else 0)
-
-                    # Also bound by this worker's available items
-                    data_quota = int((items_for_worker // self.batch_size)) if self.batch_size > 0 else 0
-                    # And proportionally bound by share of rank items (safety)
-                    proportional_quota = (
-                        int((items_for_worker / max(1, items_for_rank)) * max_rank_batches) if items_for_rank is not None else even_quota
-                    )
-
-                    worker_max_batches = min(even_quota, data_quota, proportional_quota)
+            max_rank_batches = min(batches_for_rank(r) for r in range(world_size))
+        # Distribute per-rank cap across workers so aggregate matches per-rank cap
+        worker_info = torch.utils.data.get_worker_info()
+        if max_rank_batches is not None:
+            if worker_info is None:
+                per_worker_cap = max_rank_batches
             else:
-                # Non-distributed: cap per worker based on its data only
-                items_for_worker = sum(_aligned_items(int(self._num_items_per_dir[di])) for di in dir_indices)
-                worker_max_batches = int(items_for_worker // self.batch_size)
+                w = int(worker_info.num_workers)
+                base = max_rank_batches // w
+                rem = max_rank_batches % w
+                per_worker_cap = base + (1 if worker_info.id < rem else 0)
 
         yielded_batches = 0
 
         # iterate directories assigned to this rank/worker
         for dir_idx in dir_indices:
+            if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
+                return
             # load all keys for this directory
             dir_files = {k: v[dir_idx] for k, v in self.all_file_paths.items()}
             # Prefer h5 files if available; open streams once per directory
@@ -1956,7 +1945,9 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                         # optionally apply variable sequence lengths
                         if self.enable_variable_seq_lens:
                             self._maybe_apply_variable_seq_lens(item)
-                        # select inference paths and times
+                        # select inference paths and times (skip if insufficient paths)
+                        if ("event_times" in item) and (int(item["event_times"].shape[0]) <= 1):
+                            continue
                         self._select_inference_paths_inplace(item)
                         self._select_inference_times_inplace(item)
                         # infer num_marks
@@ -1975,12 +1966,9 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                                 yield current_batch
                             current_batch = []
                             yielded_batches += 1
-                            # Stop when this worker reaches its budget
-                            if worker_max_batches is not None and yielded_batches >= worker_max_batches:
-                                # stop early to keep all ranks in sync
-                                break
-                    if worker_max_batches is not None and yielded_batches >= worker_max_batches:
-                        break
+                    if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
+                        # stop early to keep this worker in sync with per-rank cap
+                        return
             finally:
                 # close any opened h5 files
                 for s in streams.values():

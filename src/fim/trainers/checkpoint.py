@@ -321,20 +321,20 @@ class TrainCheckpoint:
         """
         best_metric = self.train_config.trainer.best_metric
 
-        # Convert tensor values to scalars before storing
-        train_loss = train_stats["losses"]["loss"]
+        # Convert tensor values to scalars before storing; default to +inf when missing
+        train_loss = train_stats.get("losses", {}).get("loss", float("inf"))
         if isinstance(train_loss, torch.Tensor):
             train_loss = train_loss.item()
 
-        val_loss = validation_stats["losses"]["loss"]
+        val_loss = validation_stats.get("losses", {}).get("loss", float("inf"))
         if isinstance(val_loss, torch.Tensor):
             val_loss = val_loss.item()
 
-        train_metric = train_stats["losses"][best_metric]
+        train_metric = train_stats.get("losses", {}).get(best_metric, float("inf"))
         if isinstance(train_metric, torch.Tensor):
             train_metric = train_metric.item()
 
-        val_metric = validation_stats["losses"][best_metric]
+        val_metric = validation_stats.get("losses", {}).get(best_metric, float("inf"))
         if isinstance(val_metric, torch.Tensor):
             val_metric = val_metric.item()
 
