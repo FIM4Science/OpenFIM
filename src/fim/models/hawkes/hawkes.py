@@ -417,7 +417,11 @@ class FIMHawkes(AModel):
             w_mu = self.loss_weights.get("mu", 0.0)
             w_alpha = self.loss_weights.get("alpha", 0.0)
 
-            need_targets = w_smape != 0.0
+            # Also compute targets during evaluation (model.eval()),
+            # so tools like visualization can access ground-truth intensities
+            # even if the model was trained with NLL-only (smape weight == 0).
+            is_eval_mode = not self.training
+            need_targets = (w_smape != 0.0) or is_eval_mode
             need_decomposed = (w_mu != 0.0) or (w_alpha != 0.0)
 
             kernel_functions_list = None
