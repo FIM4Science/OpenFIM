@@ -19,7 +19,7 @@ checkpoints:
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
-task: next_event
+task: both
 # Sampling method for next-event time: thinning | inverse_transform
 sampling_method: thinning
 context_size: 2000   # null => use full train split
@@ -37,7 +37,7 @@ num_ensemble_trajectories: 5        # number of independent trajectories for ens
 results_root: results/fim_benchmark
 
 # Parallelism
-parallel: 1
+parallel: 5
 
 # Fine-tuning (optional). If enabled, model is fine-tuned per dataset before evaluation
 # - For next_event: HF EasyTPP dataset id is used for fine-tune (e.g., easytpp/taobao)

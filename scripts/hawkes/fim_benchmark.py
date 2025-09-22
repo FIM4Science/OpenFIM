@@ -297,6 +297,10 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         cmd.extend(["--forecast-horizon-size", str(cfg.get("forecast_horizon_size"))])
         if cfg.get("num_ensemble_trajectories") is not None:
             cmd.extend(["--num-ensemble-trajectories", str(cfg.get("num_ensemble_trajectories"))])
+        # Trials configuration for long-horizon
+        cmd.extend(["--num-trials", str(cfg.get("num_trials", 10))])
+        if cfg.get("base_seed") is not None:
+            cmd.extend(["--base-seed", str(cfg.get("base_seed"))])
         commands.append(cmd)
         command_labels.append("long_horizon")
         command_run_dirs.append(sub_run_dir)
@@ -383,9 +387,13 @@ def collect_rows(results_root: Path) -> List[Dict]:
                         "loglike": m.get("loglike"),
                         "loglike_ci_error": m.get("loglike_ci_error"),
                         "rmsex_plus": m.get("rmsex_plus"),
+                        "rmsex_plus_std": m.get("rmsex_plus_std"),
                         "smape": m.get("smape"),
+                        "smape_std": m.get("smape_std"),
                         "rmse_e": m.get("rmse_e"),
+                        "rmse_e_std": m.get("rmse_e_std"),
                         "otd": m.get("otd"),
+                        "otd_std": m.get("otd_std"),
                         "num_events": payload.get("num_events", payload.get("num_eval_sequences")),
                         "duration_seconds": payload.get("duration_seconds"),
                         "run_dir": run_dir_str,
@@ -420,9 +428,13 @@ def write_summary(results_root: Path, rows: List[Dict]) -> None:
         "loglike",
         "loglike_ci_error",
         "rmsex_plus",
+        "rmsex_plus_std",
         "smape",
+        "smape_std",
         "rmse_e",
+        "rmse_e_std",
         "otd",
+        "otd_std",
         "num_events",
         "duration_seconds",
         "run_dir",
@@ -457,7 +469,19 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
         with (results_root / f"{prefix}_{metric}.csv").open("w", newline="") as fh:
             csv.writer(fh).writerows(matrix)
 
-    metrics_to_write = {"next_event": ["mae", "rmse", "type_error", "loglike"], "long_horizon": ["rmsex_plus", "smape", "rmse_e", "otd"]}
+    metrics_to_write = {
+        "next_event": ["mae", "rmse", "type_error", "loglike"],
+        "long_horizon": [
+            "rmsex_plus",
+            "rmsex_plus_std",
+            "smape",
+            "smape_std",
+            "rmse_e",
+            "rmse_e_std",
+            "otd",
+            "otd_std",
+        ],
+    }
     for task, metrics in metrics_to_write.items():
         for metric in metrics:
             save_matrix(metric, task)
@@ -546,8 +570,12 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
                 return v
         return {}
 
-    def fmt3(val):
-        return f"{val:.3f}" if isinstance(val, (int, float)) else ""
+    def fmt_cell_mean_std(mean_val, std_val) -> str:
+        if isinstance(mean_val, (int, float)) and isinstance(std_val, (int, float)):
+            return f"$\\mathbf{{{mean_val:.3f}}}$ \\tinymath{{\\pm {std_val:.3f}}}"
+        if isinstance(mean_val, (int, float)):
+            return f"$\\mathbf{{{mean_val:.3f}}}$"
+        return ""
 
     def cells_for(ds_shorts: List[str]) -> List[str]:
         cells: List[str] = []
@@ -557,10 +585,21 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
                 cells.extend(["", "", "", ""])  # OTD, RMSE_e, RMSE_{x+}, sMAPE
             else:
                 otd = r.get("otd")
+                otd_std = r.get("otd_std")
                 rmse_e = r.get("rmse_e")
+                rmse_e_std = r.get("rmse_e_std")
                 rmsex_plus = r.get("rmsex_plus")
+                rmsex_plus_std = r.get("rmsex_plus_std")
                 smape = r.get("smape")
-                cells.extend([fmt3(otd), fmt3(rmse_e), fmt3(rmsex_plus), fmt3(smape)])
+                smape_std = r.get("smape_std")
+                cells.extend(
+                    [
+                        fmt_cell_mean_std(otd, otd_std),
+                        fmt_cell_mean_std(rmse_e, rmse_e_std),
+                        fmt_cell_mean_std(rmsex_plus, rmsex_plus_std),
+                        fmt_cell_mean_std(smape, smape_std),
+                    ]
+                )
         return cells
 
     # Use short names; resolver maps from either HF ids or local names

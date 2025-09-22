@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import pickle
+import random
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -337,6 +338,8 @@ def run_long_horizon_evaluation(
     num_integration_points: int = 5000,
     sampling_method: Optional[str] = None,
     nll_method: Optional[str] = None,
+    num_trials: int = 10,
+    base_seed: int = 0,
 ) -> Dict:
     start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -436,79 +439,118 @@ def run_long_horizon_evaluation(
         }
         precomputed_enhanced_context = model.encode_context(precomp_ctx_tensors)
 
-    num_eval = 0
-    rmsex_plus_sum, smape_sum, rmse_e_sum, otd_sum = 0.0, 0.0, 0.0, 0.0
     otd_del_costs = [0.05, 0.5, 1, 1.5, 2, 3, 4]
     otd_trans_cost = 1.0
 
+    # Containers for per-trial metrics (averaged over sequences per trial)
+    trial_rmsex_plus: List[float] = []
+    trial_smape: List[float] = []
+    trial_rmse_e: List[float] = []
+    trial_otd: List[float] = []
+    num_eval_sequences: int = 0
+
     total_sequences = len(inference_data_raw.get("seq_len", []))
-    for i in range(total_sequences):
-        L = int(inference_data_raw["seq_len"][i])
-        N = int(forecast_horizon_size)
-        if L <= N:
-            continue
+    for trial_idx in range(max(1, int(num_trials))):
+        # Set deterministic but distinct random seeds for each trial
+        seed_val = int(base_seed) + trial_idx
+        random.seed(seed_val)
+        np.random.seed(seed_val)
+        torch.manual_seed(seed_val)
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.manual_seed_all(seed_val)
+            except Exception:
+                pass
 
-        hist_times_list = inference_data_raw["time_since_start"][i][: L - N]
-        hist_types_list = inference_data_raw["type_event"][i][: L - N]
-        future_dtimes_list = inference_data_raw["time_since_last_event"][i][L - N : L]
-        future_types_list = inference_data_raw["type_event"][i][L - N : L]
+        rmsex_plus_sum, smape_sum, rmse_e_sum, otd_sum = 0.0, 0.0, 0.0, 0.0
+        num_eval = 0
 
-        hist_times = torch.tensor(hist_times_list, dtype=torch.float32, device=device)
-        hist_types = torch.tensor([int(t) for t in hist_types_list], dtype=torch.long, device=device)
-        true_future_dtimes = torch.tensor(future_dtimes_list, dtype=torch.float32)
-        true_future_types = torch.tensor([int(t) for t in future_types_list], dtype=torch.long)
+        for i in range(total_sequences):
+            L = int(inference_data_raw["seq_len"][i])
+            N = int(forecast_horizon_size)
+            if L <= N:
+                continue
 
-        forecasts = generate_long_horizon_forecasts(
-            model,
-            ctx_batch,
-            hist_times,
-            hist_types,
-            N,
-            num_ensemble_trajectories,
-            device,
-            precomputed_enhanced_context,
-            detected_num_marks,
-        )
-        pred_dtimes = forecasts["predicted_event_dtimes"]
-        pred_types = forecasts["predicted_event_types"]
+            hist_times_list = inference_data_raw["time_since_start"][i][: L - N]
+            hist_types_list = inference_data_raw["type_event"][i][: L - N]
+            future_dtimes_list = inference_data_raw["time_since_last_event"][i][L - N : L]
+            future_types_list = inference_data_raw["type_event"][i][L - N : L]
 
-        rmsex_plus_sum += calculate_rmse_x(pred_dtimes, true_future_dtimes)
-        smape_sum += calculate_smape(pred_dtimes, true_future_dtimes)
-        rmse_e_sum += calculate_rmse_e(pred_types, true_future_types, detected_num_marks)
+            hist_times = torch.tensor(hist_times_list, dtype=torch.float32, device=device)
+            hist_types = torch.tensor([int(t) for t in hist_types_list], dtype=torch.long, device=device)
+            true_future_dtimes = torch.tensor(future_dtimes_list, dtype=torch.float32)
+            true_future_types = torch.tensor([int(t) for t in future_types_list], dtype=torch.long)
 
-        distances = get_distances_otd(
-            pred_dt=[pred_dtimes],
-            pred_type_result=[pred_types],
-            gt_dt=[true_future_dtimes],
-            gt_type_result=[true_future_types],
-            num_classes=detected_num_marks,
-            distance_del_cost=np.array(otd_del_costs),
-            trans_cost=otd_trans_cost,
-        )
-        otd_sum += np.mean(distances[0])
-        num_eval += 1
+            forecasts = generate_long_horizon_forecasts(
+                model,
+                ctx_batch,
+                hist_times,
+                hist_types,
+                N,
+                num_ensemble_trajectories,
+                device,
+                precomputed_enhanced_context,
+                detected_num_marks,
+            )
+            pred_dtimes = forecasts["predicted_event_dtimes"]
+            pred_types = forecasts["predicted_event_types"]
+
+            rmsex_plus_sum += calculate_rmse_x(pred_dtimes, true_future_dtimes)
+            smape_sum += calculate_smape(pred_dtimes, true_future_dtimes)
+            rmse_e_sum += calculate_rmse_e(pred_types, true_future_types, detected_num_marks)
+
+            distances = get_distances_otd(
+                pred_dt=[pred_dtimes],
+                pred_type_result=[pred_types],
+                gt_dt=[true_future_dtimes],
+                gt_type_result=[true_future_types],
+                num_classes=detected_num_marks,
+                distance_del_cost=np.array(otd_del_costs),
+                trans_cost=otd_trans_cost,
+            )
+            otd_sum += np.mean(distances[0])
+            num_eval += 1
+
+        # Keep track of how many sequences were actually evaluated (should be constant across trials)
+        num_eval_sequences = num_eval
+
+        if num_eval == 0:
+            trial_rmsex_plus.append(0.0)
+            trial_smape.append(0.0)
+            trial_rmse_e.append(0.0)
+            trial_otd.append(0.0)
+        else:
+            trial_rmsex_plus.append(rmsex_plus_sum / num_eval)
+            trial_smape.append(smape_sum / num_eval)
+            trial_rmse_e.append(rmse_e_sum / num_eval)
+            trial_otd.append(otd_sum / num_eval)
 
     duration_seconds = float(time.time() - start_time)
-    if num_eval == 0:
-        avg_rmsex_plus, avg_smape, avg_rmse_e, avg_otd = 0.0, 0.0, 0.0, 0.0
-    else:
-        avg_rmsex_plus = rmsex_plus_sum / num_eval
-        avg_smape = smape_sum / num_eval
-        avg_rmse_e = rmse_e_sum / num_eval
-        avg_otd = otd_sum / num_eval
+
+    # Convert to numpy for simple mean/std
+    t_rmsex_plus = np.array(trial_rmsex_plus, dtype=np.float64)
+    t_smape = np.array(trial_smape, dtype=np.float64)
+    t_rmse_e = np.array(trial_rmse_e, dtype=np.float64)
+    t_otd = np.array(trial_otd, dtype=np.float64)
 
     return {
         "dataset": dataset,
         "model_checkpoint": model_checkpoint_path,
         "sampling_method": getattr(model.event_sampler, "sampling_method", "thinning"),
-        "num_eval_sequences": int(num_eval),
+        "num_eval_sequences": int(num_eval_sequences),
         "duration_seconds": duration_seconds,
+        "num_trials": int(num_trials),
+        "base_seed": int(base_seed),
         "metrics": {
             "model": {
-                "rmsex_plus": float(avg_rmsex_plus),
-                "smape": float(avg_smape),
-                "rmse_e": float(avg_rmse_e),
-                "otd": float(avg_otd),
+                "rmsex_plus": float(t_rmsex_plus.mean()) if t_rmsex_plus.size > 0 else 0.0,
+                "rmsex_plus_std": float(t_rmsex_plus.std(ddof=0)) if t_rmsex_plus.size > 0 else 0.0,
+                "smape": float(t_smape.mean()) if t_smape.size > 0 else 0.0,
+                "smape_std": float(t_smape.std(ddof=0)) if t_smape.size > 0 else 0.0,
+                "rmse_e": float(t_rmse_e.mean()) if t_rmse_e.size > 0 else 0.0,
+                "rmse_e_std": float(t_rmse_e.std(ddof=0)) if t_rmse_e.size > 0 else 0.0,
+                "otd": float(t_otd.mean()) if t_otd.size > 0 else 0.0,
+                "otd_std": float(t_otd.std(ddof=0)) if t_otd.size > 0 else 0.0,
             }
         },
     }
@@ -528,6 +570,8 @@ def main():
     ap.add_argument("--num-integration-points", type=int, default=5000)
     ap.add_argument("--sampling-method", type=str, choices=["thinning", "inverse_transform"], default=None)
     ap.add_argument("--nll-method", type=str, choices=["closed_form", "monte_carlo"], default=None)
+    ap.add_argument("--num-trials", type=int, default=10)
+    ap.add_argument("--base-seed", type=int, default=0)
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -547,6 +591,8 @@ def main():
             num_integration_points=args.num_integration_points,
             sampling_method=args.sampling_method,
             nll_method=args.nll_method,
+            num_trials=int(args.num_trials),
+            base_seed=int(args.base_seed),
         )
         status = "OK"
     except Exception as e:

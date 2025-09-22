@@ -1,15 +1,15 @@
 # Config for fim_infer_network.py (grid of datasets/checkpoints)
 
 datasets:
-  - taobao
-  - stackoverflow
-  - amazon
-  - taxi
+  # - taobao
+  # - stackoverflow
+  # - amazon
+  # - taxi
   # - retweet
   - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
 
 checkpoints:
-  - results/FIM_Hawkes_10-22st_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-10-0759/checkpoints/best-model
+  - results/FIM_Hawkes_10-22st_nll_only_mc_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-20-1214/checkpoints/best-model
 
 # Data subset sizes
 context_size: 2000   # null => full train split
