@@ -134,12 +134,20 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         except Exception:
             return False
 
+    # Shared cache to reuse the same fine-tuned checkpoint across tasks in a single run
+    shared_finetuned_ckpt: Path | None = None
+
     def _maybe_finetune(for_task: str) -> Path:
         """Run finetuning for the specific sub-task and return best checkpoint dir.
 
         For next_event: use HF EasyTPP dataset id (e.g., easytpp/amazon).
         For long_horizon: use local CDiff dataset folder path.
         """
+        nonlocal shared_finetuned_ckpt
+
+        # If we've already fine-tuned in this run, reuse the same checkpoint for both tasks
+        if shared_finetuned_ckpt is not None and _is_valid_checkpoint_dir(shared_finetuned_ckpt):
+            return shared_finetuned_ckpt
         if not bool(cfg.get("fine_tune", False)):
             # If no checkpoint was provided and fine-tuning is disabled, we cannot proceed.
             # Downstream loaders require a valid checkpoint directory.
@@ -221,11 +229,7 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
                     f"[FINETUNE FAIL] task={for_task} dataset={dataset} rc={proc.returncode}",
                     flush=True,
                 )
-                # If no valid base checkpoint is available, fail fast instead of passing '.' downstream
-                if base_ckpt_path is None or not _is_valid_checkpoint_dir(base_ckpt_path):
-                    raise RuntimeError("Fine-tune failed and no base checkpoint provided; cannot proceed with evaluation.")
-                # Otherwise fall back to the provided base checkpoint
-                return base_ckpt_path
+                raise RuntimeError(f"Fine-tune failed for task={for_task} dataset={dataset} (rc={proc.returncode}). See log: {run_log}")
 
         # Locate newest best-model for this dataset under save root
         best_dir = _latest_best_model_dir(Path(ft_save_root), dataset_name_for_ft)
@@ -237,7 +241,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
             return checkpoint
 
         print(f"[FINETUNE OK] task={for_task} dataset={dataset} → {best_dir}", flush=True)
-        return best_dir
+        shared_finetuned_ckpt = best_dir
+        return shared_finetuned_ckpt
 
     def build_common_args_for_dataset(run_dir: Path, ds: str, ckpt_dir: Path) -> List[str]:
         args = ["--checkpoint", str(ckpt_dir), "--dataset", str(ds), "--run-dir", str(run_dir)]
