@@ -19,7 +19,7 @@ license = { file = "LICENSE.txt" }
 requires-python = ">=3.10,<3.13"
 dependencies = [
    "torch>=2.5.0",
-   "transformers==4.46.0",
+   "transformers>=4.56.2",
    "optree>=0.13.1",
    "datasets",
    "peft",
@@ -53,6 +53,9 @@ dependencies = [
    "ruff",
    "pytest-env",
    "pydantic",
+   "ipykernel>=6.30.1",
+   "gpytorch>=1.14",
+   "torchsde>=0.2.6",
 ]
 
 
