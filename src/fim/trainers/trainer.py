@@ -3,7 +3,6 @@ import itertools
 import logging
 import os
 import random
-import threading
 from datetime import datetime
 from itertools import islice
 from pathlib import Path
@@ -150,6 +149,12 @@ class Trainer:
             self.grad_scaler = ShardedGradScaler(self.accel_type)
 
     def _fsdp_initialize(self):
+        # Ensure each rank uses its own CUDA device before wrapping the model
+        if self.config.experiment.device_map != "cpu":
+            try:
+                torch.cuda.set_device(self.local_rank)
+            except Exception:
+                pass
         wrap_policy = self._get_wrap_policy(self.model)
         sharding_strategy = self._get_sharding_strategy()
         mixed_precision_policy = self._get_mixed_precision_policy()
@@ -158,7 +163,7 @@ class Trainer:
             sharding_strategy=sharding_strategy,
             auto_wrap_policy=wrap_policy,
             mixed_precision=mixed_precision_policy,
-            device_id=torch.cuda.current_device(),
+            device_id=(self.local_rank if self.config.experiment.device_map != "cpu" else None),
             limit_all_gathers=True,
             sync_module_states=self.resume is not None,
             use_orig_params=True,  # self.model.is_peft(),
@@ -224,15 +229,18 @@ class Trainer:
         model_architecture_path = self.experiment_dir / "model_architecture.txt"
         # For iterable datasets and map-style datasets alike, prefer taking a collated batch
         # directly from the DataLoader so that any custom collate logic is applied.
-        if isinstance(self.dataloader.train_it.dataset, IterableDataset):
-            x = next(iter(self.dataloader.train_it))
-
-        elif isinstance(self.dataloader.train_it.dataset[0], tuple):
-            logging.warning("Saving model architecture is not supported for tuple datasets!")
+        try:
+            if isinstance(self.dataloader.train_it.dataset, IterableDataset):
+                x = next(iter(self.dataloader.train_it))
+            elif isinstance(self.dataloader.train_it.dataset[0], tuple):
+                logging.warning("Saving model architecture is not supported for tuple datasets!")
+                return
+            else:
+                x = next(iter(self.dataloader.train_it))
+        except StopIteration:
+            # Can occur with IterableDatasets when per-worker caps allocate zero batches to some workers
+            self.logger.warning("Skipping model architecture summary: no sample batch available at startup.")
             return
-
-        else:
-            x = next(iter(self.dataloader.train_it))
         # NOTE: This block is ONLY used for writing the model architecture summary at startup.
         # If the collate returns a grouped batch (keys are ints, e.g. different mark dimensions),
         # we pick one subgroup to form a valid example batch for summary. Training is unaffected.
@@ -298,6 +306,11 @@ class Trainer:
 
             # handle & save current checkpoint
             self._update_learning_rates("epoch")
+            # On non-zero ranks, skip checkpoint bookkeeping when there are no batches (e.g., empty per-worker cap)
+            if (train_epoch_stats is None) or ("losses" not in train_epoch_stats):
+                train_epoch_stats = {"losses": {"loss": float("inf")}}
+            if (validation_epoch_stats is None) or ("losses" not in validation_epoch_stats):
+                validation_epoch_stats = {"losses": {"loss": float("inf")}}
             self.training_logger.log_epoch(epoch, train_epoch_stats, validation_epoch_stats, evaluation_epoch_stats)
             time_trace.start_timer("Checkpoint")
             self.checkpointer.save_checkpoint(epoch, train_epoch_stats, validation_epoch_stats)
@@ -353,22 +366,23 @@ class Trainer:
             with torch.profiler.record_function("batch_stats"):
                 self.training_loss_tracker.add_batch_stats(batch_stats)
 
-            with torch.profiler.record_function("pbar_update"):
-                p_bar_thread = threading.Thread(
-                    target=p_bar.update_and_set_postfix, name="p_bar_update_train", args=(1, batch_stats["losses"])
-                )
-                p_bar_thread.start()
+            # Update progress only on rank 0 to avoid cross-rank contention
+            if self.rank == 0:
+                p_bar.update_and_set_postfix(1, batch_stats["losses"])
 
-            with torch.profiler.record_function("log_batch"):
-                log_train_batch_thread = threading.Thread(
-                    target=self.training_logger.log_train_batch, name="log_train_batch", args=(epoch, batch_idx, batch_stats)
-                )
-                log_train_batch_thread.start()
+            # Log only on rank 0 for clearer progress feedback
+            if self.rank == 0:
+                self.training_logger.log_train_batch(epoch, batch_idx, batch_stats)
 
             del batch
             del batch_stats
 
-        self.training_loss_tracker.summarize_epoch()
+        # If no batches were processed (e.g., this rank/worker had zero), return None
+        try:
+            self.training_loss_tracker.summarize_epoch()
+            last_stats = self.training_loss_tracker.get_last_epoch_stats()
+        except Exception:
+            last_stats = None
         p_bar.close()
         del p_bar
 
@@ -376,11 +390,14 @@ class Trainer:
             prof.stop()
             prof.export_chrome_trace(self.profiler_config["trace_path"])
 
-        return self.training_loss_tracker.get_last_epoch_stats()
+        return last_stats
 
     def _train_batch(self, step: int, batch: dict) -> dict:
         with torch.profiler.record_function("move_data_to_gpu"):
             batch = move_batch_to_local_rank(batch, self.local_rank)
+            # Early-exit: if this rank received an empty/None batch, skip update to keep DDP in sync
+            if batch is None:
+                return {"losses": {"loss": torch.tensor(0.0, device=self.local_rank if self.local_rank != "cpu" else "cpu")}}
         with torch.profiler.record_function("forward_pass"):
             with torch.amp.autocast(
                 self.accel_type,
@@ -395,7 +412,12 @@ class Trainer:
         with torch.profiler.record_function("backward_pass"):
             lrs = self._model_update_step(step, loss)
 
-        losses = {k: v.to("cpu").detach().float() if isinstance(v, torch.Tensor) else v for k, v in losses.items()}
+        # Keep tensors on device for distributed reductions (NCCL cannot all_reduce CPU tensors)
+        if self.local_rank == "cpu" or self.config.experiment.device_map == "cpu":
+            device_for_losses = torch.device("cpu")
+        else:
+            device_for_losses = torch.device("cuda", int(self.local_rank))
+        losses = {k: (v.detach().float().to(device_for_losses) if isinstance(v, torch.Tensor) else v) for k, v in losses.items()}
         histograms = {}
         # if "histograms" in stats:
         #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
@@ -447,10 +469,8 @@ class Trainer:
                 self.validation_loss_tracker.add_batch_losses(batch_stats.get("losses"))
                 # self.validation_loss_tracker.add_batch_histograms(batch_stats.get("histograms"))
                 self.validation_loss_tracker.add_batch_line_plots(batch_stats.get("line_plots"))
-                pbar_thread = threading.Thread(
-                    target=p_bar.update_and_set_postfix, name="pbar_update_validation", args=(1, batch_stats["losses"])
-                )
-                pbar_thread.start()
+                if self.rank == 0:
+                    p_bar.update_and_set_postfix(1, batch_stats["losses"])
             self.validation_loss_tracker.summarize_epoch()
 
             p_bar.close()
@@ -465,7 +485,11 @@ class Trainer:
             dtype=self._auto_cast_type,
         ):
             stats = self.model(batch)
-        losses = {k: v.to("cpu").detach().float() if isinstance(v, torch.Tensor) else v for k, v in stats["losses"].items()}
+        if self.local_rank == "cpu" or self.config.experiment.device_map == "cpu":
+            device_for_losses = torch.device("cpu")
+        else:
+            device_for_losses = torch.device("cuda", int(self.local_rank))
+        losses = {k: (v.detach().float().to(device_for_losses) if isinstance(v, torch.Tensor) else v) for k, v in stats["losses"].items()}
         histograms = {}
         # if "histograms" in stats:
         #     histograms = {k: v.detach().float() for k, v in stats["histograms"].items()}
