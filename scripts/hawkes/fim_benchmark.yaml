@@ -5,7 +5,7 @@ datasets:
   - stackoverflow
   - amazon
   - taxi
-  # - retweet
+  - retweet
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
@@ -44,7 +44,7 @@ parallel: 5
 # - For long_horizon: local CDiff dataset path is used (resolved from data/external/CDiff_dataset/<name> if needed)
 # - The best validation checkpoint (best-model) is automatically selected for evaluation
 # - Each dataset starts fine-tune from the base checkpoint again (no carry-over)
-fine_tune: true
+fine_tune: false
 # Required when fine_tune: true — path to a train YAML used by fim_finetune.py
 # When 'checkpoints' is empty, this is also required to build the model from scratch.
 finetune_config: configs/train/hawkes/david.yaml
