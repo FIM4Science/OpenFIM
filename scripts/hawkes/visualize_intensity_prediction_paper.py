@@ -1,9 +1,20 @@
 """
 CUDA_VISIBLE_DEVICES="" python scripts/hawkes/visualize_intensity_prediction_paper.py \
---checkpoint "results/FIM_Hawkes_10-22st_nll_only_mc_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-20-1214/checkpoints/best-model"  \
+--checkpoint "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-22-1331/checkpoints/best-model"  \
 --dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/test" \
 --sample_idx 0 \
 --path_idx 0
+
+
+conda run -n model_training python scripts/hawkes/visualize_intensity_prediction_paper.py \
+  --checkpoint "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-22-1331/checkpoints/best-model" \
+  --dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/test" \
+  --right_dataset "retweet" \
+  --left_title "Synthetic 3D Hawkes Process" \
+  --right_title "Retweet Dataset" \
+  --path_idx 0 \
+  --sample_idx 0 \
+  --save_path_comparison intensity_comparison_synth_vs_retweet.png
 """
 
 #!/usr/bin/env python
@@ -12,11 +23,29 @@ import pickle
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
 from fim.models.hawkes import FIMHawkes, FIMHawkesConfig
+
+
+# Global plotting style: Computer Modern fonts and larger text to match LaTeX style
+mpl.rcParams.update(
+    {
+        "font.family": "serif",
+        "font.serif": ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"],
+        "mathtext.fontset": "cm",
+        "font.size": 16,
+        "axes.titlesize": 20,
+        "axes.labelsize": 18,
+        "xtick.labelsize": 14,
+        "ytick.labelsize": 14,
+        "legend.fontsize": 14,
+        "figure.titlesize": 22,
+    }
+)
 
 
 # Register FIMHawkes with transformers AutoConfig/AutoModel system
@@ -429,7 +458,7 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
         print(f"Warning: path_idx {p} >= number of inference paths {P_inference}. Using path 0.")
         p = 0
 
-    fig, axes = plt.subplots(M, 1, figsize=(15, 5 * M), sharex=True)
+    fig, axes = plt.subplots(M, 1, figsize=(16, 4.5 * M), sharex=True)
     if M == 1:
         axes = [axes]  # Ensure axes is always a list/array
 
@@ -469,7 +498,15 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             eval_times_plot = eval_times_p
 
         # Plot smooth lines for intensity functions
-        ax.plot(eval_times_plot, pred_intensity_p_m, "b-", linewidth=2, label="Predicted Intensity", alpha=0.8)
+        ax.plot(
+            eval_times_plot,
+            pred_intensity_p_m,
+            color="#0072B2",
+            linestyle="-",
+            linewidth=2,
+            label="FIM-PP (zero-shot)",
+            alpha=0.9,
+        )
 
         if target_intensities is not None:
             target_intensity_p_m = target_intensities[b, m, p]
@@ -481,7 +518,15 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             else:
                 target_intensity_p_m = np.array([0.0])
 
-            ax.plot(eval_times_plot, target_intensity_p_m, "r--", linewidth=2, label="Ground Truth Intensity", alpha=0.8)
+            ax.plot(
+                eval_times_plot,
+                target_intensity_p_m,
+                color="black",
+                linestyle="--",
+                linewidth=1.8,
+                label="Ground Truth",
+                alpha=0.9,
+            )
 
         # Plot event scatter marks prominently
         # Events of the current mark, with a distinct marker for this mark type
@@ -503,7 +548,7 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 s=100,
                 c="green",
                 marker=marker_cycle[m % len(marker_cycle)],
-                label=f"Events (Mark {m})",
+                label=None,
                 zorder=10,
                 edgecolors="darkgreen",
                 linewidth=1.5,
@@ -511,7 +556,6 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             )
 
         # Events of other marks, each with its own (grey) marker determined by mark type
-        first_other = True
         for k in range(M):
             if k == m:
                 continue
@@ -535,32 +579,322 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 s=60,
                 c="gray",
                 marker=marker_cycle[k % len(marker_cycle)],
-                label="Events (Other Marks)" if first_other else None,
+                label=None,
                 zorder=8,
                 edgecolors="dimgray",
                 linewidth=1.0,
                 alpha=0.7,
             )
-            first_other = False
 
-        ax.set_ylabel("Intensity", fontsize=16)
+        ax.set_ylabel("Intensity", fontsize=20)
         ax.set_title(f"Intensity Function for Mark {m}", fontsize=14, fontweight="bold")
 
-        # Create a clean legend
-        handles, labels = ax.get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        ax.legend(by_label.values(), by_label.keys(), fontsize=10)
+        # Axis aesthetics: slimmer spines/ticks, no grid, auto y-limits
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.3)
+        ax.tick_params(axis="both", direction="out", width=0.5, length=2, pad=0.8)
+        ax.grid(False)
+        ax.margins(x=0)
 
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
-        ax.set_ylim(bottom=0)
-
-    axes[-1].set_xlabel("Time", fontsize=16)
-    plt.suptitle(f"Hawkes Process Intensity Functions - Path {path_idx}", fontsize=16, fontweight="bold")
-    fig.tight_layout(rect=[0, 0.03, 1, 0.97])  # Adjust for suptitle
+    axes[-1].set_xlabel("Time", fontsize=20)
+    plt.suptitle(f"Hawkes Process Intensity Functions - Path {path_idx}", fontsize=22, fontweight="bold")
+    # Unified legend at figure level (lines only)
+    plt.draw()
+    handles, labels = axes[0].get_legend_handles_labels()
+    keep_labels = {"FIM-PP (zero-shot)", "Ground Truth"}
+    uniq = []
+    seen = set()
+    for h, l in zip(handles, labels):
+        if l in keep_labels and l not in seen:
+            uniq.append((h, l))
+            seen.add(l)
+    if len(uniq) > 0:
+        fig.legend(
+            [h for h, _ in uniq],
+            [l for _, l in uniq],
+            loc="upper center",
+            bbox_to_anchor=[0.5, 0.995],
+            ncols=len(uniq),
+        )
+    fig.tight_layout(rect=[0, 0.02, 1, 0.965])
 
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    # Also save as PDF for LaTeX-quality vector graphics
+    try:
+        pdf_path = str(Path(save_path).with_suffix(".pdf"))
+        plt.savefig(pdf_path, bbox_inches="tight")
+        print(f"Intensity comparison plot saved to {pdf_path}")
+    except Exception as e:
+        print(f"Warning: failed to save PDF version: {e}")
     plt.close()
     print(f"Intensity comparison plot saved to {save_path}")
+
+
+def plot_two_datasets_side_by_side(
+    left_output,
+    left_data,
+    right_output,
+    right_data,
+    left_title: str,
+    right_title: str,
+    save_path: str = "intensity_comparison_synthetic_vs_retweet.png",
+    left_path_idx: int = 0,
+    right_path_idx: int = 0,
+):
+    """
+    Create a single figure with two columns: left and right datasets, each stacked by mark.
+    """
+    # Extract arrays (left)
+    left_pred = left_output["predicted_intensity_values"].detach().cpu().numpy()
+    left_eval_times = left_data["intensity_evaluation_times"].detach().cpu().numpy()
+    left_inf_times = left_data["inference_event_times"].detach().cpu().numpy()
+    left_inf_types = left_data["inference_event_types"].detach().cpu().numpy()
+    left_inf_lengths = left_data["inference_seq_lengths"].detach().cpu().numpy()
+
+    left_target = None
+    if "target_intensity_values" in left_output:
+        left_target = left_output["target_intensity_values"].detach().cpu().numpy()
+
+    left_offsets_np = None
+    if "inference_time_offsets" in left_data:
+        off = left_data["inference_time_offsets"].detach().cpu().numpy()
+        if off.ndim == 3 and off.shape[-1] == 1:
+            off = off[..., 0]
+        left_offsets_np = off
+
+    # Extract arrays (right)
+    right_pred = right_output["predicted_intensity_values"].detach().cpu().numpy()
+    right_eval_times = right_data["intensity_evaluation_times"].detach().cpu().numpy()
+    right_inf_times = right_data["inference_event_times"].detach().cpu().numpy()
+    right_inf_types = right_data["inference_event_types"].detach().cpu().numpy()
+    right_inf_lengths = right_data["inference_seq_lengths"].detach().cpu().numpy()
+
+    right_target = None
+    if "target_intensity_values" in right_output:
+        right_target = right_output["target_intensity_values"].detach().cpu().numpy()
+
+    right_offsets_np = None
+    if "inference_time_offsets" in right_data:
+        off = right_data["inference_time_offsets"].detach().cpu().numpy()
+        if off.ndim == 3 and off.shape[-1] == 1:
+            off = off[..., 0]
+        right_offsets_np = off
+
+    # Shapes
+    _, M_left, P_left, _ = left_pred.shape
+    _, M_right, P_right, _ = right_pred.shape
+    M_global = max(M_left, M_right)
+
+    # Marker cycle for distinct tick/shape per mark
+    marker_cycle = ["o", "s", "^", "D", "v", "P", "*", "X", "<", ">", "h", "8", "+", "x", "|", "_"]
+
+    # Create grid: rows = M_global (marks), cols = 3 with narrow spacer in the middle
+    fig, axes = plt.subplots(
+        M_global,
+        3,
+        figsize=(20, 5.0 * M_global),
+        sharex=False,
+        gridspec_kw={"width_ratios": [1.0, 0.06, 1.0]},
+    )
+    if M_global == 1:
+        # Ensure 2D indexing
+        axes = np.array([axes])
+
+    # Hide the middle spacer column
+    for r in range(M_global):
+        axes[r, 1].axis("off")
+
+    # Helper to plot one dataset into a column
+    def _plot_dataset(col_idx: int, pred, eval_times, inf_times, inf_types, inf_lengths, target, offsets_np, path_idx, title):
+        b = 0
+        p = path_idx
+        _, M, P, _ = pred.shape
+        if p >= P:
+            p = 0
+
+        seq_len = inf_lengths[b, p]
+        all_event_times = inf_times[b, p, :seq_len, 0]
+        all_event_types = inf_types[b, p, :seq_len, 0]
+
+        for m in range(M_global):
+            col = 0 if col_idx == 0 else 2
+            ax = axes[m, col]
+            if m >= M:
+                # No such mark in this dataset
+                ax.axis("off")
+                if m == 0:
+                    ax.set_title(title, fontsize=16, fontweight="bold")
+                continue
+
+            eval_times_p = eval_times[b, p]
+            pred_intensity_p_m = pred[b, m, p]
+            valid_mask = eval_times_p > 0
+            sort_indices = None
+            if valid_mask.any():
+                eval_times_p = eval_times_p[valid_mask]
+                pred_intensity_p_m = pred_intensity_p_m[valid_mask]
+                sort_indices = np.argsort(eval_times_p)
+                eval_times_p = eval_times_p[sort_indices]
+                pred_intensity_p_m = pred_intensity_p_m[sort_indices]
+            else:
+                eval_times_p = np.array([0.0])
+                pred_intensity_p_m = np.array([0.0])
+
+            # Shift to absolute time if offsets available
+            if offsets_np is not None:
+                eval_times_plot = eval_times_p + offsets_np[b, p]
+            else:
+                eval_times_plot = eval_times_p
+
+            # Plot predicted intensity
+            ax.plot(
+                eval_times_plot,
+                pred_intensity_p_m,
+                color="#0072B2",
+                linestyle="-",
+                linewidth=2,
+                label="FIM-PP (zero-shot)",
+                alpha=0.9,
+            )
+
+            # Optional target
+            if target is not None:
+                target_intensity_p_m = target[b, m, p]
+                if valid_mask.any() and sort_indices is not None:
+                    target_intensity_p_m = target_intensity_p_m[valid_mask]
+                    target_intensity_p_m = target_intensity_p_m[sort_indices]
+                else:
+                    target_intensity_p_m = np.array([0.0])
+                ax.plot(
+                    eval_times_plot,
+                    target_intensity_p_m,
+                    color="black",
+                    linestyle="--",
+                    linewidth=1.8,
+                    label="Ground Truth",
+                    alpha=0.9,
+                )
+
+            # Events of current mark (green) with distinct marker
+            events_this_mark = all_event_times[all_event_types == m]
+            if len(events_this_mark) > 0:
+                event_intensities = []
+                for event_time in events_this_mark:
+                    closest_idx = np.argmin(np.abs(eval_times_p - event_time))
+                    event_intensities.append(pred_intensity_p_m[closest_idx])
+                if offsets_np is not None:
+                    events_plot = events_this_mark + offsets_np[b, p]
+                else:
+                    events_plot = events_this_mark
+                ax.scatter(
+                    events_plot,
+                    event_intensities,
+                    s=100,
+                    c="green",
+                    marker=marker_cycle[m % len(marker_cycle)],
+                    label=None,
+                    zorder=10,
+                    edgecolors="darkgreen",
+                    linewidth=1.5,
+                    alpha=0.9,
+                )
+
+            # Events of other marks (grey) with their own markers
+            for k in range(M):
+                if k == m:
+                    continue
+                events_k = all_event_times[all_event_types == k]
+                if len(events_k) == 0:
+                    continue
+                other_event_intensities = []
+                for event_time in events_k:
+                    closest_idx = np.argmin(np.abs(eval_times_p - event_time))
+                    other_event_intensities.append(pred_intensity_p_m[closest_idx])
+                if offsets_np is not None:
+                    events_other_plot = events_k + offsets_np[b, p]
+                else:
+                    events_other_plot = events_k
+                ax.scatter(
+                    events_other_plot,
+                    other_event_intensities,
+                    s=60,
+                    c="gray",
+                    marker=marker_cycle[k % len(marker_cycle)],
+                    label=None,
+                    zorder=8,
+                    edgecolors="dimgray",
+                    linewidth=1.0,
+                    alpha=0.7,
+                )
+
+            ax.set_ylabel("Intensity", fontsize=20)
+            if m == 0:
+                ax.set_title(title, fontsize=22, fontweight="bold")
+            if m == M_global - 1:
+                ax.set_xlabel("Time", fontsize=20)
+            # Axis aesthetics: slimmer spines/ticks, no grid, auto y-limits
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.3)
+            ax.tick_params(axis="both", direction="out", width=0.5, length=2, pad=0.8)
+            ax.grid(False)
+            ax.margins(x=0)
+
+    _plot_dataset(
+        0,
+        left_pred,
+        left_eval_times,
+        left_inf_times,
+        left_inf_types,
+        left_inf_lengths,
+        left_target,
+        left_offsets_np,
+        left_path_idx,
+        left_title,
+    )
+    _plot_dataset(
+        1,
+        right_pred,
+        right_eval_times,
+        right_inf_times,
+        right_inf_types,
+        right_inf_lengths,
+        right_target,
+        right_offsets_np,
+        right_path_idx,
+        right_title,
+    )
+
+    # Unified legend at figure level from the first row, left column
+    plt.draw()
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    keep_labels = {"FIM-PP (zero-shot)", "Ground Truth"}
+    uniq = []
+    seen = set()
+    for h, l in zip(handles, labels):
+        if l in keep_labels and l not in seen:
+            uniq.append((h, l))
+            seen.add(l)
+    # Place legend centered above both columns; reserve extra top margin for it
+    if len(uniq) > 0:
+        fig.legend(
+            [h for h, _ in uniq],
+            [l for _, l in uniq],
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0.995),
+            ncols=len(uniq),
+        )
+
+    fig.tight_layout(rect=[0, 0.02, 1, 0.965])
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    # Also save as PDF for LaTeX-quality vector graphics
+    try:
+        pdf_path = str(Path(save_path).with_suffix(".pdf"))
+        plt.savefig(pdf_path, bbox_inches="tight")
+        print(f"Side-by-side intensity comparison saved to {pdf_path}")
+    except Exception as e:
+        print(f"Warning: failed to save PDF version: {e}")
+    plt.close()
+    print(f"Side-by-side intensity comparison saved to {save_path}")
 
 
 def load_fimhawkes_with_proper_weights(checkpoint_path):
@@ -589,6 +923,113 @@ def main(args):
     model.to(device)
 
     # Branch: CDiff datasets vs synthetic .pt directory datasets
+    # If a right dataset is provided, generate a side-by-side figure
+    if getattr(args, "right_dataset", None):
+        # LEFT SIDE: args.dataset
+        use_cdiff_left = _is_cdiff_dataset_dir(_resolve_cdiff_dir(dataset_dir))
+        if use_cdiff_left:
+            print("[Left] Detected CDiff dataset layout. Using train as context and val as inference.")
+            print(f"[Left] Using validation index (inference path) from CDiff val split: {args.path_idx}")
+            left_model_data = build_model_data_from_cdiff(dataset_dir, val_index=args.path_idx, max_context_paths=2000)
+            left_effective_path_idx = 0
+            try:
+                num_marks = int(left_model_data.get("num_marks", 0))
+                if num_marks > 0:
+                    setattr(model.config, "max_num_marks", num_marks)
+            except Exception:
+                pass
+        else:
+            left_data = load_data_from_dir(dataset_dir)
+            if not left_data:
+                print("[Left] No data loaded. Exiting.")
+                return
+            print(f"[Left] Loaded data with keys: {list(left_data.keys())}")
+            left_sample_idx = args.sample_idx
+            sample_count = None
+            for key, value in left_data.items():
+                if torch.is_tensor(value):
+                    sample_count = value.shape[0]
+                    break
+            if sample_count is not None and left_sample_idx >= sample_count:
+                print(f"[Left] Warning: sample_idx {left_sample_idx} >= number of samples {sample_count}. Using sample 0.")
+                left_sample_idx = 0
+            print(f"[Left] Using sample index: {left_sample_idx}")
+            single_sample_left = {}
+            for key, value in left_data.items():
+                if torch.is_tensor(value):
+                    single_sample_left[key] = value[left_sample_idx]
+                else:
+                    single_sample_left[key] = value[left_sample_idx]
+            try:
+                left_model_data = prepare_batch_for_model(single_sample_left, args.path_idx, num_points_between_events=10)
+            except ValueError as e:
+                print(f"[Left] Error preparing batch: {e}")
+                return
+            left_effective_path_idx = args.path_idx
+
+        # RIGHT SIDE: args.right_dataset (can be CDiff or synthetic)
+        right_dataset_dir = Path(args.right_dataset)
+        use_cdiff_right = _is_cdiff_dataset_dir(_resolve_cdiff_dir(right_dataset_dir))
+        if use_cdiff_right:
+            print("[Right] Detected CDiff dataset layout. Using train as context and val as inference.")
+            print(f"[Right] Using validation index (inference path) from CDiff val split: {args.path_idx}")
+            right_model_data = build_model_data_from_cdiff(right_dataset_dir, val_index=args.path_idx, max_context_paths=2000)
+            right_effective_path_idx = 0
+        else:
+            right_data = load_data_from_dir(right_dataset_dir)
+            if not right_data:
+                print("[Right] No data loaded. Exiting.")
+                return
+            print(f"[Right] Loaded data with keys: {list(right_data.keys())}")
+            right_sample_idx = args.sample_idx
+            sample_count_r = None
+            for key, value in right_data.items():
+                if torch.is_tensor(value):
+                    sample_count_r = value.shape[0]
+                    break
+            if sample_count_r is not None and right_sample_idx >= sample_count_r:
+                print(f"[Right] Warning: sample_idx {right_sample_idx} >= number of samples {sample_count_r}. Using sample 0.")
+                right_sample_idx = 0
+            print(f"[Right] Using sample index: {right_sample_idx}")
+            single_sample_right = {}
+            for key, value in right_data.items():
+                if torch.is_tensor(value):
+                    single_sample_right[key] = value[right_sample_idx]
+                else:
+                    single_sample_right[key] = value[right_sample_idx]
+            try:
+                right_model_data = prepare_batch_for_model(single_sample_right, args.path_idx, num_points_between_events=10)
+            except ValueError as e:
+                print(f"[Right] Error preparing batch: {e}")
+                return
+            right_effective_path_idx = args.path_idx
+
+        # Run model on both sides
+        left_model_data = _move_to_device(left_model_data, device)
+        right_model_data = _move_to_device(right_model_data, device)
+        with torch.no_grad():
+            left_output = model(left_model_data)
+            right_output = model(right_model_data)
+
+        # Titles
+        left_title = args.left_title
+        right_title = args.right_title
+
+        # Plot and save
+        plot_two_datasets_side_by_side(
+            left_output,
+            left_model_data,
+            right_output,
+            right_model_data,
+            left_title,
+            right_title,
+            save_path=args.save_path_comparison,
+            left_path_idx=left_effective_path_idx,
+            right_path_idx=right_effective_path_idx,
+        )
+        return
+
+    # Single-dataset mode (default)
     use_cdiff = _is_cdiff_dataset_dir(_resolve_cdiff_dir(dataset_dir))
     if use_cdiff:
         print("Detected CDiff dataset layout. Using train as context and val as inference.")
@@ -678,6 +1119,12 @@ if __name__ == "__main__":
         help="Path to the validation/test dataset directory.",
     )
     parser.add_argument(
+        "--right_dataset",
+        type=str,
+        default=None,
+        help="Optional second dataset to plot side-by-side (e.g., 'retweet').",
+    )
+    parser.add_argument(
         "--sample_idx",
         type=int,
         default=0,
@@ -688,6 +1135,24 @@ if __name__ == "__main__":
         type=int,
         default=0,
         help="Index of the inference path to visualize (default: 0).",
+    )
+    parser.add_argument(
+        "--left_title",
+        type=str,
+        default="Synthetic 3D Hawkes Process",
+        help="Title for the left subplot when comparing two datasets.",
+    )
+    parser.add_argument(
+        "--right_title",
+        type=str,
+        default="Retweet Dataset",
+        help="Title for the right subplot when comparing two datasets.",
+    )
+    parser.add_argument(
+        "--save_path_comparison",
+        type=str,
+        default="intensity_comparison_synthetic_vs_retweet.png",
+        help="Output path for the side-by-side comparison figure.",
     )
     args = parser.parse_args()
     main(args)
