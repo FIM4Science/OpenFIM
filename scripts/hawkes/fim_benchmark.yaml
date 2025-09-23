@@ -13,13 +13,13 @@ datasets:
 
 # - 'checkpoints' list of FIM-Hawkes checkpoint directories
 checkpoints:
-  - results/FIM_Hawkes_10-22st_nll_only_mc_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-20-1214/checkpoints/best-model
+  - results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-22-1331/checkpoints/best-model
   # Tip: leave the list empty to start from scratch per dataset via fine-tuning.
   # In that case set fine_tune: true and provide finetune_config below.
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
-task: both
+task: long_horizon
 # Sampling method for next-event time: thinning | inverse_transform
 sampling_method: thinning
 context_size: 2000   # null => use full train split
@@ -32,6 +32,8 @@ num_bootstrap_samples: 1000
 # Long-horizon parameters (used when task == long_horizon)
 forecast_horizon_size: 20           # N future events to generate
 num_ensemble_trajectories: 5        # number of independent trajectories for ensembling
+num_trials: 1                       # number of repeated trials for mean±std reporting
+base_seed: 0                         # base RNG seed; trials use base_seed + trial_idx
 
 # Output
 results_root: results/fim_benchmark
@@ -44,14 +46,14 @@ parallel: 5
 # - For long_horizon: local CDiff dataset path is used (resolved from data/external/CDiff_dataset/<name> if needed)
 # - The best validation checkpoint (best-model) is automatically selected for evaluation
 # - Each dataset starts fine-tune from the base checkpoint again (no carry-over)
-fine_tune: false
+fine_tune: true
 # Required when fine_tune: true — path to a train YAML used by fim_finetune.py
 # When 'checkpoints' is empty, this is also required to build the model from scratch.
 finetune_config: configs/train/hawkes/david.yaml
 # Fine-tune hyperparameters
 nll_method: monte_carlo  # closed_form | monte_carlo
 fine_tune_lr: 5e-5
-fine_tune_epochs: 10000
+fine_tune_epochs: 15000
 finetune_val_every: 500 # Only evaluate on val set every 500 epochs
 # Optional custom save root for fine-tuning artifacts
 # finetune_save_root: results/finetuned_cdiff

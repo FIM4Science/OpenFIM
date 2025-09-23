@@ -134,6 +134,24 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         except Exception:
             return False
 
+    def _extract_num_trials_from_ft_yaml(ft_yaml_path: Path) -> int | None:
+        try:
+            if not ft_yaml_path or not ft_yaml_path.exists():
+                return None
+            raw = yaml.safe_load(ft_yaml_path.read_text())
+            if not isinstance(raw, dict):
+                return None
+            # Prefer top-level 'num_trials'
+            if isinstance(raw.get("num_trials"), int):
+                return int(raw["num_trials"])
+            # Or nested under 'evaluation' key
+            eval_blk = raw.get("evaluation")
+            if isinstance(eval_blk, dict) and isinstance(eval_blk.get("num_trials"), int):
+                return int(eval_blk["num_trials"])
+        except Exception:
+            return None
+        return None
+
     # Shared cache to reuse the same fine-tuned checkpoint across tasks in a single run
     shared_finetuned_ckpt: Path | None = None
 
@@ -302,8 +320,14 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         cmd.extend(["--forecast-horizon-size", str(cfg.get("forecast_horizon_size"))])
         if cfg.get("num_ensemble_trajectories") is not None:
             cmd.extend(["--num-ensemble-trajectories", str(cfg.get("num_ensemble_trajectories"))])
-        # Trials configuration for long-horizon
-        cmd.extend(["--num-trials", str(cfg.get("num_trials", 10))])
+        # Trials configuration for long-horizon (prefer benchmark YAML, else finetune YAML, else default 10)
+        num_trials_val = cfg.get("num_trials")
+        if num_trials_val is None and cfg.get("finetune_config") is not None:
+            ft_yaml_path = Path(str(cfg.get("finetune_config")))
+            num_trials_val = _extract_num_trials_from_ft_yaml(ft_yaml_path)
+        if num_trials_val is None:
+            num_trials_val = 10
+        cmd.extend(["--num-trials", str(int(num_trials_val))])
         if cfg.get("base_seed") is not None:
             cmd.extend(["--base-seed", str(cfg.get("base_seed"))])
         commands.append(cmd)
