@@ -418,6 +418,9 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
 
     B, M, P_inference, _ = predicted_intensities.shape
 
+    # Marker cycle to give each mark type a distinct tick/shape
+    marker_cycle = ["o", "s", "^", "D", "v", "P", "*", "X", "<", ">", "h", "8", "+", "x", "|", "_"]
+
     b = 0  # Always use first batch
     p = path_idx  # Use specified path index
 
@@ -481,18 +484,14 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             ax.plot(eval_times_plot, target_intensity_p_m, "r--", linewidth=2, label="Ground Truth Intensity", alpha=0.8)
 
         # Plot event scatter marks prominently
-        # Events of the current mark
+        # Events of the current mark, with a distinct marker for this mark type
         events_this_mark = all_event_times[all_event_types == m]
         if len(events_this_mark) > 0:
-            # Get intensity values at event times for this mark
             event_intensities = []
             for event_time in events_this_mark:
-                # Find closest evaluation time to get intensity value
-                # Use shifted timeline for indexing; plotting x is shifted later if offset available
                 closest_idx = np.argmin(np.abs(eval_times_p - event_time))
                 event_intensities.append(pred_intensity_p_m[closest_idx])
 
-            # Shift x for scatter if offsets are available
             if offsets_np is not None:
                 events_plot = events_this_mark + offsets_np[b, p]
             else:
@@ -503,7 +502,7 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 event_intensities,
                 s=100,
                 c="green",
-                marker="o",
+                marker=marker_cycle[m % len(marker_cycle)],
                 label=f"Events (Mark {m})",
                 zorder=10,
                 edgecolors="darkgreen",
@@ -511,26 +510,40 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 alpha=0.9,
             )
 
-        # Events of other marks (smaller markers)
-        events_other_marks = all_event_times[all_event_types != m]
-        if len(events_other_marks) > 0:
-            # Get intensity values at other event times
+        # Events of other marks, each with its own (grey) marker determined by mark type
+        first_other = True
+        for k in range(M):
+            if k == m:
+                continue
+            events_k = all_event_times[all_event_types == k]
+            if len(events_k) == 0:
+                continue
+
             other_event_intensities = []
-            for event_time in events_other_marks:
-                # Find closest evaluation time to get intensity value
+            for event_time in events_k:
                 closest_idx = np.argmin(np.abs(eval_times_p - event_time))
                 other_event_intensities.append(pred_intensity_p_m[closest_idx])
 
             if offsets_np is not None:
-                events_other_plot = events_other_marks + offsets_np[b, p]
+                events_other_plot = events_k + offsets_np[b, p]
             else:
-                events_other_plot = events_other_marks
+                events_other_plot = events_k
 
             ax.scatter(
-                events_other_plot, other_event_intensities, s=60, c="gray", marker="x", label="Events (Other Marks)", zorder=8, alpha=0.7
+                events_other_plot,
+                other_event_intensities,
+                s=60,
+                c="gray",
+                marker=marker_cycle[k % len(marker_cycle)],
+                label="Events (Other Marks)" if first_other else None,
+                zorder=8,
+                edgecolors="dimgray",
+                linewidth=1.0,
+                alpha=0.7,
             )
+            first_other = False
 
-        ax.set_ylabel("Intensity", fontsize=12)
+        ax.set_ylabel("Intensity", fontsize=16)
         ax.set_title(f"Intensity Function for Mark {m}", fontsize=14, fontweight="bold")
 
         # Create a clean legend
@@ -541,7 +554,7 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
         ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
         ax.set_ylim(bottom=0)
 
-    axes[-1].set_xlabel("Time", fontsize=12)
+    axes[-1].set_xlabel("Time", fontsize=16)
     plt.suptitle(f"Hawkes Process Intensity Functions - Path {path_idx}", fontsize=16, fontweight="bold")
     fig.tight_layout(rect=[0, 0.03, 1, 0.97])  # Adjust for suptitle
 
@@ -579,7 +592,9 @@ def main(args):
     use_cdiff = _is_cdiff_dataset_dir(_resolve_cdiff_dir(dataset_dir))
     if use_cdiff:
         print("Detected CDiff dataset layout. Using train as context and val as inference.")
-        model_data = build_model_data_from_cdiff(dataset_dir, val_index=args.sample_idx, max_context_paths=2000)
+        # Interpret path_idx as the validation sequence index for CDiff datasets
+        print(f"Using validation index (inference path) from CDiff val split: {args.path_idx}")
+        model_data = build_model_data_from_cdiff(dataset_dir, val_index=args.path_idx, max_context_paths=2000)
         # For CDiff path selection, we have P_inference=1; force path_idx=0 for plotting
         effective_path_idx = 0
         # Align model config marks if possible
