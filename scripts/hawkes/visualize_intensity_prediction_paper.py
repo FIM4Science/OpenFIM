@@ -27,6 +27,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 
 from fim.models.hawkes import FIMHawkes, FIMHawkesConfig
 
@@ -505,7 +507,7 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
             linestyle="-",
             linewidth=2,
             label="FIM-PP (zero-shot)",
-            alpha=0.9,
+            alpha=1,
         )
 
         if target_intensities is not None:
@@ -524,8 +526,8 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 color="black",
                 linestyle="--",
                 linewidth=1.8,
-                label="Ground Truth",
-                alpha=0.9,
+                label="Ground-Truth",
+                alpha=1,
             )
 
         # Plot event scatter marks prominently
@@ -546,13 +548,13 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 events_plot,
                 event_intensities,
                 s=100,
-                c="green",
+                c="#CC79A7",
                 marker=marker_cycle[m % len(marker_cycle)],
                 label=None,
                 zorder=10,
-                edgecolors="darkgreen",
+                edgecolors="#CC79A7",
                 linewidth=1.5,
-                alpha=0.9,
+                alpha=1,
             )
 
         # Events of other marks, each with its own (grey) marker determined by mark type
@@ -586,13 +588,14 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 alpha=0.7,
             )
 
-        ax.set_ylabel("Intensity", fontsize=20)
+        ax.set_ylabel("Intensity", fontsize=14)
         ax.set_title(f"Intensity Function for Mark {m}", fontsize=14, fontweight="bold")
 
         # Axis aesthetics: slimmer spines/ticks, no grid, auto y-limits
         for spine in ax.spines.values():
             spine.set_linewidth(0.3)
         ax.tick_params(axis="both", direction="out", width=0.5, length=2, pad=0.8)
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=4, prune=None))
         ax.grid(False)
         ax.margins(x=0)
 
@@ -608,15 +611,35 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
         if l in keep_labels and l not in seen:
             uniq.append((h, l))
             seen.add(l)
-    if len(uniq) > 0:
-        fig.legend(
-            [h for h, _ in uniq],
-            [l for _, l in uniq],
-            loc="upper center",
-            bbox_to_anchor=[0.5, 0.995],
-            ncols=len(uniq),
+
+    # Add custom legend entries for mark symbols (three black markers)
+    mark_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker=marker_cycle[i % len(marker_cycle)],
+            linestyle="",
+            color="black",
+            markerfacecolor="black",
+            markeredgecolor="black",
+            markersize=10,
         )
-    fig.tight_layout(rect=[0, 0.02, 1, 0.965])
+        for i in range(3)
+    ]
+    mark_labels = [f"Mark {i + 1}" for i in range(3)]
+
+    combined_handles = [h for h, _ in uniq] + mark_handles
+    combined_labels = [l for _, l in uniq] + mark_labels
+
+    fig.legend(
+        combined_handles,
+        combined_labels,
+        loc="upper center",
+        bbox_to_anchor=[0.5, 0.995],
+        ncols=len(combined_labels),
+        fontsize=18,
+    )
+    fig.tight_layout(rect=[0, 0.02, 1, 0.945])
 
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     # Also save as PDF for LaTeX-quality vector graphics
@@ -692,9 +715,9 @@ def plot_two_datasets_side_by_side(
     fig, axes = plt.subplots(
         M_global,
         3,
-        figsize=(20, 5.0 * M_global),
+        figsize=(20, 3.0 * M_global),
         sharex=False,
-        gridspec_kw={"width_ratios": [1.0, 0.06, 1.0]},
+        gridspec_kw={"width_ratios": [1.0, 0.002, 1.0]},
     )
     if M_global == 1:
         # Ensure 2D indexing
@@ -752,9 +775,9 @@ def plot_two_datasets_side_by_side(
                 pred_intensity_p_m,
                 color="#0072B2",
                 linestyle="-",
-                linewidth=2,
+                linewidth=3.5,
                 label="FIM-PP (zero-shot)",
-                alpha=0.9,
+                alpha=1,
             )
 
             # Optional target
@@ -772,7 +795,7 @@ def plot_two_datasets_side_by_side(
                     linestyle="--",
                     linewidth=1.8,
                     label="Ground Truth",
-                    alpha=0.9,
+                    alpha=1,
                 )
 
             # Events of current mark (green) with distinct marker
@@ -790,13 +813,13 @@ def plot_two_datasets_side_by_side(
                     events_plot,
                     event_intensities,
                     s=100,
-                    c="green",
+                    c="#CC79A7",
                     marker=marker_cycle[m % len(marker_cycle)],
                     label=None,
                     zorder=10,
-                    edgecolors="darkgreen",
+                    edgecolors="#CC79A7",
                     linewidth=1.5,
-                    alpha=0.9,
+                    alpha=1,
                 )
 
             # Events of other marks (grey) with their own markers
@@ -824,18 +847,19 @@ def plot_two_datasets_side_by_side(
                     zorder=8,
                     edgecolors="dimgray",
                     linewidth=1.0,
-                    alpha=0.7,
+                    alpha=1,
                 )
 
-            ax.set_ylabel("Intensity", fontsize=20)
+            ax.set_ylabel("Intensity", fontsize=15)
             if m == 0:
-                ax.set_title(title, fontsize=22, fontweight="bold")
+                ax.set_title(title, fontsize=18, fontweight="bold")
             if m == M_global - 1:
-                ax.set_xlabel("Time", fontsize=20)
+                ax.set_xlabel("Time", fontsize=15)
             # Axis aesthetics: slimmer spines/ticks, no grid, auto y-limits
             for spine in ax.spines.values():
                 spine.set_linewidth(0.3)
             ax.tick_params(axis="both", direction="out", width=0.5, length=2, pad=0.8)
+            ax.yaxis.set_major_locator(MaxNLocator(nbins=4, prune=None))
             ax.grid(False)
             ax.margins(x=0)
 
@@ -874,17 +898,37 @@ def plot_two_datasets_side_by_side(
         if l in keep_labels and l not in seen:
             uniq.append((h, l))
             seen.add(l)
-    # Place legend centered above both columns; reserve extra top margin for it
-    if len(uniq) > 0:
-        fig.legend(
-            [h for h, _ in uniq],
-            [l for _, l in uniq],
-            loc="upper center",
-            bbox_to_anchor=(0.5, 0.995),
-            ncols=len(uniq),
-        )
 
-    fig.tight_layout(rect=[0, 0.02, 1, 0.965])
+    # Custom legend entries for three mark symbols (black markers) on top
+    mark_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker=marker_cycle[i % len(marker_cycle)],
+            linestyle="",
+            color="black",
+            markerfacecolor="black",
+            markeredgecolor="black",
+            markersize=10,
+        )
+        for i in range(3)
+    ]
+    mark_labels = [f"Mark {i + 1}" for i in range(3)]
+
+    combined_handles = [h for h, _ in uniq] + mark_handles
+    combined_labels = [l for _, l in uniq] + mark_labels
+
+    # Place legend centered above both columns; reserve extra top margin for it
+    fig.legend(
+        combined_handles,
+        combined_labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.995),
+        ncols=len(combined_labels),
+        fontsize=18,
+    )
+
+    fig.tight_layout(rect=[0, 0.02, 1, 0.945])
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
     # Also save as PDF for LaTeX-quality vector graphics
     try:
