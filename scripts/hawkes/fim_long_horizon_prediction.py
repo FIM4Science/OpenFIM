@@ -12,19 +12,25 @@ Key differences vs next-event prediction:
   trajectories (mean of inter-arrival times, majority vote for types).
 
 CLI usage (invoked by the benchmark runner):
-python3 scripts/hawkes/fim_long_horizon_prediction.py \
-  --checkpoint <dir> --dataset <easytpp/...|local_path> --run-dir <dir> \
-  [--context-size <int>] [--inference-size <int>] [--max-num-events <int|-1>] \
-  [--sample-idx <int>] [--num-integration-points <int>] \
-  --forecast-horizon-size <int> --num-ensemble-trajectories <int>
+python /cephfs/users/berghaus/FoundationModels/FIM/scripts/hawkes/fim_long_horizon_prediction.py \
+  --checkpoint results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-23-1809/checkpoints/best-model \
+  --dataset data/external/CDiff_dataset/taobao \
+  --run-dir /cephfs/users/berghaus/FoundationModels/FIM/results/tmp \
+  --forecast-horizon-size 10 \
+  --context-size 2000 \
+  --inference-size 1 \
+  --plot-event-predictions \
+  --plot-path-index 0
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import pickle
 import random
+import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -34,6 +40,13 @@ import torch
 
 # Import the new OTD metric functions
 from otd_metrics import get_distances_otd
+
+
+# Lazy imports for plotting to avoid heavy deps unless requested
+try:
+    import matplotlib.pyplot as plt  # noqa: E402
+except Exception:
+    plt = None
 
 
 # ============================
@@ -351,6 +364,9 @@ def run_long_horizon_evaluation(
     nll_method: Optional[str] = None,
     num_trials: int = 10,
     base_seed: int = 0,
+    plot_intensity_predictions: bool = False,
+    plot_event_predictions: bool = False,
+    plot_path_index: int = 0,
 ) -> Dict:
     start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -525,6 +541,34 @@ def run_long_horizon_evaluation(
             otd_sum += np.mean(distances[0])
             num_eval += 1
 
+            # Optional: plotting for a single selected path index in the first trial
+            if plot_event_predictions and plt is not None and trial_idx == 0 and i == int(plot_path_index):
+                try:
+                    _plot_next_event_predictions(
+                        hist_times,
+                        hist_types,
+                        true_future_dtimes,
+                        true_future_types,
+                        pred_dtimes,
+                        pred_types,
+                        save_path=str(Path(f"event_predictions_long_horizon_seq_{i}.png")),
+                    )
+                except Exception as _e:
+                    print(f"Warning: event prediction plotting failed for seq {i}: {_e}")
+            if plot_intensity_predictions and trial_idx == 0 and i == int(plot_path_index):
+                try:
+                    _plot_intensity_for_sequence(
+                        context_data_raw,
+                        inference_data_raw,
+                        i,
+                        detected_num_marks,
+                        model,
+                        device,
+                        save_path=str(Path(f"intensity_comparison_long_horizon_seq_{i}.png")),
+                    )
+                except Exception as _e:
+                    print(f"Warning: intensity plotting failed for seq {i}: {_e}")
+
         # Keep track of how many sequences were actually evaluated (should be constant across trials)
         num_eval_sequences = num_eval
 
@@ -576,6 +620,180 @@ def run_long_horizon_evaluation(
     }
 
 
+def _plot_next_event_predictions(
+    hist_times: torch.Tensor,
+    hist_types: torch.Tensor,
+    true_future_dtimes: torch.Tensor,
+    true_future_types: torch.Tensor,
+    pred_dtimes: torch.Tensor,
+    pred_types: torch.Tensor,
+    save_path: Optional[str] = None,
+):
+    if plt is None:
+        return
+    # Build absolute times for true next events
+    hist_times_np = hist_times.detach().cpu().numpy()
+    last_hist_time = float(hist_times_np[-1]) if hist_times_np.size > 0 else 0.0
+    true_future_dtimes_np = true_future_dtimes.detach().cpu().numpy()
+    true_future_types_np = true_future_types.detach().cpu().numpy()
+    pred_dtimes_np = pred_dtimes.detach().cpu().numpy()
+    pred_types_np = pred_types.detach().cpu().numpy()
+
+    # Absolute future times assuming autoregressive continuation
+    true_next_abs = np.cumsum(true_future_dtimes_np) + last_hist_time
+    pred_next_abs = np.cumsum(pred_dtimes_np) + last_hist_time
+
+    n_steps = len(true_future_dtimes_np)
+    height = max(4.0, min(14.0, 0.35 * n_steps + 2.0))
+    fig, ax = plt.subplots(1, 1, figsize=(12, height))
+
+    # Build color palette for types
+    types_present = sorted(set(map(int, true_future_types_np.tolist())) | set(map(int, pred_types_np.tolist())))
+    cmap = plt.get_cmap("tab20")
+    colors = {t: cmap(i % 20) for i, t in enumerate(types_present)}
+
+    y_rows = np.arange(n_steps)
+    for y in y_rows:
+        ax.axhline(y, color="#dddddd", linewidth=0.6, zorder=0)
+
+    for idx in range(n_steps):
+        t_true = float(true_next_abs[idx])
+        t_pred = float(pred_next_abs[idx])
+        type_true = int(true_future_types_np[idx])
+        type_pred = int(pred_types_np[idx])
+        y = y_rows[idx]
+
+        ax.scatter(
+            t_true,
+            y,
+            color=colors.get(type_true, "#1f77b4"),
+            marker="o",
+            edgecolors="k",
+            linewidths=0.5,
+            s=40,
+            zorder=3,
+        )
+        ax.scatter(
+            t_pred,
+            y,
+            color=colors.get(type_pred, "#ff7f0e"),
+            marker="x",
+            linewidths=1.0,
+            s=50,
+            zorder=3,
+        )
+
+        ax.text(t_true, y + 0.15, f"T{type_true}", fontsize=7, color="#333333", ha="center", va="bottom")
+        ax.text(t_pred, y - 0.15, f"P{type_pred}", fontsize=7, color="#333333", ha="center", va="top")
+
+    # Label rows with REAL transition indices: (L_hist → L_hist+1), ...
+    hist_len = int(hist_times.shape[0])
+    ax.set_yticks(y_rows)
+    ax.set_yticklabels([f"{k}→{k + 1}" for k in range(hist_len, hist_len + n_steps)])
+    ax.invert_yaxis()
+    ax.set_xlabel("Event time")
+    ax.set_ylabel("Step (k→k+1)")
+    ax.set_title("Long-horizon predictions: rows = steps, circles = True, crosses = Predicted; color = Type")
+
+    from matplotlib.lines import Line2D
+
+    marker_handles = [
+        Line2D([0], [0], marker="o", color="k", markerfacecolor="w", markersize=7, linestyle="None", label="True"),
+        Line2D([0], [0], marker="x", color="k", markersize=7, linestyle="None", label="Predicted"),
+    ]
+    type_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="none",
+            markeredgecolor="k",
+            markerfacecolor=colors[t],
+            markersize=7,
+            linestyle="None",
+            label=f"Type {t}",
+        )
+        for t in types_present
+    ]
+    legend1 = ax.legend(handles=marker_handles, loc="upper right", title="Kind")
+    ax.add_artist(legend1)
+    ax.legend(handles=type_handles, loc="lower right", title="Types", ncol=min(3, len(type_handles)))
+    fig.tight_layout()
+    if save_path is None:
+        save_path = "event_predictions_long_horizon.png"
+    os.makedirs(Path(save_path).parent, exist_ok=True)
+    plt.savefig(save_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_intensity_for_sequence(
+    context_data_raw: Dict,
+    inference_data_raw: Dict,
+    inf_idx: int,
+    num_marks: int,
+    model: FIMHawkes,
+    device: torch.device,
+    save_path: Optional[str] = None,
+):
+    # Defer heavy import
+    from visualize_intensity_predictions import plot_intensity_comparison, prepare_batch_for_model
+
+    # Build a single-sample with multiple paths: all context paths + one inference path
+    all_times: List[List[float]] = []
+    all_types: List[List[int]] = []
+    all_lens: List[int] = []
+
+    for t_seq, ty_seq, L in zip(context_data_raw["time_since_start"], context_data_raw["type_event"], context_data_raw["seq_len"]):
+        all_times.append(list(map(float, t_seq)))
+        all_types.append([int(x) for x in ty_seq])
+        all_lens.append(int(L))
+
+    # Append the chosen inference sequence as the last path
+    all_times.append(list(map(float, inference_data_raw["time_since_start"][inf_idx])))
+    all_types.append([int(x) for x in inference_data_raw["type_event"][inf_idx]])
+    all_lens.append(int(inference_data_raw["seq_len"][inf_idx]))
+
+    if len(all_lens) < 2:
+        print("Skipping intensity plot: need at least 2 paths (context + inference).")
+        return
+
+    max_L = max(all_lens) if all_lens else 0
+    times_padded: List[List[float]] = []
+    types_padded: List[List[int]] = []
+    for t_seq, c_seq, L in zip(all_times, all_types, all_lens):
+        pad = max_L - L
+        times_padded.append(t_seq + [0.0] * pad)
+        types_padded.append(c_seq + [0] * pad)
+
+    # Build tensors with shapes expected by the helper: [P_paths, L, 1] then helper adds batch dim
+    event_times = torch.tensor(times_padded, dtype=torch.float32).unsqueeze(-1)
+    event_types = torch.tensor(types_padded, dtype=torch.long).unsqueeze(-1)
+    seq_lengths = torch.tensor(all_lens, dtype=torch.long)
+
+    single_sample = {
+        "event_times": event_times,
+        "event_types": event_types,
+        "seq_lengths": seq_lengths,
+    }
+
+    # The last path is the inference path
+    inference_path_idx = len(all_lens) - 1
+    model_data_vis = prepare_batch_for_model(single_sample, inference_path_idx=inference_path_idx, num_points_between_events=10)
+    model_data_vis["num_marks"] = int(num_marks)
+
+    # Move to device
+    for key, val in model_data_vis.items():
+        if torch.is_tensor(val):
+            model_data_vis[key] = val.to(device)
+
+    with torch.no_grad():
+        model_output_vis = model(model_data_vis)
+
+    if save_path is None:
+        save_path = f"intensity_comparison_long_horizon_seq_{inf_idx}.png"
+    plot_intensity_comparison(model_output_vis, model_data_vis, save_path=save_path, path_idx=0)
+
+
 def main():
     ap = argparse.ArgumentParser("Run long-horizon FIM-Hawkes forecasting evaluation")
     ap.add_argument("--checkpoint", type=str, required=True)
@@ -592,6 +810,9 @@ def main():
     ap.add_argument("--nll-method", type=str, choices=["closed_form", "monte_carlo"], default=None)
     ap.add_argument("--num-trials", type=int, default=10)
     ap.add_argument("--base-seed", type=int, default=0)
+    ap.add_argument("--plot-intensity-predictions", action="store_true")
+    ap.add_argument("--plot-event-predictions", action="store_true")
+    ap.add_argument("--plot-path-index", type=int, default=0)
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -613,6 +834,9 @@ def main():
             nll_method=args.nll_method,
             num_trials=int(args.num_trials),
             base_seed=int(args.base_seed),
+            plot_intensity_predictions=bool(args.plot_intensity_predictions),
+            plot_event_predictions=bool(args.plot_event_predictions),
+            plot_path_index=int(args.plot_path_index),
         )
         status = "OK"
     except Exception as e:
@@ -628,6 +852,8 @@ def main():
 
     result.setdefault("status", status)
     (run_dir / "metrics.json").write_text(json.dumps(result, indent=2))
+    if status != "OK":
+        sys.exit(1)
 
 
 if __name__ == "__main__":
