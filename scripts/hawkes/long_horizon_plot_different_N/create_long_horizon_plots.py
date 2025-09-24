@@ -8,6 +8,8 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from cycler import cycler
+from matplotlib.ticker import MaxNLocator
 
 
 # 1.) Specifies the txt names with the tabulars as attached via a global variable
@@ -96,8 +98,10 @@ def create_plots(aggregated_data, horizons):
     # Any model not in this dict will get a default style from matplotlib's color cycle.
     model_styles = {
         # Your models with custom, standout styles
-        "FIMzeroshot": {"color": "#d62728", "marker": "*", "label": "FIM (zero-shot)", "linewidth": 2.5, "markersize": 12},
-        "FIMfine": {"color": "#2ca02c", "marker": "D", "label": "FIM (fine-tuned)", "linewidth": 2.5, "markersize": 9},
+        # Force blue for FIM (zero-shot) using Okabe–Ito blue
+        "FIMzeroshot": {"color": "#0072B2", "marker": "*", "label": "FIM (zero-shot)", "linewidth": 2.0, "markersize": 10},
+        # Force green for FIM (fine-tuned) using Okabe–Ito green
+        "FIMfine": {"color": "#009E73", "marker": "D", "label": "FIM (fine-tuned)", "linewidth": 2.0, "markersize": 9},
         # Baseline models (optional, can be removed for default styling)
         "TCDDM": {"color": "#d3b5e5", "marker": "^"},
         "Dual-TPP": {"color": "#0077b6", "marker": "^"},
@@ -107,19 +111,47 @@ def create_plots(aggregated_data, horizons):
         "CDiff": {"color": "#1b998b", "marker": "^"},
     }
 
-    try:
-        plt.style.use("seaborn-v0_8-whitegrid")
-    except Exception:
-        plt.style.use("seaborn-whitegrid")
+    # Use a clean style without relying on seaborn; configure explicitly
+    # Okabe–Ito colorblind-friendly palette (as requested)
+    okabe_ito_colors = [
+        "#E69F00",
+        "#56B4E9",
+        "#009E73",
+        "#F0E442",
+        "#0072B2",
+        "#D55E00",
+        "#CC79A7",
+    ]
+    plt.rcParams["axes.prop_cycle"] = cycler(color=okabe_ito_colors)
+
+    # Set Computer Modern-like fonts without requiring LaTeX
     plt.rcParams.update(
-        {"font.family": "serif", "font.size": 16, "axes.labelsize": 18, "xtick.labelsize": 14, "ytick.labelsize": 14, "legend.fontsize": 12}
+        {
+            "font.family": "serif",
+            "font.serif": [
+                "Computer Modern Roman",
+                "CMU Serif",
+                "DejaVu Serif",
+            ],
+            "mathtext.fontset": "cm",
+            "font.size": 16,
+            "axes.titlesize": 20,
+            "axes.labelsize": 18,
+            "xtick.labelsize": 14,
+            "ytick.labelsize": 14,
+            "legend.fontsize": 14,
+            "figure.titlesize": 22,
+        }
     )
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+    # Make each subplot approximately square: total width ~ 2x height
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 4))
 
     # Plot data for each model
     for method, data in aggregated_data.items():
-        style = dict(model_styles.get(method, {}))
+        # Keep explicit color only for FIMfine and FIMzeroshot; others respect global cycle
+        style_def = model_styles.get(method, {})
+        style = {k: v for k, v in style_def.items() if (method in ("FIMfine", "FIMzeroshot") or k != "color")}
         label = style.pop("label", method)
 
         # Left Plot: RMSE_e
@@ -130,22 +162,69 @@ def create_plots(aggregated_data, horizons):
         ax2.plot(x_vals, data["sMAPE_delta_t"], label=label, **style)
 
     # --- Final Touches ---
-    ax1.set_xlabel("Horizon N", fontweight="bold")
-    ax1.set_ylabel(r"RMSE$_e$", fontweight="bold")
+    ax1.set_xlabel("Horizon N")
+    ax1.set_ylabel(r"RMSE$_e$")
     ax1.set_xticks(horizons)
-    ax1.legend()
-    ax1.set_title("Event Type Prediction Error (RMSE)", fontsize=16)
 
-    ax2.set_xlabel("Horizon N", fontweight="bold")
-    ax2.set_ylabel("sMAPE", fontweight="bold")
+    ax2.set_xlabel("Horizon N")
+    # Use mathtext subscript for Delta t
+    ax2.set_ylabel(r"sMAPE$_{\Delta t}$")
     ax2.set_xticks(horizons)
-    ax2.set_title("Time Prediction Error (sMAPE)", fontsize=16)
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    fig.suptitle("Model Performance vs. Prediction Horizon", fontsize=20, fontweight="bold")
+    # Remove any grid lines and align aesthetics with intensity plotting script
+    for ax in (ax1, ax2):
+        ax.grid(False)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.3)
+        ax.tick_params(axis="both", direction="out", width=0.5, length=2, pad=0.8)
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=4, prune=None))
+        ax.margins(x=0)
 
-    output_filename = "horizon_metrics_plot.png"
-    plt.savefig(output_filename, dpi=300, bbox_inches="tight")
+    # Create a flat, figure-level legend across the top
+    handles1, labels1 = ax1.get_legend_handles_labels()
+    handles2, labels2 = ax2.get_legend_handles_labels()
+    handles = handles1 + handles2
+    labels = labels1 + labels2
+    unique = []
+    seen = set()
+    for h, l in zip(handles, labels):
+        if l not in seen:
+            unique.append((h, l))
+            seen.add(l)
+    if unique:
+        uh, ul = zip(*unique)
+        # Arrange legend entries into 3 rows (i.e., ncols = ceil(n_items / 3))
+        import math
+
+        n_items = len(ul)
+        ncols = max(1, math.ceil(n_items / 3))
+        legend = fig.legend(
+            uh,
+            ul,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1.06),
+            ncol=ncols,
+            frameon=True,
+            fancybox=False,
+            framealpha=1.0,
+            borderpad=0.2,
+            handletextpad=0.9,
+            borderaxespad=0.2,
+            labelspacing=0.35,
+            columnspacing=1.6,
+        )
+        frame = legend.get_frame()
+        frame.set_linewidth(0.6)
+        frame.set_edgecolor("black")
+        frame.set_facecolor("white")
+
+    # Adjust margins: reserve more top margin so legend does not overlap
+    plt.tight_layout(rect=[0, 0, 1, 0.86])
+    plt.subplots_adjust(wspace=0.32, hspace=0.0)
+
+    # Save as PDF as requested
+    output_filename = "horizon_metrics_plot.pdf"
+    plt.savefig(output_filename, dpi=300, bbox_inches="tight", format="pdf")
     print(f"\nPlot saved as {output_filename}")
     plt.show()
 
