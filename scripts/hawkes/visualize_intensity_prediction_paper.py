@@ -7,10 +7,10 @@ CUDA_VISIBLE_DEVICES="" python scripts/hawkes/visualize_intensity_prediction_pap
 
 
 conda run -n model_training python scripts/hawkes/visualize_intensity_prediction_paper.py \
-  --checkpoint "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-22-1331/checkpoints/best-model" \
+  --checkpoint "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-23-1809/checkpoints/best-model" \
   --dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/test" \
   --right_dataset "retweet" \
-  --left_title "Synthetic 3D Hawkes Process" \
+  --left_title "Synthetic Hawkes Process" \
   --right_title "Retweet Dataset" \
   --path_idx 0 \
   --sample_idx 0 \
@@ -1183,7 +1183,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--left_title",
         type=str,
-        default="Synthetic 3D Hawkes Process",
+        default="Synthetic Hawkes Process",
         help="Title for the left subplot when comparing two datasets.",
     )
     parser.add_argument(

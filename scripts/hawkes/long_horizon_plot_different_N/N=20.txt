@@ -1,0 +1,77 @@
+\begin{tabular}{llrrrr}
+Dataset              & Method   & OTD                                   & \text{RMSE\textsubscript{e}}                           & \text{RMSE\textsubscript{$\Delta t$}}                          & sMAPE\textsubscript{$\Delta t$}                                 \\
+\midrule
+\multirow{10}{*}{\datasetbf{Taxi}} & \method{HYPRO}    & $21.653 {\tinymath{\pm 0.163}}      $ & $1.231 {\tinymath{\pm 0.015}}$ & $0.372 {\tinymath{\pm 0.004}}$ & $93.803 {\tinymath{\pm 0.454}}$ \\
+                       & \method{Dual-TPP} & $24.483 {\tinymath{\pm 0.383}}$ & $1.353 {\tinymath{\pm 0.037}}$ & $0.402 {\tinymath{\pm 0.006}}$ & $95.211 {\tinymath{\pm 0.187}}$ \\
+                       & \method{A-NHP}    & $24.762 {\tinymath{\pm 0.217}}$ & $1.276 {\tinymath{\pm 0.015}}$ & $0.430 {\tinymath{\pm 0.003}}$ & $97.388 {\tinymath{\pm 0.381}}$ \\
+                       & \method{NHP}      & $25.114 {\tinymath{\pm 0.268}}$ & $1.297 {\tinymath{\pm 0.019}}$ & $0.399 {\tinymath{\pm 0.040}}$ & $96.459 {\tinymath{\pm 0.521}}$ \\
+                       & \method{IFTPP}    & $24.053 {\tinymath{\pm 0.609}}$ & $1.364 {\tinymath{\pm 0.032}}$ & $0.384 {\tinymath{\pm 0.005}}$ & $95.719 {\tinymath{\pm 0.779}}$ \\
+                       & \method{TCDDM}    & $22.148 {\tinymath{\pm 0.529}}$ & $1.309 {\tinymath{\pm 0.030}}$ & $0.382 {\tinymath{\pm 0.019}}$ & $90.596 {\tinymath{\pm 0.574}}$ \\
+                       & \method{CDiff}    & $21.013 {\tinymath{\pm 0.158}}$ & $1.131 {\tinymath{\pm 0.017}}$ & $0.351 {\tinymath{\pm 0.004}}$ & $87.993 {\tinymath{\pm 0.178}}$ \\
+                       %& \textbf{\FIMzeroshot (old)}   & $24.937$ & $1.761$ & $0.283$ & $78.895$  \\
+                       % & \textbf{\FIMfine}       & $20.818$ & $1.070$ & $0.309$ & $81.662$  \\
+                       % & \textbf{\FIMzeroshot} & $\mathbf{26.241}$  & $\mathbf{2.036}$  & $\mathbf{0.279}$ & $\mathbf{77.613}$  \\
+                       % & \textbf{\FIMfine}       &  $\mathbf{16.920}$  & $\mathbf{0.693}$  & $\mathbf{0.286}$  & $\mathbf{75.357}$   \\
+                       & \textbf{\FIMzeroshot} & $\mathbf{23.145}$ \tinymath{\pm 0.073} & $\mathbf{1.421}$ \tinymath{\pm 0.014} & $\mathbf{0.277}$ \tinymath{\pm 0.000} & $\mathbf{76.765}$ \tinymath{\pm 0.386} \\
+                        & \textbf{\FIMfine} & $\mathbf{17.914}$ \tinymath{\pm 0.117} & $\mathbf{0.705}$ \tinymath{\pm 0.006} & $\mathbf{0.314}$ \tinymath{\pm 0.004} & $\mathbf{76.828}$ \tinymath{\pm 0.549}\\
+
+\midrule
+\multirow{10}{*}{\datasetbf{Taobao}} & \method{HYPRO}    & $44.336 {\tinymath{\pm 0.127}}      $ & $2.710 {\tinymath{\pm 0.021}}$ & $0.594 {\tinymath{\pm 0.030}}$ & $134.922 {\tinymath{\pm 0.473}}$ \\
+                         & \method{Dual-TPP} & $47.324 {\tinymath{\pm 0.541}}$ & $3.237 {\tinymath{\pm 0.049}}$ & $0.871 {\tinymath{\pm 0.005}}$ & $141.687 {\tinymath{\pm 0.431}}$ \\
+                         & \method{A-NHP}    & $45.555 {\tinymath{\pm 0.345}}$ & $2.737 {\tinymath{\pm 0.021}}$ & $0.708 {\tinymath{\pm 0.010}}$ & $134.582 {\tinymath{\pm 0.920}}$ \\
+                         & \method{NHP}      & $48.131 {\tinymath{\pm 0.297}}$ & $3.355 {\tinymath{\pm 0.030}}$ & $0.837 {\tinymath{\pm 0.009}}$ & $137.644 {\tinymath{\pm 0.764}}$ \\
+                         & \method{IFTPP}    & $45.757 {\tinymath{\pm 0.287}}$ & $3.193 {\tinymath{\pm 0.043}}$ & $0.575 {\tinymath{\pm 0.012}}$ & $127.436 {\tinymath{\pm 0.606}}$ \\
+                         & \method{TCDDM}    & $45.563 {\tinymath{\pm 0.889}}$ & $2.850 {\tinymath{\pm 0.058}}$ & $0.569 {\tinymath{\pm 0.015}}$ & $126.512 {\tinymath{\pm 0.491}}$ \\
+                         & \method{CDiff}    & $44.621 {\tinymath{\pm 0.139}}$ & $2.653 {\tinymath{\pm 0.022}}$ & $0.551 {\tinymath{\pm 0.002}}$ & $125.685 {\tinymath{\pm 0.151}}$ \\
+                         %& \textbf{\FIMzeroshot (old)}   &$65.482$ & $3.280$ & $2.817$ & $172.645$ \\
+                         % & \textbf{\FIMfine}       &$53.542$ & $2.184$ & $8.397$ & $145.595$ \\
+                         % & \textbf{\FIMzeroshot}                     & $\mathbf{63.907}$  & $\mathbf{3.648}$  & $\mathbf{1.921}$  & $\mathbf{170.216}$ \\
+                         % & \textbf{\FIMfine}      & $\mathbf{58.845}$  & $\mathbf{2.388}$  & $\mathbf{13.625}$  & $\mathbf{145.900}$  \\
+                         & \textbf{\FIMzeroshot} & $\mathbf{64.281}$ \tinymath{\pm 0.077} & $\mathbf{3.949}$ \tinymath{\pm 0.010} & $\mathbf{1.988}$ \tinymath{\pm 0.006} & $\mathbf{169.687}$ \tinymath{\pm 0.089}\\
+                         & \textbf{\FIMfine} &  $\mathbf{60.106}$ \tinymath{\pm 0.464} & $\mathbf{2.428}$ \tinymath{\pm 0.005} & $\mathbf{16.068}$ \tinymath{\pm 0.109} & $\mathbf{152.528}$ \tinymath{\pm 0.377} \\
+\midrule
+\multirow{10}{*}{\datasetbf{StackOverflow}} & \method{HYPRO}    & $42.359 {\tinymath{\pm 0.170}}      $ & $1.140 {\tinymath{\pm 0.014}}      $ & $1.554 {\tinymath{\pm 0.010}}$ & $110.988 {\tinymath{\pm 0.559}}$ \\
+                                & \method{Dual-TPP} & $41.752 {\tinymath{\pm 0.200}}$ & $1.134 {\tinymath{\pm 0.019}}$ & $1.514 {\tinymath{\pm 0.017}}$ & $117.582 {\tinymath{\pm 0.420}}$ \\
+                                & \method{A-NHP}    & $42.591 {\tinymath{\pm 0.408}}$ & $1.142 {\tinymath{\pm 0.011}}$ & $1.340 {\tinymath{\pm 0.006}}$ & $108.542 {\tinymath{\pm 0.531}}$ \\
+                                & \method{NHP}      & $43.791 {\tinymath{\pm 0.147}}$ & $1.244 {\tinymath{\pm 0.030}}$ & $1.487 {\tinymath{\pm 0.004}}$ & $116.952 {\tinymath{\pm 0.404}}$ \\
+                                & \method{IFTPP}    & $46.280 {\tinymath{\pm 0.892}}$ & $1.447 {\tinymath{\pm 0.057}}$ & $1.669 {\tinymath{\pm 0.005}}$ & $115.122 {\tinymath{\pm 0.627}}$ \\
+                                & \method{TCDDM}    & $42.128 {\tinymath{\pm 0.591}}$ & $1.467 {\tinymath{\pm 0.014}}$ & $1.315 {\tinymath{\pm 0.004}}$ & $107.659 {\tinymath{\pm 0.934}}$ \\
+                                & \method{CDiff}    & $41.245 {\tinymath{\pm 1.400}}$ & $1.141 {\tinymath{\pm 0.007}}$ & $1.199 {\tinymath{\pm 0.006}}$ & $106.175 {\tinymath{\pm 0.340}}$ \\
+                                %& \textbf{\FIMzeroshot (old)} & $45.467$ & $1.742$ & $1.043$ & $92.319$ \\
+                                % & \textbf{\FIMfine}     & $42.678$ & $1.349$ & $1.029$ & $91.738$ \\
+                                % & \textbf{\FIMzeroshot}   & $\mathbf{49.005}$  & $\mathbf{2.397}$  & $\mathbf{1.058}$  & $\mathbf{94.708}$  \\
+                                % & \textbf{\FIMfine}       & $\mathbf{39.297}$  & $\mathbf{1.269}$  & $\mathbf{1.020}$  & $\mathbf{88.817}$   \\
+                                & \textbf{\FIMzeroshot} & $\mathbf{49.259}$ \tinymath{\pm 0.056} & $\mathbf{2.393}$ \tinymath{\pm 0.015} & $\mathbf{1.068}$ \tinymath{\pm 0.002} & $\mathbf{96.364}$ \tinymath{\pm 0.048} \\
+
+                                & \textbf{\FIMfine} & $\mathbf{39.792}$ \tinymath{\pm 0.042} & $\mathbf{1.336}$ \tinymath{\pm 0.030} & $\mathbf{1.018}$ \tinymath{\pm 0.003} & $\mathbf{88.248}$ \tinymath{\pm 0.189} \\
+
+
+
+\midrule
+\multirow{10}{*}{\datasetbf{Amazon}}        & \method{HYPRO}    & $38.613 {\tinymath{\pm 0.536}}$ & $2.007 {\tinymath{\pm 0.054}}      $ & $0.477 {\tinymath{\pm 0.010}}$ & $82.506 {\tinymath{\pm 0.840}}      $ \\
+                                & \method{Dual-TPP} & $42.646 {\tinymath{\pm 0.752}}$ & $2.562 {\tinymath{\pm 0.202}}$ & $0.482 {\tinymath{\pm 0.012}}$ & $86.453 {\tinymath{\pm 2.044}}$ \\
+                                & \method{A-NHP}    & $39.480 {\tinymath{\pm 0.326}}$ & $2.166 {\tinymath{\pm 0.026}}$ & $0.476 {\tinymath{\pm 0.033}}$ & $84.323 {\tinymath{\pm 1.815}}$ \\
+                                & \method{NHP}      & $42.571 {\tinymath{\pm 0.293}}$ & $2.561 {\tinymath{\pm 0.060}}$ & $0.519 {\tinymath{\pm 0.023}}$ & $92.053 {\tinymath{\pm 1.553}}$ \\
+                                & \method{IFTPP}    & $43.820 {\tinymath{\pm 0.232}}$ & $3.050 {\tinymath{\pm 0.286}}$ & $0.481 {\tinymath{\pm 0.145}}$ & $90.910 {\tinymath{\pm 1.611}}$ \\
+                                & \method{TCDDM}    & $42.245 {\tinymath{\pm 0.174}}$ & $2.998 {\tinymath{\pm 0.115}}$ & $0.476 {\tinymath{\pm 0.111}}$ & $83.826 {\tinymath{\pm 1.508}}$ \\
+                                & \method{CDiff}    & $37.728 {\tinymath{\pm 0.199}}$ & $2.091 {\tinymath{\pm 0.163}}$ & $0.464 {\tinymath{\pm 0.086}}$ & $81.987 {\tinymath{\pm 1.905}}$ \\
+                                %& \textbf{\FIMzeroshot (old)} & $49.442$ & $1.926$ & $0.503$ & $141.547$ \\
+                                % & \textbf{\FIMfine}     & $48.161$ & $1.924$ & $0.483$ & $135.391$ \\
+                                % & \textbf{\FIMzeroshot}               &   $\mathbf{47.072}$  & $\mathbf{1.900}$  & $\mathbf{0.481}$  & $\mathbf{134.217}$  \\
+                                % & \textbf{\FIMfine}       & $\mathbf{37.912}$  & $\mathbf{2.224}$  & $\mathbf{0.373}$  & $\mathbf{86.151}$  \\
+                                & \textbf{\FIMzeroshot} & $\mathbf{46.219}$ \tinymath{\pm 0.108} & $\mathbf{2.073}$ \tinymath{\pm 0.012} & $\mathbf{0.464}$ \tinymath{\pm 0.001} & $\mathbf{128.635}$ \tinymath{\pm 0.398}\\
+                                & \textbf{\FIMfine} & $\mathbf{37.208}$ \tinymath{\pm 0.098} & $\mathbf{2.030}$ \tinymath{\pm 0.019} & $\mathbf{0.366}$ \tinymath{\pm 0.001} & $\mathbf{81.188}$ \tinymath{\pm 0.142} \\
+\midrule
+\multirow{10}{*}{\datasetbf{Retweet}}       & \method{HYPRO}    & $61.031 {\tinymath{\pm 0.092}}$ & $2.623 {\tinymath{\pm 0.036}}$ & $30.100 {\tinymath{\pm 0.413}}$ & $106.110 {\tinymath{\pm 1.505}}      $ \\
+                                & \method{Dual-TPP} & $61.095 {\tinymath{\pm 0.101}}$ & $2.679 {\tinymath{\pm 0.026}}$ & $28.914 {\tinymath{\pm 0.300}}$ & $106.900 {\tinymath{\pm 1.293}}$ \\
+                                & \method{A-NHP}    & $60.634 {\tinymath{\pm 0.097}}$ & $2.561 {\tinymath{\pm 0.054}}$ & $28.812 {\tinymath{\pm 0.272}}$ & $107.234 {\tinymath{\pm 1.293}}$ \\
+                                & \method{NHP}      & $60.953 {\tinymath{\pm 0.079}}$ & $2.651 {\tinymath{\pm 0.045}}$ & $27.130 {\tinymath{\pm 0.224}}$ & $107.075 {\tinymath{\pm 1.398}}$ \\
+                                & \method{IFTPP}    & $61.715 {\tinymath{\pm 0.152}}$ & $2.776 {\tinymath{\pm 0.043}}$ & $27.582 {\tinymath{\pm 0.191}}$ & $106.711 {\tinymath{\pm 1.615}}$ \\
+                                & \method{TCDDM}    & $60.501 {\tinymath{\pm 0.087}}$ & $2.387 {\tinymath{\pm 0.050}}$ & $27.303 {\tinymath{\pm 0.152}}$ & $106.048 {\tinymath{\pm 0.610}}$ \\
+                                & \method{CDiff}    & $60.661 {\tinymath{\pm 0.101}}$ & $2.293 {\tinymath{\pm 0.034}}$ & $27.101 {\tinymath{\pm 0.113}}$ & $106.184 {\tinymath{\pm 1.121}}$ \\
+                                %& \textbf{\FIMzeroshot (old)} & $59.218$ & $2.897$ & $23.690$ & $97.5312$ \\
+                                % & \textbf{\FIMzeroshot}               &   $\mathbf{59.618}$  & $\mathbf{3.843}$  & $\mathbf{24.073}$  & $\mathbf{99.857}$  \\
+                                % & \textbf{\FIMfine}       & $\mathbf{58.552}$  & $\mathbf{2.816}$  & $\mathbf{21.870}$  & $\mathbf{87.590}$  \\
+                                & \textbf{\FIMzeroshot} & $\mathbf{60.238}$ \tinymath{\pm 0.161} & $\mathbf{4.172}$ \tinymath{\pm 0.064} & $\mathbf{24.057}$ \tinymath{\pm 0.050} & $\mathbf{99.069}$ \tinymath{\pm 0.390}\\
+                                & \textbf{\FIMfine} & $\mathbf{59.437}$ \tinymath{\pm 0.082} & $\mathbf{2.703}$ \tinymath{\pm 0.012} & $\mathbf{21.985}$ \tinymath{\pm 0.014} & $\mathbf{87.585}$ \tinymath{\pm 0.171}
+\end{tabular}
