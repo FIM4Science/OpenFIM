@@ -195,6 +195,17 @@ def calculate_rmse_e(pred_types: torch.Tensor, true_types: torch.Tensor, num_mar
     return float(torch.sqrt(torch.mean(se)).item())
 
 
+def calculate_type_accuracy(pred_types: torch.Tensor, true_types: torch.Tensor) -> float:
+    """Compute per-step event type accuracy between predicted and true types.
+
+    If lengths differ, compare up to the minimum length.
+    """
+    if pred_types.numel() == 0 or true_types.numel() == 0:
+        return 0.0
+    m = min(int(pred_types.numel()), int(true_types.numel()))
+    return float((pred_types[:m] == true_types[:m]).float().mean().item())
+
+
 # ============================
 # Sampling utilities
 # ============================
@@ -447,6 +458,7 @@ def run_long_horizon_evaluation(
     trial_smape: List[float] = []
     trial_rmse_e: List[float] = []
     trial_otd: List[float] = []
+    trial_type_acc: List[float] = []
     num_eval_sequences: int = 0
 
     total_sequences = len(inference_data_raw.get("seq_len", []))
@@ -463,6 +475,7 @@ def run_long_horizon_evaluation(
                 pass
 
         rmsex_plus_sum, smape_sum, rmse_e_sum, otd_sum = 0.0, 0.0, 0.0, 0.0
+        type_acc_sum = 0.0
         num_eval = 0
 
         for i in range(total_sequences):
@@ -498,6 +511,7 @@ def run_long_horizon_evaluation(
             rmsex_plus_sum += calculate_rmse_x(pred_dtimes, true_future_dtimes)
             smape_sum += calculate_smape(pred_dtimes, true_future_dtimes)
             rmse_e_sum += calculate_rmse_e(pred_types, true_future_types, detected_num_marks)
+            type_acc_sum += calculate_type_accuracy(pred_types, true_future_types)
 
             distances = get_distances_otd(
                 pred_dt=[pred_dtimes],
@@ -524,6 +538,9 @@ def run_long_horizon_evaluation(
             trial_smape.append(smape_sum / num_eval)
             trial_rmse_e.append(rmse_e_sum / num_eval)
             trial_otd.append(otd_sum / num_eval)
+            trial_type_acc.append(type_acc_sum / num_eval)
+        if num_eval == 0:
+            trial_type_acc.append(0.0)
 
     duration_seconds = float(time.time() - start_time)
 
@@ -532,6 +549,7 @@ def run_long_horizon_evaluation(
     t_smape = np.array(trial_smape, dtype=np.float64)
     t_rmse_e = np.array(trial_rmse_e, dtype=np.float64)
     t_otd = np.array(trial_otd, dtype=np.float64)
+    t_type_acc = np.array(trial_type_acc, dtype=np.float64)
 
     return {
         "dataset": dataset,
@@ -551,6 +569,8 @@ def run_long_horizon_evaluation(
                 "rmse_e_std": float(t_rmse_e.std(ddof=0)) if t_rmse_e.size > 0 else 0.0,
                 "otd": float(t_otd.mean()) if t_otd.size > 0 else 0.0,
                 "otd_std": float(t_otd.std(ddof=0)) if t_otd.size > 0 else 0.0,
+                "type_acc": float(t_type_acc.mean()) if t_type_acc.size > 0 else 0.0,
+                "type_acc_std": float(t_type_acc.std(ddof=0)) if t_type_acc.size > 0 else 0.0,
             }
         },
     }
