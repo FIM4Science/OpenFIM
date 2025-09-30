@@ -1,20 +1,15 @@
 """
-CUDA_VISIBLE_DEVICES="" python scripts/hawkes/visualize_intensity_prediction_paper.py \
---checkpoint "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-22-1331/checkpoints/best-model"  \
---dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/test" \
---sample_idx 0 \
---path_idx 0
-
-
-conda run -n model_training python scripts/hawkes/visualize_intensity_prediction_paper.py \
+conda run -n model_training python scripts/hawkes/paper_plots/visualize_intensity_prediction_ais_paper.py \
   --checkpoint "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-23-1809/checkpoints/best-model" \
   --dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/test" \
-  --right_dataset "retweet" \
-  --left_title "Synthetic Hawkes Process" \
-  --right_title "Retweet Dataset" \
-  --path_idx 0 \
+  --middle_dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_Gamma_base_exp_kernel_sparse/test" \
+  --right_dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_poisson/test" \
+  --left_title "Classical Hawkes" \
+  --middle_title "Gamma Base Intensity" \
+  --right_title "Poisson Process" \
+  --path_idx 11 \
   --sample_idx 0 \
-  --save_path_comparison intensity_comparison_synth_vs_retweet.png
+  --save_path_comparison intensity_comparison_three_datasets.png
 """
 
 #!/usr/bin/env python
@@ -97,7 +92,7 @@ def _resolve_cdiff_dir(dataset: Path) -> Path:
     """Allow passing short names like 'retweet' by resolving into repo CDiff folder."""
     if _is_cdiff_dataset_dir(dataset):
         return dataset
-    candidate = Path(__file__).resolve().parents[2] / "data" / "external" / "CDiff_dataset" / str(dataset)
+    candidate = Path(__file__).resolve().parents[3] / "data" / "external" / "CDiff_dataset" / str(dataset)
     return candidate if _is_cdiff_dataset_dir(candidate) else dataset
 
 
@@ -588,8 +583,8 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
                 alpha=0.7,
             )
 
-        ax.set_ylabel("Intensity", fontsize=14)
-        ax.set_title(f"Intensity Function for Mark {m}", fontsize=14, fontweight="bold")
+        ax.set_ylabel("Intensity", fontsize=18)
+        ax.set_title(f"Intensity Function for Mark {m}", fontsize=18, fontweight="bold")
 
         # Axis aesthetics: slimmer spines/ticks, no grid, auto y-limits
         for spine in ax.spines.values():
@@ -599,8 +594,8 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
         ax.grid(False)
         ax.margins(x=0)
 
-    axes[-1].set_xlabel("Time", fontsize=20)
-    plt.suptitle(f"Hawkes Process Intensity Functions - Path {path_idx}", fontsize=22, fontweight="bold")
+    axes[-1].set_xlabel("Time", fontsize=24)
+    plt.suptitle(f"Hawkes Process Intensity Functions - Path {path_idx}", fontsize=26, fontweight="bold")
     # Unified legend at figure level (lines only)
     plt.draw()
     handles, labels = axes[0].get_legend_handles_labels()
@@ -637,7 +632,7 @@ def plot_intensity_comparison(model_output, model_data, save_path="intensity_com
         loc="upper center",
         bbox_to_anchor=[0.5, 0.995],
         ncols=len(combined_labels),
-        fontsize=18,
+        fontsize=22,
     )
     fig.tight_layout(rect=[0, 0.02, 1, 0.945])
 
@@ -746,7 +741,7 @@ def plot_two_datasets_side_by_side(
                 # No such mark in this dataset
                 ax.axis("off")
                 if m == 0:
-                    ax.set_title(title, fontsize=16, fontweight="bold")
+                    ax.set_title(title, fontsize=20, fontweight="bold")
                 continue
 
             eval_times_p = eval_times[b, p]
@@ -850,11 +845,11 @@ def plot_two_datasets_side_by_side(
                     alpha=1,
                 )
 
-            ax.set_ylabel("Intensity", fontsize=15)
+            ax.set_ylabel("Intensity", fontsize=19)
             if m == 0:
                 ax.set_title(title, fontsize=18, fontweight="bold")
             if m == M_global - 1:
-                ax.set_xlabel("Time", fontsize=15)
+                ax.set_xlabel("Time", fontsize=19)
             # Axis aesthetics: slimmer spines/ticks, no grid, auto y-limits
             for spine in ax.spines.values():
                 spine.set_linewidth(0.3)
@@ -925,7 +920,7 @@ def plot_two_datasets_side_by_side(
         loc="upper center",
         bbox_to_anchor=(0.5, 0.995),
         ncols=len(combined_labels),
-        fontsize=18,
+        fontsize=22,
     )
 
     fig.tight_layout(rect=[0, 0.02, 1, 0.945])
@@ -939,6 +934,237 @@ def plot_two_datasets_side_by_side(
         print(f"Warning: failed to save PDF version: {e}")
     plt.close()
     print(f"Side-by-side intensity comparison saved to {save_path}")
+
+
+def plot_three_datasets_in_a_row(
+    left_output,
+    left_data,
+    middle_output,
+    middle_data,
+    right_output,
+    right_data,
+    left_title: str,
+    middle_title: str,
+    right_title: str,
+    save_path: str = "intensity_comparison_three_datasets.png",
+    left_path_idx: int = 0,
+    middle_path_idx: int = 0,
+    right_path_idx: int = 0,
+):
+    """
+    Create a single figure with three columns for three datasets, each stacked by mark.
+    """
+    # --- Extract arrays for all three datasets ---
+    datasets = [
+        (left_output, left_data),
+        (middle_output, middle_data),
+        (right_output, right_data),
+    ]
+
+    extracted_data = []
+    for output, data in datasets:
+        pred = output["predicted_intensity_values"].detach().cpu().numpy()
+        eval_times = data["intensity_evaluation_times"].detach().cpu().numpy()
+        inf_times = data["inference_event_times"].detach().cpu().numpy()
+        inf_types = data["inference_event_types"].detach().cpu().numpy()
+        inf_lengths = data["inference_seq_lengths"].detach().cpu().numpy()
+
+        target = None
+        if "target_intensity_values" in output:
+            target = output["target_intensity_values"].detach().cpu().numpy()
+
+        offsets_np = None
+        if "inference_time_offsets" in data:
+            off = data["inference_time_offsets"].detach().cpu().numpy()
+            if off.ndim == 3 and off.shape[-1] == 1:
+                off = off[..., 0]
+            offsets_np = off
+
+        extracted_data.append(
+            {
+                "pred": pred,
+                "eval_times": eval_times,
+                "inf_times": inf_times,
+                "inf_types": inf_types,
+                "inf_lengths": inf_lengths,
+                "target": target,
+                "offsets_np": offsets_np,
+            }
+        )
+
+    # --- Shapes and Global Settings ---
+    M_left = extracted_data[0]["pred"].shape[1]
+    M_middle = extracted_data[1]["pred"].shape[1]
+    M_right = extracted_data[2]["pred"].shape[1]
+    M_global = max(M_left, M_middle, M_right)
+
+    marker_cycle = ["o", "s", "^", "D", "v", "P", "*", "X", "<", ">", "h", "8", "+", "x", "|", "_"]
+
+    # --- Create Figure Grid ---
+    fig, axes = plt.subplots(
+        M_global,
+        5,  # 3 plots + 2 spacers
+        figsize=(30, 3.0 * M_global),
+        sharex=False,
+        gridspec_kw={"width_ratios": [1.0, 0.002, 1.0, 0.002, 1.0]},
+    )
+    if M_global == 1:
+        axes = np.array([axes])
+
+    # Hide spacer columns
+    for r in range(M_global):
+        axes[r, 1].axis("off")
+        axes[r, 3].axis("off")
+
+    # --- Plotting Helper ---
+    def _plot_dataset(col_idx: int, plot_data, path_idx, title):
+        b = 0
+        p = path_idx
+        pred, eval_times, inf_times, inf_types, inf_lengths, target, offsets_np = (
+            plot_data["pred"],
+            plot_data["eval_times"],
+            plot_data["inf_times"],
+            plot_data["inf_types"],
+            plot_data["inf_lengths"],
+            plot_data["target"],
+            plot_data["offsets_np"],
+        )
+        _, M, P, _ = pred.shape
+        if p >= P:
+            p = 0
+
+        seq_len = inf_lengths[b, p]
+        all_event_times = inf_times[b, p, :seq_len, 0]
+        all_event_types = inf_types[b, p, :seq_len, 0]
+
+        for m in range(M_global):
+            ax = axes[m, col_idx * 2]  # Map 0->0, 1->2, 2->4
+            if m >= M:
+                ax.axis("off")
+                if m == 0:
+                    ax.set_title(title, fontsize=22, fontweight="bold")
+                continue
+
+            eval_times_p = eval_times[b, p]
+            pred_intensity_p_m = pred[b, m, p]
+            valid_mask = eval_times_p > 0
+            sort_indices = None
+            if valid_mask.any():
+                eval_times_p = eval_times_p[valid_mask]
+                pred_intensity_p_m = pred_intensity_p_m[valid_mask]
+                sort_indices = np.argsort(eval_times_p)
+                eval_times_p = eval_times_p[sort_indices]
+                pred_intensity_p_m = pred_intensity_p_m[sort_indices]
+            else:
+                eval_times_p = np.array([0.0])
+                pred_intensity_p_m = np.array([0.0])
+
+            eval_times_plot = eval_times_p + offsets_np[b, p] if offsets_np is not None else eval_times_p
+
+            ax.plot(eval_times_plot, pred_intensity_p_m, color="#0072B2", linestyle="-", linewidth=3.5, label="FIM-PP (zero-shot)", alpha=1)
+
+            if target is not None:
+                target_intensity_p_m = target[b, m, p]
+                if valid_mask.any() and sort_indices is not None:
+                    target_intensity_p_m = target_intensity_p_m[valid_mask][sort_indices]
+                else:
+                    target_intensity_p_m = np.array([0.0])
+                ax.plot(eval_times_plot, target_intensity_p_m, color="black", linestyle="--", linewidth=1.8, label="Ground Truth", alpha=1)
+
+            events_this_mark = all_event_times[all_event_types == m]
+            if len(events_this_mark) > 0:
+                event_intensities = [pred_intensity_p_m[np.argmin(np.abs(eval_times_p - t))] for t in events_this_mark]
+                events_plot = events_this_mark + offsets_np[b, p] if offsets_np is not None else events_this_mark
+                ax.scatter(
+                    events_plot,
+                    event_intensities,
+                    s=100,
+                    c="#CC79A7",
+                    marker=marker_cycle[m % len(marker_cycle)],
+                    zorder=10,
+                    edgecolors="#CC79A7",
+                    linewidth=1.5,
+                    alpha=1,
+                )
+
+            for k in range(M):
+                if k == m:
+                    continue
+                events_k = all_event_times[all_event_types == k]
+                if len(events_k) > 0:
+                    other_event_intensities = [pred_intensity_p_m[np.argmin(np.abs(eval_times_p - t))] for t in events_k]
+                    events_other_plot = events_k + offsets_np[b, p] if offsets_np is not None else events_k
+                    ax.scatter(
+                        events_other_plot,
+                        other_event_intensities,
+                        s=60,
+                        c="gray",
+                        marker=marker_cycle[k % len(marker_cycle)],
+                        zorder=8,
+                        edgecolors="dimgray",
+                        linewidth=1.0,
+                        alpha=1,
+                    )
+
+            ax.set_ylabel("Intensity", fontsize=19)
+            if m == 0:
+                ax.set_title(title, fontsize=22, fontweight="bold")
+            if m == M_global - 1:
+                ax.set_xlabel("Time", fontsize=19)
+
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.3)
+            ax.tick_params(axis="both", direction="out", width=0.5, length=2, pad=0.8)
+            ax.yaxis.set_major_locator(MaxNLocator(nbins=4, prune=None))
+            ax.grid(False)
+            ax.margins(x=0)
+
+    # --- Plot all three datasets ---
+    _plot_dataset(0, extracted_data[0], left_path_idx, left_title)
+    _plot_dataset(1, extracted_data[1], middle_path_idx, middle_title)
+    _plot_dataset(2, extracted_data[2], right_path_idx, right_title)
+
+    # --- Unified Legend ---
+    plt.draw()
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    keep_labels = {"FIM-PP (zero-shot)", "Ground Truth"}
+    uniq = []
+    seen = set()
+    for h, l in zip(handles, labels):
+        if l in keep_labels and l not in seen:
+            uniq.append((h, l))
+            seen.add(l)
+
+    mark_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker=marker_cycle[i % len(marker_cycle)],
+            linestyle="",
+            color="black",
+            markerfacecolor="black",
+            markeredgecolor="black",
+            markersize=10,
+        )
+        for i in range(3)
+    ]
+    mark_labels = [f"Mark {i + 1}" for i in range(3)]
+
+    combined_handles = [h for h, _ in uniq] + mark_handles
+    combined_labels = [l for _, l in uniq] + mark_labels
+
+    fig.legend(combined_handles, combined_labels, loc="upper center", bbox_to_anchor=(0.5, 0.995), ncols=len(combined_labels), fontsize=22)
+
+    fig.tight_layout(rect=[0, 0.02, 1, 0.945])
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    try:
+        pdf_path = str(Path(save_path).with_suffix(".pdf"))
+        plt.savefig(pdf_path, bbox_inches="tight")
+        print(f"Three-way intensity comparison saved to {pdf_path}")
+    except Exception as e:
+        print(f"Warning: failed to save PDF version: {e}")
+    plt.close()
+    print(f"Three-way intensity comparison saved to {save_path}")
 
 
 def load_fimhawkes_with_proper_weights(checkpoint_path):
@@ -966,182 +1192,110 @@ def main(args):
     model.eval()
     model.to(device)
 
-    # Branch: CDiff datasets vs synthetic .pt directory datasets
-    # If a right dataset is provided, generate a side-by-side figure
-    if getattr(args, "right_dataset", None):
-        # LEFT SIDE: args.dataset
-        use_cdiff_left = _is_cdiff_dataset_dir(_resolve_cdiff_dir(dataset_dir))
-        if use_cdiff_left:
-            print("[Left] Detected CDiff dataset layout. Using train as context and val as inference.")
-            print(f"[Left] Using validation index (inference path) from CDiff val split: {args.path_idx}")
-            left_model_data = build_model_data_from_cdiff(dataset_dir, val_index=args.path_idx, max_context_paths=2000)
-            left_effective_path_idx = 0
+    # Helper function to load and prepare data for one dataset
+    def get_model_data(dataset_path_str, path_idx, sample_idx, prefix):
+        dataset_path = Path(dataset_path_str)
+        use_cdiff = _is_cdiff_dataset_dir(_resolve_cdiff_dir(dataset_path))
+        if use_cdiff:
+            print(f"[{prefix}] Detected CDiff dataset layout.")
+            model_data = build_model_data_from_cdiff(dataset_path, val_index=path_idx, max_context_paths=2000)
+            effective_path_idx = 0
             try:
-                num_marks = int(left_model_data.get("num_marks", 0))
+                num_marks = int(model_data.get("num_marks", 0))
                 if num_marks > 0:
                     setattr(model.config, "max_num_marks", num_marks)
             except Exception:
                 pass
         else:
-            left_data = load_data_from_dir(dataset_dir)
-            if not left_data:
-                print("[Left] No data loaded. Exiting.")
-                return
-            print(f"[Left] Loaded data with keys: {list(left_data.keys())}")
-            left_sample_idx = args.sample_idx
-            sample_count = None
-            for key, value in left_data.items():
-                if torch.is_tensor(value):
-                    sample_count = value.shape[0]
-                    break
-            if sample_count is not None and left_sample_idx >= sample_count:
-                print(f"[Left] Warning: sample_idx {left_sample_idx} >= number of samples {sample_count}. Using sample 0.")
-                left_sample_idx = 0
-            print(f"[Left] Using sample index: {left_sample_idx}")
-            single_sample_left = {}
-            for key, value in left_data.items():
-                if torch.is_tensor(value):
-                    single_sample_left[key] = value[left_sample_idx]
-                else:
-                    single_sample_left[key] = value[left_sample_idx]
-            try:
-                left_model_data = prepare_batch_for_model(single_sample_left, args.path_idx, num_points_between_events=10)
-            except ValueError as e:
-                print(f"[Left] Error preparing batch: {e}")
-                return
-            left_effective_path_idx = args.path_idx
+            data = load_data_from_dir(dataset_path)
+            if not data:
+                raise ValueError(f"[{prefix}] No data loaded from {dataset_path}.")
 
-        # RIGHT SIDE: args.right_dataset (can be CDiff or synthetic)
-        right_dataset_dir = Path(args.right_dataset)
-        use_cdiff_right = _is_cdiff_dataset_dir(_resolve_cdiff_dir(right_dataset_dir))
-        if use_cdiff_right:
-            print("[Right] Detected CDiff dataset layout. Using train as context and val as inference.")
-            print(f"[Right] Using validation index (inference path) from CDiff val split: {args.path_idx}")
-            right_model_data = build_model_data_from_cdiff(right_dataset_dir, val_index=args.path_idx, max_context_paths=2000)
-            right_effective_path_idx = 0
-        else:
-            right_data = load_data_from_dir(right_dataset_dir)
-            if not right_data:
-                print("[Right] No data loaded. Exiting.")
-                return
-            print(f"[Right] Loaded data with keys: {list(right_data.keys())}")
-            right_sample_idx = args.sample_idx
-            sample_count_r = None
-            for key, value in right_data.items():
-                if torch.is_tensor(value):
-                    sample_count_r = value.shape[0]
-                    break
-            if sample_count_r is not None and right_sample_idx >= sample_count_r:
-                print(f"[Right] Warning: sample_idx {right_sample_idx} >= number of samples {sample_count_r}. Using sample 0.")
-                right_sample_idx = 0
-            print(f"[Right] Using sample index: {right_sample_idx}")
-            single_sample_right = {}
-            for key, value in right_data.items():
-                if torch.is_tensor(value):
-                    single_sample_right[key] = value[right_sample_idx]
-                else:
-                    single_sample_right[key] = value[right_sample_idx]
-            try:
-                right_model_data = prepare_batch_for_model(single_sample_right, args.path_idx, num_points_between_events=10)
-            except ValueError as e:
-                print(f"[Right] Error preparing batch: {e}")
-                return
-            right_effective_path_idx = args.path_idx
+            sample_count = next((v.shape[0] for v in data.values() if torch.is_tensor(v)), None)
+            if sample_count is not None and sample_idx >= sample_count:
+                print(f"[{prefix}] Warning: sample_idx {sample_idx} >= {sample_count}. Using sample 0.")
+                sample_idx = 0
 
-        # Run model on both sides
+            single_sample = {k: v[sample_idx] for k, v in data.items()}
+            model_data = prepare_batch_for_model(single_sample, path_idx, num_points_between_events=10)
+            effective_path_idx = path_idx
+        return model_data, effective_path_idx
+
+    # --- THREE-DATASET MODE ---
+    if getattr(args, "middle_dataset", None) and getattr(args, "right_dataset", None):
+        print("--- Running in three-dataset comparison mode ---")
+
+        # Load and prepare all three datasets
+        left_model_data, left_eff_idx = get_model_data(args.dataset, args.path_idx, args.sample_idx, "Left")
+        middle_model_data, middle_eff_idx = get_model_data(args.middle_dataset, args.path_idx, args.sample_idx, "Middle")
+        right_model_data, right_eff_idx = get_model_data(args.right_dataset, args.path_idx, args.sample_idx, "Right")
+
+        # Move to device
+        left_model_data = _move_to_device(left_model_data, device)
+        middle_model_data = _move_to_device(middle_model_data, device)
+        right_model_data = _move_to_device(right_model_data, device)
+
+        # Run model
+        with torch.no_grad():
+            left_output = model(left_model_data)
+            middle_output = model(middle_model_data)
+            right_output = model(right_model_data)
+
+        # Plot
+        plot_three_datasets_in_a_row(
+            left_output,
+            left_model_data,
+            middle_output,
+            middle_model_data,
+            right_output,
+            right_model_data,
+            args.left_title,
+            args.middle_title,
+            args.right_title,
+            save_path=args.save_path_comparison,
+            left_path_idx=left_eff_idx,
+            middle_path_idx=middle_eff_idx,
+            right_path_idx=right_eff_idx,
+        )
+        return
+
+    # --- TWO-DATASET MODE ---
+    if getattr(args, "right_dataset", None):
+        print("--- Running in two-dataset comparison mode ---")
+        left_model_data, left_eff_idx = get_model_data(args.dataset, args.path_idx, args.sample_idx, "Left")
+        right_model_data, right_eff_idx = get_model_data(args.right_dataset, args.path_idx, args.sample_idx, "Right")
+
         left_model_data = _move_to_device(left_model_data, device)
         right_model_data = _move_to_device(right_model_data, device)
         with torch.no_grad():
             left_output = model(left_model_data)
             right_output = model(right_model_data)
 
-        # Titles
-        left_title = args.left_title
-        right_title = args.right_title
-
-        # Plot and save
         plot_two_datasets_side_by_side(
             left_output,
             left_model_data,
             right_output,
             right_model_data,
-            left_title,
-            right_title,
+            args.left_title,
+            args.right_title,
             save_path=args.save_path_comparison,
-            left_path_idx=left_effective_path_idx,
-            right_path_idx=right_effective_path_idx,
+            left_path_idx=left_eff_idx,
+            right_path_idx=right_eff_idx,
         )
         return
 
-    # Single-dataset mode (default)
-    use_cdiff = _is_cdiff_dataset_dir(_resolve_cdiff_dir(dataset_dir))
-    if use_cdiff:
-        print("Detected CDiff dataset layout. Using train as context and val as inference.")
-        # Interpret path_idx as the validation sequence index for CDiff datasets
-        print(f"Using validation index (inference path) from CDiff val split: {args.path_idx}")
-        model_data = build_model_data_from_cdiff(dataset_dir, val_index=args.path_idx, max_context_paths=2000)
-        # For CDiff path selection, we have P_inference=1; force path_idx=0 for plotting
-        effective_path_idx = 0
-        # Align model config marks if possible
-        try:
-            num_marks = int(model_data.get("num_marks", 0))
-            if num_marks > 0:
-                setattr(model.config, "max_num_marks", num_marks)
-        except Exception:
-            pass
-    else:
-        data = load_data_from_dir(dataset_dir)
-        if not data:
-            print("No data loaded. Exiting.")
-            return
-
-        print(f"Loaded data with keys: {list(data.keys())}")
-
-        # Use the specified sample index
-        sample_idx = args.sample_idx
-
-        # Validate sample index
-        sample_count = None
-        for key, value in data.items():
-            if torch.is_tensor(value):
-                sample_count = value.shape[0]
-                break
-
-        if sample_count is not None and sample_idx >= sample_count:
-            print(f"Warning: sample_idx {sample_idx} >= number of samples {sample_count}. Using sample 0.")
-            sample_idx = 0
-
-        print(f"Using sample index: {sample_idx}")
-
-        single_sample_data = {}
-        for key, value in data.items():
-            if torch.is_tensor(value):
-                single_sample_data[key] = value[sample_idx]
-            else:
-                # Handle non-tensor data if necessary, e.g., lists of tensors
-                single_sample_data[key] = value[sample_idx]
-
-        try:
-            model_data = prepare_batch_for_model(single_sample_data, args.path_idx, num_points_between_events=10)
-        except ValueError as e:
-            print(f"Error preparing batch: {e}")
-            return
-        effective_path_idx = args.path_idx
+    # --- SINGLE-DATASET MODE ---
+    print("--- Running in single-dataset mode ---")
+    model_data, effective_path_idx = get_model_data(args.dataset, args.path_idx, args.sample_idx, "Single")
 
     print("Model input shapes:")
     for key, value in model_data.items():
         if torch.is_tensor(value):
             print(f"  {key}: {value.shape}")
 
-    print(f"Using path index: {effective_path_idx}")
-
-    # Ensure model inputs are on the same device as the model
     model_data = _move_to_device(model_data, device)
-
     with torch.no_grad():
         model_output = model(model_data)
-
-    print(f"Model output keys: {list(model_output.keys())}")
 
     save_suffix = f"sample_{args.sample_idx}_path_{effective_path_idx}"
     save_path = f"intensity_comparison_{save_suffix}.png"
@@ -1160,13 +1314,19 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         default="data/synthetic_data/hawkes/1k_2D_1k_paths_diag_only_old_params/test",
-        help="Path to the validation/test dataset directory.",
+        help="Path to the validation/test dataset directory (left-most plot).",
+    )
+    parser.add_argument(
+        "--middle_dataset",
+        type=str,
+        default=None,
+        help="Optional middle dataset to plot in a three-way comparison.",
     )
     parser.add_argument(
         "--right_dataset",
         type=str,
         default=None,
-        help="Optional second dataset to plot side-by-side (e.g., 'retweet').",
+        help="Optional second dataset to plot side-by-side (right-most plot).",
     )
     parser.add_argument(
         "--sample_idx",
@@ -1183,20 +1343,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--left_title",
         type=str,
-        default="Synthetic Hawkes Process",
-        help="Title for the left subplot when comparing two datasets.",
+        default="Left Dataset",
+        help="Title for the left subplot.",
+    )
+    parser.add_argument(
+        "--middle_title",
+        type=str,
+        default="Middle Dataset",
+        help="Title for the middle subplot.",
     )
     parser.add_argument(
         "--right_title",
         type=str,
-        default="Retweet Dataset",
-        help="Title for the right subplot when comparing two datasets.",
+        default="Right Dataset",
+        help="Title for the right subplot.",
     )
     parser.add_argument(
         "--save_path_comparison",
         type=str,
-        default="intensity_comparison_synthetic_vs_retweet.png",
-        help="Output path for the side-by-side comparison figure.",
+        default="intensity_comparison.png",
+        help="Output path for the comparison figure.",
     )
     args = parser.parse_args()
     main(args)
