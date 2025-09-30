@@ -295,6 +295,7 @@ def _load_easytpp_split(dataset: str, split: str) -> Dict[str, List]:
 @click.option("--val_integration_points", default=5000, type=int, help="Monte Carlo samples for validation NLL integral")
 @click.option("--deterministic_val", is_flag=True, default=True, help="Use fixed RNG seed for validation NLL")
 @click.option("--grad-accum-steps", default=1, type=int, help="Gradient accumulation steps per epoch")
+@click.option("--val-every", default=100, type=int, help="Run validation every N epochs (set 1 to validate each epoch)")
 def main(
     cfg_path: Optional[str],
     dataset: str,
@@ -309,6 +310,7 @@ def main(
     val_integration_points: int,
     deterministic_val: bool,
     grad_accum_steps: int,
+    val_every: int,
 ):
     setup_logging()
 
@@ -412,7 +414,8 @@ def main(
         # Local directory modes
         dataset_name = dpath.name
         if (dpath / "train.pkl").exists():
-            train_lists = _apply_limits_to_cdiff_lists(_load_cdiff_train(dpath), max_paths, max_events)
+            # Do NOT limit number of paths here; we'll subsample per-epoch to expose more data over time
+            train_lists = _apply_limits_to_cdiff_lists(_load_cdiff_train(dpath), None, max_events)
             event_times, event_types, seq_lengths = _build_tensors_from_cdiff(train_lists, device)
         else:
             times_path = dpath / "event_times.pt"
@@ -430,13 +433,8 @@ def main(
                     raise ValueError(f"Unsupported seq_lengths shape {tuple(seq_lengths.shape)}; expected [P] or [B=1,P]")
                 seq_lengths = seq_lengths.to(device)
 
-            # Apply limits if provided
+            # Do NOT limit number of paths here; we'll subsample per-epoch to expose more data over time
             _, P_full, L_full, _ = event_times.shape
-            if max_paths is not None and max_paths > 0 and max_paths < P_full:
-                event_times = event_times[:, :max_paths, :, :]
-                event_types = event_types[:, :max_paths, :, :]
-                if seq_lengths is not None:
-                    seq_lengths = seq_lengths[:, :max_paths]
             if max_events is not None and max_events > 0 and max_events < L_full:
                 event_times = event_times[:, :, :max_events, :]
                 event_types = event_types[:, :, :max_events, :]
@@ -452,7 +450,8 @@ def main(
         # Hugging Face EasyTPP dataset
         dataset_id = dataset_arg if dataset_arg.startswith("easytpp/") else f"easytpp/{dataset_arg}"
         dataset_name = dataset_id.split("/")[-1]
-        train_lists = _apply_limits_to_cdiff_lists(_load_easytpp_split(dataset_id, "train"), max_paths, max_events)
+        # Do NOT limit number of paths here; we'll subsample per-epoch to expose more data over time
+        train_lists = _apply_limits_to_cdiff_lists(_load_easytpp_split(dataset_id, "train"), None, max_events)
         event_times, event_types, seq_lengths = _build_tensors_from_cdiff(train_lists, device)
         # Try validation: prefer 'validation', then 'test'
         has_val = False
@@ -471,15 +470,14 @@ def main(
         if has_val:
             P_val = int(val_event_times.shape[1])
 
-    # Determine initial target path index (may be overridden per-epoch below)
-    P = int(event_times.shape[1])
-    if target_idx is None:
-        target_idx = torch.randint(low=0, high=P, size=(1,)).item()
-        logger.info("Initial training target path index (will resample each epoch): %d", target_idx)
-    else:
-        if not (0 <= target_idx < P):
-            raise ValueError(f"target_idx {target_idx} out of range [0, {P})")
-        logger.info("Using provided initial training target path index (will resample each epoch): %d", target_idx)
+    # Record total available paths; we will resample a subset each epoch if max_paths < P_full
+    P_full = int(event_times.shape[1])
+    if P_full < 2:
+        raise ValueError("Training set must contain at least 2 paths")
+    if target_idx is not None and not (0 <= target_idx < P_full):
+        raise ValueError(f"target_idx {target_idx} out of range [0, {P_full})")
+    if target_idx is not None:
+        logger.info("Provided initial training target path index will be ignored when epoch-wise subsampling is used.")
 
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -514,16 +512,29 @@ def main(
     # Prepare optional validation set already handled above for both local/HF
 
     for epoch in range(1, epochs + 1):
+        # Epoch-wise subsampling of training paths to expose more data over time
+        if max_paths is not None and max_paths > 0 and max_paths < P_full:
+            perm = torch.randperm(P_full)
+            sel = perm[:max_paths].tolist()
+        else:
+            sel = list(range(P_full))
+        P_epoch = len(sel)
+        event_times_ep = event_times[:, sel, :, :]
+        event_types_ep = event_types[:, sel, :, :]
+        seq_lengths_ep = None if seq_lengths is None else seq_lengths[:, sel]
+        if epoch == 1:
+            logger.info("Epoch %d: using %d/%d training paths (subsampled)", epoch, P_epoch, P_full)
+        else:
+            logger.debug("Epoch %d: using %d/%d training paths (subsampled)", epoch, P_epoch, P_full)
         # Gradient accumulation to simulate larger batch size without increasing memory
         optimizer.zero_grad(set_to_none=True)
         epoch_loss_sum: float = 0.0
         nll_train = float("nan")
         steps_this_epoch = max(1, int(grad_accum_steps))
         for _ in range(steps_this_epoch):
-            # 1) Training micro-step: resample target path index each iteration
-            P = int(event_times.shape[1])
-            target_idx_epoch = torch.randint(low=0, high=P, size=(1,)).item()
-            x, _, _ = _build_batch(event_times, event_types, seq_lengths, target_path_idx=target_idx_epoch, device=device)
+            # 1) Training micro-step: resample target path index within the epoch subset
+            target_idx_epoch = torch.randint(low=0, high=P_epoch, size=(1,)).item()
+            x, _, _ = _build_batch(event_times_ep, event_types_ep, seq_lengths_ep, target_path_idx=target_idx_epoch, device=device)
 
             # Forward with bf16 autocast to reduce activation memory
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_bf16_autocast):
@@ -536,8 +547,9 @@ def main(
             loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        # Validation NLL
-        if has_val:
+        # Validation NLL (run only at specified frequency or on the final epoch)
+        should_validate = has_val and (epoch % max(1, int(val_every)) == 0 or epoch == epochs)
+        if should_validate:
             model.eval()
             with torch.no_grad():
                 # 2) Validation step: evaluate NLL across all possible target paths and average
@@ -609,7 +621,7 @@ def main(
         writer.add_scalar("train/loss", float(epoch_loss_sum), epoch)
         if nll_train == nll_train:  # not NaN
             writer.add_scalar("train/nll", float(nll_train), epoch)
-        if has_val and nll_val == nll_val:
+        if should_validate and nll_val == nll_val:
             writer.add_scalar("val/nll", float(nll_val), epoch)
         # log current LR from optimizer
         try:

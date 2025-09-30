@@ -136,7 +136,7 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
     def forward(self, query_times: Tensor, normalized_times: bool = False) -> Tensor:  # type: ignore[override]
         return self.evaluate(query_times, normalized_times=normalized_times)
 
-    def integral(self, t_end: Tensor, t_start: Tensor | None = None, normalized_times: bool = False) -> Tensor:
+    def integral_closed_form(self, t_end: Tensor, t_start: Tensor | None = None, normalized_times: bool = False) -> Tensor:
         r"""Closed-form integral of \lambda from ``t_start`` to ``t_end``.
 
         The piece-wise intensity between two consecutive events follows
@@ -177,10 +177,19 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         if L > 1:
             deltas[:, :, 1:] = self.event_times[:, :, 1:] - self.event_times[:, :, :-1]
 
-        eps = 1e-8
-        interval_terms = self.mu * deltas.unsqueeze(1) + (self.alpha - self.mu) / (self.beta + eps) * (
-            1.0 - torch.exp(-self.beta * deltas.unsqueeze(1))
-        )  # [B, M, P, L]
+        # Numerically stable integral over full inter-event gaps with small-beta branching
+        small_eps = 1e-6
+        delta_full = deltas.unsqueeze(1)  # [B,1,P,L]
+        beta_full = self.beta  # [B,M,P,L]
+        small_mask_full = torch.abs(beta_full) < small_eps
+        safe_beta_full = torch.where(small_mask_full, torch.ones_like(beta_full), beta_full)
+        expm1_term_full = -torch.expm1(-beta_full * delta_full)
+        exp_part_full = torch.where(
+            small_mask_full,
+            (self.alpha - self.mu) * delta_full,
+            (self.alpha - self.mu) / safe_beta_full * expm1_term_full,
+        )
+        interval_terms = self.mu * delta_full + exp_part_full  # [B, M, P, L]
         cumsum_terms = interval_terms.cumsum(dim=3)  # [B, M, P, L]
         cumsum_padded = torch.cat([torch.zeros_like(cumsum_terms[..., :1]), cumsum_terms], dim=3)  # [B,M,P,L+1]
 
@@ -210,9 +219,16 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
 
             # Partial interval from t_last to t_bound_n
             delta_partial = (t_flat - t_last).unsqueeze(1)  # [B,1,P,E]
-            partial = mu_last * delta_partial + (alpha_last - mu_last) / (beta_last + eps) * (
-                1.0 - torch.exp(-beta_last * delta_partial)
-            )  # [B,M,P,E]
+            # Numerically stable partial interval using small-beta branching
+            small_mask_part = torch.abs(beta_last) < small_eps
+            safe_beta_last = torch.where(small_mask_part, torch.ones_like(beta_last), beta_last)
+            expm1_term_part = -torch.expm1(-beta_last * delta_partial)
+            exp_part_partial = torch.where(
+                small_mask_part,
+                (alpha_last - mu_last) * delta_partial,
+                (alpha_last - mu_last) / safe_beta_last * expm1_term_part,
+            )
+            partial = mu_last * delta_partial + exp_part_partial  # [B,M,P,E]
 
             result = sum_full + partial  # [B,M,P,E]
             return result.reshape(B, self.mu.shape[1], P, *t_bound_n.shape[2:])
@@ -220,3 +236,85 @@ class PiecewiseHawkesIntensity(torch.nn.Module):
         integral_end = _integral_up_to(t_end_n)
         integral_start = _integral_up_to(t_start_n)
         return integral_end - integral_start
+
+    def integral_monte_carlo(
+        self, t_end: Tensor, t_start: Tensor | None = None, num_samples: int = 100, normalized_times: bool = False
+    ) -> Tensor:
+        r"""Estimate the integral of \lambda from ``t_start`` to ``t_end`` via Monte-Carlo.
+
+        A simple Monte-Carlo estimator is used:
+            \int_{t_start}^{t_end} \lambda(t) dt \approx (t_end - t_start) * MEAN(\lambda(t_samples))
+        where t_samples are drawn uniformly from [t_start, t_end].
+
+        This method supports broadcasting for ``t_start`` and ``t_end``. For example,
+        to compute the integrated intensity \int_0^t \lambda(s) ds for multiple t,
+        pass ``t_end`` with shape [B, P, L_eval] and ``t_start=None``.
+
+        Args:
+            t_end (Tensor): The end of the integration interval(s).
+                Can be e.g. [B, P] or [B, P, L_eval].
+            t_start (Tensor | None): The start of the integration interval(s).
+                If None, defaults to 0. Must be broadcastable to ``t_end.shape``.
+            num_samples (int): The number of samples for the Monte-Carlo estimation.
+            normalized_times (bool, optional): If ``True``, the provided ``t_start`` and ``t_end``
+                are assumed to already be on the *normalised* time axis. If ``False`` (default),
+                they are treated as *original* (unnormalised) times.
+
+        Returns:
+            Tensor: The estimated integral for each mark. Shape is [B, M, *t_end.shape[1:]].
+        """
+        device = t_end.device
+        if t_start is None:
+            t_start = torch.zeros_like(t_end)
+
+        # We will add a sample dimension at the end
+        # Shape: [*t_end.shape, num_samples]
+        random_samples = torch.rand(*t_end.shape, num_samples, device=device)
+
+        # Scale samples to be in [t_start, t_end]
+        # t_start and t_end are broadcastable.
+        interval_len = t_end - t_start
+        # Add a dimension to t_start and interval_len for broadcasting with random_samples
+        t_samples = t_start.unsqueeze(-1) + random_samples * interval_len.unsqueeze(-1)
+
+        # To call evaluate, we need to flatten the evaluation and sample dimensions
+        # Original shape: [B, P, (L_eval), num_samples]
+        # Target shape for evaluate: [B, P, L_eval * num_samples]
+        B, P, *rest = t_samples.shape
+        num_total_samples = t_samples.shape[2:].numel()
+        t_samples_flat = t_samples.reshape(B, P, num_total_samples)
+
+        # Evaluate intensity at the sampled times
+        intensity_at_samples_flat = self.evaluate(t_samples_flat, normalized_times=normalized_times)  # [B, M, P, num_total_samples]
+
+        # Reshape back to include the original evaluation and sample dimensions
+        # Target shape: [B, M, P, (L_eval), num_samples]
+        _, M, _, _ = self.mu.shape
+        intensity_at_samples = intensity_at_samples_flat.reshape(B, M, P, *t_end.shape[2:], num_samples)
+
+        # Compute the mean intensity over the samples (the last dimension)
+        mean_intensity = intensity_at_samples.mean(dim=-1)  # [B, M, P, (L_eval)]
+
+        # Multiply by interval length to get the integral estimate
+        # interval_len has shape [B, P, (L_eval)], needs unsqueezing at dim 1 for marks
+        integral_estimate = mean_intensity * interval_len.unsqueeze(1)
+
+        return integral_estimate
+
+    # Convenience wrapper to switch between exact and Monte-Carlo integration
+    def integral(
+        self,
+        t_end: Tensor,
+        t_start: Tensor | None = None,
+        num_samples: int | None = None,
+        normalized_times: bool = False,
+    ) -> Tensor:
+        """Compute integral using closed-form if no sampling requested, otherwise MC.
+
+        If num_samples is None, defaults to closed-form. If provided, uses Monte-Carlo
+        with the given number of samples.
+        """
+        if num_samples is None:
+            return self.integral_closed_form(t_end=t_end, t_start=t_start, normalized_times=normalized_times)
+        else:
+            return self.integral_monte_carlo(t_end=t_end, t_start=t_start, num_samples=int(num_samples), normalized_times=normalized_times)

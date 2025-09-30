@@ -1,6 +1,6 @@
 import copy
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -25,10 +25,9 @@ class FIMHawkesConfig(PretrainedConfig):
         context_summary_pooling: dict = None,
         evaluation_mark_encoder: dict = None,
         context_ts_encoder: dict = None,
-        inference_ts_encoder: dict = None,
+        decoder_ts: dict = None,
+        mark_fusion_attention: dict = None,
         context_summary_encoder: dict = None,
-        functional_attention: dict = None,
-        context_self_attention: dict = None,
         mu_decoder: dict = None,
         alpha_decoder: dict = None,
         beta_decoder: dict = None,
@@ -37,6 +36,7 @@ class FIMHawkesConfig(PretrainedConfig):
         max_num_marks: int = 1,
         normalize_times: bool = True,
         normalize_by_max_time: bool = True,
+        nll: dict | None = None,
         thinning: dict = None,
         loss_weights: dict = None,
         **kwargs,
@@ -44,16 +44,16 @@ class FIMHawkesConfig(PretrainedConfig):
         self.max_num_marks = max_num_marks
         self.normalize_times = normalize_times
         self.normalize_by_max_time = normalize_by_max_time
+        self.nll = nll
         self.mark_encoder = mark_encoder
         self.time_encoder = time_encoder
         self.delta_time_encoder = delta_time_encoder
         self.context_summary_pooling = context_summary_pooling
         self.evaluation_mark_encoder = evaluation_mark_encoder
         self.context_ts_encoder = context_ts_encoder
-        self.inference_ts_encoder = inference_ts_encoder
         self.context_summary_encoder = context_summary_encoder
-        self.functional_attention = functional_attention
-        self.context_self_attention = context_self_attention
+        self.decoder_ts = decoder_ts
+        self.mark_fusion_attention = mark_fusion_attention
         self.mu_decoder = mu_decoder
         self.alpha_decoder = alpha_decoder
         self.beta_decoder = beta_decoder
@@ -113,15 +113,16 @@ class FIMHawkes(AModel):
         evaluation_mark_encoder = copy.deepcopy(self.config.evaluation_mark_encoder)
         context_summary_pooling = copy.deepcopy(self.config.context_summary_pooling)
         context_ts_encoder = copy.deepcopy(self.config.context_ts_encoder)
-        inference_ts_encoder = copy.deepcopy(self.config.inference_ts_encoder)
         context_summary_encoder = copy.deepcopy(self.config.context_summary_encoder)
-        functional_attention = copy.deepcopy(self.config.functional_attention)
-        context_self_attention = copy.deepcopy(self.config.context_self_attention)
+        decoder_ts = copy.deepcopy(self.config.decoder_ts)
+        mark_fusion_attention = copy.deepcopy(getattr(self.config, "mark_fusion_attention", None))
         mu_decoder = copy.deepcopy(self.config.mu_decoder)
         alpha_decoder = copy.deepcopy(self.config.alpha_decoder)
         beta_decoder = copy.deepcopy(self.config.beta_decoder)
         self.hidden_dim = self.config.hidden_dim
         self.normalize_times = self.config.normalize_times
+        # Event representation dimension after concatenation of decoded token and mark embedding
+        self.event_repr_dim = self.hidden_dim * 2
 
         mark_encoder["in_features"] = self.max_num_marks
         self.mark_encoder = create_class_instance(mark_encoder.pop("name"), mark_encoder)
@@ -159,9 +160,6 @@ class FIMHawkes(AModel):
 
         context_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
         self.context_ts_encoder = create_class_instance(context_ts_encoder.pop("name"), context_ts_encoder)
-        inference_ts_encoder["encoder_layer"]["d_model"] = self.hidden_dim
-        self.inference_ts_encoder = create_class_instance(inference_ts_encoder.pop("name"), inference_ts_encoder)
-
         # Optional TransformerEncoder to enhance per-path context summaries with residuals and MLPs
         if context_summary_encoder is not None:
             context_summary_encoder["encoder_layer"]["d_model"] = self.hidden_dim
@@ -169,32 +167,35 @@ class FIMHawkes(AModel):
         else:
             self.context_summary_encoder = None
 
+        decoder_ts["decoder_layer"]["d_model"] = self.hidden_dim
+        self.ts_decoder = create_class_instance(decoder_ts.pop("name"), decoder_ts)
+
         self.input_layernorm = torch.nn.LayerNorm(self.hidden_dim)
 
-        self.functional_attention = AttentionOperator(embed_dim=self.hidden_dim, out_features=self.hidden_dim, **functional_attention)
-
-        # Learnable mark-specific query embeddings q(m)
-        self.mark_queries = torch.nn.Parameter(torch.randn(self.max_num_marks, self.hidden_dim))
+        # Mark fusion attention (ResidualAttentionLayer) to combine decoded tokens with per-mark embeddings
+        if mark_fusion_attention is not None:
+            mark_fusion_attention["d_model"] = self.hidden_dim
+            mark_fusion_attention.setdefault("batch_first", True)
+            self.mark_fusion_attn = create_class_instance(mark_fusion_attention.pop("name"), mark_fusion_attention)
+        else:
+            self.mark_fusion_attn = None
 
         # Separate decoders for the three Hawkes parameters
         # Each maps the final event representation h_i^m to a single parameter
-        mu_decoder["in_features"] = self.hidden_dim
+        mu_decoder["in_features"] = self.event_repr_dim
         mu_decoder["out_features"] = 1
         self.mu_decoder = create_class_instance(mu_decoder.pop("name"), mu_decoder)
 
-        alpha_decoder["in_features"] = self.hidden_dim
+        alpha_decoder["in_features"] = self.event_repr_dim
         alpha_decoder["out_features"] = 1
         self.alpha_decoder = create_class_instance(alpha_decoder.pop("name"), alpha_decoder)
 
-        beta_decoder["in_features"] = self.hidden_dim
+        beta_decoder["in_features"] = self.event_repr_dim
         beta_decoder["out_features"] = 1
         self.beta_decoder = create_class_instance(beta_decoder.pop("name"), beta_decoder)
 
         # Single learnable query for path summaries
         self.path_summary_query = torch.nn.Parameter(torch.randn(1, self.hidden_dim))
-
-        # Self-attention layer to enhance context summaries
-        self.context_self_attn = torch.nn.MultiheadAttention(embed_dim=self.hidden_dim, **context_self_attention)
 
         if self.config.thinning is not None:
             self.event_sampler = EventSampler(**self.config.thinning)
@@ -319,127 +320,71 @@ class FIMHawkes(AModel):
         # ------------------------------------------------------------------
         # Encoding of observations (context & target/inference)
         # ------------------------------------------------------------------
-        # Allow re-using precomputed enhanced context embeddings to avoid repeated encoding
-        precomputed_enhanced_context = x.get("precomputed_enhanced_context", None)
-        if precomputed_enhanced_context is not None:
-            enhanced_context = precomputed_enhanced_context
-            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-        else:
-            sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B,P,L,D]
-            enhanced_context = self.encode_context(
-                {
-                    "context_event_times": x["context_event_times"],
-                    "context_event_types": x["context_event_types"],
-                    "context_seq_lengths": x["context_seq_lengths"],
-                }
-            )
-        # At this point, `enhanced_context` is available
+        # Build target/inference token embeddings (decoder inputs)
+        sequence_encodings_inference = self._encode_observations_optimized(x, "inference")  # [B, P_inference, L, D]
 
         # ------------------------------------------------------------------
-        # Convert event representations to intensity parameters
+        # Convert event representations to intensity parameters using TransformerDecoder
         # ------------------------------------------------------------------
-        # (11) Cross-Attention: q(m) = φ_meval(m) - learnable mark queries
-        mark_queries = self.mark_queries[:num_marks]  # [M, D] - these are q(m)
+        # Build memory from context via attention pooling with ResidualAttentionLayer
+        # This yields one summary token per context path
+        enhanced_context = self.encode_context(
+            {
+                "context_event_times": x["context_event_times"],
+                "context_event_types": x["context_event_types"],
+                "context_seq_lengths": x["context_seq_lengths"],
+            }
+        )  # [B, P_context, D]
+        B, P_context, D = enhanced_context.shape
+        memory = enhanced_context  # [B, P_context, D]
 
-        # (8) Cross-attention: h_final^{i,m} = ψ_attn(q(m), H_combined^i, H_combined^i)
-        # where H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
-
-        # Vectorized implementation to avoid nested loops
+        # Prepare target from inference sequences
         B, P_inference, L, D = sequence_encodings_inference.shape
-        P_context = enhanced_context.shape[1]
+        tgt = sequence_encodings_inference  # [B, P_inference, L, D]
+        # Causal mask for tgt (size L x L) and pad mask up to seq_len
+        tgt_causal_mask = torch.triu(torch.ones(L, L, device=self.device), diagonal=1).bool()
+        positions_inf = torch.arange(L, device=self.device).view(1, 1, L)
+        tgt_key_padding_mask = (positions_inf >= x["inference_seq_lengths"].unsqueeze(2)).reshape(B * P_inference, L)
 
-        # Prepare queries: q(m) replicated across paths and events
-        # Shape: [B, M, P_inference, L, D]
-        mark_queries_expanded = mark_queries.view(1, num_marks, 1, 1, D).expand(B, -1, P_inference, L, -1)  # [B, M, P_inference, L, D]
+        # Repeat memory for each inference path
+        mem_repeated = memory.unsqueeze(1).expand(-1, P_inference, -1, -1).reshape(B * P_inference, P_context, D)
+        # Path-level memory tokens: no padding mask required (already pooled over length)
 
-        # Prepare keys/values: H_combined^i = {H_context, h_1^{target}, ..., h_i^{target}}
-        # For each event i, we need context + target history up to i
-        # We'll create a large tensor with proper causal masking
+        # Reshape tgt to [B*P_inference, L, D]
+        tgt_reshaped = tgt.reshape(B * P_inference, L, D)
 
-        # Context part: same for all events (fully visible)
-        # Shape: [B, P_context, D] -> [B, P_inference, L, P_context, D]
-        context_expanded = enhanced_context.unsqueeze(1).unsqueeze(2).expand(-1, P_inference, L, -1, -1)
+        # Decode with TransformerDecoder
+        decoded = self.ts_decoder(
+            tgt=tgt_reshaped,
+            memory=mem_repeated,
+            tgt_mask=tgt_causal_mask,
+            tgt_key_padding_mask=tgt_key_padding_mask,
+        )  # [B*P_inference, L, D]
 
-        # Target part: causal history for each event
-        # Shape: [B, P_inference, L, L, D] where the last L dimension is causal
-        target_causal = sequence_encodings_inference.unsqueeze(2).expand(-1, -1, L, -1, -1)  # [B, P_inference, L, L, D]
+        decoded = decoded.reshape(B, P_inference, L, D)
 
-        # Create causal mask for target part: event i can see events 0 to i
-        causal_mask = torch.triu(torch.ones(L, L, device=self.device), diagonal=1).bool()  # [L, L]
-        causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(B, P_inference, -1, -1)  # [B, P_inference, L, L]
-
-        # Apply causal mask to target part
-        target_causal = target_causal.masked_fill(causal_mask.unsqueeze(-1), 0.0)
-
-        # Combine context and target parts
-        # Shape: [B, P_inference, L, P_context + L, D]
-        combined_keys_values = torch.cat([context_expanded, target_causal], dim=3)
-
-        # Reshape for batch attention
-        # Queries: [B, M, P_inference, L, D] -> [B * M * P_inference * L, 1, D]
-        mark_queries_flat = mark_queries_expanded.reshape(B * num_marks * P_inference * L, 1, D)
-
-        # Keys/Values: [B, P_inference, L, P_context + L, D] -> [B * P_inference * L, P_context + L, D]
-        # We need to expand this for each mark
-        keys_values_expanded = combined_keys_values.unsqueeze(1).expand(
-            -1, num_marks, -1, -1, -1, -1
-        )  # [B, M, P_inference, L, P_context + L, D]
-        keys_values_flat = keys_values_expanded.reshape(B * num_marks * P_inference * L, P_context + L, D)
-
-        # Create attention mask for padded positions
-        # Context part: use context sequence lengths
-        context_seq_lengths_expanded = x["context_seq_lengths"].unsqueeze(1).unsqueeze(2)  # [B, 1, 1, P_context]
-        context_positions = torch.arange(P_context, device=self.device).view(1, 1, 1, P_context)  # [1, 1, 1, P_context]
-        context_padding_mask = context_positions >= context_seq_lengths_expanded  # [B, 1, 1, P_context]
-        context_padding_mask = context_padding_mask.expand(-1, P_inference, L, -1)  # [B, P_inference, L, P_context]
-
-        # Target part: use inference sequence lengths and causal mask
-        inference_seq_lengths_expanded = x["inference_seq_lengths"].unsqueeze(2)  # [B, P_inference, 1]
-        target_positions = torch.arange(L, device=self.device).view(1, 1, L)  # [1, 1, L]
-        target_seq_padding_mask = target_positions >= inference_seq_lengths_expanded  # [B, P_inference, L]
-        target_seq_padding_mask = target_seq_padding_mask.unsqueeze(2).expand(-1, -1, L, -1)  # [B, P_inference, L, L]
-
-        # Combine sequence padding mask with causal mask for target part
-        target_final_mask = target_seq_padding_mask | causal_mask  # [B, P_inference, L, L]
-
-        # Combine context and target masks
-        combined_padding_mask = torch.cat(
-            [
-                context_padding_mask,  # [B, P_inference, L, P_context]
-                target_final_mask,  # [B, P_inference, L, L]
-            ],
-            dim=3,
-        )  # [B, P_inference, L, P_context + L]
-
-        # Expand for marks and flatten
-        combined_padding_mask_expanded = combined_padding_mask.unsqueeze(1).expand(
-            -1, num_marks, -1, -1, -1
-        )  # [B, M, P_inference, L, P_context + L]
-        combined_padding_mask_flat = combined_padding_mask_expanded.reshape(B * num_marks * P_inference * L, P_context + L)
-
-        # Apply cross-attention
-        h_final_flat = self.functional_attention(
-            mark_queries_flat,  # locations_encoding: [B * M * P_inference * L, 1, D]
-            keys_values_flat.unsqueeze(2),  # observations_encoding: [B * M * P_inference * L, P_context + L, 1, D]
-            observations_padding_mask=combined_padding_mask_flat.unsqueeze(-1),  # [B * M * P_inference * L, P_context + L, 1]
-        )  # Result shape: [B * M * P_inference * L, 1, D]
-
-        # Reshape back to original structure
-        # [B * M * P_inference * L, 1, D] -> [B, M, P_inference, L, D]
-        combined_enc = h_final_flat.squeeze(1).reshape(B, num_marks, P_inference, L, D)
+        # Concatenate the decoded token representation with the target mark embedding
+        # mark_basis: [M, D]
+        mark_basis = self.evaluation_mark_encoder(self.mark_one_hot[:num_marks])
+        # Expand to [B, M, P_inference, L, D]
+        mark_expanded = mark_basis.view(1, num_marks, 1, 1, D).expand(B, num_marks, P_inference, L, D)
+        # Expand decoded to [B, M, P_inference, L, D]
+        decoded_expanded = decoded.view(B, 1, P_inference, L, D).expand(-1, num_marks, -1, -1, -1)
+        # Concatenate on feature dim -> [B, M, P_inference, L, 2D]
+        combined_enc = torch.cat([decoded_expanded, mark_expanded], dim=-1)
 
         # Decode raw parameters and apply Softplus to ensure positivity.
-        raw_params = self.mu_decoder(combined_enc.reshape(-1, self.hidden_dim))  # [...,1]
+        raw_params = self.mu_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
         raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
 
         mu = torch.nn.functional.softplus(raw_params[..., 0])
 
-        raw_params = self.alpha_decoder(combined_enc.reshape(-1, self.hidden_dim))  # [...,1]
+        raw_params = self.alpha_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
         raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
 
         alpha = torch.nn.functional.softplus(raw_params[..., 0])
 
-        raw_params = self.beta_decoder(combined_enc.reshape(-1, self.hidden_dim))  # [...,1]
+        raw_params = self.beta_decoder(combined_enc.reshape(-1, self.event_repr_dim))  # [...,1]
         raw_params = raw_params.view(B, num_marks, P_inference, L, 1)
 
         beta = torch.nn.functional.softplus(raw_params[..., 0])
@@ -467,45 +412,67 @@ class FIMHawkes(AModel):
         }
 
         if "kernel_functions" in x:
-            # Compute target intensities for plotting and loss computation
-            kernel_functions_list, base_intensity_functions_list = self._decode_functions(
-                x["kernel_functions"], x["base_intensity_functions"]
-            )
-            # Compute target intensities using same normalized times
-            target_intensity_values = self.compute_target_intensity_values(
-                kernel_functions_list,
-                base_intensity_functions_list,
-                x["intensity_evaluation_times_norm"] if self.normalize_times else x["intensity_evaluation_times"],
-                x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
-                x["inference_event_types"],
-                x["inference_seq_lengths"],
-                norm_constants,
-                num_marks=num_marks,
-                inference_time_offsets=x.get("inference_time_offsets", None),
-            )
-            out["target_intensity_values"] = target_intensity_values
+            # Determine which supervised targets are actually needed based on loss weights
+            w_smape = self.loss_weights.get("smape", 0.0)
+            w_mu = self.loss_weights.get("mu", 0.0)
+            w_alpha = self.loss_weights.get("alpha", 0.0)
 
-            # Prepare decomposed supervision targets at event times
-            mu_star_at_events, _, lambda_post_at_events = self.compute_decomposed_targets_at_events(
-                kernel_functions_list=kernel_functions_list,
-                base_intensity_functions_list=base_intensity_functions_list,
-                inference_event_times=x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
-                inference_event_types=x["inference_event_types"],
-                inference_seq_lengths=x["inference_seq_lengths"],
-                norm_constants=norm_constants,
-                num_marks=num_marks,
-                inference_time_offsets=x.get("inference_time_offsets", None),
-            )
+            # Also compute targets during evaluation (model.eval()),
+            # so tools like visualization can access ground-truth intensities
+            # even if the model was trained with NLL-only (smape weight == 0).
+            is_eval_mode = not self.training
+            need_targets = (w_smape != 0.0) or is_eval_mode
+            need_decomposed = (w_mu != 0.0) or (w_alpha != 0.0)
 
-            # Valid mask for (B, P, L) positions excluding padding
-            B, P, L = event_times.shape
-            positions = torch.arange(L, device=self.device).view(1, 1, L)
-            valid_event_mask = positions < x["inference_seq_lengths"].unsqueeze(2)
+            kernel_functions_list = None
+            base_intensity_functions_list = None
+            target_intensity_values: Optional[Tensor] = None
+            mu_star_at_events: Optional[Tensor] = None
+            lambda_post_at_events: Optional[Tensor] = None
+            valid_event_mask: Optional[Tensor] = None
+
+            if need_targets or need_decomposed:
+                kernel_functions_list, base_intensity_functions_list = self._decode_functions(
+                    x["kernel_functions"], x["base_intensity_functions"]
+                )
+
+            if need_targets:
+                # Compute target intensities using same normalized times
+                target_intensity_values = self.compute_target_intensity_values(
+                    kernel_functions_list,
+                    base_intensity_functions_list,
+                    x["intensity_evaluation_times_norm"] if self.normalize_times else x["intensity_evaluation_times"],
+                    x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
+                    x["inference_event_types"],
+                    x["inference_seq_lengths"],
+                    norm_constants,
+                    num_marks=num_marks,
+                    inference_time_offsets=x.get("inference_time_offsets", None),
+                )
+                out["target_intensity_values"] = target_intensity_values
+
+            if need_decomposed:
+                # Prepare decomposed supervision targets at event times
+                mu_star_at_events, _, lambda_post_at_events = self.compute_decomposed_targets_at_events(
+                    kernel_functions_list=kernel_functions_list,
+                    base_intensity_functions_list=base_intensity_functions_list,
+                    inference_event_times=x["inference_event_times_norm"] if self.normalize_times else x["inference_event_times"],
+                    inference_event_types=x["inference_event_types"],
+                    inference_seq_lengths=x["inference_seq_lengths"],
+                    norm_constants=norm_constants,
+                    num_marks=num_marks,
+                    inference_time_offsets=x.get("inference_time_offsets", None),
+                )
+
+                # Valid mask for (B, P, L) positions excluding padding
+                B, P, L = event_times.shape
+                positions = torch.arange(L, device=self.device).view(1, 1, L)
+                valid_event_mask = positions < x["inference_seq_lengths"].unsqueeze(2)
 
             out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
                 predicted_intensity_values=out["predicted_intensity_values"],
-                target_intensity_values=out["target_intensity_values"],
+                target_intensity_values=out.get("target_intensity_values", None),
                 event_times=event_times,
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
@@ -516,73 +483,25 @@ class FIMHawkes(AModel):
                 valid_event_mask=valid_event_mask,
             )
         else:
-            # No ground-truth functions available: fall back to NLL-only fine-tuning
-            # Compute NLL on normalized time domain (internally denormalized if needed)
-            nll_only = self._nll_loss(
+            # No ground-truth functions available: defer to generic loss with only NLL/regularizers
+            out["losses"] = self.loss(
                 intensity_fn=intensity_fn,
+                predicted_intensity_values=out["predicted_intensity_values"],
+                target_intensity_values=None,
                 event_times=event_times,
                 event_types=x["inference_event_types"].squeeze(-1),
                 seq_lengths=x["inference_seq_lengths"],
+                schedulers=schedulers,
+                step=step,
+                mu_targets_at_events=None,
+                lambda_post_targets_at_events=None,
+                valid_event_mask=None,
             )
-
-            # Weight with configured loss weight for compatibility
-            relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
-            total_loss = self.loss_weights.get("nll", 1.0) * nll_only + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
-
-            out["losses"] = {
-                "loss": total_loss,
-                "nll_loss": nll_only.detach().item(),
-                "relative_spike_loss": relative_spike_loss.detach().item(),
-                # Placeholders for logging consistency
-                "smape_loss": 0.0,
-                "mae_loss": 0.0,
-            }
 
         if self.normalize_times:
             self._denormalize_output(out, norm_constants)
 
         return out
-
-    def _encode_observations(self, x: dict) -> Tensor:
-        obs_grid_normalized = x["event_times"]
-
-        encodings_per_event_mark = self.mark_encoder(
-            torch.nn.functional.one_hot(torch.arange(self.max_num_marks, device=self.device), num_classes=self.max_num_marks).float()
-        )
-        B, P, L = obs_grid_normalized.shape[:3]
-
-        time_enc = self.time_encoder(obs_grid_normalized)
-        delta_time_enc = self.delta_time_encoder(x["delta_times"])
-        # Select encoding from encodings_per_event_mark from event_types
-        state_enc = encodings_per_event_mark[x["event_types"].reshape(-1).int()].reshape(B, P, L, -1)
-        path = time_enc + delta_time_enc + state_enc
-        # Approach: Use the original mask logic but make PyTorch handle it properly
-        # The key insight is that the original combined both causal and padding masks
-        # We need to create the exact same combined mask but handle the head dimension properly
-
-        # 1. Create base causal mask [L, L]
-        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-
-        # 2. Create padding mask [B*P, L] for keys
-        positions = torch.arange(L, device=self.device).unsqueeze(0)  # (1, L)
-        seq_lengths_flat = x["seq_lengths"].view(B * P)  # (B*P,)
-        key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)  # (B*P, L)
-
-        # 3. For now, let's use the simpler approach that should be functionally equivalent
-        # The causal mask handles temporal dependencies, key_padding_mask handles sequence lengths
-        h = self.ts_encoder(
-            path.view(B * P, L, -1),
-            mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
-            src_key_padding_mask=key_padding_mask,  # 2D key padding mask
-        )
-
-        return h.view(B, P, L, -1)
-
-    def _intensity_decoder(self, time_dependent_path_summary: Tensor) -> Tensor:
-        B, M, P_inference, L_inference, D = time_dependent_path_summary.shape
-        time_dependent_path_summary = time_dependent_path_summary.view(B * M * P_inference * L_inference, D)
-        h = self.intensity_decoder(time_dependent_path_summary)
-        return h.view(B, M, P_inference, L_inference)
 
     def _normalize_input_times(self, x: dict) -> Tuple[Tensor, Dict[str, Tensor]]:
         """
@@ -674,9 +593,6 @@ class FIMHawkes(AModel):
         # The key insight is that the original combined both causal and padding masks
         # We need to create the exact same combined mask but handle the head dimension properly
 
-        # 1. Create base causal mask [L, L]
-        causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool().to(self.device)
-
         # This prevents them from contributing to the LayerNorm statistics inside the encoder,
         # which is the source of the unstable gradients in the backward pass.
         path = path.view(B * P, L, -1)
@@ -688,15 +604,13 @@ class FIMHawkes(AModel):
         if type == "context":
             h = self.context_ts_encoder(
                 path.view(B * P, L, -1),
-                mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
+                # No causal mask for context sequences; keep padding mask only
                 src_key_padding_mask=key_padding_mask,  # 2D key padding mask
             )
         elif type == "inference":
-            h = self.inference_ts_encoder(
-                path.view(B * P, L, -1),
-                mask=causal_mask,  # 2D causal mask - PyTorch will broadcast
-                src_key_padding_mask=key_padding_mask,  # 2D key padding mask
-            )
+            # Bypass any TransformerEncoder: use token embeddings directly for the decoder
+            # We still zero out padded tokens and rely on the decoder's causal + padding masks
+            h = path.view(B * P, L, -1)
         else:
             raise ValueError(f"Invalid type: {type}")
 
@@ -811,6 +725,39 @@ class FIMHawkes(AModel):
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
+    ) -> Tensor:
+        """Dispatch to the configured NLL method (closed_form or monte_carlo)."""
+        cfg = getattr(self.config, "nll", None) or {}
+        method = (cfg.get("method") or "closed_form").lower()
+        # Training: no correction (normalized domain). Evaluation: apply correction (original domain).
+        apply_log_c_correction = not self.training
+        if method == "monte_carlo":
+            num_points = int(cfg.get("num_integration_points", 100))
+            return self._nll_loss_monte_carlo(
+                intensity_fn=intensity_fn,
+                event_times=event_times,
+                event_types=event_types,
+                seq_lengths=seq_lengths,
+                apply_log_c_correction=apply_log_c_correction,
+                num_integration_points=num_points,
+            )
+        elif method == "closed_form":
+            return self._nll_loss_closed_form(
+                intensity_fn=intensity_fn,
+                event_times=event_times,
+                event_types=event_types,
+                seq_lengths=seq_lengths,
+                apply_log_c_correction=apply_log_c_correction,
+            )
+        else:
+            raise ValueError(f"Unknown NLL method '{method}'. Use 'closed_form' or 'monte_carlo'.")
+
+    def _nll_loss_closed_form(
+        self,
+        intensity_fn: "PiecewiseHawkesIntensity",
+        event_times: Tensor,
+        event_types: Tensor,
+        seq_lengths: Tensor,
         apply_log_c_correction: bool = False,
     ) -> Tensor:
         """
@@ -837,8 +784,22 @@ class FIMHawkes(AModel):
         mu = intensity_fn.mu  # [B, M, P, L]
         alpha = intensity_fn.alpha  # [B, M, P, L]
         beta = intensity_fn.beta  # [B, M, P, L]
-        eps = 1e-8
-        integral_terms = mu * delta_expanded + (alpha - mu) / (beta + eps) * (1.0 - torch.exp(-beta * delta_expanded))  # [B, M, P, L]
+        # Numerically stable integral for small beta using Taylor branching
+        # integral = mu * Δ + (alpha - mu)/beta * (1 - exp(-beta * Δ))
+        # For |beta| ~ 0, use limit: (alpha - mu) * Δ
+        small_eps = 1e-6
+        beta_dt = beta * delta_expanded  # [B, M, P, L]
+        small_mask = torch.abs(beta) < small_eps
+        # Safe denominator to avoid division by 0/very small in the non-small branch
+        safe_beta = torch.where(small_mask, torch.ones_like(beta), beta)
+        # Use expm1 for improved accuracy when beta*Δ is small: 1 - exp(-x) = -expm1(-x)
+        expm1_term = -torch.expm1(-beta_dt)
+        integral_exp_part = torch.where(
+            small_mask,
+            (alpha - mu) * delta_expanded,
+            (alpha - mu) / safe_beta * expm1_term,
+        )
+        integral_terms = mu * delta_expanded + integral_exp_part  # [B, M, P, L]
 
         # Sum over intervals to obtain ∫ λ dt for each mark and path
         integral_per_mark_path = integral_terms.sum(dim=3)  # [B, M, P]
@@ -901,11 +862,102 @@ class FIMHawkes(AModel):
         total_events = valid_mask.sum()
         return total_nll / (total_events + 1e-8)
 
+    def _nll_loss_monte_carlo(
+        self,
+        intensity_fn: "PiecewiseHawkesIntensity",
+        event_times: Tensor,
+        event_types: Tensor,
+        seq_lengths: Tensor,
+        apply_log_c_correction: bool = False,
+        num_integration_points: int = 100,
+    ) -> Tensor:
+        """
+        Negative log-likelihood loss normalized by number of events.
+
+        Args:
+            num_integration_points (int): number of Monte Carlo samples for integral estimation.
+        """
+        B, P, L = event_times.shape
+
+        # Create a mask for all valid (non-padded) events in the original sequence
+        original_positions = torch.arange(L, device=self.device).view(1, 1, L)
+        original_valid_mask = original_positions < seq_lengths.unsqueeze(2)
+
+        # Integral of intensity from 0 to T (∫ λ'(t') dt')
+        t_start = torch.zeros(B, P, device=self.device)
+        t_end_times = event_times.clone().squeeze(-1)
+        t_end_times[~original_valid_mask] = 0  # Mask out padded values to find the true max time
+        t_end = t_end_times.max(dim=2).values
+        integral_per_mark_path = intensity_fn.integral(
+            t_start=t_start,
+            t_end=t_end,
+            num_samples=num_integration_points,
+            normalized_times=True,
+        )
+        integral_sum_per_path = integral_per_mark_path.sum(dim=1)
+
+        # To align with EasyTPP, we exclude the first event from the log-likelihood's summation term.
+        # The model is evaluated on its ability to predict events t_1, ..., t_N given t_0.
+        event_times_for_ll = event_times[:, :, 1:]
+        event_types_for_ll = event_types[:, :, 1:]
+
+        # Adjust sequence lengths for the sliced view. A sequence of length L has L-1 events to evaluate.
+        seq_lengths_for_ll = (seq_lengths - 1).clamp(min=0)
+        L_eval = L - 1
+
+        # --- 1. Calculate NLL' Summation Term in the Normalized Time Domain ---
+
+        # Intensity and its log at event times (from the second event onwards)
+        intensity_at_events = intensity_fn.evaluate(event_times_for_ll, normalized_times=True)
+        log_intensity_at_events = torch.log(intensity_at_events + 1e-9)  # Add epsilon for stability
+
+        # Gather the log-intensity for the specific event type (mark) that occurred
+        # Clamp event types to avoid out-of-bounds access with padding tokens.
+        num_marks = log_intensity_at_events.shape[1]
+        event_types_for_ll_clamped = torch.clamp(event_types_for_ll, 0, num_marks - 1)
+        type_idx = event_types_for_ll_clamped.unsqueeze(1).expand(-1, 1, -1, -1)
+        log_lambda_at_event_m = torch.gather(log_intensity_at_events, 1, type_idx).squeeze(1)
+
+        # Create a mask for all valid (non-padded) events in the SLICED sequences
+        positions = torch.arange(L_eval, device=self.device).view(1, 1, L_eval)
+        valid_mask = positions < seq_lengths_for_ll.unsqueeze(2)
+
+        # Sum of log-intensities for all valid events (Σ log(λ'(t'_i))) from i=1 to N
+        log_ll_per_path = (log_lambda_at_event_m * valid_mask).sum(dim=2)
+
+        # NLL' = ∫ λ'(t') dt' - Σ log(λ'(t'_i))
+        nll_prime_per_path = integral_sum_per_path - log_ll_per_path
+        total_nll_prime = nll_prime_per_path.sum()
+
+        total_nll = total_nll_prime  # Initialize with the normalized-scale NLL
+
+        # --- 2. Apply Correction for Time Scaling (if requested) ---
+        # The true NLL is related to the normalized-scale NLL (NLL') by:
+        # NLL = NLL' + N * log(c), where N is the event count and c is the normalization constant.
+        # This correction is crucial for evaluation but should be omitted during training
+        # to keep the loss scale consistent with the normalized model parameters.
+        if self.normalize_times and apply_log_c_correction and intensity_fn.norm_constants is not None:
+            # Number of events per batch item (N_b), using the corrected event count (excluding the first event)
+            events_per_batch_item = valid_mask.sum(dim=[1, 2])  # Shape: [B]
+
+            # Normalization constants per batch item (c_b)
+            norm_constants = intensity_fn.norm_constants  # Shape: [B]
+
+            # Correction term: sum over batch { N_b * log(c_b) }
+            nll_correction = (events_per_batch_item * torch.log(norm_constants + 1e-9)).sum()
+
+            total_nll = total_nll_prime + nll_correction
+
+        # --- 3. Normalize by Event Count ---
+        # The total number of events is now based on the sliced sequences
+        total_events = valid_mask.sum()
+        return total_nll / (total_events + 1e-8)
+
     def loss(
         self,
         intensity_fn: "PiecewiseHawkesIntensity",
         predicted_intensity_values: Tensor,
-        target_intensity_values: Tensor,
+        target_intensity_values: Optional[Tensor],
         event_times: Tensor,
         event_types: Tensor,
         seq_lengths: Tensor,
@@ -919,42 +971,68 @@ class FIMHawkes(AModel):
 
         L_total = w_nll * L_NLL + w_smape * L_sMAPE + w_mu * L_mu + w_alpha * L_alpha
         """
+        device = predicted_intensity_values.device
+
+        w_nll = self.loss_weights.get("nll", 0.0)
+        w_smape = self.loss_weights.get("smape", 0.0)
+        w_mu = self.loss_weights.get("mu", 0.0)
+        w_alpha = self.loss_weights.get("alpha", 0.0)
+        w_rel_spike = self.loss_weights.get("relative_spike", 0.1)
+
+        # Base accumulator to ensure a tensor result even if all weights are zero
+        total_loss = torch.zeros((), device=device)
+
         # --- 1. Symmetric Mean Absolute Percentage Error ---
-        smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
+        if (w_smape != 0.0) and (target_intensity_values is not None):
+            smape_loss = self._smape(predicted_intensity_values, target_intensity_values)
+            total_loss = total_loss + w_smape * smape_loss
+        else:
+            smape_loss = torch.tensor(0.0, device=device)
 
         # --- 2. Negative Log-Likelihood Loss ---
-        nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
+        if w_nll != 0.0:
+            nll_loss = self._nll_loss(intensity_fn, event_times, event_types, seq_lengths)
+            total_loss = total_loss + w_nll * nll_loss
+        else:
+            nll_loss = torch.tensor(0.0, device=device)
 
         # --- 2.25 Decomposed supervision on μ and α at event times ---
-        mu_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
-        alpha_loss = torch.tensor(0.0, device=predicted_intensity_values.device)
-        if (mu_targets_at_events is not None) and (lambda_post_targets_at_events is not None) and (valid_event_mask is not None):
+        if (w_mu != 0.0) and (mu_targets_at_events is not None) and (valid_event_mask is not None):
             mu_loss = self._smape_masked(intensity_fn.mu, mu_targets_at_events, valid_event_mask)
+            total_loss = total_loss + w_mu * mu_loss
+        else:
+            mu_loss = torch.tensor(0.0, device=device)
+
+        if (w_alpha != 0.0) and (lambda_post_targets_at_events is not None) and (valid_event_mask is not None):
             alpha_loss = self._smape_masked(intensity_fn.alpha, lambda_post_targets_at_events, valid_event_mask)
+            total_loss = total_loss + w_alpha * alpha_loss
+        else:
+            alpha_loss = torch.tensor(0.0, device=device)
 
         # --- 2.5 Relative spike regularization ---
-        relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
+        if w_rel_spike != 0.0:
+            relative_spike_loss = self._relative_spike(intensity_fn.mu, intensity_fn.alpha)
+            total_loss = total_loss + w_rel_spike * relative_spike_loss
+        else:
+            relative_spike_loss = torch.tensor(0.0, device=device)
 
-        # --- 3. Hybrid weighting of sMAPE and NLL ---
-        total_loss = (
-            self.loss_weights["nll"] * nll_loss
-            + self.loss_weights["smape"] * smape_loss
-            + self.loss_weights.get("mu", 0.0) * mu_loss
-            + self.loss_weights.get("alpha", 0.0) * alpha_loss
-            + self.loss_weights.get("relative_spike", 0.1) * relative_spike_loss
-        )
-
-        mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+        # Logging-only metric: compute only if targets are available
+        if target_intensity_values is not None:
+            mae_loss = torch.mean(torch.abs(predicted_intensity_values - target_intensity_values))
+        else:
+            mae_loss = torch.tensor(0.0, device=device)
 
         # Prepare a logging-friendly dictionary: tensors -> Python floats
         losses_out = {
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
-            "nll_loss": nll_loss.detach().item(),
-            "smape_loss": smape_loss.detach().item(),
-            "mu_smape_loss": mu_loss.detach().item() if isinstance(mu_loss, Tensor) else float(mu_loss),
-            "alpha_smape_loss": alpha_loss.detach().item() if isinstance(alpha_loss, Tensor) else float(alpha_loss),
-            "relative_spike_loss": relative_spike_loss.detach().item(),
-            "mae_loss": mae_loss.detach().item(),
+            "nll_loss": float(nll_loss.detach().item()) if isinstance(nll_loss, Tensor) else float(nll_loss),
+            "smape_loss": float(smape_loss.detach().item()) if isinstance(smape_loss, Tensor) else float(smape_loss),
+            "mu_smape_loss": float(mu_loss.detach().item()) if isinstance(mu_loss, Tensor) else float(mu_loss),
+            "alpha_smape_loss": float(alpha_loss.detach().item()) if isinstance(alpha_loss, Tensor) else float(alpha_loss),
+            "relative_spike_loss": float(relative_spike_loss.detach().item())
+            if isinstance(relative_spike_loss, Tensor)
+            else float(relative_spike_loss),
+            "mae_loss": float(mae_loss.detach().item()) if isinstance(mae_loss, Tensor) else float(mae_loss),
         }
 
         return losses_out

@@ -9,22 +9,33 @@ Usage:
 
 import argparse
 import json
+import os
+import random
 import time
 from pathlib import Path
 from typing import Optional
 
+import matplotlib as mpl
 import numpy as np
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
 
 
+# Configure matplotlib to use Computer Modern fonts
+mpl.rcParams["font.family"] = "serif"
+mpl.rcParams["font.serif"] = ["Computer Modern Roman", "CMU Serif", "DejaVu Serif"]
+mpl.rcParams["mathtext.fontset"] = "cm"
+mpl.rcParams["pdf.fonttype"] = 42
+mpl.rcParams["ps.fonttype"] = 42
+
+
 # ===================================================================
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-23-1809/checkpoints/best-model"
-
+# MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-23-1809/checkpoints/epoch-36"
+MODEL_CHECKPOINT_PATH = "results/fim_benchmark/250923-1757/_finetune/taxi/250923-1757/best-model"
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
 # If False: Load from local path
@@ -45,7 +56,7 @@ LOCAL_DATASET_PATH = "data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_i
 CONTEXT_SIZE = None
 
 # Number of sequences from the test set to use for inference.
-INFERENCE_SIZE = None
+INFERENCE_SIZE = 1
 
 # Number of points to use for log-likelihood evaluation
 NUM_INTEGRATION_POINTS = 5000
@@ -60,6 +71,27 @@ PLOT_EVENT_PREDICTIONS = True
 PLOT_PATH_INDEX = 0
 
 # ===================================================================
+
+# Global seed for deterministic behavior
+GLOBAL_SEED = 42
+
+
+def set_global_seed(seed: int):
+    """Seed Python, NumPy, and PyTorch for reproducible results."""
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    try:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    except Exception:
+        pass
+
+
+# Seed a dedicated RNG for bootstrap routines
+BOOTSTRAP_RNG = np.random.default_rng(GLOBAL_SEED)
 
 
 # --- FIM Hawkes Model Definition ---
@@ -746,7 +778,7 @@ def _bootstrap_ci(samples: np.ndarray, stat_fn, num_samples: int = 1000, alpha: 
     n = arr.shape[0]
     if n == 0:
         return None, None
-    rng = np.random.default_rng()
+    rng = BOOTSTRAP_RNG
     stats = np.empty(num_samples, dtype=float)
     for i in range(num_samples):
         idx = rng.integers(0, n, size=n)
@@ -776,6 +808,9 @@ def run_next_event_evaluation(
     and ground truth (if available), plus bookkeeping fields.
     """
     start_time = time.time()
+
+    # Ensure deterministic behavior
+    set_global_seed(GLOBAL_SEED)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -1211,6 +1246,8 @@ def main():
     """
     Main function to load the model and dataset, and run the evaluation.
     """
+    # Ensure deterministic behavior
+    set_global_seed(GLOBAL_SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -1622,7 +1659,7 @@ def main():
                     try:
                         with torch.no_grad():
                             model_output_vis = model(model_data_vis)
-                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_{PLOT_PATH_INDEX}.png"
+                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_{PLOT_PATH_INDEX}.pdf"
                         plot_intensity_comparison(
                             model_output_vis,
                             model_data_vis,
@@ -1661,7 +1698,7 @@ def main():
                     try:
                         with torch.no_grad():
                             model_output_vis = model(model_data_vis)
-                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_{PLOT_PATH_INDEX}.png"
+                        save_path = f"intensity_comparison_sample_{SAMPLE_INDEX}_path_{PLOT_PATH_INDEX}.pdf"
                         plot_intensity_comparison(model_output_vis, model_data_vis, save_path=save_path, path_idx=0)
                     except Exception as e:
                         print(f"⚠️  Intensity visualization failed: {e}")
@@ -1727,14 +1764,71 @@ def main():
                         # Row-per-step timeline: x = event time, y = step index (k->k+1)
                         from matplotlib.lines import Line2D
 
-                        n_steps = len(true_next_times)
-                        height = max(4.0, min(14.0, 0.35 * n_steps + 2.0))
-                        fig, ax = plt.subplots(1, 1, figsize=(12, height))
+                        # Show fewer rows by starting from step 9→10 (zero-based index 8)
+                        start_k = 8
+                        n_steps_total = len(true_next_times)
+                        if start_k >= n_steps_total:
+                            start_k = max(0, n_steps_total - 1)
+                        # Slice sequences to start from the desired step
+                        true_next_times = true_next_times[start_k:]
+                        true_next_types = true_next_types[start_k:]
+                        pred_next_times = pred_next_times[start_k:]
+                        pred_next_types = pred_next_types[start_k:]
 
-                        # Build color palette for types
+                        # Limit to rows up to 12→13 => 4 rows starting from 9→10
+                        n_steps_total = len(true_next_times)
+                        n_steps = min(n_steps_total, 4)
+
+                        # Match fonts/sizes and axis styles from create_long_horizon_plots.py
+                        import math
+
+                        plt.rcParams.update(
+                            {
+                                "font.family": "serif",
+                                "font.serif": [
+                                    "Computer Modern Roman",
+                                    "CMU Serif",
+                                    "DejaVu Serif",
+                                ],
+                                "mathtext.fontset": "cm",
+                                "font.size": 16,
+                                "axes.titlesize": 20,
+                                "axes.labelsize": 18,
+                                "xtick.labelsize": 14,
+                                "ytick.labelsize": 14,
+                                "legend.fontsize": 14,
+                                "figure.titlesize": 22,
+                            }
+                        )
+
+                        # Adjust height to better match companion plot while keeping width
+                        fig, ax = plt.subplots(1, 1, figsize=(6, 3.2))
+
+                        # Build marker palette for marks and fix colors for Predicted/True
+                        true_next_times = true_next_times[:n_steps]
+                        true_next_types = true_next_types[:n_steps]
+                        pred_next_times = pred_next_times[:n_steps]
+                        pred_next_types = pred_next_types[:n_steps]
                         types_present = sorted(set(map(int, true_next_types.tolist())) | set(map(int, pred_next_types.tolist())))
-                        cmap = plt.get_cmap("tab20")
-                        colors = {t: cmap(i % 20) for i, t in enumerate(types_present)}
+                        mark_markers_cycle = [
+                            "o",
+                            "s",
+                            "^",
+                            "D",
+                            "v",
+                            "P",
+                            "*",
+                            "X",
+                            "<",
+                            ">",
+                            "h",
+                            "p",
+                            "8",
+                            "H",
+                        ]
+                        marker_map = {t: mark_markers_cycle[i % len(mark_markers_cycle)] for i, t in enumerate(types_present)}
+                        color_true = "#CC79A7"
+                        color_pred = "#0072B2"
 
                         # Rows correspond to step indices k (predicting event k+1)
                         y_rows = np.arange(n_steps)
@@ -1743,7 +1837,7 @@ def main():
                         for y in y_rows:
                             ax.axhline(y, color="#dddddd", linewidth=0.6, zorder=0)
 
-                        # Scatter true and predicted markers per step, colored by type
+                        # Scatter true and predicted markers per step
                         for idx in range(n_steps):
                             t_true = float(true_next_times[idx])
                             t_pred = float(pred_next_times[idx])
@@ -1751,69 +1845,117 @@ def main():
                             type_pred = int(pred_next_types[idx])
                             y = y_rows[idx]
 
-                            # True marker (circle)
+                            # True marker (marker by mark, fixed true color)
                             ax.scatter(
                                 t_true,
                                 y,
-                                color=colors.get(type_true, "#1f77b4"),
-                                marker="o",
+                                color=color_true,
+                                marker=marker_map.get(type_true, "o"),
                                 edgecolors="k",
                                 linewidths=0.5,
-                                s=40,
+                                s=105,
                                 label=None,
                                 zorder=3,
                             )
-                            # Predicted marker (x)
+                            # Predicted marker (marker by mark, fixed predicted color)
                             ax.scatter(
                                 t_pred,
                                 y,
-                                color=colors.get(type_pred, "#ff7f0e"),
-                                marker="x",
+                                color=color_pred,
+                                marker=marker_map.get(type_pred, "o"),
                                 linewidths=1.0,
-                                s=50,
+                                s=105,
                                 label=None,
                                 zorder=3,
                             )
 
-                            # Optional small annotations with type ids
-                            ax.text(t_true, y + 0.15, f"T{type_true}", fontsize=7, color="#333333", ha="center", va="bottom")
-                            ax.text(t_pred, y - 0.15, f"P{type_pred}", fontsize=7, color="#333333", ha="center", va="top")
+                            # Removed per request: no T/P annotations on markers
 
                         # Y ticks as step labels
                         ax.set_yticks(y_rows)
-                        ax.set_yticklabels([f"{k + 1}→{k + 2}" for k in range(n_steps)])
+                        ax.set_yticklabels([f"{start_k + k + 1}→{start_k + k + 2}" for k in range(n_steps)])
                         ax.invert_yaxis()  # earliest step at top
 
-                        ax.set_xlabel("Event time")
-                        ax.set_ylabel("Step (k→k+1)")
-                        ax.set_title("Next-step predictions: rows = steps, circles = True, crosses = Predicted; color = Type")
+                        ax.set_xlabel("Event time", fontsize=18)
+                        ax.set_ylabel("Step (k→k+1)", fontsize=18)
+                        # Remove title per request
+                        # Styling to match create_long_horizon_plots.py
+                        ax.grid(False)
+                        for spine in ax.spines.values():
+                            spine.set_linewidth(0.3)
+                        ax.tick_params(axis="both", which="major", labelsize=14, direction="out", width=0.5, length=2, pad=0.8)
+                        # Add small margins so edge markers are not cut off
+                        ax.margins(x=0.03, y=0.05)
 
-                        # Legends: marker semantics and type colors
-                        marker_handles = [
-                            Line2D([0], [0], marker="o", color="k", markerfacecolor="w", markersize=7, linestyle="None", label="True"),
-                            Line2D([0], [0], marker="x", color="k", markersize=7, linestyle="None", label="Predicted"),
-                        ]
-                        type_handles = [
+                        # Legends: color semantics (Predicted/True) and mark shapes (Marks)
+                        color_handles = [
                             Line2D(
                                 [0],
                                 [0],
                                 marker="o",
                                 color="none",
+                                markerfacecolor=color_true,
                                 markeredgecolor="k",
-                                markerfacecolor=colors[t],
-                                markersize=7,
+                                markersize=13.5,
                                 linestyle="None",
-                                label=f"Type {t}",
+                                label="True",
+                            ),
+                            Line2D(
+                                [0],
+                                [0],
+                                marker="o",
+                                color="none",
+                                markerfacecolor=color_pred,
+                                markeredgecolor="k",
+                                markersize=13.5,
+                                linestyle="None",
+                                label="Predicted",
+                            ),
+                        ]
+                        mark_handles = [
+                            Line2D(
+                                [0],
+                                [0],
+                                marker=marker_map[t],
+                                color="none",
+                                markeredgecolor="k",
+                                markerfacecolor="w",
+                                markersize=13.5,
+                                linestyle="None",
+                                label=f"Mark {t}",
                             )
                             for t in types_present
                         ]
-                        legend1 = ax.legend(handles=marker_handles, loc="upper right", title="Kind")
-                        ax.add_artist(legend1)
-                        ax.legend(handles=type_handles, loc="lower right", title="Types", ncol=min(3, len(type_handles)))
+                        # Put all legends on top of the figure
+                        handles = color_handles + mark_handles
+                        labels = [h.get_label() for h in handles]
+                        # Determine columns similar to long-horizon plotting (approx 3 rows)
+                        n_items = len(labels)
+                        ncols = max(1, math.ceil(n_items / 3))
+                        legend = fig.legend(
+                            handles,
+                            labels,
+                            loc="upper center",
+                            bbox_to_anchor=(0.5, 1.06),
+                            ncol=ncols,
+                            frameon=True,
+                            fancybox=False,
+                            framealpha=1.0,
+                            borderpad=0.2,
+                            handletextpad=0.9,
+                            borderaxespad=0.2,
+                            labelspacing=0.35,
+                            columnspacing=1.6,
+                        )
+                        frame = legend.get_frame()
+                        frame.set_linewidth(0.6)
+                        frame.set_edgecolor("black")
+                        frame.set_facecolor("white")
 
-                        fig.tight_layout()
-                        save_path = f"event_predictions_sample_{SAMPLE_INDEX}_seq_{i}.png"
-                        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+                        # Match margin reservation of the companion plot
+                        plt.tight_layout(rect=[0, 0, 1, 0.86])
+                        save_path = f"event_predictions_sample_{SAMPLE_INDEX}_seq_{i}.pdf"
+                        plt.savefig(save_path, dpi=200, bbox_inches="tight", pad_inches=0.04)
                         plt.close(fig)
                         print(f"Saved event prediction plot to: {save_path}")
                 except Exception as e:
