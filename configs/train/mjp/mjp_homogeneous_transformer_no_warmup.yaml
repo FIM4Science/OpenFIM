@@ -1,0 +1,150 @@
+experiment:
+  name: FIM_MJP_transformer_256_path_attention_one_head_var_path_no_warmup
+  name_add_date: true # if true, the current date & time will be added to the experiment name
+  seed: [0]
+  device_map: auto # auto, cuda, cpu
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD # SHARD_GRAD_OP, NO_SHARD, HYBRID_SHARD
+  wrap_policy: SIZE_BAZED # NO_POLICY # MODEL_SPECIFIC, SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state # full_state, local_state
+  activation_chekpoint: false
+
+dataset:
+  name: FIMDataLoader
+  path:
+    train: !!python/tuple
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_reg_300-samples-per-intensity_with_initial_distribution/test/train
+      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/train
+
+    validation: !!python/tuple
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_2_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_3_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_4_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_reg_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/5k_hom_mjp_5_st_10s_1%_noise_rand_300-samples-per-intensity_upscaled_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_reg_300-samples-per-intensity_with_initial_distribution/test/test
+      - /cephfs_projects/foundation_models/MJP/data/25k_hom_mjp_6_st_10s_1%_noise_rand_300-samples-per-intensity_with_initial_distribution/test/test
+
+  loader_kwargs:
+    batch_size: 32
+    test_batch_size: 32
+    num_workers: 4
+    pin_memory: true
+    max_path_count: 300
+    max_number_of_minibatch_sizes: 10
+    variable_num_of_paths: true
+
+  dataset_kwargs:
+    files_to_load:
+      observation_grid: "fine_grid_grid.pt"
+      observation_values: "fine_grid_noisy_sample_paths.pt"
+      seq_lengths: "fine_grid_mask_seq_lengths.pt"
+      time_normalization_factors: "fine_grid_time_normalization_factors.pt"
+      intensity_matrices: "fine_grid_intensity_matrices.pt"
+      adjacency_matrices: "fine_grid_adjacency_matrices.pt"
+      initial_distributions: "fine_grid_initial_distributions.pt"
+    data_limit: null
+
+model_dim: &model_dim 256
+
+model:
+  model_type: fimmjp
+  n_states: 6
+  use_adjacency_matrix: false
+  use_num_of_paths: true
+
+  ts_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 4
+
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      d_model: *model_dim
+      dim_feedforward: 1024
+      dropout: 0.1
+      nhead: 4
+      batch_first: true
+
+  pos_encodings:
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
+    out_features: *model_dim
+
+  path_attention:
+    name: fim.models.blocks.MultiHeadLearnableQueryAttention
+    n_queries: 16
+    n_heads: 4
+    embed_dim: *model_dim
+    output_projection: true
+
+  intensity_matrix_decoder:
+    name: fim.models.blocks.base.MLP
+    # in_features: 2049
+    hidden_layers: !!python/tuple [128, 128]
+    hidden_act:
+      name: torch.nn.SELU
+    dropout: 0.1
+    initialization_scheme: lecun_normal
+
+  initial_distribution_decoder:
+    name: fim.models.blocks.base.MLP
+    # in_features: 2049
+    hidden_layers: !!python/tuple [128, 128]
+    hidden_act:
+      name: torch.nn.SELU
+    dropout: 0.1
+    initialization_scheme: lecun_normal
+
+trainer:
+  name: Trainer
+  debug_iterations: null
+  precision: bf16 # null fp16 bf16 bf16_mixed fp16_mixed fp32_policy
+  epochs: &epochs 5_000
+  detect_anomaly: false
+  save_every: 10
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./results/
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      beta: 1.0
+      label: gauss_nll
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: init_cross_entropy
+      beta: 1.0
+    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+      label: missing_link
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d: # name of the optimizer
+      name: torch.optim.AdamW
+      lr: &lr_rate 0.0001
+      weight_decay: 0.0001
+      # gradient_norm_clipping: 10
+      # schedulers: !!python/tuple
+      #   - name: torch.optim.lr_scheduler.SequentialLR
+      #     step_type: minibatch
+      #     schedulers: !!python/tuple
+      #       - name: fim.trainers.lr_warmup.LinearWarmupScheduler
+      #         warmup_steps: &warmup_steps 10_000
+      #         target_lr: *lr_rate
+      #       - name: torch.optim.lr_scheduler.CosineAnnealingLR
+      #         T_max: 2000000
+      #         eta_min: 0.0000001
+      #         last_epoch: -1
+      #     milestones: !!python/tuple [*warmup_steps]
