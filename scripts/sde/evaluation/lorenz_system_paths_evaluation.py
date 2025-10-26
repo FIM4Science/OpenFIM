@@ -76,20 +76,6 @@ def evaluate_latentsde_on_lorenz(
         }
     )
 
-    # ## posterior equation, posterior condition
-    # ctx, obs_times, _ = model.encode_inputs(reference_obs_times, reference_obs_values)
-    # posterior_initial_states, _, _ = model.sample_posterior_initial_condition(ctx[0])
-    # _, paths_post_eq_post_init_cond, _ = model.sample_from_posterior_equation(posterior_initial_states, ctx, obs_times)
-    # results.append(
-    #     {
-    #         "synthetic_path": paths_post_eq_post_init_cond,
-    #         "drift_at_locations": drift_at_locations,
-    #         "diffusion_at_locations": diffusion_at_locations,
-    #         "sampling_label": "Posterior Eq. in Latent Space",
-    #         "initial_state_label": "Posterior Init. Cond. from Ref. Set.",
-    #     }
-    # )
-    #
     # prior equation, prior initial condition
     prior_initial_states = model.sample_prior_initial_condition(reference_obs_values.shape[0])
     _, paths_prior_init_cond = model.sample_from_prior_equation(prior_initial_states, obs_times)

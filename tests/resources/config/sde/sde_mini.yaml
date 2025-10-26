@@ -14,34 +14,24 @@ distributed:
 
 model:
   model_type: fimsde
-  ###################################################################################
-  # Input data (corrected by dataloader)
-  max_dimension: &max_dimension 3
-  # max_time_steps: &max_time_steps 128
-  # max_location_size: &max_location_size 1024
-  # max_num_paths: &max_num_of_paths 300
 
   # General model config
-  non_negative_diffusion_by: null
-  model_embedding_size: &model_embedding_size 8
+  max_dimension: &max_dimension 3
+  model_embedding_size: &model_embedding_size 16
 
   # General transformer config
-  residual_ff_size: &residual_ff_size 4
+  residual_ff_size: &residual_ff_size 64
   transformer_layer_activation: &transformer_layer_activation "gelu"
 
   # General MLP config
-  hidden_layers: &hidden_layers !!python/tuple [4, 4]
+  hidden_layers: &hidden_layers !!python/tuple [16, 16]
   dropout_rate: &dropout_rate 0.1
   hidden_act: &hidden_act
     name: &activation torch.nn.GELU
 
-  # Networks
-  layer_norms_in_phi_0: false
-  separate_phi_0_encoders: true
-  delta_time_only: true
-
+  # Encoding Networks
   phi_0t:
-    name: fim.models.sde.SineTimeEncoding
+    name: torch.nn.Linear
 
   phi_0x:
     name: torch.nn.Linear
@@ -52,23 +42,22 @@ model:
     layer:
       attn_method: "linear"
       lin_feature_map: "softmax"
-      lin_normalize: true
-      nhead: 2
+      lin_normalize: false
+      nhead: &nhead 8
       dim_feedforward: *residual_ff_size
       dropout: *dropout_rate
       activation: *activation
 
+
+  # Decoding Networks
   phi_1x:
     name: torch.nn.Linear
 
-  learn_vf_var: false
-  operator_specificity: "per_concept" # all, per_concept, per_head
-
-  operator:
+  operator: &operator
     paths_block_attention: false
     num_res_layers: 2
     attention:
-      nhead: 2
+      nhead: *nhead
       dim_feedforward: *residual_ff_size
       dropout: *dropout_rate
       activation: *activation
@@ -79,26 +68,16 @@ model:
       hidden_act: *hidden_act
       dropout: *dropout_rate
 
-  # instance normalization
+  learnable_loss_scales: *operator
+
+
+  # Instance normalization
   states_norm:
     name: fim.models.sde.Standardization
 
   times_norm:
-    name: fim.models.sde.MinMaxNormalization
-    normalized_min: 0
-    normalized_max: 1
+    name: fim.models.sde.DeltaLogCentering
 
-  # loss regularization
-  train_with_normalized_head: true
-  loss_filter_nans: true
-
-  # loss
-  loss_type: "nrmse" #nll, rmse, nrmse
-
-  # INFERENCE/PIPELINE ------------------------------------------------------------
-  dt_pipeline: 0.1
-  number_of_time_steps_pipeline: 128
-  evaluate_with_unnormalized_heads: true
 
 dataset:
   name: FIMSDEDataloaderIterableDataset
@@ -167,24 +146,12 @@ trainer:
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.TestEvaluationEpoch
   schedulers: !!python/tuple
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      beta: 1.0
-      label: gauss_nll
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: init_cross_entropy
-      beta: 1.0
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: missing_link
-      beta: 1.0
+      - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+        label: dummy
+        beta: 1000000000.0
 
 optimizers: !!python/tuple
   - optimizer_d: # name of the optimizer
       name: torch.optim.AdamW
       lr: 0.0001
       weight_decay: 0.0001
-      # gradient_norm_clipping: 10
-      # schedulers: !!python/tuple
-      #   - name: torch.optim.lr_scheduler.CosineAnnealingLR
-      #     T_max: *epochs
-      #     eta_min: 0.0000001
-      #     last_epoch: -1

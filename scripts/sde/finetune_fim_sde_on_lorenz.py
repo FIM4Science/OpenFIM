@@ -9,7 +9,9 @@ from pathlib import Path
 
 import click
 import finetune_helpers
+from latent_sde_train_on_lorenz import sample_lorenz_paths_from_trained_model
 
+from fim import project_path
 from fim.utils.helper import load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
@@ -44,12 +46,12 @@ def finetune_fim_on_lorenz(
     trainer = finetune_helpers.train_fimsde(model, config)
     finetune_helpers.add_model_type_to_checkpoints(trainer)
 
-    # checkpoint_dir = Path(project_path) / trainer.checkpointer.checkpoint_dir
-    # n_epochs = trainer.n_epochs
+    checkpoint_dir = Path(project_path) / trainer.checkpointer.checkpoint_dir
+    n_epochs = trainer.n_epochs
 
     del trainer
 
-    # sample_lorenz_paths_from_trained_model(checkpoint_dir, n_epochs, exp_name, train_data_label, test_data_setups, sample_every)
+    sample_lorenz_paths_from_trained_model(checkpoint_dir, n_epochs, exp_name, train_data_label, test_data_setups, sample_every)
 
 
 if __name__ == "__main__":
@@ -89,7 +91,7 @@ if __name__ == "__main__":
         },
     }
 
-    model_path = "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300/checkpoints/epoch-139"
+    model_path = "/cephfs_projects/foundation_models/models/FIMSDE/NeurIPS_submission_models/600k_drift_deg_3_diff_deg_2_delta_tau_fixed_linear_attn_softmax_no_extra_normalization_and_fix_in_residual_layer_05-06-2300_for_refactored_model_code/checkpoints/epoch-139_refactored"
 
     @click.command()
     @click.option("--base-config", "base_config", type=click.Path(exists=True), required=True)

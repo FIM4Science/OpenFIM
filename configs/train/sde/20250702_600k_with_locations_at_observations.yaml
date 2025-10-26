@@ -14,16 +14,11 @@ distributed:
 
 model:
   model_type: fimsde
-  ###################################################################################
-  # Input data (corrected by dataloader)
-  max_dimension: &max_dimension 3
-  # max_time_steps: &max_time_steps 128
-  # max_location_size: &max_location_size 1024
-  # max_num_paths: &max_num_of_paths 300
 
   # General model config
-  non_negative_diffusion_by: softplus
+  max_dimension: &max_dimension 3
   model_embedding_size: &model_embedding_size 256
+  num_locations_on_path: 32
 
   # General transformer config
   residual_ff_size: &residual_ff_size 1024
@@ -35,11 +30,7 @@ model:
   hidden_act: &hidden_act
     name: &activation torch.nn.GELU
 
-  # Networks
-  layer_norms_in_phi_0: false
-  separate_phi_0_encoders: true
-  delta_time_only: true
-
+  # Encoding Networks
   phi_0t:
     name: torch.nn.Linear
 
@@ -58,11 +49,10 @@ model:
       dropout: *dropout_rate
       activation: *activation
 
+
+  # Decoding Networks
   phi_1x:
     name: torch.nn.Linear
-
-  learn_vf_var: false
-  operator_specificity: "per_concept" # all, per_concept, per_head
 
   operator: &operator
     paths_block_attention: false
@@ -79,49 +69,18 @@ model:
       hidden_act: *hidden_act
       dropout: *dropout_rate
 
+  learnable_loss_scales: *operator
 
-  # instance normalization
+
+  # Instance normalization
   states_norm:
     name: fim.models.sde.Standardization
 
-  times_norm_on_deltas: True
   times_norm:
     name: fim.models.sde.DeltaLogCentering
 
-  # loss regularization
-  train_with_normalized_head: true
-  loss_filter_nans: true
-
-  # learnable_loss_scales: *operator
-  learnable_loss_scales:
-    paths_block_attention: false
-    num_res_layers: 8
-    attention:
-      nhead: *nhead
-      dim_feedforward: *residual_ff_size
-      dropout: *dropout_rate
-      activation: *activation
-
-    projection:
-      name: fim.models.blocks.base.MLP
-      hidden_layers: *hidden_layers
-      hidden_act: *hidden_act
-      dropout: *dropout_rate
 
 
-  # loss
-  loss_type: "mse" #nll, rmse, nrmse
-  divide_drift_loss_by_diffusion: false
-  single_learnable_loss_scale_head: true
-  detach_learnable_loss_scale_heads: true
-
-  num_locations_on_path: 32
-
-
-  # INFERENCE/PIPELINE ------------------------------------------------------------
-  dt_pipeline: 0.1
-  number_of_time_steps_pipeline: 128
-  evaluate_with_unnormalized_heads: true
 
 dataset:
   name: FIMSDEDataloaderIterableDataset
@@ -176,7 +135,6 @@ dataset:
 
   files_to_load:
     obs_times: "obs_times.h5"
-    # obs_values: "obs_values.h5"
     obs_values: "obs_noisy_values.h5" # for clean data, obs_noisy_values is obs_values
     obs_mask: "obs_mask.h5"
     locations: "locations.h5"
@@ -420,9 +378,6 @@ trainer:
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
   experiment_dir: ./results/
-  # profiler:
-  #   num_batches: 40
-  #   trace_path: "/home/seifner/repos/FIM/results/profiler/trace.json"
 
   evaluation_epoch:
     path: fim.trainers.evaluation_epochs.SDEEvaluationPlots
@@ -430,49 +385,12 @@ trainer:
     plot_paths_count: 50
 
   schedulers: !!python/tuple
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: loss_threshold
-      beta: 1000000000.0
-
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: vector_field_max_norm
-      beta: 1000000000.0
-
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: drift_loss_scale
-      beta: 1.0
-
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: diffusion_loss_scale
-      beta: 1.0
-
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: kl_loss_scale
-      beta: 0.0
-
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: one_step_nll_loss_scale
-      beta: 0.0
-
-    - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
-      label: short_time_transition_log_likelihood_loss_scale
-      beta: 0.0
+      - name: fim.utils.param_scheduler.ConstantScheduler # ExponentialIncrease, ConstantScheduler, PeriodicScheduler
+        label: dummy
+        beta: 1000000000.0
 
 optimizers: !!python/tuple
-  - optimizer_d: # name of the optimizer
+  - optimizer_d:
       name: torch.optim.AdamW
       lr: &lr_rate 1.0e-5
       weight_decay: 1.0e-4
-      gradient_norm_clipping: 1
-      # schedulers: !!python/tuple
-      #   - name: torch.optim.lr_scheduler.SequentialLR
-      #     step_type: minibatch
-      #     schedulers: !!python/tuple
-      #       - name: fim.trainers.lr_warmup.LinearWarmupScheduler
-      #         warmup_steps: &warmup_steps 10000
-      #         target_lr: *lr_rate
-      #       # - name: torch.optim.lr_scheduler.CosineAnnealingLR
-      #       #   T_max: 450000
-      #       #   eta_min: 1.0e-7
-      #       #   last_epoch: -1
-      #     milestones: !!python/tuple []

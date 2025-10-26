@@ -239,8 +239,6 @@ class TestSDEConceptsBasics:
             locations=locations,
             drift=torch.randn(self.locations_shape),
             diffusion=torch.randn(self.locations_shape),
-            log_var_drift=torch.randn(self.locations_shape),
-            log_var_diffusion=torch.randn(self.locations_shape),
         )
 
         return obs_times, obs_vals, sde_concepts
@@ -255,8 +253,6 @@ class TestSDEConceptsBasics:
             locations=locations,
             drift=torch.randn(self.extended_locations_shape),
             diffusion=torch.randn(self.extended_locations_shape),
-            log_var_drift=torch.randn(self.extended_locations_shape),
-            log_var_diffusion=torch.randn(self.extended_locations_shape),
         )
 
         return obs_times, obs_vals, sde_concepts

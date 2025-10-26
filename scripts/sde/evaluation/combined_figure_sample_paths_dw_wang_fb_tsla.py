@@ -23,10 +23,6 @@ def _load_real_world_from_json(path_to_json: Path, name: str, split_num: int):
     assert len(results_with_split_num) == 1, f"Got {len(results_with_split_num)}."
 
     results = results_with_split_num[0]
-    # results.pop("name", None)
-    # results.pop("tau", None)
-    # results.pop("noise", None)
-    # results.pop("equations", None)  # BISDE results has extra key
 
     results = {k: np.array(v) if isinstance(v, list) else v for k, v in results.items()}
 
@@ -37,7 +33,6 @@ if __name__ == "__main__":
     # ------------------------------------ General Setup ------------------------------------------------------------------------------ #
     global_description = "combined_figure_sample_paths_dw_wang_fb_tsla"
 
-    # current_description = "neurips_search_for_decent_results_tau_0_002_noise_0_exp_0"
     current_description = "okay_split_for_each_neurips_submission"
 
     # data and results to load
@@ -87,8 +82,6 @@ if __name__ == "__main__":
         "label": "Observations",
         "linewidth": 0.2,
     }
-
-    # linewidth_paths = 0.2
 
     # --------------------------------------------------------------------------------------------------------------------------------- #
 
@@ -144,12 +137,7 @@ if __name__ == "__main__":
     axs[1].yaxis.set_major_locator(plticker.MultipleLocator(base=2))
 
     # configure fb
-    # axs[3].xaxis.set_major_locator(plticker.MultipleLocator(base=0.02))
     axs[3].yaxis.set_major_locator(plticker.MultipleLocator(base=10))
-
-    # configure tsla
-    # axs[4].xaxis.set_major_locator(plticker.MultipleLocator(base=0.02))
-    # axs[4].yaxis.set_major_locator(plticker.MultipleLocator(base=20))
 
     # write as title
     axs[0].set_title("Double Well", fontsize=5, pad=2)
@@ -193,15 +181,6 @@ if __name__ == "__main__":
     plt.draw()
     handles, labels = axs[0].get_legend_handles_labels()
 
-    # # because bise is not on double well
-    # quiver_handles, quiver_labels = axs[3].get_legend_handles_labels()
-    # bisde_handle = [mlines.Line2D([], [], color=bisde_color, linewidth=linewidth, linestyle="dashdot")]
-    # bisde_label = quiver_labels
-    #
-    # handles = handles[:2] + bisde_handle + handles[2:]
-    # labels = labels[:2] + bisde_label + labels[2:]
-    #
-    # legend_fontsize = 6
     legend_fontsize = 5
     bbox_x = axs[2].get_position().x0 + 0.5 * (axs[2].get_position().x1 - axs[2].get_position().x0)
     bbox_y = axs[2].get_position().y1 * 1.07
