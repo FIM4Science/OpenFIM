@@ -15,7 +15,7 @@ The Deep Learning for Scientific Discovery (DL4SD) group of the [Lamarr Institut
 
 To achieve this overarching goal, we introduced Foundation Inference Models (FIMs)
 
-![A photo of the DL4SD group in front of the b-it building in Bonn](group-1.jpg)
+![A photo of the DL4SD group in front of the b-it building in Bonn](group_cropped.jpg)
 
 ## About Foundation Inference Models (FIMs)
 
@@ -27,11 +27,14 @@ Fundamentally, these pre-trained neural recognition models enable the zero-shot 
 
 ## Publications
 
-Previous work of our group consists of the following papers
+Publications of our group include
 
-1. Zero-Shot Imputation with Foundation Inference Models for Dynamical Systems {cite}`fim_dynamical_systems`
-2. Foundation Inference Models for Markov Jump Processes {cite}`fim_mjp`
-
+1. Foundation Inference Models for Markov Jump Processes {cite}`fim_mjp`: [Tutorial](mjp_crashcourse.md)
+2. Zero-Shot Imputation with Foundation Inference Models for Dynamical Systems {cite}`fim_dynamical_systems`: [Tutorial](imputation.ipynb)
+3. In-Context Learning of Stochastic Differential Equations with Foundation Inference Models {cite}`sde`: (Comming soon)
+4. Towards Fast Coarse-graining and Equation Discovery with Foundation Inference Models {cite}`eqdisc`
+5. On Foundation Models for Temporal Point Processes to Accelerate Scientific Discovery {cite}`pp` 
+6. Towards Foundation Inference Models that Learn ODEs In-Context {cite}`ode`
 
 ## Bibliography
 ```{bibliography}
