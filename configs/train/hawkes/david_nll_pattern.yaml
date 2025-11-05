@@ -52,8 +52,7 @@ dataset:
       # - data/synthetic_data/hawkes/1k_5D_2k_paths_const_base_rayleigh_kernel_sparse/train
       # - data/synthetic_data/hawkes/1k_10D_2k_paths_const_base_rayleigh_kernel_sparse/train
       - data/synthetic_data/hawkes/5k_22D_2k_paths_const_base_rayleigh_kernel_sparse/train
-      - data/synthetic_data/hawkes/sample_taxi_pattern/train
-      - data/synthetic_data/hawkes/sample_amazon_pattern/train
+      - data/synthetic_data/hawkes/1k_5D_2k_paths_alternating_pattern/train
 
 
     validation: !!python/tuple

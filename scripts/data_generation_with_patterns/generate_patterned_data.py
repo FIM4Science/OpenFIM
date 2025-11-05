@@ -97,39 +97,48 @@ def generate_taxi_pattern(
     event_types = np.zeros((N_processes, P_trajectories, K_events, 1), dtype=np.int64)
 
     for n in range(N_processes):
-        # Sample mark probabilities from Dirichlet distribution
-        # Low alpha creates sparse distributions (few dominant marks)
+        # Sample mark probabilities from Dirichlet distribution (per process)
         mark_probs = np.random.dirichlet([dirichlet_alpha] * M_dimensions)
 
-        # Sample alternation probability from Beta distribution
+        # Precompute CDFs for fast categorical sampling
+        mark_cdf = np.cumsum(mark_probs)
+        cond_probs = np.tile(mark_probs, (M_dimensions, 1))
+        np.fill_diagonal(cond_probs, 0.0)
+        cond_probs = cond_probs / cond_probs.sum(axis=1, keepdims=True)
+        cond_cdf = np.cumsum(cond_probs, axis=1)
+
+        # Alternation probability for this process
         alternation_prob = np.random.beta(beta_alternation[0], beta_alternation[1])
 
-        for p in range(P_trajectories):
-            # Generate inter-arrival times using exponential distribution
-            # Sample rate parameter from Gamma distribution for variability
-            rate = np.random.gamma(2.0, mean_interarrival / 2.0)
-            inter_arrivals = np.random.exponential(1.0 / rate, K_events)
-            times = np.cumsum(inter_arrivals)
-            times = times - times[0]  # Start at 0
-            event_times[n, p, :, 0] = times
+        # Vectorized inter-arrival generation across all trajectories
+        rates = np.random.gamma(2.0, mean_interarrival / 2.0, size=P_trajectories)
+        inter_arrivals = np.random.exponential(scale=1.0 / rates[:, None], size=(P_trajectories, K_events))
+        times = np.cumsum(inter_arrivals, axis=1)
+        times = times - times[:, [0]]  # Start each trajectory at 0
+        event_times[n, :, :, 0] = times.astype(np.float32)
 
-            # Generate marks using Dirichlet-based probabilities with alternation
-            current_mark = np.random.choice(M_dimensions, p=mark_probs)
-            event_types[n, p, 0, 0] = current_mark
+        # Vectorized mark generation with alternation across all trajectories
+        # Initial marks
+        u0 = np.random.rand(P_trajectories)
+        current_marks = np.searchsorted(mark_cdf, u0, side="right")
+        event_types[n, :, 0, 0] = current_marks
 
-            for k in range(1, K_events):
-                if np.random.rand() < alternation_prob:
-                    # Alternate: sample different mark from conditional distribution
-                    # Create conditional probabilities (exclude current mark, renormalize)
-                    conditional_probs = mark_probs.copy()
-                    conditional_probs[current_mark] = 0
-                    conditional_probs /= conditional_probs.sum()
-                    current_mark = np.random.choice(M_dimensions, p=conditional_probs)
-                else:
-                    # Don't alternate: sample from original distribution (may stay same)
-                    current_mark = np.random.choice(M_dimensions, p=mark_probs)
+        # Generate subsequent marks step-wise (vectorized over trajectories)
+        for k in range(1, K_events):
+            alt_mask = np.random.rand(P_trajectories) < alternation_prob
+            u = np.random.rand(P_trajectories)
 
-                event_types[n, p, k, 0] = current_mark
+            # Sample from base distribution
+            next_base = np.searchsorted(mark_cdf, u, side="right")
+
+            # Sample from conditional distribution (exclude current mark)
+            # Take row per trajectory based on current mark, then search by u
+            rows = cond_cdf[current_marks]  # (P, M)
+            next_cond = (rows >= u[:, None]).argmax(axis=1)
+
+            next_marks = np.where(alt_mask, next_cond, next_base)
+            event_types[n, :, k, 0] = next_marks
+            current_marks = next_marks
 
     return event_times, event_types
 
@@ -184,68 +193,60 @@ def generate_amazon_pattern(
         base_period = np.random.uniform(period_range[0], period_range[1])
         noise_std = base_period * noise_factor
 
-        # Create Zipf-distributed mark probabilities (power-law distribution)
-        # P(k) ∝ 1 / k^s where k is the rank (1, 2, 3, ...)
-        # Sample exponent from a range to add variability between processes
+        # Zipf-distributed mark probabilities (power-law)
         s = np.random.uniform(zipf_exponent * 0.8, zipf_exponent * 1.2)
         ranks = np.arange(1, M_dimensions + 1)
         mark_probs = 1.0 / (ranks**s)
-        mark_probs = mark_probs / mark_probs.sum()  # Normalize
+        mark_probs = mark_probs / mark_probs.sum()
+        mark_cdf = np.cumsum(mark_probs)
 
-        for p in range(P_trajectories):
-            all_times = []
-            all_marks = []
+        # Precompute triggers and cluster sizes up to K clusters (worst-case: size=1 each)
+        max_clusters = K_events
+        cluster_indices = np.arange(max_clusters)[None, :]  # (1, C)
+        triggers = cluster_indices * base_period + np.random.normal(0, noise_std, size=(P_trajectories, max_clusters))
+        triggers = np.maximum(0.0, triggers)
 
-            cluster_idx = 0
-            while len(all_times) < K_events:
-                # Periodic trigger point with Gaussian noise
-                trigger_time = cluster_idx * base_period + np.random.normal(0, noise_std)
-                trigger_time = max(0, trigger_time)
+        cluster_sizes = np.random.poisson(poisson_lambda, size=(P_trajectories, max_clusters)) + 1
+        cum_counts = np.cumsum(cluster_sizes, axis=1)
+        last_idx = (cum_counts >= K_events).argmax(axis=1)  # (P,)
 
-                # Sample cluster size from shifted Poisson distribution
-                # Add 1 to ensure at least 1 event per cluster
-                cluster_size = np.random.poisson(poisson_lambda) + 1
-                cluster_size = min(cluster_size, K_events - len(all_times))  # Don't exceed K_events
+        # Cap the last used cluster to hit exactly K_events, zero out the rest
+        overflow = cum_counts[np.arange(P_trajectories), last_idx] - K_events
+        cluster_sizes[np.arange(P_trajectories), last_idx] -= overflow
+        mask = np.arange(max_clusters)[None, :] <= last_idx[:, None]
+        cluster_sizes = cluster_sizes * mask
 
-                # Generate events within this cluster
-                # Events are tightly clustered around the trigger time
-                cluster_spread = base_period * 0.02  # Very tight clustering for lower CV
+        # Repeat triggers according to cluster sizes to get per-event trigger means
+        triggers_flat = triggers.reshape(-1)
+        repeats_flat = cluster_sizes.reshape(-1)
+        total_events = repeats_flat.sum()
+        if total_events == 0:
+            continue
+        event_trigger_means = np.repeat(triggers_flat, repeats_flat)
 
-                for _ in range(cluster_size):
-                    # Event time: normally distributed around trigger
-                    event_time = trigger_time + np.random.normal(0, cluster_spread)
-                    event_time = max(0, event_time)
-                    all_times.append(event_time)
+        # Sample event times around triggers and marks
+        cluster_spread = base_period * 0.02
+        times_flat = event_trigger_means + np.random.normal(0, cluster_spread, size=int(total_events))
+        times_flat = np.maximum(0.0, times_flat).astype(np.float32)
 
-                    # Mark: sample from Zipf distribution (lower ranks more likely)
-                    mark = np.random.choice(M_dimensions, p=mark_probs)
-                    all_marks.append(mark)
+        marks_flat = np.searchsorted(mark_cdf, np.random.rand(int(total_events)), side="right").astype(np.int64)
 
-                cluster_idx += 1
+        # Reshape back to (P, K) since each row sums to K_events
+        times_pk = times_flat.reshape(P_trajectories, K_events)
+        marks_pk = marks_flat.reshape(P_trajectories, K_events)
 
-            # Take exactly K_events (in case we generated too many)
-            all_times = all_times[:K_events]
-            all_marks = all_marks[:K_events]
+        # Sort each trajectory by time to maintain chronological order
+        sort_idx = np.argsort(times_pk, axis=1)
+        row_indices = np.arange(P_trajectories)[:, None]
+        times_sorted = times_pk[row_indices, sort_idx]
+        marks_sorted = marks_pk[row_indices, sort_idx]
 
-            # Sort by time to maintain chronological order
-            sorted_indices = np.argsort(all_times)
-            times = np.array([all_times[i] for i in sorted_indices], dtype=np.float32)
-            marks = np.array([all_marks[i] for i in sorted_indices], dtype=np.int64)
+        # Ensure strictly increasing times per trajectory
+        for k in range(1, K_events):
+            times_sorted[:, k] = np.maximum(times_sorted[:, k], times_sorted[:, k - 1] + 0.001)
 
-            # Ensure strictly increasing times
-            for k in range(1, len(times)):
-                if times[k] <= times[k - 1]:
-                    times[k] = times[k - 1] + 0.001
-
-            # Pad if we didn't generate enough (rare edge case)
-            if len(times) < K_events:
-                last_time = times[-1] if len(times) > 0 else 0
-                for k in range(len(times), K_events):
-                    times = np.append(times, last_time + (k - len(times) + 1) * 0.01)
-                    marks = np.append(marks, np.random.choice(M_dimensions, p=mark_probs))
-
-            event_times[n, p, :, 0] = times
-            event_types[n, p, :, 0] = marks
+        event_times[n, :, :, 0] = times_sorted
+        event_types[n, :, :, 0] = marks_sorted
 
     return event_times, event_types
 
