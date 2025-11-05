@@ -28,8 +28,8 @@ python scripts/data_generation_with_patterns/generate_patterned_data.py \
     --N_processes_test 100 \
     --P_trajectories_per_process 2000 \
     --K_events_per_trajectory 100 \
-    --M_dimensions 16 \
-    --output_name 1k_16D_2k_paths_periodic_pattern \
+    --M_dimensions 5 \
+    --output_name 1k_5D_2k_paths_periodic_pattern \
     --seed 42
 
 OUTPUT:

@@ -62,7 +62,8 @@ class DataSaver:
         Save the data in h5 format.
         """
         with h5py.File(path / (name + ".h5"), "w") as f:
-            f.create_dataset(name, data=data)
+            # Use a consistent dataset name 'data' for compatibility with loaders
+            f.create_dataset("data", data=data)
 
     def _save_data_torch(self, path: Path, name: str, data):
         """
