@@ -1025,14 +1025,15 @@ class FIMHawkes(AModel):
         # Prepare a logging-friendly dictionary: tensors -> Python floats
         losses_out = {
             "loss": total_loss,  # keep tensor for downstream back-prop accounting
-            "nll_loss": float(nll_loss.detach().item()) if isinstance(nll_loss, Tensor) else float(nll_loss),
-            "smape_loss": float(smape_loss.detach().item()) if isinstance(smape_loss, Tensor) else float(smape_loss),
-            "mu_smape_loss": float(mu_loss.detach().item()) if isinstance(mu_loss, Tensor) else float(mu_loss),
-            "alpha_smape_loss": float(alpha_loss.detach().item()) if isinstance(alpha_loss, Tensor) else float(alpha_loss),
-            "relative_spike_loss": float(relative_spike_loss.detach().item())
-            if isinstance(relative_spike_loss, Tensor)
-            else float(relative_spike_loss),
-            "mae_loss": float(mae_loss.detach().item()) if isinstance(mae_loss, Tensor) else float(mae_loss),
+            # keep scalar metrics as tensors so DDP reductions apply consistently across ranks
+            "nll_loss": nll_loss if isinstance(nll_loss, Tensor) else torch.tensor(nll_loss, device=device),
+            "smape_loss": smape_loss if isinstance(smape_loss, Tensor) else torch.tensor(smape_loss, device=device),
+            "mu_smape_loss": mu_loss if isinstance(mu_loss, Tensor) else torch.tensor(mu_loss, device=device),
+            "alpha_smape_loss": alpha_loss if isinstance(alpha_loss, Tensor) else torch.tensor(alpha_loss, device=device),
+            "relative_spike_loss": (
+                relative_spike_loss if isinstance(relative_spike_loss, Tensor) else torch.tensor(relative_spike_loss, device=device)
+            ),
+            "mae_loss": mae_loss if isinstance(mae_loss, Tensor) else torch.tensor(mae_loss, device=device),
         }
 
         return losses_out

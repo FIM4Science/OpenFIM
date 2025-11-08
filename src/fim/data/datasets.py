@@ -1874,23 +1874,54 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                 return int(items // self.batch_size)
 
             max_rank_batches = min(batches_for_rank(r) for r in range(world_size))
-        # Distribute per-rank cap across workers so aggregate matches per-rank cap
-        worker_info = torch.utils.data.get_worker_info()
+        # Compute per-worker cap to ensure perfect synchronization across ranks
         if max_rank_batches is not None:
             if worker_info is None:
                 per_worker_cap = max_rank_batches
             else:
+                # Calculate how many batches each worker on this rank will produce
+                # This must be done deterministically so all workers agree
                 w = int(worker_info.num_workers)
-                base = max_rank_batches // w
-                rem = max_rank_batches % w
-                per_worker_cap = base + (1 if worker_info.id < rem else 0)
+                worker_batch_counts = []
+
+                for worker_id in range(w):
+                    # Replicate the same directory assignment logic for each worker
+                    worker_dirs = [i for i in rank_indices if (i % w) == worker_id]
+                    count = 0
+                    for di in worker_dirs:
+                        n = int(self._num_items_per_dir[di])
+                        if self.enforce_batch_alignment:
+                            n = (n // self.batch_size) * self.batch_size
+                        count += n // self.batch_size
+                    worker_batch_counts.append(count)
+
+                # Total batches this rank can produce from all workers
+                total_rank_batches = sum(worker_batch_counts)
+
+                # If total exceeds max_rank_batches, we need to proportionally reduce
+                if total_rank_batches > max_rank_batches:
+                    # Distribute max_rank_batches across workers proportionally
+                    # Each worker independently calculates all allocations deterministically
+                    allocated = []
+                    remaining = max_rank_batches
+                    for wid in range(w):
+                        if wid < w - 1:
+                            # Proportional share for this worker
+                            alloc = int((worker_batch_counts[wid] / total_rank_batches) * max_rank_batches)
+                            allocated.append(alloc)
+                            remaining -= alloc
+                        else:
+                            # Last worker gets remainder to ensure exact sum
+                            allocated.append(remaining)
+                    per_worker_cap = allocated[worker_info.id]
+                else:
+                    # Use natural counts (shouldn't exceed max_rank_batches by design)
+                    per_worker_cap = worker_batch_counts[worker_info.id]
 
         yielded_batches = 0
 
         # iterate directories assigned to this rank/worker
         for dir_idx in dir_indices:
-            if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
-                return
             # load all keys for this directory
             dir_files = {k: v[dir_idx] for k, v in self.all_file_paths.items()}
             # Prefer h5 files if available; open streams once per directory
@@ -1980,9 +2011,14 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                                 yield current_batch
                             current_batch = []
                             yielded_batches += 1
-                    if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
-                        # stop early to keep this worker in sync with per-rank cap
-                        return
+
+                            # Check cap immediately after yielding each batch to prevent overshooting
+                            if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
+                                # close any opened h5 files before returning
+                                for s in streams.values():
+                                    if isinstance(s, h5py.File):
+                                        s.close()
+                                return
             finally:
                 # close any opened h5 files
                 for s in streams.values():

@@ -116,9 +116,18 @@ class TrainLossTracker:
             if is_distributed() and torch.cuda.device_count() > 1:
                 try:
                     if isinstance(loss, torch.Tensor):
+                        # Move to GPU if on CPU (required for NCCL backend)
+                        was_cpu = loss.device.type == "cpu"
+                        if was_cpu:
+                            loss = loss.cuda()
                         dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+                        if was_cpu:
+                            loss = loss.cpu()
                     else:
-                        pass
+                        # Wrap scalars into tensors so they can be properly reduced across ranks
+                        loss_tensor = torch.tensor(loss, device=torch.cuda.current_device())
+                        dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+                        loss = loss_tensor.item()
                 except Exception as e:
                     self.logger.error("Unable to reduce the '%s' loss from all ranks! See the exception below!", name)
                     self.logger.error(e)
@@ -134,7 +143,13 @@ class TrainLossTracker:
         for name, histogram in self.batch_histograms.items():
             if is_distributed() and torch.cuda.device_count() > 1:
                 try:
+                    # Move to GPU if on CPU (required for NCCL backend)
+                    was_cpu = histogram.device.type == "cpu"
+                    if was_cpu:
+                        histogram = histogram.cuda()
                     dist.all_reduce(histogram, op=dist.ReduceOp.SUM)
+                    if was_cpu:
+                        histogram = histogram.cpu()
                 except Exception:
                     self.logger.error("Unable to reduce the '%s' histogram from all ranks!", name)
 
@@ -313,6 +328,10 @@ class StepProgressBar:
         """
         if self.rank != 0:
             return
+        # Update to completion if we ended early (e.g., due to data filtering)
+        remaining = self.pbar.total - self.pbar.n
+        if remaining > 0:
+            self.pbar.update(remaining)
         self.pbar.close()
 
     def update_and_set_postfix(self, step: int, batch_losses: Dict[str, Union[float, int]], metrics: List[str] = None):
