@@ -1,4 +1,4 @@
-# Markov Jump Processes: A crash course
+# Markov Jump Processes: A Crash Course
 
 This section is an adapted version of Appendix A in {cite}`fim_mjp`. We introduce
 the notion of Markov jump processes and several important definitions and notation to work with them.
