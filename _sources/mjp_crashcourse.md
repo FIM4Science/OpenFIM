@@ -1,7 +1,3 @@
-```{warning}
-OpenFim is currently being updated, therefore some of the code will temporarily not work, due to some internal updates to some of the core blocks of the models! Previous versions of the tutorial can be found on github and the old MJP model can still be downloaded from huggingface.
-```
-
 # Markov Jump Processes: A Crash Course
 
 This section is an adapted version of Appendix A in {cite}`fim_mjp`. We introduce
