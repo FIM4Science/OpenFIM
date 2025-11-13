@@ -328,13 +328,16 @@ class FIMHawkes(AModel):
         # ------------------------------------------------------------------
         # Build memory from context via attention pooling with ResidualAttentionLayer
         # This yields one summary token per context path
-        enhanced_context = self.encode_context(
-            {
-                "context_event_times": x["context_event_times"],
-                "context_event_types": x["context_event_types"],
-                "context_seq_lengths": x["context_seq_lengths"],
-            }
-        )  # [B, P_context, D]
+        if "precomputed_enhanced_context" in x and x["precomputed_enhanced_context"] is not None:
+            enhanced_context = x["precomputed_enhanced_context"]
+        else:
+            enhanced_context = self.encode_context(
+                {
+                    "context_event_times": x["context_event_times"],
+                    "context_event_types": x["context_event_types"],
+                    "context_seq_lengths": x["context_seq_lengths"],
+                }
+            )  # [B, P_context, D]
         B, P_context, D = enhanced_context.shape
         memory = enhanced_context  # [B, P_context, D]
 
@@ -1362,13 +1365,59 @@ class FIMHawkes(AModel):
         Decode the kernel and base intensity functions into lists of functions using eval.
 
         Input:
-            "kernel_functions": Tensor representing the kernel functions using byte-encoded strings. [B, M, M]
-            "base_intensity_functions": Tensor representing the base intensity functions using byte-encoded strings. [B, M]
+            "kernel_functions": Tensor representing the kernel functions using byte-encoded strings.
+                Supported shapes:
+                  - [B, M, M, L_bytes] (byte-encoded vectors)
+                  - [B, M, M]          (scalar string dtype or byte tensors)
+            "base_intensity_functions": Tensor representing the base intensity functions using byte-encoded strings.
+                Supported shapes:
+                  - [B, M, L_bytes]
+                  - [B, M]
         Output:
             "kernel_functions": List of kernel functions. [B, M, M]
             "base_intensity_functions": List of base intensity functions. [B, M]
         """
-        B, M, _, _ = kernel_functions.shape
+        # Resolve kernel shapes
+        if kernel_functions.dim() == 4:
+            B, M, _, _ = kernel_functions.shape
+
+            def _get_kernel_elem(b, i, j):
+                return kernel_functions[b, i, j]
+        elif kernel_functions.dim() == 3:
+            B, M, last = kernel_functions.shape
+            if last != M:
+                raise ValueError(f"kernel_functions expected shape [B, M, M] for 3D input, got [B, {M}, {last}]")
+
+            def _get_kernel_elem(b, i, j):
+                return kernel_functions[b, i, j]
+        else:
+            raise ValueError(f"Unsupported kernel_functions tensor shape: {tuple(kernel_functions.shape)}")
+
+        # Resolve base intensity shapes
+        if base_intensity_functions.dim() == 3:
+            Bb, Mb, _ = base_intensity_functions.shape
+            if Bb != B or Mb != M:
+                # tolerate Bb == B, Mb == M best-effort; otherwise error
+                raise ValueError(
+                    f"base_intensity_functions shape {tuple(base_intensity_functions.shape)} "
+                    f"is incompatible with kernel_functions batch/marks ({B}, {M})"
+                )
+
+            def _get_base_elem(b, i):
+                return base_intensity_functions[b, i]
+        elif base_intensity_functions.dim() == 2:
+            Bb, Mb = base_intensity_functions.shape
+            if Bb != B or Mb != M:
+                raise ValueError(
+                    f"base_intensity_functions shape {tuple(base_intensity_functions.shape)} "
+                    f"is incompatible with kernel_functions batch/marks ({B}, {M})"
+                )
+
+            def _get_base_elem(b, i):
+                return base_intensity_functions[b, i]
+        else:
+            raise ValueError(f"Unsupported base_intensity_functions tensor shape: {tuple(base_intensity_functions.shape)}")
+
         kernel_functions_list = []
         base_intensity_functions_list = []
         for b in range(B):
@@ -1377,8 +1426,8 @@ class FIMHawkes(AModel):
             for m in range(M):
                 kernel_functions_list[b].append([])
                 for m_prime in range(M):
-                    kernel_functions_list[b][m].append(eval(decode_byte_string(kernel_functions[b, m, m_prime])))
-                base_intensity_functions_list[b].append(eval(decode_byte_string(base_intensity_functions[b, m])))
+                    kernel_functions_list[b][m].append(eval(decode_byte_string(_get_kernel_elem(b, m, m_prime))))
+                base_intensity_functions_list[b].append(eval(decode_byte_string(_get_base_elem(b, m))))
         return kernel_functions_list, base_intensity_functions_list
 
     def metric(self, y: Any, y_target: Any) -> Dict:
