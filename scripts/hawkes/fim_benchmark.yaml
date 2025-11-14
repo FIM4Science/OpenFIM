@@ -1,11 +1,11 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  - taobao
-  - stackoverflow
+  # - taobao
+  # - stackoverflow
   - amazon
-  - taxi
-  - retweet
+  # - taxi
+  # - retweet
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
@@ -19,7 +19,7 @@ checkpoints:
 
 # Inference-only hyperparameters
 # task: next_event | long_horizon | both
-task: long_horizon
+task: next_event
 # Sampling method for next-event time: thinning | inverse_transform
 sampling_method: thinning
 context_size: 2000   # null => use full train split
@@ -30,7 +30,7 @@ num_integration_points: 5000
 num_bootstrap_samples: 1000
 
 # Long-horizon parameters (used when task == long_horizon)
-forecast_horizon_size: 1          # N future events to generate
+forecast_horizon_size: 5          # N future events to generate
 num_ensemble_trajectories: 5        # number of independent trajectories for ensembling
 num_trials: 3                       # number of repeated trials for mean±std reporting
 base_seed: 0                         # base RNG seed; trials use base_seed + trial_idx
@@ -53,7 +53,7 @@ finetune_config: configs/train/hawkes/david.yaml
 # Fine-tune hyperparameters
 nll_method: monte_carlo  # closed_form | monte_carlo
 fine_tune_lr: 5e-5
-fine_tune_epochs: 15000
-finetune_val_every: 500 # Only evaluate on val set every 500 epochs
+fine_tune_epochs: 20000
+finetune_val_every: 50 # Only evaluate on val set every 500 epochs
 # Optional custom save root for fine-tuning artifacts
 # finetune_save_root: results/finetuned_cdiff

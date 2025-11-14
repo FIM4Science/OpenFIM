@@ -1,7 +1,7 @@
 """
 CUDA_VISIBLE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py \
---checkpoint "results/FIM_Hawkes_10-22st_nll_pattern_2000_paths_mixed_100_events_mixed-experiment-seed-10_11-06-2210/checkpoints/epoch-143"  \
---dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/test" \
+--checkpoint "results/.ICLR_submission_model/checkpoints/best-model"  \
+--dataset "data/synthetic_data/hawkes/10_3D_2k_context_paths_100_inference_paths_const_powerlaw/test" \
 --sample_idx 0 \
 --path_idx 0
 """
