@@ -249,38 +249,6 @@ if __name__ == "__main__":
         "Hopf": {"tau": 0.002, "exp": 2, "noise": 0},  # 1 or 2
     }
 
-    # tau = 0.02
-    # exp = 4
-    # noise = 0.0
-    #
-    # select_gp_results = {
-    #     "Double Well": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Wang": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Damped Linear": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Damped Cubic": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Duffing": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Glycosis": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Hopf": {"tau": tau, "exp": exp, "noise": noise},
-    # }
-    # select_bisde_results = {
-    #     "Double Well": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Wang": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Damped Linear": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Damped Cubic": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Duffing": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Glycosis": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Hopf": {"tau": tau, "exp": exp, "noise": noise},
-    # }
-    # select_fimsde_results = {
-    #     "Double Well": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Wang": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Damped Linear": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Damped Cubic": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Duffing": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Glycosis": {"tau": tau, "exp": exp, "noise": noise},
-    #     "Hopf": {"tau": tau, "exp": exp, "noise": noise},
-    # }
-
     # paths setup
     plot_num_paths = 10
 

@@ -178,12 +178,6 @@ def evaluate_all_models(
     # Load previous evaluations that don't need to be evaluated anymore
     loaded_evaluations: list[ModelEvaluation] = load_evaluations(results_to_load)
 
-    # ######################################################################
-    # for eval in loaded_evaluations:  # backward compatability for evaluations without noise
-    #     system, stride, mmd_max_num_paths = eval.dataloader_id
-    #     eval.dataloader_id = (system.replace("_", " "), stride * 0.002, 0.0)
-    # ######################################################################
-
     # Evaluate all models on all datasets
     all_evaluations: list[ModelEvaluation] = [
         ModelEvaluation(model_id, dataloader_id) for model_id, dataloader_id in itertools.product(model_dicts.keys(), datasets.keys())
@@ -304,49 +298,3 @@ if __name__ == "__main__":
 
     if save_model_data is True:
         save_evaluations_as_jsons(all_evaluations, evaluation_dir)
-
-    # # Figures with subplot grid containing results from multiple equations per dataset
-    # if sample_paths is True:
-    #     for model_evaluation in (pbar := tqdm(all_evaluations, total=len(all_evaluations), leave=False)):
-    #         pbar.set_description(
-    #             f"Saving figure grids for model {model_evaluation.model_id} and dataloader {model_evaluation.dataloader_id}."
-    #         )
-    #
-    #         dataset: dict = datasets[model_evaluation.dataloader_id]
-    #         dim = dataset["initial_states"].shape[-1]
-    #
-    #         if dim == 1:
-    #             grid_plot_func = plot_1D_synthetic_data_figure_grid
-    #         if dim == 2:
-    #             grid_plot_func = plot_2D_synthetic_data_figure_grid
-    #
-    #         fig = grid_plot_func(
-    #             dataset["locations"],
-    #             dataset["drift_at_locations"],
-    #             dataset["diffusion_at_locations"],
-    #             model_evaluation.results["estimated_concepts"].drift,
-    #             model_evaluation.results["estimated_concepts"].diffusion,
-    #             dataset["obs_times"],
-    #             dataset["obs_values"],
-    #             dataset["obs_mask"].bool(),
-    #             model_evaluation.results.get("sample_paths_grid"),
-    #             model_evaluation.results.get("sample_paths"),
-    #         )
-    #
-    #         # save
-    #         save_dir: Path = (
-    #             evaluation_dir
-    #             / "figure_grid"
-    #             / model_evaluation.dataloader_id[0]
-    #             / ("length_" + str(model_evaluation.dataloader_id[2]))
-    #             / ("stride_" + str(model_evaluation.dataloader_id[1]))
-    #         )
-    #         save_dir.mkdir(parents=True, exist_ok=True)
-    #         file_name = (
-    #             f"data_{model_evaluation.dataloader_id[0]}_stride_{model_evaluation.dataloader_id[1]}_model_{model_evaluation.model_id}"
-    #         )
-    #         save_fig(fig, save_dir, file_name)
-    #
-    #         plt.close(fig)
-    #
-    #     pbar.close()
