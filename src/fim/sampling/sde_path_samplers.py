@@ -60,6 +60,7 @@ def fimsde_euler_maruyama(
     grid_size: Optional[int] = None,
     end_time: Optional[Tensor] = None,
     grid: Optional[Tensor] = None,
+    silent: bool = False,
 ):
     """
     Given a FIMSDE model and data, sample paths beginning at initial_states, between initial_time and end_time,
@@ -139,10 +140,16 @@ def fimsde_euler_maruyama(
         dimension_mask = None
 
     # Iterate num_steps euler maruyama steps
-    for step in tqdm(range(num_steps), desc="Euler-Maruyama Solver Step", unit="step", leave=False):
-        dt = sample_paths_grid_dt[:, :, step, :]  # [B, I, 1]
-        current_states = fimsde_euler_step(model, current_states, dt, solver_granularity, paths_encoding, obs_mask, dimension_mask)
-        sample_paths.append(current_states)
+    if silent:
+        for step in range(num_steps):
+            dt = sample_paths_grid_dt[:, :, step, :]  # [B, I, 1]
+            current_states = fimsde_euler_step(model, current_states, dt, solver_granularity, paths_encoding, obs_mask, dimension_mask)
+            sample_paths.append(current_states)
+    else:
+        for step in tqdm(range(num_steps), desc="Euler-Maruyama Solver Step", unit="step", leave=False):
+            dt = sample_paths_grid_dt[:, :, step, :]  # [B, I, 1]
+            current_states = fimsde_euler_step(model, current_states, dt, solver_granularity, paths_encoding, obs_mask, dimension_mask)
+            sample_paths.append(current_states)
 
     sample_paths = torch.stack(sample_paths, dim=-2)  # [B, I, grid_size, D]
 
@@ -170,6 +177,7 @@ def fimsde_sample_paths_on_masked_grid(
     mask: Tensor,
     initial_states: Tensor,
     solver_granularity: int,
+    silent: bool = False
 ):
     """
     Wrapper of `fimsde_euler_maruyama` that specifies time range by initial_time, dt, and grid_size instead.
@@ -192,7 +200,7 @@ def fimsde_sample_paths_on_masked_grid(
     grid = backward_fill_masked_values(grid, mask)
     initial_time = grid[..., 0, :]
 
-    return fimsde_euler_maruyama(model, data, solver_granularity, initial_states, initial_time, grid=grid)
+    return fimsde_euler_maruyama(model, data, solver_granularity, initial_states, initial_time, grid=grid,silent=silent)
 
 
 @torch.no_grad()
