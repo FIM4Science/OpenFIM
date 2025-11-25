@@ -62,6 +62,7 @@
     <script>DOCUMENTATION_OPTIONS.pagename = 'sde';</script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Stochastic Differential Equations: A Practical Tutorial" href="sde_tutorial.html" />
     <link rel="prev" title="Temporal missing pattern" href="imputation_temporal.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -198,9 +199,10 @@
 <li class="toctree-l1"><a class="reference internal" href="imputation_point_wise.html">Point-wise missing pattern</a></li>
 <li class="toctree-l1"><a class="reference internal" href="imputation_temporal.html">Temporal missing pattern</a></li>
 </ul>
-<p aria-level="2" class="caption" role="heading"><span class="caption-text">Imputation of Stochastic Differential Equations</span></p>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Stochastic Differential Equations</span></p>
 <ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Stochastic Differential Equations: A Crash Course</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sde_tutorial.html">Stochastic Differential Equations: A Practical Tutorial</a></li>
 </ul>
 
     </div>
@@ -396,7 +398,8 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-few-notes">A few notes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mathematical-foundation">Mathematical Foundation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-capabilities-and-assumptions">Model capabilities and assumptions</a></li>
 </ul>
             </nav>
         </div>
@@ -410,28 +413,24 @@ document.write(`
                   
   <section class="tex2jax_ignore mathjax_ignore" id="stochastic-differential-equations-a-crash-course">
 <h1>Stochastic Differential Equations: A Crash Course<a class="headerlink" href="#stochastic-differential-equations-a-crash-course" title="Link to this heading">#</a></h1>
-<p>This section is an adapted version of Appendix A of the corresponding publication <span id="id1">[<a class="reference internal" href="intro.html#id15" title="Patrick Seifner, Kostadin Cvejoski, David Berghaus, Cesar Ojeda, and Ramses J Sanchez. In-context learning of stochastic differential equations with foundation inference models. In The Thirty-ninth Annual Conference on Neural Information Processing Systems. 2025. URL: https://openreview.net/forum?id=ceCJPoZOKJ.">SCB+25</a>]</span>.</p>
-<p>A <span class="math notranslate nohighlight">\(d\)</span> dimensional stochastic process <span class="math notranslate nohighlight">\(x(t)\)</span> follows an Ito stochastic differential equation (SDE), if it satisfies</p>
+<p>This section provides a theoretical foundation for understanding Stochastic Differential Equations (SDEs) and introduces the concepts needed for the practical tutorial. This content is adapted from Appendix B of the corresponding publication <span id="id1">[<a class="reference internal" href="intro.html#id15" title="Patrick Seifner, Kostadin Cvejoski, David Berghaus, Cesar Ojeda, and Ramses J Sanchez. In-context learning of stochastic differential equations with foundation inference models. In The Thirty-ninth Annual Conference on Neural Information Processing Systems. 2025. URL: https://openreview.net/forum?id=ceCJPoZOKJ.">SCB+25</a>]</span>.</p>
+<section id="mathematical-foundation">
+<h2>Mathematical Foundation<a class="headerlink" href="#mathematical-foundation" title="Link to this heading">#</a></h2>
+<p>A <span class="math notranslate nohighlight">\(d\)</span>-dimensional stochastic process <span class="math notranslate nohighlight">\(x(t)\)</span> follows an Itô stochastic differential equation (SDE) if it satisfies:</p>
 <div class="math notranslate nohighlight">
-\[x_i(\overline{t})=x_i(\overline{t})+\int_{\underline{t}}^{\overline{t}} f_i(x(t'),t')dt'+\sum_{j}^{m}\int_{\underline{t}}^{\overline{t}} G_{ij}(x(t'),t')dW_j(t')\]</div>
-<p>for all <span class="math notranslate nohighlight">\(i\leq d,\ \underline{t}\leq \overline{t}\)</span> and some vector valued <em>drift function</em> <span class="math notranslate nohighlight">\(f:\mathbb{R}^d\times \mathbb{R}^+\to\mathbb{R}^d\)</span> and <em>diffusion function</em> <span class="math notranslate nohighlight">\(G:\mathbb{R}^d\times\mathbb{R}^+\to\mathbb{R}^{m\times d}\)</span>, where <span class="math notranslate nohighlight">\(W:\mathbb{R}^+\to\mathbb{R}\)</span> is a standard <span class="math notranslate nohighlight">\(m\)</span>-dimensional Wiener process. Such a process can be denoted in differential notation:</p>
+\[x_i(\overline{t})=x_i(\underline{t})+\int_{\underline{t}}^{\overline{t}} f_i(x(t'),t')dt'+\sum_{j}^{m}\int_{\underline{t}}^{\overline{t}} G_{ij}(x(t'),t')dW_j(t')\]</div>
+<p>for all <span class="math notranslate nohighlight">\(i\leq d,\ \underline{t}\leq \overline{t}\)</span> and some vector-valued <strong>drift function</strong> <span class="math notranslate nohighlight">\(f:\mathbb{R}^d\times \mathbb{R}^+\to\mathbb{R}^d\)</span> and <strong>diffusion matrix</strong> <span class="math notranslate nohighlight">\(G:\mathbb{R}^d\times\mathbb{R}^+\to\mathbb{R}^{d\times m}\)</span>, where <span class="math notranslate nohighlight">\(W:\mathbb{R}^+\to\mathbb{R}^m\)</span> is a standard <span class="math notranslate nohighlight">\(m\)</span>-dimensional Wiener process.</p>
+<p>In differential notation, this is commonly written as:</p>
 <div class="math notranslate nohighlight">
 \[dx(t)=f(x(t),t)dt+G(x(t),t)dW(t)\]</div>
-<p>Our model estimates both <span class="math notranslate nohighlight">\(f\)</span> and <span class="math notranslate nohighlight">\(G\)</span> in a zero-shot manner, where <span class="math notranslate nohighlight">\(G\)</span> is returned in the following form:</p>
+</section>
+<section id="model-capabilities-and-assumptions">
+<h2>Model capabilities and assumptions<a class="headerlink" href="#model-capabilities-and-assumptions" title="Link to this heading">#</a></h2>
+<p>Our Foundation Inference Model (FIM) for SDEs can estimate both the drift function <span class="math notranslate nohighlight">\(f\)</span> and diffusion function <span class="math notranslate nohighlight">\(G\)</span> in a <strong>zero-shot manner</strong> directly from observed trajectory data. The model assumes <strong>diagonal diffusion</strong>, i.e.</p>
 <div class="math notranslate nohighlight">
 \[ G(x)=\text{diag}(\sqrt{g_1(x)},\dots,\sqrt{g_d(x)})\]</div>
-<section id="a-few-notes">
-<h2>A few notes<a class="headerlink" href="#a-few-notes" title="Link to this heading">#</a></h2>
-<ol class="arabic simple">
-<li><p>The model and the tutorial assume, that both the drift and the diffusion are only state-dependent and not time dependent.</p></li>
-<li><p>Some authors return a different scaling of <span class="math notranslate nohighlight">\(G\)</span>:</p></li>
-</ol>
-<div class="math notranslate nohighlight">
-\[\text{diag}(g_1(x),\dots,g_d(x)).\]</div>
-<p>Therefore one should be careful when comparing results from different models/ authors!</p>
-<p>The next section of this tutorial will demonstrate how one can use our model
-in practice to produce predictions for the underlying SDE of some given data.</p>
-<p><img alt="alt text" src="_images/sde1.png" /></p>
+<p>and therefore returns the vector field <span class="math notranslate nohighlight">\((\sqrt{\hat{g}_1(x)},\dots,\sqrt{\hat{g}_d(x)})\)</span>.</p>
+<p>Furthermore this model assumes <strong>purely state-dependent drift and diffusion</strong>!</p>
 </section>
 </section>
 
@@ -474,6 +473,15 @@ in practice to produce predictions for the underlying SDE of some given data.</p
         <p class="prev-next-title">Temporal missing pattern</p>
       </div>
     </a>
+    <a class="right-next"
+       href="sde_tutorial.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Stochastic Differential Equations: A Practical Tutorial</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
 </div>
                 </footer>
               
@@ -490,7 +498,8 @@ in practice to produce predictions for the underlying SDE of some given data.</p
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-few-notes">A few notes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mathematical-foundation">Mathematical Foundation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-capabilities-and-assumptions">Model capabilities and assumptions</a></li>
 </ul>
   </nav></div>
 
