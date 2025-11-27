@@ -424,10 +424,13 @@ def load_file(file_path):
 
 
 def load_h5(path: Path):
-    "Array in .h5 is under 'data' key"
+    "Array in .h5 is under 'data' key or first dataset found"
     arr = None
     with h5py.File(path, "r") as f:
-        data = f["data"][:]
+        # Use helper function to find the main dataset
+        from fim.data.datasets import _h5_main_dataset
+
+        data = _h5_main_dataset(f)[:]
         try:
             # Attempt to convert the data to floats
             arr = torch.as_tensor(data, dtype=torch.float32)

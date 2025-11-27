@@ -15,7 +15,7 @@ from .thinning import EventSampler
 
 
 class FIMHawkesConfig(PretrainedConfig):
-    model_type = "fimhawkes"
+    model_type = "fimhawkes_intensity_free"
 
     def __init__(
         self,
@@ -94,6 +94,16 @@ class FIMHawkes(AModel):
         self.max_num_marks = config.max_num_marks
         self.normalize_by_max_time = config.normalize_by_max_time
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
+
+        # Disable Flash Attention to avoid cuDNN compatibility issues
+        # This is a workaround for: "cuDNN Frontend error: No execution plans support the graph"
+        try:
+            torch.backends.cuda.enable_flash_sdp(False)
+            torch.backends.cuda.enable_mem_efficient_sdp(False)
+            self.logger.info("Disabled Flash Attention and Memory Efficient Attention for compatibility")
+        except Exception as e:
+            self.logger.warning(f"Could not disable Flash Attention backends: {e}")
+
         self.__create_modules()
         self._register_cached_tensors()
 
@@ -573,7 +583,8 @@ class FIMHawkes(AModel):
         # Create padding mask before encoding marks
         positions = torch.arange(L, device=self.device).unsqueeze(0)
         seq_lengths_flat = x[f"{type}_seq_lengths"].view(B * P)
-        key_padding_mask = positions >= seq_lengths_flat.unsqueeze(1)
+        # Ensure mask is boolean type for compatibility with Flash Attention
+        key_padding_mask = (positions >= seq_lengths_flat.unsqueeze(1)).bool()
         key_padding_mask_flat = key_padding_mask.view(-1)
 
         # More efficient mark encoding using cached one-hot matrix
@@ -605,10 +616,11 @@ class FIMHawkes(AModel):
         # 3. For now, let's use the simpler approach that should be functionally equivalent
         # The causal mask handles temporal dependencies, key_padding_mask handles sequence lengths
         if type == "context":
+            # For context encoding, we don't use causal masking, only padding mask
+            # Use src_key_padding_mask parameter which handles padding correctly
             h = self.context_ts_encoder(
                 path.view(B * P, L, -1),
-                # No causal mask for context sequences; keep padding mask only
-                src_key_padding_mask=key_padding_mask,  # 2D key padding mask
+                src_key_padding_mask=key_padding_mask,  # [B*P, L]
             )
         elif type == "inference":
             # Bypass any TransformerEncoder: use token embeddings directly for the decoder

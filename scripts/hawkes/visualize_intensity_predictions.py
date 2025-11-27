@@ -1,7 +1,7 @@
 """
 CUDA_VISIBLE_DEVICES="" python scripts/hawkes/visualize_intensity_predictions.py \
---checkpoint "results/FIM_Hawkes_10-22st_nll_only_mc_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-20-1214/checkpoints/best-model"  \
---dataset "data/synthetic_data/hawkes/1k_3D_2k_paths_const_base_exp_kernel_no_interactions/test" \
+--checkpoint "results/.ICLR_submission_model/checkpoints/best-model"  \
+--dataset "data/synthetic_data/hawkes/10_3D_2k_context_paths_100_inference_paths_const_powerlaw/test" \
 --sample_idx 0 \
 --path_idx 0
 """
@@ -217,7 +217,13 @@ def prepare_batch_for_model(data_sample, inference_path_idx=0, num_points_betwee
         if key in data_sample:
             model_data[key] = data_sample[key]
 
-    if "base_intensity_functions" in model_data:
+    # Determine number of marks directly from event_types of the sample
+    if "event_types" in data_sample and torch.is_tensor(data_sample["event_types"]):
+        # After the unsqueeze above, shape is typically [1, P, L, 1]
+        max_mark = int(data_sample["event_types"].max().item())
+        model_data["num_marks"] = max_mark + 1
+    elif "base_intensity_functions" in model_data:
+        # Fallback in case event_types is unavailable
         model_data["num_marks"] = model_data["base_intensity_functions"].shape[1]
     else:
         model_data["num_marks"] = 1

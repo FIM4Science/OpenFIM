@@ -577,14 +577,13 @@ def run_long_horizon_evaluation(
             trial_smape.append(0.0)
             trial_rmse_e.append(0.0)
             trial_otd.append(0.0)
+            trial_type_acc.append(0.0)  # Compute type_acc even when N=1 (or any N)
         else:
             trial_rmsex_plus.append(rmsex_plus_sum / num_eval)
             trial_smape.append(smape_sum / num_eval)
             trial_rmse_e.append(rmse_e_sum / num_eval)
             trial_otd.append(otd_sum / num_eval)
             trial_type_acc.append(type_acc_sum / num_eval)
-        if num_eval == 0:
-            trial_type_acc.append(0.0)
 
     duration_seconds = float(time.time() - start_time)
 

@@ -31,6 +31,20 @@ from ..utils.logging import RankLoggerAdapter
 from .utils import clean_split_from_size_info, load_file, split_into_variable_windows
 
 
+def _h5_main_dataset(f: h5py.File):
+    """Return the primary dataset from an HDF5 file.
+
+    Prefers a dataset named 'data'. Falls back to the first dataset found.
+    """
+    if "data" in f:
+        return f["data"]
+    for k in f.keys():
+        obj = f[k]
+        if isinstance(obj, h5py.Dataset):
+            return obj
+    raise KeyError("No dataset found in HDF5 file")
+
+
 class HFDataset(torch.utils.data.Dataset):
     """
     Base class for time series datasets.
@@ -1771,7 +1785,7 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                 h5_path = ref_path.with_suffix(".h5")
                 if h5_path.exists():
                     with h5py.File(h5_path, "r") as f:
-                        num_items = int(f["data"].shape[0])
+                        num_items = int(_h5_main_dataset(f).shape[0])
                 else:
                     tensor = torch.load(ref_path, weights_only=True)
                     num_items = int(tensor.shape[0])
@@ -1798,7 +1812,7 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
             h5p = p.with_suffix(".h5")
             if h5p.exists():
                 with h5py.File(h5p, "r") as f:
-                    shape = f["data"].shape
+                    shape = _h5_main_dataset(f).shape
             else:
                 t = torch.load(p, weights_only=True)
                 shape = t.shape
@@ -1860,23 +1874,54 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                 return int(items // self.batch_size)
 
             max_rank_batches = min(batches_for_rank(r) for r in range(world_size))
-        # Distribute per-rank cap across workers so aggregate matches per-rank cap
-        worker_info = torch.utils.data.get_worker_info()
+        # Compute per-worker cap to ensure perfect synchronization across ranks
         if max_rank_batches is not None:
             if worker_info is None:
                 per_worker_cap = max_rank_batches
             else:
+                # Calculate how many batches each worker on this rank will produce
+                # This must be done deterministically so all workers agree
                 w = int(worker_info.num_workers)
-                base = max_rank_batches // w
-                rem = max_rank_batches % w
-                per_worker_cap = base + (1 if worker_info.id < rem else 0)
+                worker_batch_counts = []
+
+                for worker_id in range(w):
+                    # Replicate the same directory assignment logic for each worker
+                    worker_dirs = [i for i in rank_indices if (i % w) == worker_id]
+                    count = 0
+                    for di in worker_dirs:
+                        n = int(self._num_items_per_dir[di])
+                        if self.enforce_batch_alignment:
+                            n = (n // self.batch_size) * self.batch_size
+                        count += n // self.batch_size
+                    worker_batch_counts.append(count)
+
+                # Total batches this rank can produce from all workers
+                total_rank_batches = sum(worker_batch_counts)
+
+                # If total exceeds max_rank_batches, we need to proportionally reduce
+                if total_rank_batches > max_rank_batches:
+                    # Distribute max_rank_batches across workers proportionally
+                    # Each worker independently calculates all allocations deterministically
+                    allocated = []
+                    remaining = max_rank_batches
+                    for wid in range(w):
+                        if wid < w - 1:
+                            # Proportional share for this worker
+                            alloc = int((worker_batch_counts[wid] / total_rank_batches) * max_rank_batches)
+                            allocated.append(alloc)
+                            remaining -= alloc
+                        else:
+                            # Last worker gets remainder to ensure exact sum
+                            allocated.append(remaining)
+                    per_worker_cap = allocated[worker_info.id]
+                else:
+                    # Use natural counts (shouldn't exceed max_rank_batches by design)
+                    per_worker_cap = worker_batch_counts[worker_info.id]
 
         yielded_batches = 0
 
         # iterate directories assigned to this rank/worker
         for dir_idx in dir_indices:
-            if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
-                return
             # load all keys for this directory
             dir_files = {k: v[dir_idx] for k, v in self.all_file_paths.items()}
             # Prefer h5 files if available; open streams once per directory
@@ -1894,7 +1939,7 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
 
             # determine number of items from reference
             if use_h5 and streams.get(self._ref_key) is not None and isinstance(streams[self._ref_key], h5py.File):
-                num_items = int(streams[self._ref_key]["data"].shape[0])
+                num_items = int(_h5_main_dataset(streams[self._ref_key]).shape[0])
             else:
                 ref_tensor = streams.get(self._ref_key)
                 if ref_tensor is None:
@@ -1925,7 +1970,7 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                         if src is None:
                             continue
                         if isinstance(src, h5py.File):
-                            arr = src["data"][batch_start:batch_end]
+                            arr = _h5_main_dataset(src)[batch_start:batch_end]
                             batch_block[key] = torch.as_tensor(arr)
                         else:
                             batch_block[key] = src[batch_start:batch_end]
@@ -1966,9 +2011,14 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
                                 yield current_batch
                             current_batch = []
                             yielded_batches += 1
-                    if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
-                        # stop early to keep this worker in sync with per-rank cap
-                        return
+
+                            # Check cap immediately after yielding each batch to prevent overshooting
+                            if (per_worker_cap is not None) and (yielded_batches >= per_worker_cap):
+                                # close any opened h5 files before returning
+                                for s in streams.values():
+                                    if isinstance(s, h5py.File):
+                                        s.close()
+                                return
             finally:
                 # close any opened h5 files
                 for s in streams.values():
@@ -2057,6 +2107,17 @@ class StreamingHawkesDataset(torch.utils.data.IterableDataset):
             item["num_marks"] = int(item["kernel_functions"].shape[0])
         elif "base_intensity_functions" in item:
             item["num_marks"] = int(item["base_intensity_functions"].shape[0])
+        elif "event_types" in item:
+            item["num_marks"] = int(item["event_types"].max().item()) + 1
+        elif "inference_event_types" in item and "context_event_types" in item:
+            # After splitting, check both inference and context event types
+            max_inference = int(item["inference_event_types"].max().item())
+            max_context = int(item["context_event_types"].max().item())
+            item["num_marks"] = max(max_inference, max_context) + 1
+        elif "inference_event_types" in item:
+            item["num_marks"] = int(item["inference_event_types"].max().item()) + 1
+        elif "context_event_types" in item:
+            item["num_marks"] = int(item["context_event_types"].max().item()) + 1
         else:
             item["num_marks"] = 0
 
@@ -2076,7 +2137,7 @@ def h5_files_dict_iterator(files_dict: dict, batch_size: int, process_batch: Opt
     else:
         # open all required files
         files_streams = torch.utils._pytree.tree_map(lambda path: h5py.File(path, "r") if path.exists() else None, files_dict)
-        files_data = torch.utils._pytree.tree_map(lambda stream: stream["data"] if stream is not None else None, files_streams)
+        files_data = torch.utils._pytree.tree_map(lambda stream: _h5_main_dataset(stream) if stream is not None else None, files_streams)
 
         # iterate through data consecutive
         num_elements = files_data["obs_values"].shape[0]
@@ -2426,7 +2487,7 @@ def get_iterable_dataset_length(file_paths: dict[str, list[Path]]) -> int:
         dataset_length (int): Summed sizes at dim 0 of tensors.
     """
     file_streams: list = torch.utils._pytree.tree_map(lambda path: h5py.File(path, "r"), file_paths["obs_values"])
-    vals_sizes: list = torch.utils._pytree.tree_map(lambda file: file["data"].shape[0], file_streams)
+    vals_sizes: list = torch.utils._pytree.tree_map(lambda file: _h5_main_dataset(file).shape[0], file_streams)
     torch.utils._pytree.tree_map(lambda stream: stream.close(), file_streams)
 
     return sum(vals_sizes)

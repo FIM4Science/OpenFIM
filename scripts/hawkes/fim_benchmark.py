@@ -569,86 +569,90 @@ def write_latex_row_next_event_fim(results_root: Path, rows: List[Dict]) -> Path
 
 
 def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> Path:
-    """Aggregate long-horizon 'model' results into LaTeX rows for the table layout.
+    """Generate long-horizon FIM results in new table format.
 
-    Top row order: Taxi, Taobao
-    Middle row order: StackOverflow, Amazon
-    Bottom row: Retweet (left 4 cells), remaining 4 cells empty
+    Format: one row per dataset (either zero-shot or fine-tuned, depending on what was run).
+    Each row: & \textbf{MethodName} & OTD±std & RMSE_e±std & RMSE_{x+}±std & sMAPE±std \\
 
-    Metrics per dataset (order): OTD, RMSE_e, RMSE_{x+}, sMAPE
+    Datasets appear in order: Taxi, Taobao, StackOverflow, Amazon, Retweet
+
+    Returns path to the written .tex file.
     """
-    # Index long_horizon model rows by dataset id
-    model_rows = {(r.get("dataset") or ""): r for r in rows if r.get("task") == "long_horizon" and r.get("source") == "model"}
+    # Filter for long_horizon model rows and group by dataset
+    lh_model_rows = [r for r in rows if r.get("task") == "long_horizon" and r.get("source") == "model"]
 
-    # Helper to retrieve a row by either full id (e.g., easytpp/taxi) or short name (e.g., taxi)
-    def get_row_for_dataset_short(short_name: str) -> Dict:
-        # Direct match on keys
-        if short_name in model_rows:
-            return model_rows[short_name]
-        # Try prefixed EasyTPP id
-        pref = f"easytpp/{short_name}"
-        if pref in model_rows:
-            return model_rows[pref]
-        # Try matching by basename of the path/id
-        for k, v in model_rows.items():
-            base = Path(str(k)).name
-            if base == short_name:
-                return v
-            # Also handle ids like easytpp/amazon -> amazon
-            if "/" in str(k) and str(k).split("/")[-1] == short_name:
-                return v
-        return {}
+    # Determine if this is a fine-tuned or zero-shot benchmark
+    # (all results in a single run will be one or the other)
+    has_finetuned = any("_finetune" in str(r.get("checkpoint", "")) for r in lh_model_rows)
+    method_label = "\\FIMfine" if has_finetuned else "\\FIMzeroshot"
+
+    # Group rows by dataset (normalize dataset names)
+    def normalize_dataset_name(ds):
+        ds_str = str(ds or "").lower()
+        if "taxi" in ds_str:
+            return "taxi"
+        elif "taobao" in ds_str:
+            return "taobao"
+        elif "stackoverflow" in ds_str:
+            return "stackoverflow"
+        elif "amazon" in ds_str:
+            return "amazon"
+        elif "retweet" in ds_str:
+            return "retweet"
+        return ds_str
+
+    by_dataset = {}
+    for r in lh_model_rows:
+        ds_normalized = normalize_dataset_name(r.get("dataset"))
+        if ds_normalized not in by_dataset:
+            by_dataset[ds_normalized] = []
+        by_dataset[ds_normalized].append(r)
+
+    # Dataset order for output
+    dataset_order = ["taxi", "taobao", "stackoverflow", "amazon", "retweet"]
 
     def fmt_cell_mean_std(mean_val, std_val) -> str:
+        """Format a metric value with standard deviation."""
         if isinstance(mean_val, (int, float)) and isinstance(std_val, (int, float)):
-            return f"$\\mathbf{{{mean_val:.3f}}}$ \\tinymath{{\\pm {std_val:.3f}}}"
+            return f"${mean_val:.3f}$ \\tinymath{{\\pm {std_val:.3f}}}"
         if isinstance(mean_val, (int, float)):
-            return f"$\\mathbf{{{mean_val:.3f}}}$"
+            return f"${mean_val:.3f}$"
         return ""
 
-    def cells_for(ds_shorts: List[str]) -> List[str]:
-        cells: List[str] = []
-        for ds_short in ds_shorts:
-            r = get_row_for_dataset_short(ds_short)
-            if r is None:
-                cells.extend(["", "", "", ""])  # OTD, RMSE_e, RMSE_{x+}, sMAPE
-            else:
-                otd = r.get("otd")
-                otd_std = r.get("otd_std")
-                rmse_e = r.get("rmse_e")
-                rmse_e_std = r.get("rmse_e_std")
-                rmsex_plus = r.get("rmsex_plus")
-                rmsex_plus_std = r.get("rmsex_plus_std")
-                smape = r.get("smape")
-                smape_std = r.get("smape_std")
-                cells.extend(
-                    [
-                        fmt_cell_mean_std(otd, otd_std),
-                        fmt_cell_mean_std(rmse_e, rmse_e_std),
-                        fmt_cell_mean_std(rmsex_plus, rmsex_plus_std),
-                        fmt_cell_mean_std(smape, smape_std),
-                    ]
-                )
-        return cells
+    output_lines = []
 
-    # Use short names; resolver maps from either HF ids or local names
-    top_cells = cells_for(["taxi", "taobao"])
-    middle_cells = cells_for(["stackoverflow", "amazon"])
-    # Retweet occupies the left block; right block intentionally left empty
-    retweet_row_cells_left = cells_for(["retweet"])
-    retweet_row_cells_right = ["", "", "", ""]
+    for ds_normalized in dataset_order:
+        dataset_rows_list = by_dataset.get(ds_normalized, [])
 
-    # Determine if fine-tuned checkpoints are used for long_horizon (any row contains '_finetune')
-    is_finetuned = any(
-        (r.get("task") == "long_horizon" and r.get("source") == "model" and "_finetune" in str(r.get("checkpoint", ""))) for r in rows
-    )
-    label = "\\textbf{FIM (fine-tuned)}" if is_finetuned else "\\textbf{FIM}"
-    row_top = " ".join([label, "&", " & ".join(top_cells), "\\\\"])  # Taxi | Taobao
-    row_middle = " ".join([label, "&", " & ".join(middle_cells), "\\\\"])  # StackOverflow | Amazon
-    row_bottom = " ".join([label, "&", " & ".join(retweet_row_cells_left + retweet_row_cells_right), "\\\\"])  # Retweet | (empty)
+        if dataset_rows_list:
+            r = dataset_rows_list[0]  # Use first result if multiple
+
+            otd = r.get("otd")
+            otd_std = r.get("otd_std")
+            rmse_e = r.get("rmse_e")
+            rmse_e_std = r.get("rmse_e_std")
+            rmsex_plus = r.get("rmsex_plus")
+            rmsex_plus_std = r.get("rmsex_plus_std")
+            smape = r.get("smape")
+            smape_std = r.get("smape_std")
+
+            # Build cells with values
+            cells = [
+                fmt_cell_mean_std(otd, otd_std),
+                fmt_cell_mean_std(rmse_e, rmse_e_std),
+                fmt_cell_mean_std(rmsex_plus, rmsex_plus_std),
+                fmt_cell_mean_std(smape, smape_std),
+            ]
+        else:
+            # Empty row for missing data
+            cells = ["", "", "", ""]
+
+        # Format row: & \textbf{\MethodLabel} & cell1 & cell2 & cell3 & cell4 \\
+        row_str = f"& \\textbf{{{method_label}}} & {' & '.join(cells)} \\\\"
+        output_lines.append(row_str)
 
     out_path = results_root / "long_horizon_fim_rows.tex"
-    out_path.write_text(f"{row_top}\n{row_middle}\n{row_bottom}\n")
+    out_path.write_text("\n".join(output_lines) + "\n")
     return out_path
 
 

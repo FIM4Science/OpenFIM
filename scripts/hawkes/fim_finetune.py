@@ -43,6 +43,11 @@ from fim.utils.helper import GenericConfig, expand_params, load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
 
+# Disable cuDNN backends for scaled_dot_product_attention to avoid resource contention
+# when multiple processes run in parallel (causes "No execution plans support the graph" error)
+torch.backends.cuda.enable_cudnn_sdp(False)
+
+
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 
 
@@ -397,6 +402,33 @@ def main(
     # Enable bf16 autocast on CUDA to reduce memory (matches trainer bf16_mixed)
     use_bf16_autocast = device.type == "cuda"
 
+    # Enforce NLL-only finetuning regardless of base checkpoint loss configuration.
+    # Some checkpoints (e.g., smape-only) can yield a zero total loss with no grad path.
+    try:
+        lw = getattr(model, "loss_weights", None)
+        if not isinstance(lw, dict):
+            lw = {}
+        # Default all supervised targets to zero during CDiff finetune (no GT functions available)
+        lw.setdefault("smape", 0.0)
+        lw.setdefault("mu", 0.0)
+        lw.setdefault("alpha", 0.0)
+        # Ensure NLL drives finetuning
+        lw["nll"] = float(lw.get("nll", 0.0)) if float(lw.get("nll", 0.0)) > 0.0 else 1.0
+        # Keep a small regularizer by default, unless explicitly set
+        lw["relative_spike"] = float(lw.get("relative_spike", 0.1))
+        model.loss_weights = lw
+        # Mirror into config so downstream components see the same view
+        if getattr(model, "config", None) is not None:
+            if getattr(model.config, "loss_weights", None) is None:
+                model.config.loss_weights = lw
+            else:
+                model.config.loss_weights.update(lw)
+            # Ensure NLL config exists with a sensible default
+            if getattr(model.config, "nll", None) is None:
+                model.config.nll = {"method": "closed_form", "num_integration_points": 5000}
+    except Exception as e:
+        logger.warning("Failed to enforce NLL-only loss weights due to: %s", e)
+
     def _save_checkpoint(save_dir: Path):
         save_dir.mkdir(parents=True, exist_ok=True)
         # Save HF-style config for downstream loaders
@@ -543,7 +575,15 @@ def main(
             # Scale the loss to average across micro-steps
             loss = losses["loss"] / steps_this_epoch
             epoch_loss_sum += float(loss.detach().cpu())
-            nll_train = float(losses.get("nll_loss", float("nan")))
+            # Safe scalar conversion for logging
+            _nll_val = losses.get("nll_loss", None)
+            if isinstance(_nll_val, torch.Tensor):
+                try:
+                    nll_train = float(_nll_val.detach().cpu())
+                except Exception:
+                    nll_train = float("nan")
+            else:
+                nll_train = float("nan") if _nll_val is None else float(_nll_val)
             loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
