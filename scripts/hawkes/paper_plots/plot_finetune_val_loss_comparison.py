@@ -118,7 +118,7 @@ def plot_val_nll_row(
 
     # Explicit styles to mirror the paper styling approach
     style_pretrained = {"color": "#009E73", "marker": "D", "label": "FIM-PP (pre-trained)", "linewidth": 2.0, "markersize": 6}
-    style_scratch = {"color": "#D55E00", "marker": "o", "label": "Random Weight Initialization", "linewidth": 2.0, "markersize": 5}
+    style_scratch = {"color": "#D55E00", "marker": "o", "label": "FIM-PP (random initialization)", "linewidth": 2.0, "markersize": 5}
 
     # Create a single-row, four-panel figure
     fig, axes = plt.subplots(1, len(datasets), figsize=(16, 4))

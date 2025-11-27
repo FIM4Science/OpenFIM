@@ -1,11 +1,11 @@
 # Config for next_event_eval_grid.py
 # - 'datasets' accepts local folders (repo Hawkes .pt layout) or HuggingFace ids (e.g., easytpp/retweet)
 datasets:
-  # - taobao
-  # - stackoverflow
+  - taobao
+  - stackoverflow
   - amazon
-  # - taxi
-  # - retweet
+  - taxi
+  - retweet
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_const_base_exp_kernel_no_interactions
   # - data/synthetic_data/hawkes/EVAL_10D_2k_context_paths_100_inference_paths_poisson
@@ -46,7 +46,7 @@ parallel: 5
 # - For long_horizon: local CDiff dataset path is used (resolved from data/external/CDiff_dataset/<name> if needed)
 # - The best validation checkpoint (best-model) is automatically selected for evaluation
 # - Each dataset starts fine-tune from the base checkpoint again (no carry-over)
-fine_tune: true
+fine_tune: false
 # Required when fine_tune: true — path to a train YAML used by fim_finetune.py
 # When 'checkpoints' is empty, this is also required to build the model from scratch.
 finetune_config: configs/train/hawkes/david.yaml
@@ -54,6 +54,6 @@ finetune_config: configs/train/hawkes/david.yaml
 nll_method: monte_carlo  # closed_form | monte_carlo
 fine_tune_lr: 5e-5
 fine_tune_epochs: 20000
-finetune_val_every: 50 # Only evaluate on val set every 500 epochs
+finetune_val_every: 500 # Only evaluate on val set every 500 epochs
 # Optional custom save root for fine-tuning artifacts
 # finetune_save_root: results/finetuned_cdiff

@@ -43,6 +43,11 @@ from fim.utils.helper import GenericConfig, expand_params, load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
 
+# Disable cuDNN backends for scaled_dot_product_attention to avoid resource contention
+# when multiple processes run in parallel (causes "No execution plans support the graph" error)
+torch.backends.cuda.enable_cudnn_sdp(False)
+
+
 logger = RankLoggerAdapter(logging.getLogger(__name__))
 
 
