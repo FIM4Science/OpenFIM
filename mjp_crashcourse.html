@@ -155,8 +155,8 @@
       
     
     
-    <img src="_static/logo.jpeg" class="logo__image only-light" alt="FIM - Home"/>
-    <script>document.write(`<img src="_static/logo.jpeg" class="logo__image only-dark" alt="FIM - Home"/>`);</script>
+    <img src="_static/logo.png" class="logo__image only-light" alt="FIM - Home"/>
+    <script>document.write(`<img src="_static/logo.png" class="logo__image only-dark" alt="FIM - Home"/>`);</script>
   
   
 </a></div>
@@ -177,11 +177,15 @@
         <ul class="nav bd-sidenav bd-sidenav__home-link">
             <li class="toctree-l1">
                 <a class="reference internal" href="intro.html">
-                    The FIM tutorial
+                    The Foundation Inference Model Program
                 </a>
             </li>
         </ul>
-        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Using the library</span></p>
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="tutorials.html">The FIM tutorial</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Using the library</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="FIM.html">FIM</a></li>
 <li class="toctree-l1"><a class="reference internal" href="FIM_installation_and_settings.html">Installation</a></li>
@@ -202,7 +206,12 @@
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Stochastic Differential Equations</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="sde.html">Stochastic Differential Equations: A Crash Course</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sde_tutorial.html">Stochastic Differential Equations: A Practical Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sde_tutorial.html">How to use the FIM-SDE Model</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About us</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="active.html">Active Members</a></li>
+<li class="toctree-l1"><a class="reference internal" href="alumni.html">Alumni</a></li>
 </ul>
 
     </div>
@@ -403,6 +412,7 @@ document.write(`
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#stationary-distribution">Stationary Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#relaxation-times">Relaxation Times</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mean-first-passage-times-mfpt">Mean First-Passage Times (MFPT)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bibliography">Bibliography</a></li>
 </ul>
             </nav>
         </div>
@@ -416,7 +426,7 @@ document.write(`
                   
   <section class="tex2jax_ignore mathjax_ignore" id="markov-jump-processes-a-crash-course">
 <h1>Markov Jump Processes: A Crash Course<a class="headerlink" href="#markov-jump-processes-a-crash-course" title="Link to this heading">#</a></h1>
-<p>This section is an adapted version of Appendix A in <span id="id1">[<a class="reference internal" href="intro.html#id8" title="David Berghaus, Kostadin Cvejoski, Patrick Seifner, Cesar Ojeda, and Ramses J Sanchez. Foundation inference models for markov jump processes. In The Thirty-eighth Annual Conference on Neural Information Processing Systems. 2024. URL: https://openreview.net/forum?id=f4v7cmm5sC.">BCS+24</a>]</span>. We introduce
+<p>This section is an adapted version of Appendix A in <span id="id1">[<a class="reference internal" href="#id3" title="David Berghaus, Kostadin Cvejoski, Patrick Seifner, Cesar Ojeda, and Ramses J Sanchez. Foundation inference models for markov jump processes. In The Thirty-eighth Annual Conference on Neural Information Processing Systems. 2024. URL: https://openreview.net/forum?id=f4v7cmm5sC.">BCS+24</a>]</span>. We introduce
 the notion of Markov jump processes and several important definitions and notation to work with them.</p>
 <section id="what-are-mjps">
 <h2>What are MJPs?<a class="headerlink" href="#what-are-mjps" title="Link to this heading">#</a></h2>
@@ -456,6 +466,17 @@ state depends only on the current state, not on the sequence of events that prec
 \tau_{ii} = 0 &amp; \\
 1 + \sum_{k} \mathbf{F}_{ik} \tau_{kj} = 0, &amp; j \neq i
 \end{cases}\end{split}\]</div>
+</section>
+<section id="bibliography">
+<h2>Bibliography<a class="headerlink" href="#bibliography" title="Link to this heading">#</a></h2>
+<div class="docutils container" id="id2">
+<div role="list" class="citation-list">
+<div class="citation" id="id3" role="doc-biblioentry">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id1">BCS+24</a><span class="fn-bracket">]</span></span>
+<p>David Berghaus, Kostadin Cvejoski, Patrick Seifner, Cesar Ojeda, and Ramses J Sanchez. Foundation inference models for markov jump processes. In <em>The Thirty-eighth Annual Conference on Neural Information Processing Systems</em>. 2024. URL: <a class="reference external" href="https://openreview.net/forum?id=f4v7cmm5sC">https://openreview.net/forum?id=f4v7cmm5sC</a>.</p>
+</div>
+</div>
+</div>
 </section>
 </section>
 
@@ -528,6 +549,7 @@ state depends only on the current state, not on the sequence of events that prec
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#stationary-distribution">Stationary Distribution</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#relaxation-times">Relaxation Times</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mean-first-passage-times-mfpt">Mean First-Passage Times (MFPT)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bibliography">Bibliography</a></li>
 </ul>
   </nav></div>
 

@@ -28,3 +28,9 @@ Our Foundation Inference Model (FIM) for SDEs can estimate both the drift functi
 and therefore returns the vector field $(\sqrt{\hat{g}_1(x)},\dots,\sqrt{\hat{g}_d(x)})$.
 
 Furthermore this model assumes **purely state-dependent drift and diffusion**!
+
+## Bibliography
+```{bibliography}
+:style: alpha
+:filter: docname in docnames
+```

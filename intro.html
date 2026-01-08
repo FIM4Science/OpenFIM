@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>The FIM tutorial &#8212; FIM</title>
+    <title>The Foundation Inference Model Program &#8212; FIM</title>
   
   
   
@@ -62,7 +62,7 @@
     <script>DOCUMENTATION_OPTIONS.pagename = 'intro';</script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="FIM" href="FIM.html" />
+    <link rel="next" title="The FIM tutorial" href="tutorials.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -156,8 +156,8 @@
       
     
     
-    <img src="_static/logo.jpeg" class="logo__image only-light" alt="FIM - Home"/>
-    <script>document.write(`<img src="_static/logo.jpeg" class="logo__image only-dark" alt="FIM - Home"/>`);</script>
+    <img src="_static/logo.png" class="logo__image only-light" alt="FIM - Home"/>
+    <script>document.write(`<img src="_static/logo.png" class="logo__image only-dark" alt="FIM - Home"/>`);</script>
   
   
 </a></div>
@@ -178,11 +178,15 @@
         <ul class="nav bd-sidenav bd-sidenav__home-link">
             <li class="toctree-l1 current active">
                 <a class="reference internal" href="#">
-                    The FIM tutorial
+                    The Foundation Inference Model Program
                 </a>
             </li>
         </ul>
-        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Using the library</span></p>
+        <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="tutorials.html">The FIM tutorial</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Using the library</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="FIM.html">FIM</a></li>
 <li class="toctree-l1"><a class="reference internal" href="FIM_installation_and_settings.html">Installation</a></li>
@@ -203,7 +207,12 @@
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Stochastic Differential Equations</span></p>
 <ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="sde.html">Stochastic Differential Equations: A Crash Course</a></li>
-<li class="toctree-l1"><a class="reference internal" href="sde_tutorial.html">Stochastic Differential Equations: A Practical Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="sde_tutorial.html">How to use the FIM-SDE Model</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">About us</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="active.html">Active Members</a></li>
+<li class="toctree-l1"><a class="reference internal" href="alumni.html">Alumni</a></li>
 </ul>
 
     </div>
@@ -389,7 +398,7 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>The FIM tutorial</h1>
+    <h1>The Foundation Inference Model Program</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
@@ -399,10 +408,9 @@ document.write(`
             </div>
             <nav aria-label="Page">
                 <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-us">About us</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-foundation-inference-models-fims">About Foundation Inference Models (FIMs)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#publications">Publications</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bibliography">Bibliography</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#defining-fims">Defining FIMs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-us-deep-learning-for-scientific-discovery-group">About us: Deep Learning for Scientific Discovery Group</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-problem-of-system-identification-or-dynamical-system-inference">The Problem of System Identification or Dynamical System Inference</a></li>
 </ul>
             </nav>
         </div>
@@ -414,70 +422,78 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section class="tex2jax_ignore mathjax_ignore" id="the-fim-tutorial">
-<h1>The FIM tutorial<a class="headerlink" href="#the-fim-tutorial" title="Link to this heading">#</a></h1>
-<p>This tutorial gives a guided introduction to the FIM library and the models trained for the “Foundation Models for Inference” series of papers.
-The basic usage of this library is discussed together with a detailed documentation of the user interface, which consists of configuration files in the yaml format.</p>
-<p>Afterwards the individual papers are shortly discussed by introducing motivating problems from different domains, which then are solved with the help
-of our trained models.</p>
-<p>Note that if you are interested in training your own model <a class="reference internal" href="FIM_installation_and_settings.html"><span class="std std-doc">the installation section</span></a> contains a step by step
-description on how to build you training configuration file. If you are primarily interested in using our models you can safely skip to the chapter
-on the desired problem class after installing FIM.</p>
-<section id="about-us">
-<h2>About us<a class="headerlink" href="#about-us" title="Link to this heading">#</a></h2>
-<p>The Deep Learning for Scientific Discovery (DL4SD) group of the <a class="reference external" href="https://lamarr-institute.org/">Lamarr Institute</a> is an interdisciplinary team of researchers working at the intersection of machine learning, statistical physics, and complexity science, to develop neural systems that automatically construct scientific hypotheses — articulated as mathematical models — to explain complex natural and social phenomena.</p>
-<p>To achieve this overarching goal, we introduced Foundation Inference Models (FIMs)</p>
-<p><img alt="A photo of the DL4SD group in front of the b-it building in Bonn" src="_images/group_cropped.jpg" /></p>
-</section>
-<section id="about-foundation-inference-models-fims">
-<h2>About Foundation Inference Models (FIMs)<a class="headerlink" href="#about-foundation-inference-models-fims" title="Link to this heading">#</a></h2>
-<p>FIMs are pre-trained neural recognition models that encode classical mathematical models commonly used in the natural and social sciences. Indeed, we define FIM that encode mathematical models which are simple enough to remain approximately valid across a wide range of observation scales, from microscopic to coarse-grained.</p>
-<p>Neural networks encode information through data processing. We therefore leverage simulations of the mathematical models we seek to encode (that is, their approximate solutions), to connect the data representing these solutions with the corresponding equations. Once encoded into our neural networks, (the representations of) these mathematical models can be compared and combined by both humans and neural reasoners trained to construct novel scientific hypotheses directly from data.</p>
-<p>Fundamentally, these pre-trained neural recognition models enable the zero-shot inference of (the parameters defining) the mathematical equations they encode directly from data.</p>
-</section>
-<section id="publications">
-<h2>Publications<a class="headerlink" href="#publications" title="Link to this heading">#</a></h2>
-<p>Publications of our group include</p>
+  <section class="tex2jax_ignore mathjax_ignore" id="the-foundation-inference-model-program">
+<h1>The Foundation Inference Model Program<a class="headerlink" href="#the-foundation-inference-model-program" title="Link to this heading">#</a></h1>
+<p>Foundation Inference Models (FIMs) are pretrained deep neural network models that  perform zero-shot (or in-context) inference of dynamical systems from noisy time series data, and can easily be fine-tuned to specific tasks.</p>
+<p>Our released FIMs include:</p>
+<ul class="simple">
+<li><p>FIMs for Stochastic Differential Equations (<a class="reference external" href="https://openreview.net/forum?id=ceCJPoZOKJ">paper</a>, <a class="reference external" href="https://huggingface.co/FIM4Science/fim-sde">huggingface</a>)</p></li>
+<li><p>FIMs for Markov Jump Processes (<a class="reference external" href="https://openreview.net/forum?id=f4v7cmm5sC">paper</a>, <a class="reference external" href="https://huggingface.co/FIM4Science/fim-mjp">huggingface</a>)</p></li>
+<li><p>FIMs for Zero-shot Time Series Imputation (<a class="reference external" href="https://openreview.net/forum?id=NPSZ7V1CCY">paper</a>, <a class="reference external" href="https://huggingface.co/FIM4Science/fim-imputation">huggingface</a>)</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Take a look at our <a class="reference internal" href="tutorials.html"><span class="std std-doc">tutorials</span></a>!</p>
+</div>
+<p>Currently, we are working on releasing</p>
+<ul class="simple">
+<li><p>FIMs for Point Processes (<a class="reference external" href="https://arxiv.org/abs/2509.24762">preprint</a>)</p></li>
+<li><p>FIMs for Ordinary Differential Equations (<a class="reference external" href="https://arxiv.org/abs/2510.12650">preprint</a>)</p></li>
+<li><p>FIMs for Accelerating Coarse-graining and Equation Discovery (<a class="reference external" href="https://arxiv.org/abs/2510.12618">preprint</a>)</p></li>
+</ul>
+<section id="defining-fims">
+<h2>Defining FIMs<a class="headerlink" href="#defining-fims" title="Link to this heading">#</a></h2>
+<p>A satisfactory FIM should be able to cope with dynamic phenomena of very diverse nature and thus</p>
+<ul class="simple">
+<li><p>capture various secular and seasonal patterns, as well as non-periodic fluctuations;</p></li>
+<li><p>handle observations from empirical processes of different dimensionalities;</p></li>
+<li><p>process any number of such observations, which might be recorded regularly in time or not; and</p></li>
+<li><p>deal with noise signals of different kinds.</p></li>
+</ul>
+<p>To build such FIMs, we follow a general three-step pretraining strategy (<a class="reference internal" href="#fig1"><span class="std std-ref">FIM workflows</span></a>, upper right):</p>
+<figure class="align-default" id="fig1">
+<img alt="_images/f1.png" src="_images/f1.png" />
+<figcaption>
+<p><span class="caption-number">Fig. 1 </span><span class="caption-text">FIM workflows</span><a class="headerlink" href="#fig1" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<p><img alt="" src="_images/." /></p>
 <ol class="arabic simple">
-<li><p>Foundation Inference Models for Markov Jump Processes <span id="id1">[<a class="reference internal" href="#id8" title="David Berghaus, Kostadin Cvejoski, Patrick Seifner, Cesar Ojeda, and Ramses J Sanchez. Foundation inference models for markov jump processes. In The Thirty-eighth Annual Conference on Neural Information Processing Systems. 2024. URL: https://openreview.net/forum?id=f4v7cmm5sC.">BCS+24</a>]</span>: <a class="reference internal" href="mjp_crashcourse.html"><span class="std std-doc">Tutorial</span></a></p></li>
-<li><p>Zero-Shot Imputation with Foundation Inference Models for Dynamical Systems <span id="id2">[<a class="reference internal" href="#id9" title="Patrick Seifner, Kostadin Cvejoski, Antonia Körner, and Ramses J Sanchez. Zero-shot imputation with foundation inference models for dynamical systems. 2025. URL: https://openreview.net/forum?id=NPSZ7V1CCY.">SCKS25</a>]</span>: <a class="reference internal" href="imputation.html"><span class="std std-doc">Tutorial</span></a></p></li>
-<li><p>In-Context Learning of Stochastic Differential Equations with Foundation Inference Models <span id="id3">[<a class="reference internal" href="#id15" title="Patrick Seifner, Kostadin Cvejoski, David Berghaus, Cesar Ojeda, and Ramses J Sanchez. In-context learning of stochastic differential equations with foundation inference models. In The Thirty-ninth Annual Conference on Neural Information Processing Systems. 2025. URL: https://openreview.net/forum?id=ceCJPoZOKJ.">SCB+25</a>]</span>: (Comming soon)</p></li>
-<li><p>Towards Fast Coarse-graining and Equation Discovery with Foundation Inference Models <span id="id4">[<a class="reference internal" href="#id18" title="Manuel Hinz, Maximilian Mauel, Patrick Seifner, David Berghaus, Kostadin Cvejoski, and Ramses J. Sanchez. Towards fast coarse-graining and equation discovery with foundation inference models. 2025. URL: https://arxiv.org/abs/2510.12618, arXiv:2510.12618.">HMS+25</a>]</span></p></li>
-<li><p>On Foundation Models for Temporal Point Processes to Accelerate Scientific Discovery <span id="id5">[<a class="reference internal" href="#id17" title="David Berghaus, Patrick Seifner, Kostadin Cvejoski, and Ramses J. Sanchez. On foundation models for temporal point processes to accelerate scientific discovery. 2025. URL: https://arxiv.org/abs/2510.12640, arXiv:2510.12640.">BSCS25</a>]</span></p></li>
-<li><p>Towards Foundation Inference Models that Learn ODEs In-Context <span id="id6">[<a class="reference internal" href="#id16" title="Maximilian Mauel, Manuel Hinz, Patrick Seifner, David Berghaus, and Ramses J. Sanchez. Towards foundation inference models that learn odes in-context. 2025. URL: https://arxiv.org/abs/2510.12650, arXiv:2510.12650.">MHS+25</a>]</span></p></li>
+<li><p>Construct a broad prior probability distribution over the space of dynamical systems. This distribution represents our beliefs about the general class of systems we expect to encounter in nature.</p></li>
+<li><p>Sample dynamical systems from this prior distribution, simulate them, and corrupt the simulated paths to generate a dataset of noisy observations and target dynamical systems. This step defines a supervised, meta-learning task that amortizes the inference process.</p></li>
+<li><p>Train a FIM to match these observation-(target-)system pairs in a supervised way.</p></li>
 </ol>
+<p>Once (pre)trained</p>
+<ul class="simple">
+<li><p>FIMs can accurately infer the governing dynamical system in zero-shot (in-context) mode from unseen, noisy, and heterogeneous datasets (<a class="reference internal" href="#fig1"><span class="std std-ref">FIM workflows</span></a>, lower left); and</p></li>
+<li><p>FIMs can also rapidly be finetuned to target datasets (<a class="reference internal" href="#fig1"><span class="std std-ref">FIM workflows</span></a>, lower right).</p></li>
+</ul>
+<p><strong>FIMs therefore amortize the inference of dynamical systems.</strong></p>
 </section>
-<section id="bibliography">
-<h2>Bibliography<a class="headerlink" href="#bibliography" title="Link to this heading">#</a></h2>
-<div class="docutils container" id="id7">
-<div role="list" class="citation-list">
-<div class="citation" id="id8" role="doc-biblioentry">
-<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id1">BCS+24</a><span class="fn-bracket">]</span></span>
-<p>David Berghaus, Kostadin Cvejoski, Patrick Seifner, Cesar Ojeda, and Ramses J Sanchez. Foundation inference models for markov jump processes. In <em>The Thirty-eighth Annual Conference on Neural Information Processing Systems</em>. 2024. URL: <a class="reference external" href="https://openreview.net/forum?id=f4v7cmm5sC">https://openreview.net/forum?id=f4v7cmm5sC</a>.</p>
-</div>
-<div class="citation" id="id17" role="doc-biblioentry">
-<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id5">BSCS25</a><span class="fn-bracket">]</span></span>
-<p>David Berghaus, Patrick Seifner, Kostadin Cvejoski, and Ramses J. Sanchez. On foundation models for temporal point processes to accelerate scientific discovery. 2025. URL: <a class="reference external" href="https://arxiv.org/abs/2510.12640">https://arxiv.org/abs/2510.12640</a>, <a class="reference external" href="https://arxiv.org/abs/2510.12640">arXiv:2510.12640</a>.</p>
-</div>
-<div class="citation" id="id18" role="doc-biblioentry">
-<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id4">HMS+25</a><span class="fn-bracket">]</span></span>
-<p>Manuel Hinz, Maximilian Mauel, Patrick Seifner, David Berghaus, Kostadin Cvejoski, and Ramses J. Sanchez. Towards fast coarse-graining and equation discovery with foundation inference models. 2025. URL: <a class="reference external" href="https://arxiv.org/abs/2510.12618">https://arxiv.org/abs/2510.12618</a>, <a class="reference external" href="https://arxiv.org/abs/2510.12618">arXiv:2510.12618</a>.</p>
-</div>
-<div class="citation" id="id16" role="doc-biblioentry">
-<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id6">MHS+25</a><span class="fn-bracket">]</span></span>
-<p>Maximilian Mauel, Manuel Hinz, Patrick Seifner, David Berghaus, and Ramses J. Sanchez. Towards foundation inference models that learn odes in-context. 2025. URL: <a class="reference external" href="https://arxiv.org/abs/2510.12650">https://arxiv.org/abs/2510.12650</a>, <a class="reference external" href="https://arxiv.org/abs/2510.12650">arXiv:2510.12650</a>.</p>
-</div>
-<div class="citation" id="id15" role="doc-biblioentry">
-<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id3">SCB+25</a><span class="fn-bracket">]</span></span>
-<p>Patrick Seifner, Kostadin Cvejoski, David Berghaus, Cesar Ojeda, and Ramses J Sanchez. In-context learning of stochastic differential equations with foundation inference models. In <em>The Thirty-ninth Annual Conference on Neural Information Processing Systems</em>. 2025. URL: <a class="reference external" href="https://openreview.net/forum?id=ceCJPoZOKJ">https://openreview.net/forum?id=ceCJPoZOKJ</a>.</p>
-</div>
-<div class="citation" id="id9" role="doc-biblioentry">
-<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id2">SCKS25</a><span class="fn-bracket">]</span></span>
-<p>Patrick Seifner, Kostadin Cvejoski, Antonia Körner, and Ramses J Sanchez. Zero-shot imputation with foundation inference models for dynamical systems. 2025. URL: <a class="reference external" href="https://openreview.net/forum?id=NPSZ7V1CCY">https://openreview.net/forum?id=NPSZ7V1CCY</a>.</p>
-</div>
-</div>
+<section id="about-us-deep-learning-for-scientific-discovery-group">
+<h2>About us: Deep Learning for Scientific Discovery Group<a class="headerlink" href="#about-us-deep-learning-for-scientific-discovery-group" title="Link to this heading">#</a></h2>
+<p>The Deep Learning for Scientific Discovery (DL4SD) group at the Lamarr Institute is an interdisciplinary team working at the intersection of machine learning, natural language processing, statistical physics, and complexity science.</p>
+<p>At DL4SD, our aim is to tackle system identification problems across the natural and social sciences. This means that we develop artificial intelligence methods to infer dynamical systems — such as ordinary, partial, and stochastic differential equations — from noisy, sparse and high-dimensional data. These models deliver interpretable and predictive insights into the underlying mechanisms governing dynamic phenomena.</p>
+<p>Ultimately, our goal is to automate the formulation of scientific hypotheses, expressed as mathematical models derived directly from data, to better understand complex dynamic phenomena.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Take a deeper look at our <a class="reference internal" href="active.html"><span class="std std-doc">team</span></a>.</p>
 </div>
 </section>
+<section id="the-problem-of-system-identification-or-dynamical-system-inference">
+<h2>The Problem of System Identification or Dynamical System Inference<a class="headerlink" href="#the-problem-of-system-identification-or-dynamical-system-inference" title="Link to this heading">#</a></h2>
+<p>Inferring dynamical systems from data involves two interconnected challenges:</p>
+<ul class="simple">
+<li><p>representation learning — which involves determining appropriate coarse-grained data representations, and</p></li>
+<li><p>dynamical model fitting — which consists in learning an interpretable set of equations (e.g., ODEs, SDEs) that represent the changes in those representations.</p></li>
+</ul>
+<p>Traditional methods such as symbolic and Gaussian process regression or Neural-ODE/SDE/MJP rely on variational inference to jointly solve both tasks, but its slow convergence and intricate optimization render it impractical for scalable, automated scientific discovery.</p>
+<p>The FIM program decouples these learning processes by amortizing the model-fitting step. Indeed, FIMs introduce a form of in-context, simulation-based inference by encoding canonical mathematical models (ODEs, SDEs, MJPs, etc) widely used in science.</p>
+</section>
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
+</div>
 <div class="toctree-wrapper compound">
 </div>
 <div class="toctree-wrapper compound">
@@ -519,11 +535,11 @@ on the desired problem class after installing FIM.</p>
                   
 <div class="prev-next-area">
     <a class="right-next"
-       href="FIM.html"
+       href="tutorials.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">FIM</p>
+        <p class="prev-next-title">The FIM tutorial</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -543,10 +559,9 @@ on the desired problem class after installing FIM.</p>
   </div>
   <nav class="bd-toc-nav page-toc">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-us">About us</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-foundation-inference-models-fims">About Foundation Inference Models (FIMs)</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#publications">Publications</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bibliography">Bibliography</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#defining-fims">Defining FIMs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-us-deep-learning-for-scientific-discovery-group">About us: Deep Learning for Scientific Discovery Group</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-problem-of-system-identification-or-dynamical-system-inference">The Problem of System Identification or Dynamical System Inference</a></li>
 </ul>
   </nav></div>
 
