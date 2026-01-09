@@ -1,7 +1,7 @@
-# Active Members
+# Deep Learning For Scientific Discovery Group
 ![Group photo](imgs/group_cropped.jpg)
 *Photo by Max Waidhas*
-## Post-Docs and PhD candidates
+## Researchers
 
 ```{admonition} Ramsés J. Sánchez
 :class: dropdown
@@ -33,7 +33,6 @@ Kostadin Cvejoski is a Machine Learning Researcher at JetBrains. He completed bo
 Patrick Seifner studied economics and mathematics at the University of Bonn, focusing, respectively, on game theory and abstract algebra. His master's thesis investigates some cellular structures of Hecke algebras and their connection to its representation theory. Since 2021, he works as a PhD student in machine learning (ML) at the University of Bonn, and member of the Hybrid ML group of the Lamarr institute. In his research, he explores deep learning methods for the inference of continuous-time stochastic processes from (potentially noisy) data.
 ```
 
-## Students
 ```{admonition} Manuel Hinz
 :class: dropdown
 ![Image of Manuel Hinz](imgs/manuelhinz.JPG)
@@ -46,6 +45,14 @@ working on his masterthesis about the inference of aggregated Markov processes i
 
 You can find his website [here](https://mssh.dev).
 ```
+
+```{admonition} Luca Eichler
+:class: dropdown
+![Image of Luca Eichler](imgs/lucaeichler.jpg)
+
+Luca Eichler is a Computer Science student at the University of Bonn. He is conducting his master’s thesis in the DL4SD group, where his research focuses on amortized machine learning methods under model misspecification.
+```
+
 ```{admonition} Lea Busse
 :class: dropdown
 
