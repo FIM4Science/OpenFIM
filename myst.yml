@@ -1,0 +1,15 @@
+# See docs at: https://mystmd.org/guide/frontmatter
+version: 1
+project:
+  id: 4864a8e7-00b3-4a77-98f6-68c4418afdf0
+  # title:
+  # description:
+  # keywords: []
+  # authors: []
+  github: https://github.com/FIM4Science/OpenFIM
+  # To autogenerate a Table of Contents, run "jupyter book init --write-toc"
+site:
+  template: book-theme
+  # options:
+  #   favicon: favicon.ico
+  #   logo: site_logo.png

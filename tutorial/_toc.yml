@@ -1,6 +1,11 @@
 format: jb-book
 root: intro
 parts:
+  - caption: Introduction
+    chapters:
+    - file: tutorials.md
+
+
   - caption: Using the library
     chapters:
     - file: FIM
@@ -19,9 +24,12 @@ parts:
     - file: imputation_point_wise.ipynb
     - file: imputation_temporal.ipynb
 
-  - caption: Imputation of Stochastic Differential Equations
+  - caption: Stochastic Differential Equations
     chapters:
     - file: sde.md
+    - file: sde_tutorial.ipynb
 
-
+  - caption: About us
+    chapters:
+    - file: active.md
 

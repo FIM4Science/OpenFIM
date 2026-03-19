@@ -1,10 +1,10 @@
 title: FIM
 author: Lamarr's DL4SD group
-logo: logo.jpeg
+logo: imgs/logo.png
 
 execute:
   execute_notebooks: force
-  timeout: 600 # Keep this high, since most of our notebooks take longer
+  timeout: 7200 # Keep this high, since most of our notebooks take longer
 
 
 bibtex_bibfiles:
@@ -18,7 +18,7 @@ html:
   use_issues_button: true
   use_repository_button: true
 
-only_build_toc_files: true
+only_build_toc_files: false
 
 
 parse:

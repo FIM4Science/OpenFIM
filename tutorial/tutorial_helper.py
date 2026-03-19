@@ -494,3 +494,80 @@ def prepare_data_sliding_windows(ts, values, mask, num_windows=32, overlap_size=
     }
     
     return stacked_batch, batches
+
+def visualize_sde_prediction(trajectories, times, locations, drift, diffusion, plot="duffing"):
+    """
+    Visualize SDE estimation results with trajectories, drift, and diffusion functions.
+    
+    Args:
+        trajectories: Observed trajectory data [num_paths, time_steps, dimensions]
+        times: Time points for trajectories [num_paths, time_steps]
+        locations: Evaluation locations [num_locations, dimensions]
+        drift: Estimated drift function [num_locations, dimensions]
+        diffusion: Estimated diffusion function [num_locations, dimensions]
+        title: Plot title
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    fig.suptitle(title, fontsize=16)
+    
+    # Plot trajectories
+    axes[0, 0].set_title("Sample Trajectories")
+    for i in range(min(5, trajectories.shape[0])):
+        if trajectories.shape[2] == 1:  # 1D system
+            axes[0, 0].plot(times[i], trajectories[i, :, 0], alpha=0.7, linewidth=1.5)
+        else:  # 2D system - plot first component
+            axes[0, 0].plot(times[i], trajectories[i, :, 0], alpha=0.7, linewidth=1.5)
+    axes[0, 0].set_xlabel("Time")
+    axes[0, 0].set_ylabel("X(t)")
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Phase space plot (for 1D systems, show dx/dt vs x)
+    axes[0, 1].set_title("Phase Space")
+    for i in range(min(5, trajectories.shape[0])):
+        if trajectories.shape[2] == 1:  # 1D system
+            x_vals = trajectories[i, :-1, 0]
+            dx_vals = (trajectories[i, 1:, 0] - trajectories[i, :-1, 0]) / (
+                times[i, 1:] - times[i, :-1] + 1e-8
+            )
+            axes[0, 1].scatter(x_vals, dx_vals, alpha=0.6, s=10)
+        else:  # 2D system
+            axes[0, 1].plot(trajectories[i, :, 0], trajectories[i, :, 1], alpha=0.7)
+    
+    if trajectories.shape[2] == 1:
+        axes[0, 1].set_xlabel("X(t)")
+        axes[0, 1].set_ylabel("dX/dt")
+    else:
+        axes[0, 1].set_xlabel("X")
+        axes[0, 1].set_ylabel("Y")
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Plot estimated drift
+    axes[1, 0].set_title("Estimated Drift Function")
+    if locations.shape[1] == 1:  # 1D system
+        axes[1, 0].plot(locations[:, 0], drift[:, 0], 'b-', linewidth=2.5, label='Estimated drift')
+        axes[1, 0].set_xlabel("X")
+        axes[1, 0].set_ylabel("f(x)")
+    else:  # 2D system - show first component
+        axes[1, 0].plot(locations[:, 0], drift[:, 0], 'b-', linewidth=2.5, label='Drift X-component')
+        axes[1, 0].set_xlabel("Location index")
+        axes[1, 0].set_ylabel("f_x")
+    
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].legend()
+    
+    # Plot estimated diffusion
+    axes[1, 1].set_title("Estimated Diffusion Function")
+    if locations.shape[1] == 1:  # 1D system
+        axes[1, 1].plot(locations[:, 0], diffusion[:, 0], 'r-', linewidth=2.5, label='Estimated diffusion')
+        axes[1, 1].set_xlabel("X")
+        axes[1, 1].set_ylabel("g(x)")
+    else:  # 2D system - show first component
+        axes[1, 1].plot(locations[:, 0], diffusion[:, 0], 'r-', linewidth=2.5, label='Diffusion X-component')
+        axes[1, 1].set_xlabel("Location index")
+        axes[1, 1].set_ylabel("g_x")
+    
+    axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].legend()
+    
+    plt.tight_layout()
+    return fig
