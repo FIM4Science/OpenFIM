@@ -73,10 +73,6 @@ venv/
 
 .env
 .cursorrules
-<<<<<<< HEAD
-=======
 
-
-# MyST build outputs
 _build
->>>>>>> 5cdf012 (Tutorial update)
+
