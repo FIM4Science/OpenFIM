@@ -6,6 +6,18 @@ import matplotlib.pyplot as plt
 import torch
 
 
+def clone_tensors(value):
+    if torch.is_tensor(value):
+        return value.clone()
+    if isinstance(value, dict):
+        return {key: clone_tensors(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [clone_tensors(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(clone_tensors(item) for item in value)
+    return value
+
+
 def move_to_device(value, device):
     if torch.is_tensor(value):
         return value.to(device)
@@ -162,14 +174,19 @@ def plot_intensity_comparison(model_output: dict, batch: dict, path_idx: int = 0
     event_times = inference_event_times[0, path_idx, :seq_len, 0]
     event_types = inference_event_types[0, path_idx, :seq_len, 0]
     valid_eval = evaluation_times[0, path_idx]
-    valid_eval = valid_eval[valid_eval > 0]
+    valid_mask = valid_eval > 0
+    valid_eval = valid_eval[valid_mask]
+    sort_idx = torch.argsort(valid_eval, stable=True)
+    valid_eval = valid_eval[sort_idx]
 
     for mark_idx, axis in enumerate(axes):
-        pred_curve = predicted[0, mark_idx, path_idx, : valid_eval.numel()]
+        pred_curve = predicted[0, mark_idx, path_idx, : valid_mask.sum()]
+        pred_curve = pred_curve[sort_idx]
         axis.plot(valid_eval.numpy(), pred_curve.numpy(), color="#0072B2", linewidth=2.0, label="FIM-PP")
 
         if target is not None:
-            target_curve = target[0, mark_idx, path_idx, : valid_eval.numel()]
+            target_curve = target[0, mark_idx, path_idx, : valid_mask.sum()]
+            target_curve = target_curve[sort_idx]
             axis.plot(valid_eval.numpy(), target_curve.numpy(), color="#111111", linestyle="--", linewidth=1.6, label="Ground truth")
 
         mark_event_times = event_times[event_types == mark_idx]
