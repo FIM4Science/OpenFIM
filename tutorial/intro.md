@@ -5,6 +5,7 @@ Foundation Inference Models (FIMs) are pretrained deep neural network models tha
 Our released FIMs include:
 - FIMs for Stochastic Differential Equations ([paper](https://openreview.net/forum?id=ceCJPoZOKJ), [huggingface](https://huggingface.co/FIM4Science/fim-sde))
 - FIMs for Markov Jump Processes ([paper](https://openreview.net/forum?id=f4v7cmm5sC), [huggingface](https://huggingface.co/FIM4Science/fim-mjp))
+- FIMs for Point Processes ([paper](https://openreview.net/forum?id=h9HwUAODFP), [huggingface](https://huggingface.co/FIM4Science/FIM-PP))
 - FIMs for Zero-shot Time Series Imputation ([paper](https://openreview.net/forum?id=NPSZ7V1CCY), [huggingface](https://huggingface.co/FIM4Science/fim-imputation))
 
 ```{note}
@@ -12,7 +13,6 @@ Take a look at our [tutorials](tutorials.md)!
 ```
 
 Currently, we are working on releasing
-- FIMs for Point Processes ([preprint](https://arxiv.org/abs/2509.24762))
 - FIMs for Ordinary Differential Equations ([preprint](https://arxiv.org/abs/2510.12650))
 - FIMs for Accelerating Coarse-graining and Equation Discovery ([preprint](https://arxiv.org/abs/2510.12618))
 

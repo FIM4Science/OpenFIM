@@ -70,9 +70,10 @@ venv/
 # plots
 *.png
 *.jpg
+!tutorial/imgs/fim_pp_architecture_figure.png
+!tutorial/imgs/intensity_comparison_synth_vs_retweet.png
 
 .env
 .cursorrules
 
 _build
-

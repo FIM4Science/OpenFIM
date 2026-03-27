@@ -8,6 +8,7 @@ of our trained models.
 
 These currently include FIMs for:
 - [Markov Jump Processes](mjp_crashcourse.md)
+- [Point Processes](point_process_crashcourse.md)
 - [Zero-shot Time Series Imputation](imputation.ipynb)
 - [Stochastic Differential Equations](sde.md)
 
