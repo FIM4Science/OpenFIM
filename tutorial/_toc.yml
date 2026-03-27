@@ -18,6 +18,11 @@ parts:
     - file: huggingface.ipynb
     - file: dfr_casestudy.ipynb
 
+  - caption: Inference of Point Processes
+    chapters:
+    - file: point_process_crashcourse
+    - file: point_process_tutorial.ipynb
+
   - caption: Imputation of Dynamical Systems
     chapters:
     - file: imputation.ipynb
@@ -32,4 +37,3 @@ parts:
   - caption: About us
     chapters:
     - file: active.md
-
