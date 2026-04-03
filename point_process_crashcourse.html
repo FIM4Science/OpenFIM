@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>The FIM tutorial &#8212; FIM</title>
+    <title>Point Processes: A Crash Course &#8212; FIM</title>
   
   
   
@@ -57,11 +57,13 @@
     <script async="async" src="_static/sphinx-thebe.js?v=c100c467"></script>
     <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
     <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'tutorials';</script>
+    <script>window.MathJax = {"options": {"processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'point_process_crashcourse';</script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="FIM" href="FIM.html" />
-    <link rel="prev" title="The Foundation Inference Model Program" href="intro.html" />
+    <link rel="next" title="Tutorial on How to Use FIM-PP" href="point_process_tutorial.html" />
+    <link rel="prev" title="Solving a real problem using our model: The Discrete Flashing Ratchet (DFR)" href="dfr_casestudy.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -180,8 +182,8 @@
             </li>
         </ul>
         <p aria-level="2" class="caption" role="heading"><span class="caption-text">Introduction</span></p>
-<ul class="current nav bd-sidenav">
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">The FIM tutorial</a></li>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="tutorials.html">The FIM tutorial</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Using the library</span></p>
 <ul class="nav bd-sidenav">
@@ -196,8 +198,8 @@
 <li class="toctree-l1"><a class="reference internal" href="dfr_casestudy.html">Solving a real problem using our model: The Discrete Flashing Ratchet (DFR)</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Inference of Point Processes</span></p>
-<ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="point_process_crashcourse.html">Point Processes: A Crash Course</a></li>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Point Processes: A Crash Course</a></li>
 <li class="toctree-l1"><a class="reference internal" href="point_process_tutorial.html">Tutorial on How to Use FIM-PP</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Imputation of Dynamical Systems</span></p>
@@ -285,7 +287,7 @@
       
       
       
-      <li><a href="https://github.com/FIM4Science/OpenFIM/issues/new?title=Issue%20on%20page%20%2Ftutorials.html&body=Your%20issue%20content%20here." target="_blank"
+      <li><a href="https://github.com/FIM4Science/OpenFIM/issues/new?title=Issue%20on%20page%20%2Fpoint_process_crashcourse.html&body=Your%20issue%20content%20here." target="_blank"
    class="btn btn-sm btn-source-issues-button dropdown-item"
    title="Open an issue"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -315,7 +317,7 @@
       
       
       
-      <li><a href="_sources/tutorials.md" target="_blank"
+      <li><a href="_sources/point_process_crashcourse.md" target="_blank"
    class="btn btn-sm btn-download-source-button dropdown-item"
    title="Download source file"
    data-bs-placement="left" data-bs-toggle="tooltip"
@@ -386,7 +388,9 @@ document.write(`
   </button>
 `);
 </script>
-
+<button class="sidebar-toggle secondary-toggle btn btn-sm" title="Toggle secondary sidebar" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="fa-solid fa-list"></span>
+</button>
 </div></div>
       
     </div>
@@ -397,11 +401,24 @@ document.write(`
               
 
 <div id="jb-print-docs-body" class="onlyprint">
-    <h1>The FIM tutorial</h1>
+    <h1>Point Processes: A Crash Course</h1>
     <!-- Table of contents -->
     <div id="print-main-content">
         <div id="jb-print-toc">
             
+            <div>
+                <h2> Contents </h2>
+            </div>
+            <nav aria-label="Page">
+                <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-fim-pp-infers">What FIM-PP Infers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hawkes-processes-as-the-training-prior">Hawkes Processes as the Training Prior</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inputs-and-outputs">Inputs and Outputs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#zero-shot-use-vs-fine-tuning">Zero-Shot Use vs Fine-Tuning</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#practical-recommendation">Practical Recommendation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bibliography">Bibliography</a></li>
+</ul>
+            </nav>
         </div>
     </div>
 </div>
@@ -411,22 +428,85 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section class="tex2jax_ignore mathjax_ignore" id="the-fim-tutorial">
-<h1>The FIM tutorial<a class="headerlink" href="#the-fim-tutorial" title="Link to this heading">#</a></h1>
-<p>This tutorial gives a guided introduction to the FIM library and the models trained for the “Foundation Models for Inference” series of papers.
-The basic usage of this library is discussed together with a detailed documentation of the user interface, which consists of configuration files in the yaml format.</p>
-<p>Afterwards the individual papers are shortly discussed by introducing motivating problems from different domains, which then are solved with the help
-of our trained models.</p>
-<p>These currently include FIMs for:</p>
+  <section class="tex2jax_ignore mathjax_ignore" id="point-processes-a-crash-course">
+<h1>Point Processes: A Crash Course<a class="headerlink" href="#point-processes-a-crash-course" title="Link to this heading">#</a></h1>
+<p>This section gives the minimum background needed to use FIM-PP and is adapted from <span id="id1">[<a class="reference internal" href="#id12" title="David Berghaus, Patrick Seifner, Kostadin Cvejoski, Cesar Ojeda, and Ramses J Sanchez. In-context learning of temporal point processes with foundation inference models. In The Fourteenth International Conference on Learning Representations. 2026. URL: https://openreview.net/forum?id=h9HwUAODFP.">BSC+26</a>]</span>.</p>
+<section id="what-fim-pp-infers">
+<h2>What FIM-PP Infers<a class="headerlink" href="#what-fim-pp-infers" title="Link to this heading">#</a></h2>
+<p>FIM-PP is a Foundation Inference Model for <strong>marked temporal point processes</strong>. A marked temporal point process is a sequence of event times</p>
+<div class="math notranslate nohighlight">
+\[\{(t_i, \kappa_i)\}_{i=1}^n\]</div>
+<p>where each event arrives at time <span class="math notranslate nohighlight">\(t_i\)</span> and carries a discrete mark <span class="math notranslate nohighlight">\(\kappa_i\)</span> describing its type.</p>
+<p>The goal is to infer the <strong>conditional intensity</strong></p>
+<div class="math notranslate nohighlight">
+\[\lambda(t, \kappa \mid \mathcal{H}_t),\]</div>
+<p>which describes how likely an event of type <span class="math notranslate nohighlight">\(\kappa\)</span> is to occur at time <span class="math notranslate nohighlight">\(t\)</span> given the history <span class="math notranslate nohighlight">\(\mathcal{H}_t\)</span>.</p>
+<p>Rather than training a new neural point-process model for every dataset, FIM-PP is pretrained on a broad synthetic distribution of point processes and then used in-context on new event data.</p>
+<figure class="align-default" id="fig-pp-architecture">
+<img alt="_images/fim_pp_architecture_figure.png" src="_images/fim_pp_architecture_figure.png" />
+<figcaption>
+<p><span class="caption-number">Fig. 2 </span><span class="caption-text">FIM-PP encodes context paths and attends to them when estimating the conditional intensity of a target history.</span><a class="headerlink" href="#fig-pp-architecture" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</section>
+<section id="hawkes-processes-as-the-training-prior">
+<h2>Hawkes Processes as the Training Prior<a class="headerlink" href="#hawkes-processes-as-the-training-prior" title="Link to this heading">#</a></h2>
+<p>The released checkpoint is trained on a broad family of Hawkes-style processes. For each mark <span class="math notranslate nohighlight">\(k\)</span>, the conditional intensity is of the form</p>
+<div class="math notranslate nohighlight">
+\[\lambda_k(t \mid \mathcal{H}_t) = \mu_k(t) + \sum_{(t_i, \kappa_i) \in \mathcal{H}_t} z_{k\kappa_i}\,\gamma_{k\kappa_i}(t-t_i),\]</div>
+<p>where</p>
 <ul class="simple">
-<li><p><a class="reference internal" href="mjp_crashcourse.html"><span class="std std-doc">Markov Jump Processes</span></a></p></li>
-<li><p><a class="reference internal" href="point_process_crashcourse.html"><span class="std std-doc">Point Processes</span></a></p></li>
-<li><p><a class="reference internal" href="imputation.html"><span class="std std-doc">Zero-shot Time Series Imputation</span></a></p></li>
-<li><p><a class="reference internal" href="sde.html"><span class="std std-doc">Stochastic Differential Equations</span></a></p></li>
+<li><p><span class="math notranslate nohighlight">\(\mu_k(t)\)</span> is a base intensity,</p></li>
+<li><p><span class="math notranslate nohighlight">\(\gamma_{k\kappa_i}\)</span> is an interaction kernel, and</p></li>
+<li><p><span class="math notranslate nohighlight">\(z_{k\kappa_i}\)</span> determines whether the interaction is excitatory, inhibitory, or absent.</p></li>
 </ul>
-<p>Note that if you are interested in training your own model <a class="reference internal" href="FIM_installation_and_settings.html"><span class="std std-doc">the installation section</span></a> contains a step by step
-description on how to build you training configuration file. If you are primarily interested in using our models you can safely skip to the chapter
-on the desired problem class after installing FIM.</p>
+<p>This gives FIM-PP a strong prior over interpretable point-process dynamics while still allowing the pretrained model to generalize beyond the exact synthetic processes seen during training.</p>
+</section>
+<section id="inputs-and-outputs">
+<h2>Inputs and Outputs<a class="headerlink" href="#inputs-and-outputs" title="Link to this heading">#</a></h2>
+<p>The released FIM-PP checkpoint expects a context/inference split:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">context_event_times</span></code>, <code class="docutils literal notranslate"><span class="pre">context_event_types</span></code>, <code class="docutils literal notranslate"><span class="pre">context_seq_lengths</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">inference_event_times</span></code>, <code class="docutils literal notranslate"><span class="pre">inference_event_types</span></code>, <code class="docutils literal notranslate"><span class="pre">inference_seq_lengths</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">intensity_evaluation_times</span></code></p></li>
+</ul>
+<p>Given these tensors, the model returns predicted Hawkes intensity parameters together with evaluated intensity curves. If ground-truth functions are provided, it can also return target intensity values and losses for comparison.</p>
+</section>
+<section id="zero-shot-use-vs-fine-tuning">
+<h2>Zero-Shot Use vs Fine-Tuning<a class="headerlink" href="#zero-shot-use-vs-fine-tuning" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Zero-shot</strong>: Use the pretrained checkpoint directly on a new dataset and inspect the predicted intensity curves or downstream next-event behavior.</p></li>
+<li><p><strong>Fine-tuning</strong>: Continue training the pretrained checkpoint on a target dataset using <code class="docutils literal notranslate"><span class="pre">scripts/hawkes/fim_finetune.py</span></code>. This is useful when the target domain contains recurring patterns that are weakly represented by the synthetic prior.</p></li>
+</ul>
+<p>The released checkpoint is configured for <strong>up to 22 marks</strong>.</p>
+<figure class="align-default" id="fig-pp-intensities">
+<img alt="_images/intensity_comparison_synth_vs_retweet.png" src="_images/intensity_comparison_synth_vs_retweet.png" />
+<figcaption>
+<p><span class="caption-number">Fig. 3 </span><span class="caption-text">Example intensity estimates from the FIM-PP paper on synthetic and real-world data.</span><a class="headerlink" href="#fig-pp-intensities" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+</section>
+<section id="practical-recommendation">
+<h2>Practical Recommendation<a class="headerlink" href="#practical-recommendation" title="Link to this heading">#</a></h2>
+<p>For user-facing workflows, prefer the standardized Hugging Face path:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModel</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">&quot;FIM4Science/FIM-PP&quot;</span><span class="p">,</span> <span class="n">trust_remote_code</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This is the primary path documented in the companion tutorial notebook. The lower-level fallback <code class="docutils literal notranslate"><span class="pre">FIMHawkes.load_model(...)</span></code> remains useful for debugging local checkpoints.</p>
+</section>
+<section id="bibliography">
+<h2>Bibliography<a class="headerlink" href="#bibliography" title="Link to this heading">#</a></h2>
+<div class="docutils container" id="id2">
+<div role="list" class="citation-list">
+<div class="citation" id="id12" role="doc-biblioentry">
+<span class="label"><span class="fn-bracket">[</span><a role="doc-backlink" href="#id1">BSC+26</a><span class="fn-bracket">]</span></span>
+<p>David Berghaus, Patrick Seifner, Kostadin Cvejoski, Cesar Ojeda, and Ramses J Sanchez. In-context learning of temporal point processes with foundation inference models. In <em>The Fourteenth International Conference on Learning Representations</em>. 2026. URL: <a class="reference external" href="https://openreview.net/forum?id=h9HwUAODFP">https://openreview.net/forum?id=h9HwUAODFP</a>.</p>
+</div>
+</div>
+</div>
+</section>
 </section>
 
     <script type="text/x-thebe-config">
@@ -460,20 +540,20 @@ on the desired problem class after installing FIM.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="intro.html"
+       href="dfr_casestudy.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">The Foundation Inference Model Program</p>
+        <p class="prev-next-title">Solving a real problem using our model: The Discrete Flashing Ratchet (DFR)</p>
       </div>
     </a>
     <a class="right-next"
-       href="FIM.html"
+       href="point_process_tutorial.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">FIM</p>
+        <p class="prev-next-title">Tutorial on How to Use FIM-PP</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -483,6 +563,26 @@ on the desired problem class after installing FIM.</p>
             </div>
             
             
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> Contents
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-fim-pp-infers">What FIM-PP Infers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hawkes-processes-as-the-training-prior">Hawkes Processes as the Training Prior</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#inputs-and-outputs">Inputs and Outputs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#zero-shot-use-vs-fine-tuning">Zero-Shot Use vs Fine-Tuning</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#practical-recommendation">Practical Recommendation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bibliography">Bibliography</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
               
             
           </div>

@@ -32,7 +32,7 @@
     <link rel="stylesheet" type="text/css" href="_static/styles/sphinx-book-theme.css?v=eba8b062" />
     <link rel="stylesheet" type="text/css" href="_static/togglebutton.css?v=13237357" />
     <link rel="stylesheet" type="text/css" href="_static/copybutton.css?v=76b2166b" />
-    <link rel="stylesheet" type="text/css" href="_static/mystnb.8ecb98da25f57f5357bf6f572d296f466b2cfe2517ffebfabe82451661e28f02.css?v=6644e6bb" />
+    <link rel="stylesheet" type="text/css" href="_static/mystnb.8ecb98da25f57f5357bf6f572d296f466b2cfe2517ffebfabe82451661e28f02.css" />
     <link rel="stylesheet" type="text/css" href="_static/sphinx-thebe.css?v=4fa983c6" />
     <link rel="stylesheet" type="text/css" href="_static/sphinx-design.min.css?v=95c83b7e" />
   
@@ -197,6 +197,11 @@
 <li class="toctree-l1"><a class="reference internal" href="mjp_crashcourse.html">Markov Jump Processes: A Crash Course</a></li>
 <li class="toctree-l1"><a class="reference internal" href="huggingface.html">How to use the FIM-MJP Model</a></li>
 <li class="toctree-l1"><a class="reference internal" href="dfr_casestudy.html">Solving a real problem using our model: The Discrete Flashing Ratchet (DFR)</a></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Inference of Point Processes</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="point_process_crashcourse.html">Point Processes: A Crash Course</a></li>
+<li class="toctree-l1"><a class="reference internal" href="point_process_tutorial.html">Tutorial on How to Use FIM-PP</a></li>
 </ul>
 <p aria-level="2" class="caption" role="heading"><span class="caption-text">Imputation of Dynamical Systems</span></p>
 <ul class="nav bd-sidenav">
@@ -428,6 +433,7 @@ document.write(`
 <ul class="simple">
 <li><p>FIMs for Stochastic Differential Equations (<a class="reference external" href="https://openreview.net/forum?id=ceCJPoZOKJ">paper</a>, <a class="reference external" href="https://huggingface.co/FIM4Science/fim-sde">huggingface</a>)</p></li>
 <li><p>FIMs for Markov Jump Processes (<a class="reference external" href="https://openreview.net/forum?id=f4v7cmm5sC">paper</a>, <a class="reference external" href="https://huggingface.co/FIM4Science/fim-mjp">huggingface</a>)</p></li>
+<li><p>FIMs for Point Processes (<a class="reference external" href="https://openreview.net/forum?id=h9HwUAODFP">paper</a>, <a class="reference external" href="https://huggingface.co/FIM4Science/FIM-PP">huggingface</a>)</p></li>
 <li><p>FIMs for Zero-shot Time Series Imputation (<a class="reference external" href="https://openreview.net/forum?id=NPSZ7V1CCY">paper</a>, <a class="reference external" href="https://huggingface.co/FIM4Science/fim-imputation">huggingface</a>)</p></li>
 </ul>
 <div class="admonition note">
@@ -436,7 +442,6 @@ document.write(`
 </div>
 <p>Currently, we are working on releasing</p>
 <ul class="simple">
-<li><p>FIMs for Point Processes (<a class="reference external" href="https://arxiv.org/abs/2509.24762">preprint</a>)</p></li>
 <li><p>FIMs for Ordinary Differential Equations (<a class="reference external" href="https://arxiv.org/abs/2510.12650">preprint</a>)</p></li>
 <li><p>FIMs for Accelerating Coarse-graining and Equation Discovery (<a class="reference external" href="https://arxiv.org/abs/2510.12618">preprint</a>)</p></li>
 </ul>
@@ -489,6 +494,8 @@ document.write(`
 <p>Traditional methods such as symbolic and Gaussian process regression or Neural-ODE/SDE/MJP rely on variational inference to jointly solve both tasks, but its slow convergence and intricate optimization render it impractical for scalable, automated scientific discovery.</p>
 <p>The FIM program decouples these learning processes by amortizing the model-fitting step. Indeed, FIMs introduce a form of in-context, simulation-based inference by encoding canonical mathematical models (ODEs, SDEs, MJPs, etc) widely used in science.</p>
 </section>
+<div class="toctree-wrapper compound">
+</div>
 <div class="toctree-wrapper compound">
 </div>
 <div class="toctree-wrapper compound">
