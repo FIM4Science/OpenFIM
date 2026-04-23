@@ -70,7 +70,8 @@ class BernoulliMaskSampler:
 
         Generates a mask for the input data using a Bernoulli distribution.
         Parameters:
-           survival_probability (float): The probability of each element surviving (i.e., being 1 in the mask).
+           survival_probability (float): The MINIMUM probability of each element surviving. The actual probability used per series is sampled
+                                         uniformly between this value and 1.0.
            min_survival_count (int, optional): The minimum number of surviving elements required per sample. Defaults to 0.
         Callable:
            __call__(data: Tensor) -> Tensor:

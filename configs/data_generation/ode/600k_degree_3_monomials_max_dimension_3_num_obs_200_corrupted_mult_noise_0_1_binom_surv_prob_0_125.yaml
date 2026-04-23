@@ -1,0 +1,787 @@
+experiment_name: ode_corrupted_dim_1_2_3_deg_3_polys_monomial_survival_uniform
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  method: "EulerMaruyama"
+  time_length: 10
+  steps_per_dt: 20
+  num_steps: 200
+  num_paths: 8
+  num_additional_paths: 20
+  num_locations: 2048
+  chunk_size: 20000 # generate at one time so many realizations (to filter Nans)
+  reject_threshold: 100
+  stochastic: false
+
+locations:
+  type: random_cube
+  extension_perc: 0.2
+
+train:
+
+    ##################### Dimension 1 #####################
+
+  - name: Polynomials
+    data_bulk_name: train_dim_1_split_0
+    num_realizations: 25000
+    observed_dimension: null
+    state_dim: 1
+    redo: &redo false
+    enforce_positivity: &enforce_positivity "abs"
+    max_degree_drift: &max_degree_drift 3
+    max_degree_diffusion: &max_degree_diffusion 0
+    observation_noise: &observation_noise
+      relative: false
+      distribution:
+        name: normal_multiplicative_with_uniform_std
+        max: 0.1
+    mask_sampler_params: &mask_sampler_params
+      name: fim.sampling.grid_samplers.BernoulliMaskSampler
+      survival_probability: 0.125 # this is minimum survival probability per time series, sampled between this and 1; should replicate ODEFormer train distribution behavior, if time series are 200 obs large
+      min_survival_count: 4
+    drift_params: &drift_params
+      uniform_degrees: true
+      distribution:
+        name: normal
+        std: 1
+      scale: &scale
+        sample_per_dimension: false
+        distribution: "uniform"
+        min: 0.0
+        max: 2.0
+    diffusion_params: &diffusion_params
+      uniform_degrees: true
+      distribution:
+        name: fix
+        fix_value: 0.0
+      scale: *scale
+    initial_state: &initial_state
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: null
+
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_1_split_1
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 1
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_1_split_2
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 1
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_1_split_3
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 1
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #   ##################### Dimension 2 #####################
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_0
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_1
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_2
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_3
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_4
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_5
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_6
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_2_split_7
+  #   num_realizations: 25000
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 2
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  #   ##################### Dimension 3 #####################
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_0
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_1
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_2
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_3
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_4
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_5
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_6
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_7
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_8
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_9
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_10
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_11
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_12
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_13
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_14
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_15
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_16
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_17
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_18
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_19
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_20
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_21
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_22
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+  #
+  # - name: Polynomials
+  #   data_bulk_name: train_dim_3_split_23
+  #   num_realizations: 12500
+  #   observed_dimension: null
+  #   enforce_positivity: *enforce_positivity
+  #   max_degree_drift: *max_degree_drift
+  #   max_degree_diffusion: *max_degree_diffusion
+  #   observation_noise: *observation_noise
+  #   mask_sampler_params: *mask_sampler_params
+  #   state_dim: 3
+  #   redo: *redo
+  #   drift_params: *drift_params
+  #   diffusion_params: *diffusion_params
+  #   initial_state: *initial_state
+
+validation:
+
+    ##################### Dimension 1 #####################
+
+  - name: Polynomials
+    data_bulk_name: val_dim_1_split_0
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 1
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+    ##################### Dimension 2 #####################
+
+  - name: Polynomials
+    data_bulk_name: val_dim_2_split_0
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 2
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: val_dim_2_split_1
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 2
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+    ##################### Dimension 3 #####################
+
+  - name: Polynomials
+    data_bulk_name: val_dim_3_split_0
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 3
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: val_dim_3_split_1
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 3
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: val_dim_3_split_2
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 3
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+test:
+
+    ##################### Dimension 1 #####################
+
+  - name: Polynomials
+    data_bulk_name: test_dim_1_split_0
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 1
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+    ##################### Dimension 2 #####################
+
+  - name: Polynomials
+    data_bulk_name: test_dim_2_split_0
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 2
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: test_dim_2_split_1
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 2
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+    ##################### Dimension 3 #####################
+
+  - name: Polynomials
+    data_bulk_name: test_dim_3_split_0
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 3
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: test_dim_3_split_1
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 3
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: test_dim_3_split_2
+    num_realizations: 10000
+    observed_dimension: null
+    state_dim: 3
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    observation_noise: *observation_noise
+    mask_sampler_params: *mask_sampler_params
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
