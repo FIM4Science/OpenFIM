@@ -38,19 +38,12 @@ Patrick Seifner studied economics and mathematics at the University of Bonn, foc
 ![Image of Manuel Hinz](imgs/manuelhinz.JPG)
 *Photo by Max Waidhas*
 
-Manuel Hinz is a Master’s student in Mathematics at the University of Bonn, specializing in probability theory and statistics. He earned his Bachelor’s degree in Mathematics at the same institution, focusing on analysis and numerics. His research interests include high-dimensional stochastic processes, particularly their connections to statistics and machine learning. He is particularly interested in problems related to model fitting and sampling.
+Manuel Hinz is a PhD student in Mathematics at the University of Bonn (INS, UKB), specializing in mathematical modelling and mathematical biology. He earned his Bachelor’s and Master's degree in Mathematics at the same institution, focusing on analysis, numerics and probability theory, statistics, respectively. His research interests include high-dimensional stochastic processes, particularly their connections to statistics and machine learning. He is particularly interested in problems related to model fitting and sampling.
 
-He is leading the development of the group website, especially the tutorials,
-working on his masterthesis about the inference of aggregated Markov processes in the patch clamp view of ion channel gating, as well as helping out in other projects. 
+He is leading the development of the group website, especially the tutorials and
+worked on his masterthesis about the inference of aggregated Markov processes in the patch clamp view of ion channel gating during his time at Lamarr.
 
 You can find his website [here](https://mssh.dev).
-```
-
-```{admonition} Luca Eichler
-:class: dropdown
-![Image of Luca Eichler](imgs/lucaeichler.jpg)
-
-Luca Eichler is a Computer Science student at the University of Bonn. He is conducting his master’s thesis in the DL4SD group, where his research focuses on amortized machine learning methods under model misspecification.
 ```
 
 ```{admonition} Lea Busse
@@ -63,4 +56,12 @@ Lea Busse is currently pursuing a Bachelor’s degree in Physics at Ruhr Univers
 ```
 
 
+## Alumni
 
+
+```{admonition} Luca Eichler
+:class: dropdown
+![Image of Luca Eichler](imgs/lucaeichler.jpg)
+
+Luca Eichler studied Computer Science  at the University of Bonn. He conducted his master’s thesis in the DL4SD group, where his research focuses on amortized machine learning methods under model misspecification.
+```
