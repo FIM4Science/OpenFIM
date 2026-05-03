@@ -3,7 +3,7 @@ author: Lamarr's DL4SD group
 logo: imgs/logo.png
 
 execute:
-  execute_notebooks: force
+  execute_notebooks: "off"
   timeout: 7200 # Keep this high, since most of our notebooks take longer
 
 
