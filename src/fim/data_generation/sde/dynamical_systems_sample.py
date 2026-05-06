@@ -6,6 +6,8 @@ from typing import List, Optional, Tuple
 
 import torch
 import yaml
+from scipy.integrate import solve_ivp
+from torchdiffeq import odeint
 from tqdm import tqdm
 
 from fim.data.datasets import FIMSDEDatabatch
@@ -24,16 +26,39 @@ from fim.utils.grids import (
 
 class SDEIntegrator(ABC):
     @abstractmethod
-    def step(self, states, system, drift_params, diffusion_params):
-        """Performs one integration step."""
+    def solve(self, initial_states, time_grid, system, drift_params, diffusion_params):
+        """
+        Return solution of system at time_grid.
+
+        initial_state: [num_paths, state_dim]
+        time_grid: [num_steps]
+        """
         pass
 
 
 class EulerMaruyama(SDEIntegrator):
     def __init__(self, integrator_params: dict):
+        self.num_steps = integrator_params["num_steps"]
         self.dt = integrator_params["time_step"]
         self.steps_per_dt = integrator_params.get("steps_per_dt", 1)
         self.stochastic = integrator_params["stochastic"]
+
+    def solve(self, initial_states, time_grid, system, drift_params, diffusion_params):
+        num_paths, state_dim = initial_states.shape
+
+        time_grid = time_grid[None, :].repeat(num_paths, 1)  # [num_paths,1], only neede because of system.drift/diffusion interface
+        solver_time = time_grid[:, 0]  # set up shapes from before refactor
+
+        states = initial_states
+
+        paths = torch.zeros((num_paths, self.num_steps + 1, state_dim))
+        paths[:, 0] = initial_states.clone()
+
+        for step in tqdm(range(self.num_steps), desc="Data sample step", leave=False, total=self.num_steps, position=1):
+            states, solver_time = self.step(states, solver_time, system, drift_params, diffusion_params)
+            paths[:, step + 1] = states.to("cpu").clone()
+
+        return paths
 
     def step(self, states, time, system, drift_params, diffusion_params):
         dt_step = self.dt / self.steps_per_dt
@@ -47,7 +72,59 @@ class EulerMaruyama(SDEIntegrator):
         return states, time
 
 
-INTERGRATORS_METHODS = {"EulerMaruyama": EulerMaruyama}
+class SolveIVPWrapper(SDEIntegrator):
+    ### solving all systems in parallel with solve_ivp requires solving a single, huge, combined ODE, which does not converge in scipy and produces no solution
+
+    def __init__(self, integrator_params: dict):
+        self.dt = integrator_params["time_step"]
+
+    def solve(self, initial_states, time_grid, system, drift_params, diffusion_params):
+        num_paths, state_dim = initial_states.shape
+
+        def _ode(t, y):
+            """
+            t (scalar)
+            y: [num_paths * state_dim]
+            """
+            y = torch.from_numpy(y)
+            drift = system.drift(y.reshape(num_paths, state_dim), time_grid[:, None], drift_params)  # time grid is dummy
+
+            return drift.reshape(num_paths * state_dim).numpy()
+
+        initial_states_flat = initial_states.reshape(-1)
+
+        paths = solve_ivp(_ode, [0, time_grid[-1]], initial_states_flat, t_eval=time_grid)
+
+        return paths
+
+
+class ODEIntWrapper:
+    ### works better than solve_ivp, but still does not converge with dopri5 (because some solutions get nan -> adaptive dt gets small)
+    ### rk4 works, but produces more Nans than the (finer grid) euler
+
+    def __init__(self, integrator_params: dict):
+        self.dt = integrator_params["time_step"]
+        self.odeint_kwargs = integrator_params.get("odeint_kwargs", {})
+
+    def solve(self, initial_states, time_grid, system, drift_params, diffusion_params):
+        def _ode(t, y):
+            """
+            t (scalar)
+            y: [num_paths, state_dim]
+            """
+            drift = system.drift(y, time_grid[:, None], drift_params)  # time is passed as dummy
+            return drift
+
+        states = odeint(_ode, initial_states, time_grid, **self.odeint_kwargs).sol  # [T, num_paths, state_dim] but returns None
+
+        return states
+
+
+INTERGRATORS_METHODS = {
+    "EulerMaruyama": EulerMaruyama,
+    "solve_ivp": SolveIVPWrapper,
+    "odeint": ODEIntWrapper,
+}
 
 # ------------------------------------------------------------------------------------------
 # PATH GENERATORS
@@ -102,10 +179,14 @@ class PathGenerator:
 
         # includes paths and realizations
         self.num_paths = integrator_params["num_paths"]
+        self.num_additional_paths = integrator_params.get("num_additional_paths", 0)  # additional paths to evaluate vector fields at
+        self.num_all_paths = self.num_paths + self.num_additional_paths
+
         self.chunk_size = integrator_params.get("chunk_size", self.num_realizations)
         self.num_steps = integrator_params["num_steps"]
         if integrator_params.get("time_length") is not None:  # remove one step, because we pass total length of sampled path
             self.num_steps = self.num_steps - 1
+            integrator_params["num_steps"] = self.num_steps
 
         self.stochastic = integrator_params["stochastic"]
 
@@ -135,13 +216,17 @@ class PathGenerator:
 
         pbar = tqdm(desc="Finite realizations generated", total=self.num_realizations, leave=False, position=0)
         while num_generated_realizations < self.num_realizations:
-            total_num_paths = self.chunk_size * self.num_paths
+            total_num_paths = self.chunk_size * self.num_all_paths
             states = self.system.sample_initial_states(total_num_paths)
 
             drift_params = self.system.sample_drift_params(self.chunk_size)  # [chunk_size,max_drift_params]
             diffusion_params = self.system.sample_diffusion_params(self.chunk_size)  # [chunk_size,max_diffusion_params]
 
             if self.relative_diffusion_scale:
+                assert self.num_additional_paths == 0, (
+                    "Range currently computed from all paths (paths + additional paths). Proper implementation must compute range only on the normal paths, otherwise information gets leaked."
+                )
+
                 # solve ODE
                 diffusion_params = torch.zeros_like(diffusion_params)
                 hidden_paths, hidden_times, drift_params, diffusion_params = self.solve_equations(
@@ -180,6 +265,19 @@ class PathGenerator:
         hidden_paths = torch.concatenate(all_hidden_paths, dim=0)
         drift_params = torch.concatenate(all_drift_params, dim=0)
         diffusion_params = torch.concatenate(all_diffusion_params, dim=0)
+
+        # separate additional paths
+        if self.num_additional_paths != 0:
+            add_hidden_times = hidden_times[:, self.num_paths :]
+            add_hidden_paths = hidden_paths[:, self.num_paths :]
+
+            hidden_times = hidden_times[:, : self.num_paths]
+            hidden_paths = hidden_paths[:, : self.num_paths]
+
+        else:
+            add_hidden_times = None
+            add_hidden_paths = None
+
         if self.system.is_relative_noise:
             paths_range = torch.concatenate(all_paths_range, dim=0)
         else:
@@ -188,9 +286,13 @@ class PathGenerator:
         assert hidden_times.shape[0] == hidden_paths.shape[0] == drift_params.shape[0] == diffusion_params.shape[0]
 
         pbar.close()
-        obs_mask = torch.ones_like(hidden_times).bool()  # for now no masking
+
         if self.system.mask_sampler is not None:
             obs_mask = self.system.mask_sampler(hidden_paths)
+            add_obs_mask = self.system.mask_sampler(add_hidden_times) if self.num_additional_paths != 0 else None
+        else:
+            obs_mask = torch.ones_like(hidden_times).bool()
+            add_obs_mask = torch.ones_like(add_hidden_times).bool() if self.num_additional_paths != 0 else None
 
         databatch = self.define_bulk(
             hidden_times[: self.num_realizations],
@@ -199,6 +301,9 @@ class PathGenerator:
             drift_params[: self.num_realizations],
             diffusion_params[: self.num_realizations],
             paths_range[: self.num_realizations] if paths_range is not None else None,
+            add_hidden_times[: self.num_realizations] if self.num_additional_paths != 0 else None,
+            add_hidden_paths[: self.num_realizations] if self.num_additional_paths != 0 else None,
+            add_obs_mask[: self.num_realizations] if self.num_additional_paths != 0 else None,
         )
 
         if return_params is True:
@@ -207,36 +312,28 @@ class PathGenerator:
         else:
             return databatch
 
-    def solve_equations(self, states, drift_params, diffusion_params, total_num_paths: int):
+    def solve_equations(self, initial_states, drift_params, diffusion_params, total_num_paths: int):
         # repeats according to the numbr of paths per parameter realization
-        drift_params_repeated = torch.repeat_interleave(drift_params, self.num_paths, 0)
-        diffusion_params_repeated = torch.repeat_interleave(diffusion_params, self.num_paths, 0)
+        drift_params_repeated = torch.repeat_interleave(drift_params, self.num_all_paths, 0)
+        diffusion_params_repeated = torch.repeat_interleave(diffusion_params, self.num_all_paths, 0)
 
-        # paths
-        hidden_paths = torch.zeros((total_num_paths, self.num_steps + 1, self.state_dim))
-        hidden_paths[:, 0] = states.clone()
-
-        # times
+        # times to extract solution at
         hidden_times = torch.linspace(0.0, self.num_steps * self.dt, self.num_steps + 1)
-        hidden_times = hidden_times[None, :].repeat(total_num_paths, 1)  # [total_num_paths,max_diffusion_params]
-        solver_time = hidden_times[:, 0]
 
         # solve on device
         if torch.cuda.is_available() and self.sampling_device == "cuda":
             drift_params_repeated = drift_params_repeated.to("cuda")
             diffusion_params_repeated = diffusion_params_repeated.to("cuda")
-            states = states.to("cuda")
-            solver_time = solver_time.to("cuda")
+            initial_states = initial_states.to("cuda")
+            hidden_times = hidden_times.to("cuda")
 
-        # go through iterator
-
-        for step in tqdm(range(self.num_steps), desc="Data sample step", leave=False, total=self.num_steps, position=1):
-            states, solver_time = self.integrator.step(states, solver_time, self.system, drift_params_repeated, diffusion_params_repeated)
-            hidden_paths[:, step + 1] = states.to("cpu").clone()
+        # test solve_ivp or odeint
+        hidden_paths = self.integrator.solve(initial_states, hidden_times, self.system, drift_params_repeated, diffusion_params_repeated)
 
         # Undo repeat interleave i.e. first shape corresponds to number of realizations (parameters are not repited)
-        hidden_paths = hidden_paths.view(self.chunk_size, self.num_paths, self.num_steps + 1, -1)
-        hidden_times = hidden_times.view(self.chunk_size, self.num_paths, self.num_steps + 1, -1)
+        hidden_paths = hidden_paths.view(self.chunk_size, self.num_all_paths, self.num_steps + 1, -1)
+        hidden_times = hidden_times[None, :].repeat(total_num_paths, 1)  # [total_num_paths,max_diffusion_params]
+        hidden_times = hidden_times.view(self.chunk_size, self.num_all_paths, self.num_steps + 1, -1)
 
         # remove realizations with Nans
         is_finite_mask = torch.all(torch.isfinite(hidden_paths.view(self.chunk_size, -1)), dim=1)
@@ -254,7 +351,18 @@ class PathGenerator:
 
         return hidden_paths, hidden_times, drift_params, diffusion_params
 
-    def define_bulk(self, hidden_times, hidden_paths, obs_mask, drift_params, diffusion_params, path_range=None) -> FIMSDEDatabatch:
+    def define_bulk(
+        self,
+        hidden_times,
+        hidden_paths,
+        obs_mask,
+        drift_params,
+        diffusion_params,
+        path_range=None,
+        add_hidden_times=None,
+        add_hidden_paths=None,
+        add_obs_mask=None,
+    ) -> FIMSDEDatabatch:
         """
         Evaluates cases for the different data bulks
 
@@ -263,8 +371,20 @@ class PathGenerator:
         """
         if self.dataset_type == "FIMSDEpDataset":
             noisy_obs_values = self.add_noise(hidden_paths, path_range)
+            noisy_add_obs_values = self.add_noise(add_hidden_paths, path_range) if self.num_additional_paths != 0 else None
 
-            return self.define_fim_sde_data(hidden_times, hidden_paths, noisy_obs_values, obs_mask, drift_params, diffusion_params)
+            return self.define_fim_sde_data(
+                hidden_times,
+                hidden_paths,
+                noisy_obs_values,
+                obs_mask,
+                add_hidden_times,
+                add_hidden_paths,
+                noisy_add_obs_values,
+                add_obs_mask,
+                drift_params,
+                diffusion_params,
+            )
         elif self.dataset_type == "FIMPOODEDataset":
             obs_values, obs_times, obs_mask, obs_lenght = self.time_observations_and_mask(hidden_paths, hidden_times)
             noisy_obs_values = self.add_noise(obs_values)
@@ -313,7 +433,17 @@ class PathGenerator:
         return locations
 
     def define_fim_sde_data(
-        self, obs_times, obs_values, noisy_obs_values, obs_mask, drift_parameters, diffusion_parameters
+        self,
+        obs_times,
+        obs_values,
+        noisy_obs_values,
+        obs_mask,
+        add_obs_times,
+        add_obs_values,
+        add_noisy_obs_values,
+        add_obs_mask,
+        drift_parameters,
+        diffusion_parameters,
     ) -> FIMSDEDatabatch:
         """
            Store generated data in a FIMSDEDatabatch.
@@ -326,6 +456,14 @@ class PathGenerator:
                 Noisy observation values.
             obs_mask (Tensor):
                 Mask for observations indicating valid data points.
+            add_obs_times (Tensor or None):
+                Optional, additional observation times with shape [num_realizations, num_additional_paths, num_obs, 1].
+            add_obs_values (Tensor):
+                Optional, additional observation Observation values with shape [num_realizations, num_additional_paths, num_obs, D].
+            add_noisy_obs_values (Tensor):
+                Optional, additional noisy observation values.
+            add_obs_mask (Tensor):
+                Optional mask for additional observations indicating valid data points.
             drift_parameters (Tensor):
                 Parameters used for drift evaluation. Shape [num_realizations, ...].
             diffusion_parameters (Tensor):
@@ -342,11 +480,25 @@ class PathGenerator:
         locations = self.define_locations(obs_values)  # [num_realizations, num_locations, D]
         num_locations = locations.shape[-2]
 
+        # also evaluate vector fields at (additional) observations
         obs_values_all_paths = torch.flatten(obs_values, start_dim=1, end_dim=2)  # [num_realizations, num_total_obs, D]
         num_obs_values = obs_values_all_paths.shape[-2]
 
-        all_locations = torch.concatenate([locations, obs_values_all_paths], dim=1)
-        num_all_locations = num_locations + num_obs_values
+        if self.num_additional_paths != 0:
+            add_obs_values_all_paths = torch.flatten(add_obs_values, start_dim=1, end_dim=2)  # [num_realizations, num_add_total_obs, D]
+            num_add_obs_values = add_obs_values_all_paths.shape[-2]
+
+        else:
+            add_obs_values_all_paths = None
+            num_add_obs_values = 0
+
+        all_locations = torch.concatenate(
+            [locations, obs_values_all_paths, add_obs_values_all_paths]
+            if self.num_additional_paths != 0
+            else [locations, obs_values_all_paths],
+            dim=1,
+        )
+        num_all_locations = num_locations + num_obs_values + num_add_obs_values
 
         # evaluate vector fields of all realizations at all locations
         locations_repeated = all_locations.reshape(-1, D)
@@ -362,24 +514,36 @@ class PathGenerator:
         diffusion_at_all_locations = diffusion_at_all_locations.reshape(num_realizations, num_all_locations, D)
 
         # separate vfs at locations from vfs at obs_values
-        drift_at_locations = drift_at_all_locations[:, :num_locations, :]
-        drift_at_obs_values = drift_at_all_locations[:, num_locations:, :]
-        drift_at_obs_values = drift_at_obs_values.reshape(obs_values.shape)
+        drift_at_locations, drift_at_obs_values, drift_at_add_obs_values = torch.split(
+            drift_at_all_locations, split_size_or_sections=[num_locations, num_obs_values, num_add_obs_values], dim=1
+        )
+        diffusion_at_locations, diffusion_at_obs_values, diffusion_at_add_obs_values = torch.split(
+            diffusion_at_all_locations, split_size_or_sections=[num_locations, num_obs_values, num_add_obs_values], dim=1
+        )
 
-        diffusion_at_locations = diffusion_at_all_locations[:, :num_locations, :]
-        diffusion_at_obs_values = diffusion_at_all_locations[:, num_locations:, :]
+        drift_at_obs_values = drift_at_obs_values.reshape(obs_values.shape)
         diffusion_at_obs_values = diffusion_at_obs_values.reshape(obs_values.shape)
+
+        if self.num_additional_paths != 0:
+            drift_at_add_obs_values = drift_at_add_obs_values.reshape(add_obs_values.shape)
+            diffusion_at_add_obs_values = diffusion_at_add_obs_values.reshape(add_obs_values.shape)
 
         return FIMSDEDatabatch(
             obs_times=obs_times,
             obs_values=obs_values,
             obs_noisy_values=noisy_obs_values,
             obs_mask=obs_mask,
+            add_obs_times=add_obs_times,
+            add_obs_values=add_obs_values,
+            add_obs_noisy_values=add_noisy_obs_values,
+            add_obs_mask=add_obs_mask,
             locations=locations,
             diffusion_at_locations=diffusion_at_locations,
             drift_at_locations=drift_at_locations,
             diffusion_at_obs_values=diffusion_at_obs_values,
             drift_at_obs_values=drift_at_obs_values,
+            diffusion_at_add_obs_values=diffusion_at_add_obs_values,
+            drift_at_add_obs_values=drift_at_add_obs_values,
             process_dimension=process_dimension,
         )
 
@@ -413,14 +577,15 @@ class PathGenerator:
             return hidden_paths, hidden_times, torch.ones_like(hidden_times), torch.full((B, P), T)
 
     def coordinate_observation(self, obs_values):
-        """Not implemented keeps first coordinates"""
         if self.observation_coordinate_params:
             return obs_values[:, :, :, 0].unsqueeze(-1)
         else:
             return obs_values
 
     def add_noise(self, obs_values, system_range=None):
-        """Not implemented keeps the same values"""
+        """
+        obs_values: [num_realizations, num_paths, T, D]
+        """
         if self.system.is_observation_noise:
             noise_dist_params = self.system.observation_noise_params["distribution"]
             total_dim = self.num_paths * (self.num_steps + 1) * self.state_dim
@@ -435,6 +600,7 @@ class PathGenerator:
                     if system_range is not None:
                         std = std * system_range
                     epsilon = torch.normal(mean.unsqueeze(1).repeat(1, total_dim), std.unsqueeze(1).repeat(1, total_dim))
+                    return obs_values + epsilon.view_as(obs_values)
                 case "normal_with_uniform_std":
                     max_std = torch.tensor(noise_dist_params.get("max"))
                     std = max_std * torch.rand(size=system_range.shape)
@@ -442,16 +608,25 @@ class PathGenerator:
                         std = std * system_range
                     std = std.unsqueeze(1).repeat(1, total_dim)
                     epsilon = torch.normal(torch.zeros_like(std), std)
+                    return obs_values + epsilon.view_as(obs_values)
+                case "normal_multiplicative_with_uniform_std":
+                    max_std = torch.tensor(noise_dist_params.get("max"))
+                    num_realizations = obs_values.shape[0]
+                    std = max_std * torch.rand(
+                        size=(num_realizations,)
+                    )  # noise level sampled per realization, used across all trajectories
+                    std = std.view(-1, 1, 1, 1).broadcast_to(obs_values.shape)
+                    epsilon = torch.normal(torch.zeros_like(std), std)  # iid samples across all trajectories, observation times, dimensions
+                    return obs_values * (1 + epsilon)
                 case "constant":
                     std = noise_dist_params.get("value")
                     if system_range is not None:
                         std = std * system_range
                     std = std.unsqueeze(1).repeat(1, total_dim)
                     epsilon = torch.normal(torch.zeros_like(std), std)
+                    return obs_values + epsilon.view_as(obs_values)
                 case _:
                     raise ValueError(f"Unknown noise distribution: {noise_dist_params['name']}")
-
-            return obs_values + epsilon.view_as(obs_values)
 
         return obs_values
 

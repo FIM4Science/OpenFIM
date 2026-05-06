@@ -1,0 +1,395 @@
+experiment_name: ode_icml_regeneration_deg_3_polys_monomial_survival_uniform
+dataset_type: "FIMSDEpDataset" #FIMSDEpDataset,FIMPOODEDataset,FIMCompartmentDataset
+
+integration:
+  method: "EulerMaruyama"
+  time_length: 10
+  steps_per_dt: 20
+  num_steps: 200
+  num_paths: 9
+  num_locations: 2048
+  chunk_size: 50000 # generate at one time so many realizations (to filter Nans)
+  reject_threshold: 100
+  stochastic: false
+
+locations:
+  type: random_cube
+  extension_perc: 0.2
+
+train:
+  - name: Polynomials
+    data_bulk_name: train_deg_1_split_0
+    num_realizations: 40000
+    observed_dimension: null
+    state_dim: 1
+    redo: &redo false
+    enforce_positivity: &enforce_positivity "abs"
+    max_degree_drift: &max_degree_drift 3
+    max_degree_diffusion: &max_degree_diffusion 0
+    drift_params: &drift_params
+      uniform_degrees: true
+      distribution:
+        name: normal
+        std: 1
+      scale: &scale
+        sample_per_dimension: false
+        distribution: "uniform"
+        min: 0.0
+        max: 2.0
+    diffusion_params: &diffusion_params
+      uniform_degrees: true
+      distribution:
+        name: fix
+        fix_value: 0.0
+      scale: *scale
+    initial_state: &initial_state
+      distribution: "normal"
+      mean: 0.0
+      std_dev: 1.0
+      activation: null
+
+  - name: Polynomials
+    data_bulk_name: train_deg_1_split_1
+    num_realizations: 40000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 1
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_2_split_0
+    num_realizations: 70000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 2
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_2_split_1
+    num_realizations: 70000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 2
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_2_split_2
+    num_realizations: 70000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 2
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_0
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_1
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_2
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_3
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_4
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_5
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_6
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_7
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_8
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_9
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_10
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_11
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_12
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_13
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_14
+    num_realizations: 20000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: train_deg_3_split_15
+    num_realizations: 10000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+test:
+  - name: Polynomials
+    data_bulk_name: test_deg_1_split_0
+    num_realizations: 8000
+    observed_dimension: null
+    state_dim: 1
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: test_deg_2_split_0
+    num_realizations: 21000
+    observed_dimension: null
+    state_dim: 2
+    redo: *redo
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: test_deg_3_split_0
+    num_realizations: 31000
+    observed_dimension: null
+    state_dim: 3
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+validation:
+  - name: Polynomials
+    data_bulk_name: val_deg_1_split_0
+    num_realizations: 8000
+    observed_dimension: null
+    state_dim: 1
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: val_deg_2_split_0
+    num_realizations: 21000
+    observed_dimension: null
+    state_dim: 2
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state
+
+  - name: Polynomials
+    data_bulk_name: val_deg_3_split_0
+    num_realizations: 31000
+    observed_dimension: null
+    enforce_positivity: *enforce_positivity
+    max_degree_drift: *max_degree_drift
+    max_degree_diffusion: *max_degree_diffusion
+    state_dim: 3
+    redo: *redo
+    drift_params: *drift_params
+    diffusion_params: *diffusion_params
+    initial_state: *initial_state

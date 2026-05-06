@@ -54,6 +54,14 @@ def save_fimsdedatabatch_to_files(databatch: FIMSDEDatabatch, save_dir: Path) ->
 
     save_h5(databatch.obs_mask, save_dir / "obs_mask.h5")
 
+    if databatch.add_obs_times is not None:
+        save_h5(databatch.add_obs_times, save_dir / "add_obs_times.h5")
+        save_h5(databatch.add_obs_values, save_dir / "add_obs_values.h5")
+        save_h5(databatch.add_obs_noisy_values, save_dir / "add_obs_noisy_values.h5")
+        save_h5(databatch.add_obs_mask, save_dir / "add_obs_mask.h5")
+        save_h5(databatch.drift_at_add_obs_values, save_dir / "drift_at_add_obs_values.h5")
+        save_h5(databatch.diffusion_at_add_obs_values, save_dir / "diffusion_at_add_obs_values.h5")
+
 
 def save_dynamical_system_from_yaml(
     yaml_path: str | Path | dict, labels_to_use: list[str], global_save_dir: str | Path, tr_save_dir=""

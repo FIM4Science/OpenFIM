@@ -700,6 +700,12 @@ class FIMSDEDatabatch:
     obs_times: Tensor | np.ndarray
     obs_values: Tensor | np.ndarray
     obs_noisy_values: Tensor | np.ndarray
+    obs_mask: Tensor | np.ndarray
+
+    add_obs_times: Tensor | np.ndarray | None
+    add_obs_values: Tensor | np.ndarray | None
+    add_obs_noisy_values: Tensor | np.ndarray | None
+    add_obs_mask: Tensor | np.ndarray | None
 
     drift_at_locations: Tensor | np.ndarray
     diffusion_at_locations: Tensor | np.ndarray
@@ -708,7 +714,8 @@ class FIMSDEDatabatch:
     drift_at_obs_values: Tensor | np.ndarray
     diffusion_at_obs_values: Tensor | np.ndarray
 
-    obs_mask: Tensor | np.ndarray = None
+    drift_at_add_obs_values: Tensor | np.ndarray | None
+    diffusion_at_add_obs_values: Tensor | np.ndarray | None
 
     diffusion_parameters: Tensor | np.ndarray = None
     drift_parameters: Tensor | np.ndarray = None
