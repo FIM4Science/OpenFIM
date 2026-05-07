@@ -12,12 +12,12 @@ from fim.models.sde import (
     backward_fill_masked_values,
     forward_fill_masked_values,
 )
-from fim.sampling.sde_path_samplers import (
+from fim.utils.helper import load_yaml
+from fim.utils.sde.solvers import (
     fimsde_euler_maruyama,
     fimsde_sample_paths,
     fimsde_sample_paths_by_dt_and_grid_size,
 )
-from fim.utils.helper import load_yaml
 
 
 class TestMaskedFill:

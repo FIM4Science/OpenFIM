@@ -12,7 +12,6 @@ from tqdm import tqdm
 
 from fim import project_path
 from fim.models.sde import FIMSDE
-from fim.sampling.sde_path_samplers import fimsde_sample_paths_on_masked_grid
 from fim.utils.sde.evaluation import (
     ModelEvaluation,
     ModelMap,
@@ -21,6 +20,7 @@ from fim.utils.sde.evaluation import (
     model_map_from_dict,
     save_evaluations,
 )
+from fim.utils.sde.solvers import fimsde_sample_paths_on_masked_grid
 
 
 def get_real_world_data(

@@ -87,9 +87,11 @@ class HFDataset(torch.utils.data.Dataset):
         self.visible_columns = output_columns
         self.logger.debug(f"Loading dataset from {path} with config {conf} and split {split}.")
         split_clean = clean_split_from_size_info(split)
-        self.split = verify_str_arg(
-            split_clean, arg="split", valid_values=get_dataset_split_names(path, conf, trust_remote_code=True) + [None]
-        )
+        try:
+            valid_splits = get_dataset_split_names(path, conf)  # may not be implemented for some public hfs
+        except Exception:
+            valid_splits = ["train", "validation", "test"]
+        self.split = verify_str_arg(split_clean, arg="split", valid_values=valid_splits + [None])
         self.data: DatasetDict | Dataset = load_dataset(path, conf, split=split, download_mode=download_mode, **kwargs)
         self.logger.debug(f"Dataset from {path} with config {conf} and split {split} loaded successfully.")
         self.data.set_format(type="torch")

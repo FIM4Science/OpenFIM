@@ -743,3 +743,44 @@ def define_dynamicals_models_from_yaml(
         validation_studies.append(compartment_model)
 
     return (dataset_type, experiment_name, train_studies, test_studies, validation_studies)
+
+
+def get_dynamicals_system_data_from_yaml(yaml_file: str, label: str) -> List[DynamicalSystem | FIMSDEDatabatch]:
+    """
+    Function to load or generate different dynamical system data from yaml.
+
+    Args:
+        yaml_file (str): path to yaml file that contains configs for dynamical system data
+        label (str): name of data in yaml to generate
+
+    Returns:
+        systems_data (list[FIMSDEDatabatch]): data from all specified dynamical systems
+
+    """
+    from fim import data_path
+
+    with open(yaml_file, "r") as file:
+        data = yaml.safe_load(file)
+
+    # check the experiment folder exist
+    experiment_name = data["experiment_name"]
+    experiment_dir = os.path.join(data_path, "processed", experiment_name)
+    if not os.path.exists(experiment_dir):
+        # Create the folder
+        os.makedirs(experiment_dir)
+
+    # data type
+    dataset_type = data["dataset_type"]
+    # integrator params
+    integrator_params = data["integration"]
+    # locations params
+    locations_params = data["locations"]
+
+    # generate the data
+    systems_data: List[DynamicalSystem, FIMSDEDatabatch] = []
+
+    for params_yaml in data[label]:
+        data = set_up_a_dynamical_system(dataset_type, params_yaml, integrator_params, locations_params, experiment_dir, True)
+        systems_data.append(data)
+
+    return systems_data

@@ -15,7 +15,7 @@ transformer_block = {
     "activation": {"name": "torch.nn.ReLU"},
     "normalization": {"name": "torch.nn.LayerNorm", "normalized_shape": 64},
 }
-pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "out_features": 64}
+pos_encodings = {"name": "fim.models.blocks.positional_encodings.SineTimeEncoding", "out_features": 64}
 timeseries_encoder = {
     "name": "fim.models.blocks.base.TransformerEncoder",
     "num_layers": 4,

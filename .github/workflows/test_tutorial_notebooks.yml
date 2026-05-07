@@ -1,0 +1,33 @@
+# This workflow will install Python dependencies and run tests on Jupyter notebooks.
+# It is configured to run ONLY manually from the GitHub Actions tab.
+
+name: Test Tutorial Notebooks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install project
+        run: uv sync
+
+      - name: Install nbmake
+        run: uv pip install nbmake
+
+      - name: Test notebooks with pytest and nbmake
+        run: uv run pytest --nbmake tutorial/

@@ -27,9 +27,9 @@ dataset:
     test_batch_size: 1
     num_workers: 0
     num_inference_paths: 1
-    num_inference_times: 8
+    num_inference_times: 4
     variable_num_of_paths: true
-    min_path_count: 10
+    min_path_count: 4
     max_path_count: 10
     max_number_of_minibatch_sizes: 1
 
@@ -45,91 +45,101 @@ dataset:
       kernel_functions: "kernel_functions.pt"
     field_name_for_dimension_grouping: ["base_intensity_functions", "kernel_functions"]
     data_limit: 8
+    field_name_for_dimension_grouping:
+      ["base_intensity_functions", "kernel_functions"]
 
 model:
   model_type: fimhawkes
   normalize_times: true
   normalize_by_max_time: false
 
-  max_num_marks: 10
-  hidden_dim: 16
+  max_num_marks: &max_num_marks 3
+  hidden_dim: 8
 
-  hidden_act:
-    name: torch.nn.GELU
+  hidden_act: &hidden_act
+    name: &activation torch.nn.GELU
 
   mark_encoder:
     name: torch.nn.Linear
-    out_features: 16
+    out_features: 8
 
   time_encoder:
-    name: torch.nn.Linear
-    out_features: 16
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
+    out_features: 8
 
   delta_time_encoder:
-    name: torch.nn.Linear
-    out_features: 16
-
+    name: fim.models.blocks.positional_encodings.SineTimeEncoding
+    out_features: 8
 
   evaluation_mark_encoder:
     name: torch.nn.Linear
 
-  context_ts_encoder:
-    name: torch.nn.TransformerEncoder
-    num_layers: 1
-    encoder_layer:
-      name: torch.nn.TransformerEncoderLayer
-      dropout: 0.0
-      nhead: 2
-      batch_first: true
-
-  inference_ts_encoder:
-    name: torch.nn.TransformerEncoder
-    num_layers: 1
-    encoder_layer:
-      name: torch.nn.TransformerEncoderLayer
-      dropout: 0.0
-      nhead: 2
-      batch_first: true
-
-  functional_attention:
+  context_summary_pooling:
+    name: fim.models.blocks.neural_operators.AttentionOperator
     paths_block_attention: false
     num_res_layers: 1
     attention:
-      nhead: 1
-    projection:
-      name: fim.models.blocks.base.MLP
-      hidden_layers: !!python/tuple [16, 16]
+      nhead: 4
 
-  context_self_attention:
-    num_heads: 2
-    dropout: 0.0
-    batch_first: true
+  context_ts_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 4
+
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.0
+      nhead: 4
+      batch_first: true
+
+  decoder_ts:
+    name: torch.nn.TransformerDecoder
+    num_layers: 4
+
+    decoder_layer:
+      name: torch.nn.TransformerDecoderLayer
+      dropout: 0.0
+      nhead: 4
+      batch_first: true
+
+  mark_fusion_attention: null
+
+  context_summary_encoder:
+    name: torch.nn.TransformerEncoder
+    num_layers: 2
+
+    encoder_layer:
+      name: torch.nn.TransformerEncoderLayer
+      dropout: 0.0
+      nhead: 4
+      batch_first: true
 
   mu_decoder:
     name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [16, 16]
-    hidden_act: {name: torch.nn.GELU}
+    hidden_layers: !!python/tuple [8, 8]
+    hidden_act: *hidden_act
 
   alpha_decoder:
     name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [16, 16]
-    hidden_act: {name: torch.nn.GELU}
+    hidden_layers: !!python/tuple [8, 8]
+    hidden_act: *hidden_act
 
   beta_decoder:
     name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [16, 16]
-    hidden_act: {name: torch.nn.GELU}
-
-  intensity_decoder:
-    name: fim.models.blocks.base.MLP
-    hidden_layers: !!python/tuple [16, 16]
-    hidden_act: {name: torch.nn.GELU}
+    hidden_layers: !!python/tuple [8, 8]
+    hidden_act: *hidden_act
 
   thinning: null
 
   loss_weights:
     nll: 1.0
-    smape: 1.0
+    smape: 0.0
+    relative_spike: 0.0
+    mu: 0.0
+    alpha: 0.0
+
+  nll:
+    method: monte_carlo
+    num_integration_points: 10
 
 trainer:
   name: Trainer

@@ -1,10 +1,10 @@
 from fim.models.imputation import FIMImputationWindowed
 
 
-# ode_path = Path("/cephfs_projects/foundation_models/models/FIMODE/fim_ode_minMax/model-checkpoint.pth")
+# ode_path = Path("/cephfs_projects/foundation_models/models/FIMImputation/fim_ode_minMax/model-checkpoint.pth")
 # model = load_model_from_checkpoint(ode_path, module=FIMODE, for_eval=True)
 # print(model)
-# model.save_pretrained("/cephfs_projects/foundation_models/models/FIMODE/fim_ode_minMax_hf")
+# model.save_pretrained("/cephfs_projects/foundation_models/models/FIMImputation/fim_ode_minMax_hf")
 # model.push_to_hub("FIM4Science/fim-ode", private=False)
 
 # model_checkpoint_path = Path("/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth")

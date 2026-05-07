@@ -133,9 +133,10 @@ if not use_cuda:
     sys.modules["cupy_backends"] = MagicMock()
 
 
-import ksig  # Follow the instruction on https://github.com/tgcsaba/KSig to install it, python: 3.10.16
+import ksig  # noqa: E402
 
 
+# Follow the instruction on https://github.com/tgcsaba/KSig to install it, python: 3.10.16
 # if that does not work: install cupy (wheels, don't forget to activate), clone KSIG, remove dependency on cupy, pip install numba and torch
 
 
