@@ -63,6 +63,9 @@ results/
 .python-version
 venv/
 
+# Jupyter Book build output
+tutorial/_build/
+
 # Vim sessions
 *.vim
 .*.sw[a-p]

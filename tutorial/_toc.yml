@@ -1,17 +1,27 @@
 format: jb-book
 root: intro
 parts:
+  - caption: Introduction
+    chapters:
+    - file: tutorials.md
+
+
   - caption: Using the library
     chapters:
     - file: FIM
     - file: FIM_installation_and_settings
     - file: FIM_yaml_config
-  
+
   - caption: Inference of Markov Jump Processes
     chapters:
     - file: mjp_crashcourse
     - file: huggingface.ipynb
     - file: dfr_casestudy.ipynb
+
+  - caption: Inference of Point Processes
+    chapters:
+    - file: point_process_crashcourse
+    - file: point_process_tutorial.ipynb
 
   - caption: Imputation of Dynamical Systems
     chapters:
@@ -19,9 +29,11 @@ parts:
     - file: imputation_point_wise.ipynb
     - file: imputation_temporal.ipynb
 
-  - caption: Imputation of Stochastic Differential Equations
+  - caption: Stochastic Differential Equations
     chapters:
     - file: sde.md
+    - file: sde_tutorial.ipynb
 
-
-
+  - caption: About us
+    chapters:
+    - file: active.md
