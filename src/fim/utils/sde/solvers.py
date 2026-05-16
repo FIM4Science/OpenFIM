@@ -185,7 +185,8 @@ def fimsde_sample_paths_on_masked_grid(
         solver_granularity (int): Number of steps between grid points.
 
     Returns:
-        sample_paths (Tensor): Sampled paths for each batch element observed at grid. Shape: [B, P, T, D]
+        sample_paths (Tensor): Sampled paths for each batch element. Shape: [B, P, T, D]
+        sample_paths_grid (Tensor): Time grid where sample paths are evaluate at. Shape: [B, P, T, D]
     """
 
     assert grid.ndim == 4

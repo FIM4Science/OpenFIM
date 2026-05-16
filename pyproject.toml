@@ -57,6 +57,13 @@ dependencies = [
     "transformers==4.56.2",
 ]
 
+[dependency-groups]
+tutorial = [
+    "jupyter-book==2.1.5",
+    "huggingface_hub==0.36.2", # because of transformers==4.56.2
+    "nbmake==1.5.5"
+]
+
 [tool.setuptools]
 include-package-data = false
 

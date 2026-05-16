@@ -1,0 +1,57 @@
+name: Deploy Tutorial to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  C
+    paths:
+      - 'tutorial/**'
+      - '.github/workflows/deploy_tutorial.yml'
+  workflow_dispatch:
+
+# Permissions required to deploy to GitHub Pages natively without needing personal tokens
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Cancels older, in-progress builds if you push new commits rapidly to prevent race conditions
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages # Ties this job to GitHub's internal Pages environment
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install project and tutorial dependencies
+        run: uv sync --group tutorial
+
+      - name: Build Jupyter Book HTML
+        working-directory: tutorial
+        run: uv run --project .. --group tutorial jupyter-book build --html --strict
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5 # Automatically detects your repo settings and configures routing
+
+      - name: Upload Artifact
+        uses: actions/upload-pages-artifact@v3 # Compresses and uploads the static files to GitHub
+        with:
+          path: 'tutorial/_build/html' # Points to the specific directory where Jupyter Book output lives
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4 # Takes the uploaded artifact and publishes it live to the web

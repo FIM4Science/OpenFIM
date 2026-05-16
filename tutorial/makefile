@@ -1,24 +1,25 @@
-VENV = ../.venv
-PYTHON = $(VENV)/bin/python
-JB = $(VENV)/bin/jupyter-book
-
-.PHONY: local_install local_start local clean
+.PHONY: local_install local_start local build clean serve
 
 local_install:
-	uv pip install -r requirements.txt --python $(PYTHON)
+	uv lock --upgrade --project ..
+	uv sync --project .. --group tutorial
 
 local_start:
-	$(JB) start _build/html
+	uv run --project .. --group tutorial jupyter-book start
 
-local: clean local_install
-	$(JB) init
-	$(JB) build . --watch & $(JB) start _build/html
+build: local_install
+	uv run --project .. --group tutorial jupyter-book build --check-links --html --strict
+
+check_notebooks: clean build # requires HF_TOKEN
+	uv run --group tutorial pytest --nbmake --nbmake-timeout=600 .
 
 clean:
 	rm -rf _build
-	rm -f myst.yml
-	rm -f ._config.yml.bak
-	rm -f ._toc.yml.bak
-	rm -f .gitignore
-	git checkout _config.yml
-	git checkout _toc.yml
+	rm -rf .myst
+	rm -rf .pytest_cache
+
+local: clean local_install local_start
+
+serve: build
+	@echo "Serving the tutorial locally at http://localhost:8000"
+	uv run python -m http.server --directory _build/html 8000
