@@ -23,8 +23,8 @@ from fim.utils.helper import load_yaml, yaml
 from fim.utils.interpolator import KernelInterpolator
 
 from ..data.dataloaders import DataLoaderFactory
+from ..data_generation.grid_samplers import sample_kernel_grid
 from ..models import AModel
-from ..sampling.grid_samplers import sample_kernel_grid
 from ..utils.logging import RankLoggerAdapter
 from .helper import export_list_of_dicts_to_jsonl
 

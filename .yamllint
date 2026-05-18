@@ -1,5 +1,0 @@
-extends: default
-
-rules:
-  tags:
-    ignore: !!python/tuple

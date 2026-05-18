@@ -14,7 +14,7 @@ distributed:
 
 model:
   name: FIM_imputation # class name
-  fim_base: /cephfs_projects/foundation_models/models/FIMODE/fim_ode_minMax/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMODE/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
+  fim_base: /cephfs_projects/foundation_models/models/FIMImputation/fim_ode_minMax/model-checkpoint.pth # results/FIMImputation/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMImputation/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
   use_fim_normalization: true
 
   loss_configs:

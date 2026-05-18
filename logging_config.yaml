@@ -16,11 +16,6 @@ handlers:
     class: logging.StreamHandler
     level: DEBUG
     formatter: colorful # Use colorful formatter
-  # file:
-  #   class: logging.FileHandler
-  #   level: INFO
-  #   filename: test.log # Change to your desired log file name
-  #   formatter: simple # Use simple formatter for the file
 root:
-  handlers: [console] # Attach both console and file handlers
+  handlers: [console]
   level: DEBUG

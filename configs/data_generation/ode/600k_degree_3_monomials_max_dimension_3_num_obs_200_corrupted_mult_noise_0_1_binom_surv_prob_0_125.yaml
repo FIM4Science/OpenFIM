@@ -36,7 +36,7 @@ train:
         name: normal_multiplicative_with_uniform_std
         max: 0.1
     mask_sampler_params: &mask_sampler_params
-      name: fim.sampling.grid_samplers.BernoulliMaskSampler
+      name: fim.data_generation.grid_samplers.BernoulliMaskSampler
       survival_probability: 0.125 # this is minimum survival probability per time series, sampled between this and 1; should replicate ODEFormer train distribution behavior, if time series are 200 obs large
       min_survival_count: 4
     drift_params: &drift_params

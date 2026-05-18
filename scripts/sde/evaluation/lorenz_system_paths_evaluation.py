@@ -13,7 +13,6 @@ from tqdm import tqdm
 from fim import project_path
 from fim.data.datasets import JsonSDEDataset
 from fim.models.blocks import AModel
-from fim.sampling.sde_path_samplers import fimsde_sample_paths_on_masked_grid
 from fim.utils.sde.evaluation import (
     DataLoaderMap,
     ModelEvaluation,
@@ -24,6 +23,7 @@ from fim.utils.sde.evaluation import (
     model_map_from_dict,
     save_evaluations,
 )
+from fim.utils.sde.solvers import fimsde_sample_paths_on_masked_grid
 
 
 def evaluate_latentsde_on_lorenz(

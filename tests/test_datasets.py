@@ -12,17 +12,17 @@ from fim.data.datasets import FIMDataset, HFDataset
 
 
 class TestHFDataset:
-    dataset_name = "nn5_daily"
+    dataset_name = "electricity-production"
 
     def test_init(self):
-        dataset = HFDataset(path="monash_tsf", conf=self.dataset_name, trust_remote_code=True)
+        dataset = HFDataset(path="huggingface/electricity-production")
         assert dataset.data is not None
         assert isinstance(dataset.data, Dataset)
         print(dataset)
 
     def test_rename_column(self):
         new_column_names = {"time_since_last_event": "delta_time", "type_event": "event_type"}
-        dataset = HFDataset(path="easytpp/volcano", trust_remote_code=True, rename_columns=new_column_names)
+        dataset = HFDataset(path="easytpp/volcano", rename_columns=new_column_names)
         columns = dataset.data.column_names
         assert "delta_time" in columns
         assert "event_type" in columns
@@ -32,7 +32,7 @@ class TestHFDataset:
 
     def test_output_columns(self):
         output_columns = ["dim_process", "seq_idx", "seq_len"]
-        dataset = HFDataset(path="easytpp/volcano", output_columns=output_columns, trust_remote_code=True)
+        dataset = HFDataset(path="easytpp/volcano", output_columns=output_columns)
         columns = dataset.data.column_names
         for column in output_columns:
             assert column in columns
@@ -40,19 +40,19 @@ class TestHFDataset:
         assert "type_event" not in columns
 
     def test_init_with_optional_arguments(self):
-        dataset = HFDataset(path="monash_tsf", conf=self.dataset_name, split="test", trust_remote_code=True)
+        dataset = HFDataset(path="huggingface/electricity-production", split="train")
         assert dataset.data is not None
         assert isinstance(dataset.data, Dataset)
 
     def test_init_with_invalid_split(self):
         with pytest.raises(ValueError):
-            HFDataset(path="monash_tsf", conf=self.dataset_name, split="invalid_split", trust_remote_code=True)
+            HFDataset(path="huggingface/electricity-production", split="invalid_split")
 
     def test_init_with_download_mode(self):
-        dataset = HFDataset(path="monash_tsf", conf=self.dataset_name, download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS, split="test")
+        dataset = HFDataset(path="huggingface/electricity-production", download_mode=DownloadMode.REUSE_DATASET_IF_EXISTS, split="train")
         assert dataset.data is not None
 
-        dataset = HFDataset(path="monash_tsf", conf=self.dataset_name, download_mode=DownloadMode.FORCE_REDOWNLOAD, split="test")
+        dataset = HFDataset(path="huggingface/electricity-production", download_mode=DownloadMode.FORCE_REDOWNLOAD, split="train")
         assert dataset.data is not None
 
     def test_get_item(self):

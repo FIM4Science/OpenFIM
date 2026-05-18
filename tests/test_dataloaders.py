@@ -357,8 +357,6 @@ class TestFIMHFDataLoader:
             assert batch["delta_time"].shape[0] == 2
             break
 
-    # Removed outdated HawkesDataLoader tests; replaced by end-to-end pipeline tests in test_hawkes_pipeline.py
-
     @pytest.mark.skip("Skip until we have a proper dataset")
     def test_varible_number_of_events(self, config: dict):
         config["path"]["train"].append(

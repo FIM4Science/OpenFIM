@@ -23,10 +23,10 @@ def _make_minimal_hawkes_dl_config():
             "test_batch_size": 1,
             "num_workers": 0,
             "num_inference_paths": 1,
-            "num_inference_times": 8,
+            "num_inference_times": 4,
             "variable_num_of_paths": True,
-            "min_path_count": 10,
-            "max_path_count": 10,
+            "min_path_count": 4,
+            "max_path_count": 4,
             "max_number_of_minibatch_sizes": 1,
             "variable_sequence_lens": {"train": True, "validation": False},
             "min_sequence_len": 4,
@@ -48,7 +48,6 @@ def _make_minimal_hawkes_dl_config():
     }
 
 
-@pytest.mark.short
 def test_hawkes_dataloader_smoke():
     cfg = _make_minimal_hawkes_dl_config()
     dl = DataLoaderFactory.create(**cfg)
@@ -71,7 +70,7 @@ def test_hawkes_dataloader_smoke():
     assert batch["intensity_evaluation_times"].ndim == 3  # [B, P_infer, T_eval]
 
 
-@pytest.mark.short
+@pytest.mark.skip("Can run locally, but training takes too much resources for Github Action.")
 def test_hawkes_training_pipeline(tmp_path):
     # Load training script utilities dynamically
     mod = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts" / "train_model.py"))

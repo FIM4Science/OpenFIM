@@ -13,51 +13,49 @@ authors = [
    { name = "Ramses Sanchez", email = "sanchez@cs.uni-bonn.de" },
    { name = "Patrick Seifner", email = "seifner@cs.uni-bonn.de" },
    { name = "Cesar Ali Ojeda", email = "ojedamarin@uni-potsdam.de" },
-
+   { name = "Manuel Hinz"},
 ]
-license = { file = "LICENSE.txt" }
+license = { file = "LICENSE.md" }
 requires-python = ">=3.10,<3.13"
 dependencies = [
-   "torch>=2.5.0",
-   "transformers>=4.56.2",
-   "optree>=0.13.1",
-   "datasets",
-   "peft",
-   "click",
-   "numpy",
-   "scipy",
-   "pandas",
-   "tqdm",
-   "ipython",
-   "matplotlib>=3.10.0",
-   "ipympl",
-   "seaborn",
-   "tensorboard",
-   "h5py",
-   "optimum",
-   "pyyaml",
-   "jupyterlab",
-   "ipywidgets",
-   "pytest",
-   "pytest-cov",
-   "pytest-dependency",
-   "python-dotenv",
-   "tox",
-   "pre_commit",
-   "nbdime",
-   "nbstripout",
-   "sphinx",
-   "recommonmark",
-   "colorlog",
-   "torchinfo",
-   "ruff",
-   "pytest-env",
-   "pydantic",
-   "ipykernel>=6.30.1",
-   "gpytorch>=1.14",
-   "torchsde>=0.2.6",
+    "click",
+    "colorlog",
+    "datasets",
+    "h5py",
+    "ipykernel>=6.30.1",
+    "ipympl",
+    "ipython",
+    "ipywidgets",
+    "jupyterlab",
+    "matplotlib>=3.10.0",
+    "nbdime",
+    "nbstripout",
+    "numpy",
+    "optree>=0.13.1",
+    "pandas",
+    "peft",
+    "pre-commit",
+    "pydantic",
+    "pytest",
+    "pytest-cov",
+    "pytest-dependency",
+    "pytest-env",
+    "python-dotenv",
+    "pyyaml",
+    "recommonmark",
+    "ruff",
+    "scipy",
+    "seaborn",
+    "sphinx",
+    "tensorboard",
+    "torch>=2.5.0",
+    "torchdiffeq",
+    "torchinfo",
+    "torchsde>=0.2.6",
+    "tox",
+    "tqdm",
+    "transformers==4.56.2",
 ]
-
 
 [tool.setuptools]
 include-package-data = false
@@ -71,18 +69,15 @@ addopts = "-ra"
 testpaths = ["tests"]
 env = ["PYTORCH_ENABLE_MPS_FALLBACK=1"]
 
-
 [tool.ruff]
 target-version = "py312"
 line-length = 140
+extend-exclude = ["tutorial", "notebooks"]
 
 [tool.ruff.lint]
-# Never enforce `E501` (line length violations).
 ignore = ["C901", "E501", "E741", "F402", "F823", "I001"]
 select = ["C", "E", "F", "I", "W"]
-# Allow unused variables when underscore-prefixed.
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$" # Allow unused variables when underscore-prefixed.
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401", "F403", "F811"]
@@ -91,30 +86,15 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 lines-after-imports = 2
 known-first-party = ["fim"]
 
-
 [tool.ruff.format]
-# Like Black, use double quotes for strings.
-quote-style = "double"
-
-# Like Black, indent with spaces, rather than tabs.
-indent-style = "space"
-
-# Like Black, respect magic trailing commas.
-skip-magic-trailing-comma = false
-
-# Like Black, automatically detect the appropriate line ending.
-line-ending = "auto"
+quote-style = "double" # Like Black, use double quotes for strings.
+indent-style = "space" # Like Black, indent with spaces, rather than tabs.
+skip-magic-trailing-comma = false # Like Black, respect magic trailing commas.
+line-ending = "auto" # Like Black, automatically detect the appropriate line ending.
 
 [tool.pylint]
 disable = [
    "C0103", # Invalid variable name
    "C0114", # Missing module docstring
-
-   #    "C0115",  # Missing class docstring
-   #    "C0116",  # Missing function or method docstring
-   #    "R0903",  # Too few public methods
-   #    "R0913",  # Too many arguments
-   #    "R0914",  # Too many local variables
-   #    "R0915",  # Too many statements
 ]
 max-line-length = 140

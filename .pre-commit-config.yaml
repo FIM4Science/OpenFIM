@@ -1,10 +1,8 @@
-exclude: "^docs/conf.py"
 exclude: ".*\\.ipynb$"
-exclude: "scripts/sde/evaluation/mmd.py" # ksig needs to be imported after sys. calls
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-ast
       - id: check-builtin-literals
@@ -26,21 +24,10 @@ repos:
       - id: mixed-line-ending
         args: ["--fix=lf"] # replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.9.8
+    rev: v0.15.13
     hooks:
-      # Run the linter.
       - id: ruff
         args: [--fix, --show-fixes, --extend-select, I, --extend-select, F]
-      # Run the formatter.
+        exclude: ^(tutorial|notebooks)/
       - id: ruff-format
-  # - repo: https://github.com/PyCQA/isort
-  #   rev: 5.11.5
-  #   hooks:
-  #     - id: isort
-  # # Check for misspells in documentation files:
-  # - repo: https://github.com/codespell-project/codespell
-  #   rev: v2.2.5
-  #   hooks:
-  #     - id: codespell
-  #       args: ["--ignore-words-list=docs/spelling_wordlist.txt"]
+        exclude: ^(tutorial|notebooks)/

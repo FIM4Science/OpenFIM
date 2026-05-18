@@ -9,8 +9,8 @@ from torch import Tensor
 from fim.data.dataloaders import BaseDataLoader
 from fim.models.blocks import AModel
 from fim.models.sde import SDEConcepts
-from fim.sampling.sde_path_samplers import fimsde_sample_paths, fimsde_sample_paths_on_masked_grid
 from fim.trainers.utils import TrainLossTracker
+from fim.utils.sde.solvers import fimsde_sample_paths, fimsde_sample_paths_on_masked_grid
 from fim.utils.sde.vector_fields_and_paths_plots import (
     plot_1d_vf_real_and_estimation,
     plot_2d_vf_real_and_estimation,

@@ -112,16 +112,33 @@ class TestMJP:
             "nhead": 8,
             "dim_feedforward": 256,
             "dropout": 0.1,
+            "batch_first": True,
         }
-        pos_encodings = {"name": "fim.models.blocks.SineTimeEncoding", "out_features": 64}
+        pos_encodings = {
+            "name": "fim.models.blocks.positional_encodings.SineTimeEncoding",
+            "out_features": 64,
+        }
         timeseries_encoder = {
             "name": "torch.nn.TransformerEncoder",
             "num_layers": 4,
             "encoder_layer": transformer_encoder_layer,
         }
-        path_attn = {"name": "torch.nn.MultiheadAttention", "embed_dim": 64, "num_heads": 8, "batch_first": True}
-        intensity_matrix_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
-        initial_distribution_decoder = {"name": "fim.models.blocks.MLP", "hidden_layers": [64, 64], "dropout": 0.1}
+        path_attn = {
+            "name": "torch.nn.MultiheadAttention",
+            "embed_dim": 64,
+            "num_heads": 8,
+            "batch_first": True,
+        }
+        intensity_matrix_decoder = {
+            "name": "fim.models.blocks.MLP",
+            "hidden_layers": [64, 64],
+            "dropout": 0.1,
+        }
+        initial_distribution_decoder = {
+            "name": "fim.models.blocks.MLP",
+            "hidden_layers": [64, 64],
+            "dropout": 0.1,
+        }
         assert (
             FIMMJP(
                 FIMMJPConfig(
@@ -215,6 +232,3 @@ class TestMJP:
         loaded_model = FIMMJP.from_pretrained(tmp_path)
         # assert model.config == loaded_model.config
         assert model.state_dict().keys() == loaded_model.state_dict().keys()
-
-
-# Removed outdated Hawkes model unit tests; pipeline coverage is provided in test_hawkes_pipeline.py
