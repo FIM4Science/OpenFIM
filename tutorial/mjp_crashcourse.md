@@ -44,3 +44,10 @@ For an MJP starting in a state $i \in \mathcal{X}$, the first-passage time to an
 1 + \sum_{k} \mathbf{F}_{ik} \tau_{kj} = 0, & j \neq i
 \end{cases}
 ```
+
+
+## Bibliography
+```{bibliography}
+:style: alpha
+:filter: docname in docnames
+```
