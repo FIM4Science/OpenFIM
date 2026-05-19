@@ -38,7 +38,9 @@ To achieve this overarching goal, we design pre-trained neural recognition model
 
 Fundamentally, these pre-trained neural recognition models enable the zero-shot inference of (the parameters defining) the mathematical equations they encode directly from data. We refer to these models as Foundation Inference Models (FIMs).
 
-## References
+## Publications
+
+> **Citation:** Find the bibtex entries for all publications in [publications.bib](publications.bib).
 
 - ["Foundation Inference Models for Markov Jump Processes"](https://openreview.net/forum?id=f4v7cmm5sC) (NeurIPS 2024), David Berghaus, Kostadin Cvejoski, Patrick Seifner, César Ojeda, Ramsés J. Sánchez
 - ["Zero-shot Imputation with Foundation Inference Models for Dynamical Systems"](https://openreview.net/forum?id=NPSZ7V1CCY) (ICLR 2025), Patrick Seifner, Kostadin Cvejoski, Antonia Körner, Ramsés J. Sánchez
