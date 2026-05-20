@@ -1,13 +1,17 @@
 import logging
-import math
+from abc import ABC, abstractmethod
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
+import einops
+import optree
 import torch
+from torch import Tensor
 from transformers import PretrainedConfig
 
-from fim.data.utils import make_multi_dim, make_single_dim, reorder_windows_per_sample, split_into_windows
+from fim.models.sde import InstanceNormalization, forward_fill_masked_values
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.helper import create_class_instance
 from fim.utils.metrics import compute_metrics
@@ -95,7 +99,7 @@ class FIMODE(AModel):
     def forward(self, batch, schedulers: Optional[dict] = None, step: Optional[int] = None, training: bool = False) -> dict:
         """
         Args:
-            batch (dict): input batch with entries (each torch.Tensor)
+            batch (dict): input batch with entries (each Tensor)
                  coarse_grid_(noisy_)sample_paths [B, T, 1] observation values. optionally with noise.
                  coarse_grid_grid [B, T, 1] observation times
                  coarse_grid_observation_mask [B, T, 1] observation mask, dtype: bool (0: value is observed, 1: value is masked out)
@@ -237,12 +241,12 @@ class FIMODE(AModel):
         Encode observation times, concatenate with normalized observation values and pass through branch net (sequence-to-sequence model).
 
         Args:
-            obs_times (torch.Tensor): observation times [B, T, 1]
-            obs_values (torch.Tensor): observation values [B, T, 1]
-            obs_mask (torch.Tensor): observation mask [B, T, 1]
+            obs_times (Tensor): observation times [B, T, 1]
+            obs_values (Tensor): observation values [B, T, 1]
+            obs_mask (Tensor): observation mask [B, T, 1]
 
         Returns:
-            torch.Tensor: encoded input sequence [B, 1, dim_latent]
+            Tensor: encoded input sequence [B, 1, dim_latent]
         """
         # encode times
         encoded_obs_times = self.time_encoding(grid=obs_times)  # Shape [B, T, dim_time]
@@ -262,17 +266,17 @@ class FIMODE(AModel):
 
     def _get_vector_field_concepts(
         self,
-        location_times: torch.Tensor,
-        encoded_sequence: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        location_times: Tensor,
+        encoded_sequence: Tensor,
+    ) -> tuple[Tensor, Tensor]:
         """
         Compute mean and log standard deviation of the vector field at given grid times.
 
         Encode location times, pass through trunk net, combine with branch output in combiner net and compute mean and log_std of the vector field.
 
         Args:
-            location_times (torch.Tensor): fine grid time points [B, L, 1]
-            encoded_sequence (torch.Tensor): Encoded input sequence (as issued from branch net) [B, 1, dim_latent]
+            location_times (Tensor): fine grid time points [B, L, 1]
+            encoded_sequence (Tensor): Encoded input sequence (as issued from branch net) [B, 1, dim_latent]
 
         Returns:
             tuple: mean and log standard deviation of the vector field ([B, L, 1], [B, L, 1])
@@ -300,13 +304,13 @@ class FIMODE(AModel):
 
         return vector_field_mean, vector_field_log_std
 
-    def _get_init_condition_concepts(self, encoded_sequence: torch.Tensor, t_0: torch.Tensor) -> tuple:
+    def _get_init_condition_concepts(self, encoded_sequence: Tensor, t_0: Tensor) -> tuple:
         """
         Compute mean and log standard deviation of the initial condition.
 
         Args:
-            encoded_sequence (torch.Tensor): embedding of the input sequence (as issued by branch net) [B, 1, dim_latent]
-            t_0 (torch.Tensor): initial time point (normalized space) [B, 1, 1]
+            encoded_sequence (Tensor): embedding of the input sequence (as issued by branch net) [B, 1, dim_latent]
+            t_0 (Tensor): initial time point (normalized space) [B, 1, 1]
 
         Returns:
             tuple: mean and log standard deviation of the initial condition ([B, 1], [B, 1])
@@ -325,9 +329,9 @@ class FIMODE(AModel):
         self,
         vector_field_concepts: tuple,
         init_condition_concepts: tuple,
-        target_drift_fine_grid: torch.Tensor,
-        fine_grid_sample_paths: torch.Tensor,
-        fine_grid_grid: torch.Tensor,
+        target_drift_fine_grid: Tensor,
+        fine_grid_sample_paths: Tensor,
+        fine_grid_grid: Tensor,
     ) -> dict:
         """
         Compute the loss of the FIMODE model (in original space).
@@ -342,8 +346,8 @@ class FIMODE(AModel):
         Args:
             vector_field_concepts (tuple): mean and log standard deviation of the vector field concepts (in original space) ([B, L, D], [B, L, D])
             init_condition_concepts (tuple): mean and log standard deviation of the initial condition concepts (in original space) ([B, D], [B, D])
-            target_drift_fine_grid (torch.Tensor): target values (in original space) [B, L, D]
-            fine_grid_grid (torch.Tensor): fine grid time points (in original space) [B, L, 1]
+            target_drift_fine_grid (Tensor): target values (in original space) [B, L, D]
+            fine_grid_grid (Tensor): fine grid time points (in original space) [B, L, 1]
 
         Returns:
             dict: llh_drift, llh_init_cond, unsupervised_loss, loss = weighted sum of all losses
@@ -398,22 +402,22 @@ class FIMODE(AModel):
 
     def get_solution(
         self,
-        fine_grid: torch.Tensor,
-        init_condition: torch.Tensor,
-        branch_out: torch.Tensor,
+        fine_grid: Tensor,
+        init_condition: Tensor,
+        branch_out: Tensor,
         normalization_parameters: dict,
-    ) -> torch.Tensor:
+    ) -> Tensor:
         """
         Compute the solution of the ODE using the defined ode_solver.
 
         Args:
-            fine_grid (torch.Tensor): fine grid time points [B, L] (normalized space)
-            init_condition (torch.Tensor): initial condition [B, D] (original space)
-            branch_out (torch.Tensor): output of the branch network [B, 1, dim_latent] (normalized space)
+            fine_grid (Tensor): fine grid time points [B, L] (normalized space)
+            init_condition (Tensor): initial condition [B, D] (original space)
+            branch_out (Tensor): output of the branch network [B, 1, dim_latent] (normalized space)
             normalization_parameters (dict): normalization parameters for time and values
 
         Returns:
-            solution: torch.Tensor: solution at fine grid points [B, L, D] (original space)
+            solution: Tensor: solution at fine grid points [B, L, D] (original space)
         """
         B, L = fine_grid.shape[:-1]
 
@@ -454,20 +458,20 @@ class FIMODE(AModel):
 
         return solution
 
-    def normalize_input(self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor) -> tuple:
+    def normalize_input(self, obs_values: Tensor, obs_times: Tensor, obs_mask: Tensor, loc_times: Tensor) -> tuple:
         """
         Apply normalization to observation values and times independently.
 
         Args:
-            obs_values (torch.Tensor): observation values
-            obs_times (torch.Tensor): observation times
-            obs_mask (torch.Tensor): observation mask
-            loc_times (torch.Tensor): location times
+            obs_values (Tensor): observation values
+            obs_times (Tensor): observation times
+            obs_mask (Tensor): observation mask
+            loc_times (Tensor): location times
 
         Returns:
-            tuple: normalized observation values (torch.Tensor),
-                   normalized observation times (torch.Tensor),
-                   normalized location times (torch.Tensor),
+            tuple: normalized observation values (Tensor),
+                   normalized observation times (Tensor),
+                   normalized location times (Tensor),
                    normalization parameters (dict) with keys "norm_params_time" and "norm_params_values"
         """
         # normalize time
@@ -491,88 +495,11 @@ class FIMODE(AModel):
             normalization_parameters,
         )
 
-    def normalize_input_old(
-        self, obs_values: torch.Tensor, obs_times: torch.Tensor, obs_mask: torch.Tensor, loc_times: torch.Tensor
-    ) -> tuple:
-        """
-        Apply normalization to observation values and times independently.
-
-        Args:
-            obs_values (torch.Tensor): observation values
-            obs_times (torch.Tensor): observation times
-            obs_mask (torch.Tensor): observation mask
-            loc_times (torch.Tensor): location times
-
-        Returns:
-            tuple: normalized observation values (torch.Tensor),
-                   normalized observation times (torch.Tensor),
-                   normalized location times (torch.Tensor),
-                   normalization parameters (dict) with keys "norm_params_time" and "norm_params_values"
-        """
-
-        def get_norm_params(data: torch.Tensor, mask: torch.Tensor) -> tuple:
-            """
-            Compute normalization parameters for min-max scaling (per sample and dimension/feature).
-
-            Args:
-                data (torch.Tensor): data to normalize [B, T, D]
-                mask (torch.Tensor): observation mask [B, T, 1]
-            Returns:
-                tuple: min (torch.Tensor, [B, D]), range (torch.Tensor, [B, D])
-            """
-            # get min and max values for each feature dimension per batch entry
-            data_min = torch.amin(data.masked_fill(mask, float("inf")), dim=1)  # Shape [B, D]
-            data_max = torch.amax(data.masked_fill(mask, float("-inf")), dim=1)  # Shape [B, D]
-
-            # compute range, add small value to avoid division by zero
-            data_range = data_max - data_min + 1e-6
-
-            return data_min, data_range
-
-        def normalize(data: torch.Tensor, norm_params: tuple) -> torch.Tensor:
-            """
-            Normalize values using min-max scaling.
-
-            Args:
-                data (torch.Tensor): data to normalized [B, T, D]
-                norm_params (tuple): min and range of the values ([B, D], [B, D])
-
-            Returns:
-                torch.Tensor: normalized values [B, T, D]
-            """
-            data_min, data_range = norm_params
-
-            # unsqueeze to allow broadcasting
-            data_min = data_min.unsqueeze(1)  # Shape [B, 1, D]
-            data_range = data_range.unsqueeze(1)  # Shape [B, 1, D]
-
-            return (data - data_min) / data_range
-
-        obs_values_norm_params = get_norm_params(obs_values, obs_mask)  # ([B, D], [B, D])
-        obs_times_norm_params = get_norm_params(obs_times, obs_mask)  # ([B, 1], [B, 1])
-
-        normalized_obs_values = normalize(obs_values, obs_values_norm_params)  # [B, T, D]
-        normalized_obs_times = normalize(obs_times, obs_times_norm_params)  # [B, T, 1]
-        normalized_loc_times = normalize(loc_times, obs_times_norm_params)  # [B, L, 1]
-
-        normalization_parameters = {
-            "obs_values_min": obs_values_norm_params[0],
-            "obs_values_range": obs_values_norm_params[1],
-            "obs_times_min": obs_times_norm_params[0],
-            "obs_times_range": obs_times_norm_params[1],
-        }
-        return (
-            normalized_obs_values,
-            normalized_obs_times,
-            normalized_loc_times,
-            normalization_parameters,
-        )
-
     def _renormalize_vector_field_params(
         self,
         vector_field_concepts: tuple,
         normalization_parameters: dict,
-    ) -> Union[tuple, torch.Tensor]:
+    ) -> Union[tuple, Tensor]:
         """
         Rescale vector field (mean and log_std) to original scale based on normalization parameters of observation values and times.
 
@@ -583,7 +510,7 @@ class FIMODE(AModel):
 
         Returns:
             if drift_log_std != None: return tuple: rescaled mean and log standard deviation of the concept distribution ([B, L, 1], [B, L, 1])
-            if drift_log_std == None: return torch.Tensor: rescaled mean of the concept distribution ([B, L, 1])
+            if drift_log_std == None: return Tensor: rescaled mean of the concept distribution ([B, L, 1])
         """
         drift_mean, drift_log_std = vector_field_concepts
 
@@ -647,47 +574,9 @@ class FIMODE(AModel):
 
         return init_cond_mean_origSpace, init_cond_log_std_origSpace
 
-    def _renormalize_time(self, grid_grid: torch.Tensor, norm_params: dict) -> torch.Tensor:
+    def _renormalize_time(self, grid_grid: Tensor, norm_params: dict) -> Tensor:
         """Revert time normalization."""
         return self.normalization_time.revert_normalization(grid_grid, norm_params.get("norm_params_time"))
-
-    def _renormalize_init_condition_params_old(self, init_cond_dist_params: tuple, normalization_parameters: dict) -> tuple:
-        """
-        Rescale the initial condition (mean and log_std) to original space based on observation values normalization parameters.
-
-        Args:
-            init_cond_dist_params (tuple): learnt mean and variance of the initial condition ([B,1], [B, 1])
-            normalization_parameters (dict): holding all normalization parameters including obs_values_min and obs_values_range
-
-        Returns:
-            tuple: rescaled mean and log standard deviation of the initial condition ([B, 1], [B, 1])
-        """
-        init_cond_mean, init_cond_log_std = init_cond_dist_params  # [B,1], [B, 1]
-        obs_values_min = normalization_parameters.get("obs_values_min")  # [B, 1]
-        obs_values_range = normalization_parameters.get("obs_values_range")  # [B, 1]
-
-        # rescale mean and log std
-        init_cond_mean = init_cond_mean * obs_values_range + obs_values_min  # Shape [B, 1]
-        init_cond_log_std = init_cond_log_std + torch.log(obs_values_range)  # Shape [B, 1]
-
-        return init_cond_mean, init_cond_log_std
-
-    def _renormalize_time_old(self, grid_grid: torch.Tensor, normalization_parameters: dict) -> torch.Tensor:
-        """Revert min-max scaling of time points."""
-        times_min = normalization_parameters.get("obs_times_min")
-        times_range = normalization_parameters.get("obs_times_range")
-
-        grid_dim = grid_grid.dim()
-
-        if grid_dim == 3:
-            grid_grid = grid_grid.squeeze(-1)
-
-        grid_grid = grid_grid * times_range + times_min
-
-        if grid_dim == 3:
-            grid_grid = grid_grid.unsqueeze(-1)
-
-        return grid_grid
 
     def metric(self, y: Any, y_target: Any) -> Dict:
         # compute MSE, RMSE, MAE, R2 score
@@ -696,24 +585,24 @@ class FIMODE(AModel):
 
     def new_stats(
         self,
-        normalized_fine_grid_grid: torch.Tensor,
+        normalized_fine_grid_grid: Tensor,
         init_condition_concepts: tuple,
-        encoded_sequence: torch.Tensor,
+        encoded_sequence: Tensor,
         normalization_parameters: dict,
-        fine_grid_sample_path: torch.Tensor,
-    ) -> tuple[dict, torch.Tensor]:
+        fine_grid_sample_path: Tensor,
+    ) -> tuple[dict, Tensor]:
         """
         Compute metrics betwenn target and predicted solution at fine grid points.
 
         Args:
-            normalized_fine_grid_grid (torch.Tensor): fine grid time points [B, L, 1]
+            normalized_fine_grid_grid (Tensor): fine grid time points [B, L, 1]
             init_condition_concepts (tuple): mean and log standard deviation of the initial condition ([B, 1], [B, 1])
-            encoded_sequence (torch.Tensor): output of the branch network [B, 1, dim_latent]
+            encoded_sequence (Tensor): output of the branch network [B, 1, dim_latent]
             normalization_parameters (dict): normalization parameters for time and values
-            fine_grid_sample_path (torch.Tensor): target values at fine grid points [B, L, D]
+            fine_grid_sample_path (Tensor): target values at fine grid points [B, L, D]
 
         Returns:
-            tuple: metrics (dict), solution (torch.Tensor)
+            tuple: metrics (dict), solution (Tensor)
         """
         # get solution
         solution = self.get_solution(
@@ -736,272 +625,857 @@ class FIMODE(AModel):
         return self.peft is not None and self.peft["method"] is not None
 
 
-class FIMWindowed(AModel):
+@optree.dataclasses.dataclass(namespace="fim_imp_pointwise", eq=False)
+class ImputationConcepts:
+    """
+    Stores Imputation concepts, i.e. evaluation times, initial conditions, the vector field (derivative) and the
+    interpolating function, i.e. reconstruction.
+    A flag keeps track of the normalization status of these concepts.
+    """
+
+    evaluation_times: Tensor  # Shape: [B, ..., 1]
+    reconstructed_values: Tensor  # Shape: [B, ..., D]
+    init_cond_mean: Tensor  # Shape: [B, ..,  D], one less axis than rest
+    init_cond_log_std: Tensor  # Shape: [B, ..,  D], one less axis than rest
+    vector_field_mean: Tensor  # Shape: [B, ..., D]
+    vector_field_log_std: Tensor  # Shape: [B, ..., D]
+    normalized: bool = optree.dataclasses.field(default=False, pytree_node=False)
+
+    def __eq__(self, other: object) -> bool:
+        """
+        Define equality by closeness of attributes.
+        """
+
+        rtol: float = 1e-5
+        atol: float = 1e-6
+
+        is_equal: bool = True
+
+        is_equal = is_equal and self._allclose(self.evaluation_times, other.evaluation_times, atol=atol, rtol=rtol)
+        is_equal = is_equal and self._allclose(self.reconstructed_values, other.reconstructed_values, atol=atol, rtol=rtol)
+        is_equal = is_equal and self._allclose(self.init_cond_mean, other.init_cond_mean, atol=atol, rtol=rtol)
+        is_equal = is_equal and self._allclose(self.init_cond_log_std, other.init_cond_log_std, atol=atol, rtol=rtol)
+        is_equal = is_equal and self._allclose(self.vector_field_mean, other.vector_field_mean, atol=atol, rtol=rtol)
+        is_equal = is_equal and self._allclose(self.vector_field_log_std, other.vector_field_log_std, atol=atol, rtol=rtol)
+
+        is_equal = is_equal and (self.normalized == other.normalized)
+
+        return is_equal
+
+    @staticmethod
+    def _allclose(input: Tensor | None, other: Tensor | None, atol: float, rtol=float) -> bool:
+        """
+        Wraps torch.allclose to handle potential Nones.
+        """
+
+        if input is None and other is None:
+            return True
+
+        elif input is None or other is None:
+            return False
+
+        else:
+            return torch.allclose(input, other, atol=atol, rtol=rtol)
+
+    def _assert_shape(self) -> None:
+        """
+        Assert that all attributes are of same shape.
+        """
+
+        shapes_func_evals = []
+
+        for field in [self.reconstructed_values, self.vector_field_mean, self.vector_field_log_std]:
+            if field is not None:
+                shapes_func_evals.append(field.shape)
+
+        assert len(set(shapes_func_evals)) <= 1, (
+            f"Shapes of fields do not match. \
+                    reconstructed_values: {self.reconstructed_values.shape},\
+                    vector_field_mean: {self.vector_field_mean.shape}, vector_field_log_std: {self.vector_field_log_std.shape}."
+        )
+
+        assert self.init_cond_mean is not None and self.init_cond_log_std is not None, (
+            f"init_cond_mean is not None: {self.init_cond_mean is not None}, \
+                    init_cond_log_std is not None: {self.init_cond_log_std is not None}"
+        )
+
+        assert self.init_cond_mean.shape == self.init_cond_log_std.shape, (
+            f"init_cond_mean: {self.init_cond_mean.shape}, init_cond_log_std: {self.init_cond_log_std.shape}"
+        )
+
+    def _log_std_normalization_map(
+        self, norm: InstanceNormalization, norm_stats: Any, log_std: Tensor, mean: Tensor, eps: float = 1e-8
+    ) -> Tensor:
+        """
+        Transforms a log-scaled standard deviation under the forward normalization map.
+
+        Formula: log_std_out = log_std_in + log(|f'(mean)|)
+
+        Args:
+            log_std (Tensor): The input log-standard deviation. Shape: [B, ..., D]
+            mean (Tensor): The input mean where the derivative is evaluated. Shape: [B, ..., D]
+            norm_stats (Any): Precomputed stats defining the normalization map.
+            eps (float): Small constant to guarantee numerical stability inside log().
+        """
+        derivative = norm.normalization_map(mean, norm_stats, derivative_num=1)
+
+        return log_std + torch.log(torch.abs(derivative) + eps)
+
+    def _inverse_log_std_normalization_map(
+        self, norm: InstanceNormalization, norm_stats: Any, log_std: Tensor, mean: Tensor, eps: float = 1e-8
+    ) -> Tensor:
+        """
+        Transforms a log-scaled standard deviation under the inverse normalization map
+        using its first derivative evaluated at the distribution's mean.
+
+        Formula: log_std_out = log_std_in + log(|(f^-1)'(mean)|)
+
+        Args:
+            log_std (Tensor): The input log-standard deviation to re-normalize. Shape: [B, ..., D]
+            mean (Tensor): The input mean in normalized space where the derivative is evaluated. Shape: [B, ..., D]
+            norm_stats (Any): Precomputed stats defining the normalization map.
+            eps (float): Small constant to guarantee numerical stability inside log().
+        """
+        derivative = norm.inverse_normalization_map(mean, norm_stats, derivative_num=1)
+
+        return log_std + torch.log(torch.abs(derivative) + eps)
+
+    def _values_transformation(self, values_norm: InstanceNormalization, values_norm_stats: Any, normalize: bool) -> None:
+        """
+        Apply the transformation to concepts induced by the transformation of the values from the InstanceNormalization.
+
+        First transform log standard deviations, then mean values.
+        Order is important to apply the general formulas established by _log_std_normalization_map and _inverse_log_std_normalization_map.
+
+        Args:
+            values_norm (InstanceNormalization): Underlying transformations of values.
+            values_norm_stats (Any): Statistics used by values_norm.
+            normalize (bool): If true, applies forward normalization, else inverse normalization.
+        """
+        self._assert_shape()
+
+        if self.init_cond_mean is not None and self.init_cond_log_std is not None:
+            if normalize is True:
+                self.init_cond_log_std = self._log_std_normalization_map(
+                    values_norm, values_norm_stats, self.init_cond_log_std, self.init_cond_mean
+                )
+                self.init_cond_mean = values_norm.normalization_map(self.init_cond_mean, values_norm_stats)
+
+            else:
+                self.init_cond_log_std = self._inverse_log_std_normalization_map(
+                    values_norm, values_norm_stats, self.init_cond_log_std, self.init_cond_mean
+                )
+                self.init_cond_mean = values_norm.inverse_normalization_map(self.init_cond_mean, values_norm_stats)
+
+        if self.reconstructed_values is not None:
+            if normalize is True:
+                if self.vector_field_log_std is not None:
+                    self.vector_field_log_std = self._log_std_normalization_map(
+                        values_norm, values_norm_stats, self.vector_field_log_std, self.reconstructed_values
+                    )
+                grad = values_norm.normalization_map(self.reconstructed_values, values_norm_stats, derivative_num=1)
+                self.reconstructed_values = values_norm.normalization_map(self.reconstructed_values, values_norm_stats)
+
+            else:
+                if self.vector_field_log_std is not None:
+                    self.vector_field_log_std = self._inverse_log_std_normalization_map(
+                        values_norm, values_norm_stats, self.vector_field_log_std, self.reconstructed_values
+                    )
+                grad = values_norm.inverse_normalization_map(self.reconstructed_values, values_norm_stats, derivative_num=1)
+                self.reconstructed_values = values_norm.inverse_normalization_map(self.reconstructed_values, values_norm_stats)
+
+            if self.vector_field_mean is not None:
+                self.vector_field_mean = self.vector_field_mean * grad
+
+        self._assert_shape()
+
+    def _times_transformation(self, times_norm: InstanceNormalization, times_norm_stats: Any, normalize: bool) -> None:
+        """
+        Apply the transformation to concepts induced by the transformation of time from the InstanceNormalization.
+
+        Args:
+            times_norm (InstanceNormalization): Underlying transformations of time.
+            times_norm_stats (Any): Statistics used by times_norm.
+            normalize (bool): If true, applies transformation induced by normalization, else by the inverse of normalization.
+        """
+        self._assert_shape()
+
+        if self.evaluation_times is not None:
+            if normalize is True:
+                t_norm = times_norm.normalization_map(self.evaluation_times, times_norm_stats)
+
+                if self.vector_field_log_std is not None:
+                    self.vector_field_log_std = self._inverse_log_std_normalization_map(
+                        times_norm, times_norm_stats, self.vector_field_log_std, t_norm
+                    )
+
+                grad = times_norm.inverse_normalization_map(t_norm, times_norm_stats, derivative_num=1)
+                self.evaluation_times = t_norm
+
+            else:
+                t_raw = times_norm.inverse_normalization_map(self.evaluation_times, times_norm_stats)
+
+                if self.vector_field_log_std is not None:
+                    self.vector_field_log_std = self._log_std_normalization_map(
+                        times_norm, times_norm_stats, self.vector_field_log_std, t_raw
+                    )
+
+                grad = times_norm.normalization_map(t_raw, times_norm_stats, derivative_num=1)
+                self.evaluation_times = t_raw
+
+            if self.vector_field_mean is not None:
+                self.vector_field_mean = self.vector_field_mean * grad
+
+        self._assert_shape()
+
+    def normalize(
+        self, values_norm: InstanceNormalization, values_norm_stats: Any, times_norm: InstanceNormalization, times_norm_stats: Any
+    ) -> None:
+        """
+        Normalize evaluation times, reconstructed values, initial conditions, and vector fields if not already normalized.
+
+        Args:
+            values_norm (InstanceNormalization): Transformation to apply to spatial value states.
+            values_norm_stats (Any): Precomputed stats mapping the values/states.
+            times_norm (InstanceNormalization): Transformation to apply to time scales.
+            times_norm_stats (Any): Precomputed stats mapping timeline axes.
+        """
+
+        if self.normalized is False:
+            self._values_transformation(values_norm, values_norm_stats, normalize=True)
+            self._times_transformation(times_norm, times_norm_stats, normalize=True)
+
+            self.normalized = True
+
+    def renormalize(
+        self, values_norm: InstanceNormalization, values_norm_stats: Any, times_norm: InstanceNormalization, times_norm_stats: Any
+    ) -> None:
+        """
+        Renormalize evaluation times, reconstructed values, initial conditions, and vector fields back to original scale.
+
+        Args:
+            values_norm (InstanceNormalization): Transformation mapping value states back to target spaces.
+            values_norm_stats (Any): Precomputed stats mapping the values/states.
+            times_norm (InstanceNormalization): Transformation mapping timeline axes back.
+            times_norm_stats (Any): Precomputed stats mapping timeline axes.
+        """
+        if self.normalized is True:
+            self._values_transformation(values_norm, values_norm_stats, normalize=False)
+            self._times_transformation(times_norm, times_norm_stats, normalize=False)
+
+            self.normalized = False
+
+
+class Windowing(ABC):
+    """
+    Breaking down long time-series sequences into manageable processing windows and recombining their evaluations.
+    """
+
+    @abstractmethod
+    def get_windows_stats(self, obs_values: Tensor, obs_times: Tensor, obs_mask: Tensor, evaluation_times: Tensor) -> Any:
+        """
+        Extract stats defining windows from inputs.
+
+        Args:
+            obs_... (Tensor): Observations defining windows. Shape: [B, T, D/1]
+            evaluation_times (Tensor): Points to evaluate the imputing function at. Shape: [B, G, 1]
+
+        Returns:
+            windows_stats (Any): Object containing parameters defining windows and their combination.
+        """
+        ...
+
+    @abstractmethod
+    def split_obs(self, obs: Tensor, windows_stats: Any) -> Tensor:
+        """
+        Split tensor containing observations into windows according to windows_stats.
+
+        Args:
+            obs (Tensor): Vector from input. Shape: [B, T, D/1]
+            windows_stats (Any): Object containing parameters defining windows and their combination.
+
+        Returns:
+            obs_windowed (Tensor): Input vector split into windows. Shape: [B, W, K, D/1]
+        """
+        ...
+
+    @abstractmethod
+    def split_evaluation_times(self, evaluation_times: Tensor, windows_stats: Any) -> Tensor:
+        """
+        Split tensor containing evaluation times into windows according to windows_stats.
+
+        Args:
+            evaluation_times (Tensor): Shape: [B, G, 1]
+            windows_stats (Any): Object containing parameters defining windows and their combination.
+
+        Returns:
+            evaluation_times_windowed (Tensor): evaluation_times split into windows. Shape: [B, W, L, 1]
+        """
+        ...
+
+    @abstractmethod
+    def combine_evaluations(self, evaluations_windowed: Tensor, windows_stats: Any) -> Tensor:
+        """
+        Combine tensor containing windowed evaluations to single output.
+
+        Args:
+            evaluations_windowed (Tensor): Shape: [B, W, L, D/1]
+            windows_stats (Any): Object containing parameters defining windows and their combination.
+
+        Returns:
+            evaluations (Tensor): Shape: [B, G, D/1]
+        """
+        ...
+
+    def split(self, obs_values: Tensor, obs_times: Tensor, obs_mask: Tensor, evaluation_times: Tensor, windows_stats: Any) -> tuple[Tensor]:
+        """
+        Split observation tensors and evaluation times into windows according to windows_stats.
+
+        Args:
+            obs_values (Tensor): Observed values from input. Shape: [B, T, D/1]
+            obs_times (Tensor): Timestamps of observations. Shape: [B, T, 1]
+            obs_mask (Tensor): Mask identifying valid observations. Shape: [B, T, 1]
+            evaluation_times (Tensor): Points to evaluate the imputing function at. Shape: [B, G, 1]
+            windows_stats (Any): Object containing parameters defining windows and their combination.
+
+        Returns:
+            obs_..._windowed (Tensor): Observations split into windows. Shape: [B, W, K, D/1]
+            evaluation_times_windowed (Tensor): Evaluation times split into windows. Shape: [B, W, L, 1]
+        """
+
+        assert obs_values.ndim == obs_times.ndim == obs_mask.ndim == evaluation_times.ndim == 3, (
+            f"Got {obs_values.ndim}, {obs_times.ndim}, {obs_mask.ndim}, {evaluation_times.ndim}"
+        )
+
+        assert obs_values.shape[:2] == obs_times.shape[:2] == obs_mask.shape[:2], (
+            f"Got {obs_values.shape[:2]}, {obs_times.shape[:2]}, {obs_mask.shape[:2]}"
+        )
+
+        obs_values = self.split_obs(obs_values, windows_stats)
+        obs_times = self.split_obs(obs_times, windows_stats)
+        obs_mask = self.split_obs(obs_mask, windows_stats)
+
+        evaluation_times = self.split_evaluation_times(evaluation_times, windows_stats)
+
+        assert obs_values.ndim == obs_times.ndim == obs_mask.ndim == evaluation_times.ndim == 4, (
+            f"Got {obs_values.ndim}, {obs_times.ndim}, {obs_mask.ndim}, {evaluation_times.ndim}"
+        )
+
+        assert obs_values.shape[:3] == obs_times.shape[:3] == obs_mask.shape[:3], (
+            f"Got {obs_values.shape[:3]}, {obs_times.shape[:3]}, {obs_mask.shape[:3]}"
+        )
+
+        return obs_values, obs_times, obs_mask, evaluation_times
+
+    def combine(
+        self,
+        evaluation_times: Tensor,
+        reconstructed_values: Tensor,
+        vector_field_mean: Tensor,
+        vector_field_log_std: Tensor,
+        windows_stats: Any,
+    ) -> tuple[Tensor]:
+        """
+        Combine windowed evaluation tensors back into single continuous outputs.
+
+        Args:
+            evaluation_times (Tensor): Original evaluation times split into windows. Shape: [B, W, L, 1]
+            reconstructed_values (Tensor): Imputed values split into windows. Shape: [B, W, L, D]
+            vector_field_mean (Tensor): Mean values of the vector field per window. Shape: [B, W, L, D]
+            vector_field_log_std (Tensor): Log standard deviations of the vector field per window. Shape: [B, W, L, D]
+            windows_stats (Any): Object containing parameters defining windows and their combination.
+
+        Returns:
+            Combined inputs. Shapes: [B, G, D]
+        """
+
+        assert evaluation_times.ndim == reconstructed_values.ndim == vector_field_mean.ndim == vector_field_log_std.ndim == 4, (
+            f"Got {evaluation_times.ndim}, {reconstructed_values.ndim}, {vector_field_mean.ndim}, {vector_field_log_std.ndim}"
+        )
+
+        evaluation_times = self.combine_evaluations(evaluation_times, windows_stats)
+        reconstructed_values = self.combine_evaluations(reconstructed_values, windows_stats)
+        vector_field_mean = self.combine_evaluations(vector_field_mean, windows_stats)
+        vector_field_log_std = self.combine_evaluations(vector_field_log_std, windows_stats)
+
+        assert evaluation_times.ndim == reconstructed_values.ndim == vector_field_mean.ndim == vector_field_log_std.ndim == 3, (
+            f"Got {evaluation_times.ndim}, {reconstructed_values.ndim}, {vector_field_mean.ndim}, {vector_field_log_std.ndim}"
+        )
+
+        return evaluation_times, reconstructed_values, vector_field_mean, vector_field_log_std
+
+
+def get_balanced_windows(grid_size: int, windows_count: int, overlap_percentage: float) -> tuple[int, int]:
+    """
+    Define sizes for windows on a grid with overlap, such that all windows are of equal size.
+
+    Args:
+        grid_size (int): Size of grid to split into windows.
+        windows_count (int): Number of windows to split grid into.
+        overlap_percentage (float): Additional percentage of window to overlap to the PREVIOUS window.
+
+    Returns:
+        window_size (int): Actual size of each window (including overlap).
+        stride_size (int): Stride of indices defining the first element of each window.
+    """
+
+    assert grid_size >= windows_count
+
+    ideal_w = grid_size / (1 + (windows_count - 1) * (1 - overlap_percentage))
+
+    window_size = round(ideal_w)
+    stride_size = round(window_size * (1 - overlap_percentage))
+
+    return window_size, stride_size
+
+
+def get_overlapping_window_slices(total_length: int, windows_count: int, window_size: int, stride_size: int) -> Tensor:
+    """
+    Build slice indices of windows from count, size, and stride lengths.
+
+    Args:
+        total_length (int): Total size of the grid to be split.
+        windows_count (int): Number of windows to create.
+        window_size (int): Size of each individual window.
+        stride_size (int): Stride used to calculate the start of each window.
+
+    Returns:
+        window_slices (Tensor): Indices defining start and end of each window. Shape: [w, 2]
+    """
+
+    window_slices = torch.zeros((windows_count, 2), dtype=torch.long)
+
+    for i in range(windows_count):
+        # last overlap compensates for when split can not be perfectly balanced
+        start_idx = i * stride_size if i < windows_count - 1 else total_length - window_size
+        end_idx = start_idx + window_size
+
+        window_slices[i, 0] = start_idx
+        window_slices[i, 1] = end_idx
+
+    return window_slices
+
+
+def compress_contiguous_mask(mask: Tensor) -> Tensor:
+    """
+    Extract compact window slice boundaries from boolean masks containing a single contiguous block of 1s, else 0s.
+
+    Args:
+        mask (Tensor): Boolean mask with single contiguous blocks of 1s. Shape: [B, W, G]
+
+    Returns:
+        slices (Tensor): Bound indices defining start and end elements of contiguous blocks. Shape: [B, W, 2]
+    """
+
+    assert mask.ndim == 3
+
+    start_indices = torch.argmax(mask.to(torch.int), dim=-1)  # [B, w]
+    slice_size = torch.sum(mask, dim=-1)  # [B, w]
+    end_indices = start_indices + slice_size  # [B, w]
+
+    slices = torch.stack([start_indices, end_indices], dim=-1)  # [B, w, 2]
+
+    return slices
+
+
+def scatter_contiguous_blocks(windows: Tensor, original_slices: Tensor, original_size: int) -> tuple[Tensor, Tensor]:
+    """
+    Reverse the model output compression of windows to full grid via coordinate scattering loop.
+
+    Args:
+        windows (Tensor): Windowed evaluations. Shape: [B, W, L, D/1]
+        original_slices (Tensor): Boundaries for each window. Shape: [B, W, 2]
+        original_size (int): The original full grid size G.
+
+    Returns:
+        windows_scattered (Tensor): Values expanded back to the original grid. Shape: [B, W, G, D/1]
+        scattered_mask (Tensor): Mask identifying valid evaluations after scatter. Shape: [B, W, G, 1]
+    """
+
+    B, W, _, D = windows.shape
+    G = original_size
+
+    windows_scattered = torch.zeros((B, W, G, D), device=windows.device)
+    scattered_mask = torch.zeros((B, W, G, 1), device=windows.device)  # identify evaluations after scatter
+
+    # double for loop could surely be replaced by complex torch operations
+    for b in range(B):
+        for w in range(W):
+            start_idx = original_slices[b, w, 0]
+            end_idx = original_slices[b, w, 1]
+            length = end_idx - start_idx
+
+            if length > 0:
+                target_indices = torch.arange(start_idx, end_idx, device=windows.device)
+                windows_scattered[b, w, target_indices, :] = windows[b, w, :length, :]
+                scattered_mask[b, w, target_indices, :] = 1.0
+
+    return windows_scattered, scattered_mask
+
+
+def linear_windows_interpolation(windows_scattered: Tensor, windows_mask: Tensor) -> Tensor:
+    """
+    Execute linear tensor interpolation over the overlap boundaries of adjacent windows.
+    Assumes windows are in order and no more than two windows can overlap at each point.
+
+    Args:
+        windows_scattered (Tensor): Scattered evaluation values on a global grid. Shape: [B, W, G, D]
+        windows_mask (Tensor): Mask tracking valid entries per window. Shape: [B, W, G, 1]
+
+    Returns:
+        combined (Tensor): Unified linear-interpolated tensor. Shape: [B, G, D]
+    """
+
+    windows_scattered = windows_scattered * windows_mask
+
+    # points in a single window
+    point_single = windows_mask.sum(dim=1) <= 1  # [B, G, 1]
+    at_single = torch.where(point_single, windows_scattered.sum(dim=1), 0.0)
+
+    # points_on_overlap
+    point_on_overlap = torch.logical_not(point_single)
+    overlaps_mask = windows_mask[:, :-1] * windows_mask[:, 1:]  # [B, W-1, G, 1]
+
+    right_window_weight = torch.cumsum(overlaps_mask, dim=-2) * overlaps_mask
+    left_window_weight = torch.flip(torch.cumsum(torch.flip(overlaps_mask, dims=[-2]), dim=-2), dims=[-2]) * overlaps_mask
+    total_weight = torch.where(left_window_weight + right_window_weight == 0, 1.0, left_window_weight + right_window_weight)
+
+    left_contributions = (left_window_weight / total_weight) * windows_scattered[:, :-1]
+    right_contributions = (right_window_weight / total_weight) * windows_scattered[:, 1:]
+
+    summed_overlaps = (left_contributions + right_contributions).sum(dim=1)
+    at_overlaps = torch.where(point_on_overlap, summed_overlaps, 0.0)
+
+    return at_single + at_overlaps
+
+
+@dataclass
+class StaticWindowsStats:
+    obs_window_slices: Tensor  # [w, 2], defining start_idx and end_idx slicing for obs_...
+    obs_windows_size: int
+    eval_windows_slices: Tensor  # [B, w, 2], defining start_idx and end_idx slicing for evaluations
+    max_eval_window_size: int
+    eval_grid_size: int
+
+
+class StaticWindowing(Windowing):
+    """
+    Split observation tensors in equal parts with optional overlap, ignoring imbalances caused by masked values.
+
+    Evaluation grid splitting implemented by masks.
+    """
+
+    def __init__(self, windows_count: int, overlap_percentage: float):
+
+        if not 0 <= overlap_percentage < 1:
+            raise ValueError("Overlap percentage must be between 0 and 1.")
+
+        self.windows_count = windows_count
+        self.overlap_percentage = overlap_percentage
+
+    def get_windows_stats(self, obs_values: Tensor, obs_times: Tensor, obs_mask: Tensor, evaluation_times: Tensor) -> StaticWindowsStats:
+        """
+        Build window stats completely based on the index dimensions of evaluation_times to ensure perfect reversibility.
+
+        Args:
+            obs_... (Tensor): Observations defining windows. Shape: [B, T, D/1]
+            evaluation_times (Tensor): Points to evaluate the imputing function at. Shape: [B, G, 1]
+
+        Returns:
+            windows_stats (StaticWindowsStats): Object containing parameters defining windows and their combination.
+        """
+        T = obs_times.shape[-2]
+        G = evaluation_times.shape[-2]
+
+        # balanced overlapping windows of obs_...
+        obs_window_size, stride_size = get_balanced_windows(T, self.windows_count, self.overlap_percentage)
+
+        obs_window_slices = get_overlapping_window_slices(T, self.windows_count, obs_window_size, stride_size)
+        obs_window_slices = obs_window_slices.to(obs_times.device)
+
+        # define scattered mask associating each evaluation time to (potentially 0, 1, 2) windows)
+        evaluation_times = evaluation_times.squeeze(-1)  # [B, G]
+        evaluation_times = einops.repeat(evaluation_times, "B G -> B w G", w=self.windows_count)
+
+        if self.windows_count == 1:
+            evaluations_mask = torch.ones_like(evaluation_times, dtype=torch.bool)
+
+        else:
+            start_indices = obs_window_slices[:, 0]
+            end_indices = obs_window_slices[:, 1] - 1
+
+            raw_lower_bound = obs_times[:, start_indices].clone()
+            raw_upper_bound = obs_times[:, end_indices].clone()
+
+            raw_lower_bound[:, 0] = -torch.inf
+            raw_upper_bound[:, -1] = torch.inf
+
+            # handling adjacent windows with no overlap
+            # define bounds by raw_bounds of adjacent windows
+            adjacent_upper_bound = torch.concatenate([raw_lower_bound[:, 1:], raw_upper_bound[:, -1:]], dim=1)
+            adjacent_lower_bound = torch.concatenate([raw_lower_bound[:, :1], raw_upper_bound[:, :-1]], dim=1)
+
+            # take extremes of two, to only use adjacents if they are wider than raw bounds
+            upper_bound = torch.maximum(raw_upper_bound, adjacent_upper_bound)
+            lower_bound = torch.minimum(raw_lower_bound, adjacent_lower_bound)
+
+            evaluations_mask = (evaluation_times >= lower_bound) & (evaluation_times <= upper_bound)
+
+        # compress evaluation mask to pass smallest tensor as possible to the model
+        eval_windows_slices = compress_contiguous_mask(evaluations_mask)
+
+        return StaticWindowsStats(
+            obs_window_slices=obs_window_slices,
+            obs_windows_size=obs_window_size,
+            eval_windows_slices=eval_windows_slices,
+            max_eval_window_size=torch.amax(eval_windows_slices).item(),
+            eval_grid_size=G,
+        )
+
+    def split_obs(self, obs: Tensor, windows_stats: StaticWindowsStats) -> Tensor:
+        """
+        Split tensor containing observations into windows according to windows_stats.
+
+        Args:
+            obs (Tensor): Vector from input. Shape: [B, T, D/1]
+            windows_stats (StaticWindowsStats): Object containing parameters defining windows and their combination.
+
+        Returns:
+            obs_windowed (Tensor): Input vector split into windows. Shape: [B, W, K, D/1]
+        """
+        if self.windows_count == 1:
+            return einops.rearrange(obs, "B T D -> B 1 T D")
+
+        else:
+            B, _, D = obs.shape
+            W = self.windows_count
+            K = windows_stats.obs_windows_size
+
+            obs_windowed = torch.zeros((B, W, K, D), dtype=obs.dtype, device=obs.device)
+
+            for w in range(W):
+                start_idx = windows_stats.obs_window_slices[w, 0]
+                end_idx = windows_stats.obs_window_slices[w, 1]
+                length = end_idx - start_idx
+
+                if length > 0:
+                    src_indices = torch.arange(start_idx, end_idx, device=obs.device)
+                    obs_windowed[:, w, :length, :] = obs[:, src_indices, :]
+
+            return obs_windowed
+
+    def split_evaluation_times(self, evaluation_times: Tensor, windows_stats: StaticWindowsStats) -> Tensor:
+        """
+        Split tensor containing evaluation times into windows according to windows_stats.
+
+        Args:
+            evaluation_times (Tensor): Shape: [B, G, 1]
+            windows_stats (StaticWindowsStats): Object containing parameters defining windows and their combination.
+
+        Returns:
+            evaluation_times_windowed (Tensor): evaluation_times split into windows. Shape: [B, W, L, 1]
+        """
+
+        if self.windows_count == 1:
+            return einops.rearrange(evaluation_times, "B G 1 -> B 1 G 1")
+
+        else:
+            B, W, _ = windows_stats.eval_windows_slices.shape
+            L = windows_stats.max_eval_window_size
+
+            # prefill with largest time in batch, important for FIMODE
+            evaluation_times_windowed = einops.repeat(torch.amax(evaluation_times, dim=-2), "B X -> B w l X", w=W, l=L).contiguous()
+
+            # double for loop could surely be replaced by complex torch operations
+            for b in range(B):
+                for w in range(W):
+                    start_idx = windows_stats.eval_windows_slices[b, w, 0]
+                    end_idx = windows_stats.eval_windows_slices[b, w, 1]
+                    length = end_idx - start_idx
+
+                    if length > 0:
+                        src_indices = torch.arange(start_idx, end_idx, device=evaluation_times.device)
+                        evaluation_times_windowed[b, w, :length] = evaluation_times[b, src_indices]
+
+            return evaluation_times_windowed
+
+    def combine_evaluations(self, evaluations_windowed: Tensor, windows_stats: StaticWindowsStats) -> Tensor:
+        """
+        Combine tensor containing windowed evaluations to single output.
+
+        Args:
+            evaluations_windowed (Tensor): Shape: [B, W, L, D/1]
+            windows_stats (StaticWindowsStats): Object containing parameters defining windows and their combination.
+
+        Returns:
+            evaluations (Tensor): Shape: [B, G, D/1]
+        """
+
+        if self.windows_count == 1:
+            G = windows_stats.eval_grid_size
+            return evaluations_windowed[:, 0, :G, :]
+
+        else:
+            # reverse compression
+            evaluations_windowed_scattered, evaluations_mask = scatter_contiguous_blocks(
+                evaluations_windowed, windows_stats.eval_windows_slices, windows_stats.eval_grid_size
+            )
+
+            evaluations_windowed_scattered.to(evaluations_windowed.device)
+            evaluations_mask.to(evaluations_windowed.device)
+
+            # linear interpolation on overlaps
+            evaluations = linear_windows_interpolation(evaluations_windowed_scattered, evaluations_mask)
+
+            return evaluations
+
+
+# Todo: define denoising interface
+def no_denoising(obs_values: Tensor, obs_mask: Tensor) -> Tensor:
+    return obs_values
+
+
+no_windowing = StaticWindowing(windows_count=1, overlap_percentage=0)
+
+
+class FIMWindowed:
     """
     Wrapper for FIMODE model to allow multidimensional and/or longer input sequences.
 
     Denoising model is optional. If not provided, the input is not denoised.
+
+    If windowing scheme is specified, the class can handle longer trajectories than the pre-trained FIMODE.
+
+    If no denoising and no windowing scheme is specified, this regresses to FIMODE, if applied to one-dimensional input.
     """
 
-    def __init__(self, fim_base: Union[str, Path, FIMODE], denoising_model: dict, window_count: int, overlap: float, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(
+        self, fim_imp_pointwise_base: str | Path | FIMODE, windowing: Windowing | None = None, denoising_model: Callable | None = None
+    ):
 
-        self.window_count = window_count
-        if not 0 <= overlap < 1:
-            raise ValueError("Overlap (percentage) must be between 0 and 1.")
-        self.overlap = overlap
-
-        self._create_model(
-            fim_model=fim_base,
-            denoising_model=denoising_model,
+        self.fim_imp_pointwise_base: FIMODE = (
+            load_model_from_checkpoint(fim_imp_pointwise_base, module=FIMODE)
+            if isinstance(fim_imp_pointwise_base, (str, Path))
+            else fim_imp_pointwise_base
         )
+        self.windowing: Windowing = windowing if windowing is not None else no_windowing
+        self.denoising_model = denoising_model if denoising_model is not None else no_denoising
 
-    def _create_model(self, fim_model: Union[str, Path, FIMODE], denoising_model: Optional[dict] = None):
-        if denoising_model is None:
-            # create dummy model that does nothing
-            self.denoising_model = lambda x, mask: x
-        else:
-            self.denoising_model = create_class_instance(
-                denoising_model.pop("name"),
-                denoising_model,
-            )
-        self.fim_base: FIMODE = load_model_from_checkpoint(fim_model, module=FIMODE) if isinstance(fim_model, (str, Path)) else fim_model
-
-    def forward(self, x: dict) -> dict:
+    @torch.profiler.record_function("fim_imp_pointwise_forward")
+    def forward(
+        self, obs_times: Tensor, obs_values: Tensor, evaluation_times: Tensor, obs_mask: Tensor | None = None
+    ) -> ImputationConcepts:
         """
         Args:
-            x (dict): input data, with keys
-                `coarse_grid_sample_paths`
-        """
-        noisy_observation_values = x.get("coarse_grid_noisy_sample_paths")  # shape [B, T, D]
-        observation_mask = x.get("coarse_grid_observation_mask", None)  #  shape [B, T, 1]
-        observation_times = x.get("coarse_grid_grid")  # shape [B, T, 1]
-        location_times = x.get("fine_grid_grid")  # shape [B, T, 1]
+            obs_times (Tensor): Observation times of obs_values, assumed to be ordered. Shape: [B, T, 1]
+            obs_values (Tensor): Observation values. Shape: [B, T, D]
+            evaluation_times (Tensor): Points to evaluate the imputing function at, assumed to be ordered. Shape: [B, G, 1]
+            obs_mask (Tensor): Mask for padded observations. (0: value is observed, 1: value is masked out). Shape: [B, T, 1]
 
-        if observation_mask is None:
-            observation_mask = torch.zeros_like(observation_times)
-
-        batch_size, max_sequence_length, process_dim = noisy_observation_values.shape
-        if (window_size := int((ws := (math.ceil(max_sequence_length / self.window_count))) + self.overlap * ws)) >= 128:
-            raise ValueError(
-                f"The window size ({window_size}) is too large for the model. Please increase the number of windows or increase the overlap."
-            )
-
-        return_values = {
-            "target_solution_paths": x.get("fine_grid_sample_paths"),
-        }
-
-        # make single dimensional [B, T, D] -> [B*D, T, 1]
-        noisy_observation_values_processed = make_single_dim(noisy_observation_values)
-        # repeat mask and times so that it matches process dim
-        observation_mask_processed = torch.concat([observation_mask for _ in range(process_dim)], dim=0)
-        observation_times_processed = torch.concat([observation_times for _ in range(process_dim)], dim=0)
-        location_times_processed = torch.concat([location_times for _ in range(process_dim)], dim=0)
-
-        # for k, v in x.items():
-        #     # make single dimensional [B, T, D] -> [B*D, T, 1]
-        #     if v.size(-1) > 1:
-        #         v = torch.concat(
-        #             v.split(1, dim=-1),
-        #             dim=0,
-        #         )
-        #     else:
-        #         # repeat for process_dim
-        #         v = torch.concat([v for _ in range(process_dim)], dim=0)
-        #     x[k] = v
-        #     assert v.shape == (
-        #         batch_size * process_dim,
-        #         max_sequence_length,
-        #         1,
-        #     ), f"{k} has shape {v.shape} and not {(batch_size * process_dim, max_sequence_length, 1)}"
-
-        # denoise input
-        denoised_observation_values = self.denoising_model(noisy_observation_values_processed, observation_mask_processed)
-        # assert denoised_observation_values.shape == (batch_size * process_dim, max_sequence_length, 1)
-
-        return_values.update(
-            {
-                "observation_times": observation_times,
-                "observation_values": noisy_observation_values,
-                "denoised_observation_values": denoised_observation_values,
-            }
-        )
-
-        # split into overlapping windows
-        denoised_observation_values, padding_params = split_into_windows(
-            denoised_observation_values, self.window_count, self.overlap, max_sequence_length, padding_value=1
-        )  # shape [B*D*window_count, window_size+overlap_size, 1]
-        observation_mask_processed, _ = split_into_windows(
-            observation_mask_processed, self.window_count, self.overlap, max_sequence_length, padding_value=1
-        )
-        observation_times_processed, _ = split_into_windows(
-            observation_times_processed, self.window_count, self.overlap, max_sequence_length, padding_value=1
-        )
-        location_times_processed, _ = split_into_windows(
-            location_times_processed, self.window_count, self.overlap, max_sequence_length, padding_value=None
-        )
-
-        self.overlap_size, self.padding_size_windowing_end = padding_params
-
-        # prepare data for FIMODE forward pass
-        # for k, v in x.items():
-        #     # split into overlapping windows [B*D, T, 1] -> [B*D*window_count, window_size+overlap_size, 1]
-        #     v = self._split_into_windows(v, max_sequence_length)
-        #     x[k] = v
-        assert denoised_observation_values.shape == (batch_size * process_dim * self.window_count, window_size, 1), str(
-            denoised_observation_values.shape
-        )
-        assert (
-            observation_mask_processed.shape
-            == denoised_observation_values.shape
-            == observation_times_processed.shape
-            == location_times_processed.shape
-        )
-        # forward pass for fim base model to get solution paths per window
-        fimode_input = {
-            "coarse_grid_observation_mask": observation_mask_processed,
-            "coarse_grid_noisy_sample_paths": denoised_observation_values,
-            "coarse_grid_grid": observation_times_processed,
-            "fine_grid_grid": location_times_processed,
-        }
-        output = self.fim_base(fimode_input, training=False)
-
-        paths = output["visualizations"]["solution"]["learnt"]  # shape [B*D*window_count, window_size+overlap_size, 1]
-        times = output["visualizations"]["fine_grid_grid"]  # shape [B*D*window_count, window_size+overlap_size, 1]
-
-        # separate windows: reshape to [B*D, window_count, window_size+overlap_size, 1]
-        paths_reordered = reorder_windows_per_sample(paths, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim)
-        times_reordered = reorder_windows_per_sample(times, window_count=self.window_count, batch_size=batch_size, process_dim=process_dim)
-
-        # old
-        # all_samples_values = []
-        # all_samples_times = []
-        # for sample_id in range(batch_size * process_dim):
-        #     sample_values = []
-        #     sample_times = []
-        #     for w in range(self.window_count):
-        #         sample_values.append(paths[sample_id + w * batch_size * process_dim])
-        #         sample_times.append(times[sample_id + w * batch_size * process_dim])
-
-        #     all_samples_values.append(torch.stack(sample_values, dim=0))
-        #     all_samples_times.append(torch.stack(sample_times, dim=0))
-        # paths_reshaped = torch.stack(all_samples_values, dim=0)
-        # times_reshaped = torch.stack(all_samples_times, dim=0)
-
-        # combine outputs (solution paths) by interpolation
-        combined_paths, combined_times = self._linear_interpolation_windows(paths_reordered, times_reordered)
-
-        # make multidimensional again
-        paths_merged_multi_dim = make_multi_dim(combined_paths, batch_size, process_dim)
-        times_merged_multi_dim = make_multi_dim(combined_times, batch_size, process_dim)
-
-        # make multidimensional again (old)
-        # all_samples_values = []
-        # all_samples_times = []
-
-        # for sample_id in range(batch_size):
-        #     sample_values = []
-        #     sample_times = []
-        #     for dim in range(process_dim):
-        #         sample_values.append(combined_paths[sample_id + dim * batch_size, :, 0])
-        #         sample_times.append(combined_times[sample_id + dim * batch_size, :, 0])
-        #     all_samples_values.append(torch.stack(sample_values, dim=-1))
-        #     all_samples_times.append(torch.stack(sample_times, dim=-1))
-
-        # paths_merged_multi_dim = torch.stack(all_samples_values, dim=0)  # shape [B, window_count*window_size, D]
-        # times_merged_multi_dim = torch.stack(all_samples_times, dim=0)
-
-        # remove padding from windowing
-        last_index = -self.padding_size_windowing_end if self.padding_size_windowing_end is not None else None
-        paths_merged_multi_dim = paths_merged_multi_dim[:, self.overlap_size : last_index, :]  # shape [B, max_sequence_length, D]
-        times_merged_multi_dim = times_merged_multi_dim[:, self.overlap_size : last_index, :]  # shape [B, max_sequence_length, D]
-
-        assert paths_merged_multi_dim.shape == (
-            batch_size,
-            max_sequence_length,
-            process_dim,
-        ), f"got {paths_merged_multi_dim.shape}, expected {(batch_size, max_sequence_length, process_dim)}"
-
-        return_values.update(
-            {
-                "learnt_solution_paths": paths_merged_multi_dim,
-                "solution_times": times_merged_multi_dim,
-            }
-        )
-        return return_values
-
-    def _linear_interpolation_windows(self, paths: torch.Tensor, times: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Combine the windows by linear interpolation of the overlapping part.
-
-        Args:
-            paths (torch.Tensor): paths of the windows with shape [B*D, window_count, window_size+overlap_size, 1]
-            times (torch.Tensor): times of the windows with shape [B*D, window_count, window_size+overlap_size, 1]
+        where B: batch size, T: number of observations, G: number of evaluation points, D: dimensions
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: combined paths and times with shape [B*D, approx. window_count*window_size, 1]
+            estimated_concepts (ImputationConcepts): Estimated concepts at evaluation_times. Shape: [B, G, D/1], or [B, D] for initial conditions.
         """
-        assert paths.dim() == 4 and times.dim() == 4
-        assert paths.size(1) == self.window_count and times.size(1) == self.window_count
 
-        combined_values = paths[:, 0, :, :]
-        combined_times = times[:, 0, :, :]
+        # general preprocessing
+        obs_times, obs_values, obs_mask = FIMWindowed.preprocess_inputs(obs_times, obs_values, obs_mask)
 
-        for i in range(1, self.window_count):
-            values_b = paths[:, i, :, :]
-            times_b = times[:, i, :, :]
+        # denoising
+        obs_values = self.denoising_model(obs_values, obs_mask)
 
-            combined_values, combined_times = self._merge_two_windows(combined_values, combined_times, values_b, times_b)
+        # split into windows: [B, W, K, D/1]
+        windows_stats = self.windowing.get_windows_stats(obs_values, obs_times, obs_mask, evaluation_times)
+        obs_values, obs_times, obs_mask, evaluation_times = self.windowing.split(
+            obs_values, obs_times, obs_mask, evaluation_times, windows_stats
+        )
 
-        return combined_values, combined_times
+        # FIMODE per dimension and window
+        imputation_concepts = self.apply_fim_imp_pointwise_base(obs_times, obs_values, obs_mask, evaluation_times)
 
-    def _merge_two_windows(
-        self, values_a: torch.Tensor, times_a: torch.Tensor, values_b: torch.Tensor, times_b: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # combine outputs of windows (evaluation times is reconstructed, but could also be taken from input; should be the same)
+        (
+            imputation_concepts.evaluation_times,
+            imputation_concepts.reconstructed_values,
+            imputation_concepts.vector_field_mean,
+            imputation_concepts.vector_field_log_std,
+        ) = self.windowing.combine(
+            imputation_concepts.evaluation_times,
+            imputation_concepts.reconstructed_values,
+            imputation_concepts.vector_field_mean,
+            imputation_concepts.vector_field_log_std,
+            windows_stats,
+        )
+
+        # select initial condition of first window
+        imputation_concepts.init_cond_mean = imputation_concepts.init_cond_mean[:, 0]
+        imputation_concepts.init_cond_log_std = imputation_concepts.init_cond_log_std[:, 0]
+
+        return imputation_concepts
+
+    @torch.profiler.record_function("fim_imp_pointwise_preprocess_inputs")
+    @staticmethod
+    def preprocess_inputs(obs_times: Tensor, obs_values: Tensor, obs_mask: Tensor | None = None) -> tuple[Tensor]:
         """
-        Combine two windows by linear interpolation of the overlapping part.
+        Preprocess inputs by creating and applying masks
 
         Args:
-            values_a (torch.Tensor): values of the first window
-            times_a (torch.Tensor): times of the first window
-            values_b (torch.Tensor): values of the second window
-            times_b (torch.Tensor): times of the second window
+            obs_times (Tensor): Observation times of obs_values, assumed to be ordered. Shape: [B, T, 1]
+            obs_values (Tensor): Observation values. Shape: [B, T, D]
+            obs_mask (Tensor): Mask for padded observations. (0: value is observed, 1: value is masked out). Shape: [B, T, 1]
+        where B: batch size, T: number of observations, G: number of evaluation points, D: dimensions
+
+        Returns: Preprocessed inputs for denoising and FIMODE model. Shapes: [B, T, D]
+        """
+
+        if obs_mask is None:
+            obs_mask = torch.zeros_like(obs_times)
+
+        # For sanity, removed masked out values
+        obs_times = torch.logical_not(obs_mask) * obs_times
+        obs_values = torch.logical_not(obs_mask) * obs_values
+
+        # Then forward fill masked values s.t. obs_times are ordered again
+        obs_times = forward_fill_masked_values(obs_times, torch.logical_not(obs_mask))  # expects reverse masking convention
+        obs_values = forward_fill_masked_values(obs_values, torch.logical_not(obs_mask))
+
+        return obs_times, obs_values, obs_mask
+
+    @torch.profiler.record_function("fim_imp_pointwise_apply_fim_imp_pointwise_base")
+    def apply_fim_imp_pointwise_base(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Tensor, evaluation_times: Tensor):
+        """
+        Apply pretrained FIMODE to each window and each dimension.
+
+        Args:
+            obs_...: Windowed inputs. Shape: [B, W, K, D/1]
+            evaluation_times: Windowed evaluation times. Shape: [B, W, L, 1]
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: combined values and times
+            imputation_concepts (ImputationConcepts): FIMODE output per dimension and window.
         """
-        if self.overlap_size == 0:
-            combined_values = torch.cat([values_a, values_b], dim=1)
-            combined_times = torch.cat([times_a, times_b], dim=1)
+        B, W, _, D = obs_values.shape
 
-            return combined_values, combined_times
+        # broadcast, permute and squash windows and D dimension int batch
+        fim_inputs = {
+            "coarse_grid_observation_mask": einops.repeat(obs_mask, "B W K 1 -> (B W D) K 1", D=D),
+            "coarse_grid_noisy_sample_paths": einops.rearrange(obs_values, "B W K D -> (B W D) K 1"),
+            "coarse_grid_grid": einops.repeat(obs_times, "B W K 1 -> (B W D) K 1", D=D),
+            "fine_grid_grid": einops.repeat(evaluation_times, "B W L 1 -> (B W D) L 1", D=D),
+        }
 
-        # overlap-free parts of tensors a and b
-        left_window = values_a[:, : -self.overlap_size, :]
-        right_window = values_b[:, self.overlap_size :, :]
+        fim_imp_pointwise_base_output = self.fim_imp_pointwise_base.forward(fim_inputs, training=False)
 
-        # interpolation for the overlapping part
-        overlap_t = times_a[:, -self.overlap_size :, :]
-        overlap_values_a = values_a[:, -self.overlap_size :, :]
-        overlap_values_b = values_b[:, : self.overlap_size, :]
+        # revert axis permutation
+        vis = fim_imp_pointwise_base_output["visualizations"]
 
-        t_overlap_first = overlap_t[:, :1, :]
-        t_overlap_last = overlap_t[:, -1:, :]
-
-        t_ratio = (overlap_t - t_overlap_first) / (t_overlap_last - t_overlap_first + 1e-6)
-        interpolated_overlap = (1 - t_ratio) * overlap_values_a + t_ratio * overlap_values_b
-
-        combined_values = torch.cat([left_window, interpolated_overlap, right_window], dim=1)
-        combined_times = torch.cat([times_a[:, : -self.overlap_size, :], times_b], dim=1)
-
-        return combined_values, combined_times
-
-    def loss(self, *inputs) -> Dict:
-        raise NotImplementedError("FIM_windowed does not support loss calculation, as it is not trained.")
-
-    def metric(self, *inputs) -> Dict:
-        raise NotImplementedError(
-            """FIM_windowed does not support metric calculation, as it is not trained. Metric evaluation happens in evaluation script."""
+        return ImputationConcepts(
+            evaluation_times=evaluation_times,
+            reconstructed_values=einops.rearrange(vis["solution"]["learnt"], "(B W D) K 1 -> B W K D", B=B, W=W, D=D),
+            init_cond_mean=einops.rearrange(vis["init_condition"]["learnt"], "(B W D) 1 -> B W D", B=B, W=W, D=D),
+            init_cond_log_std=einops.rearrange(torch.log(vis["init_condition"]["certainty"]), "(B W D) 1 -> B W D", B=B, W=W, D=D),
+            vector_field_mean=einops.rearrange(vis["drift"]["learnt"], "(B W D) L 1 -> B W L D", B=B, W=W, D=D),
+            vector_field_log_std=einops.rearrange(torch.log(vis["drift"]["certainty"]), "(B W D) L 1 -> B W L D", B=B, W=W, D=D),
+            normalized=False,
         )
 
 

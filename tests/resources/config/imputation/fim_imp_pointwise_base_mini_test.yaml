@@ -97,7 +97,7 @@ model:
 
 dataset:
   name: ts_torch_dataloader # base_dataloader
-  path: tests/resources/data/ode/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/ #  /cephfs_projects/foundation_models/data/torch_2M_ode_chebyshev_max_deg_100_rbf_gp_2_5_and_2_10_length_128_avg_min_8/
+  path: tests/resources/data/imputation/pointwise_base
   ds_name: ""
   batch_size: 16
   test_batch_size: 16

@@ -25,7 +25,7 @@ class TestModelFactory:
 
     @pytest.fixture
     def train_config(self):
-        conf_path = test_data_path / "config" / "fim_ode_mini_test.yaml"
+        conf_path = test_data_path / "config" / "imputation" / "fim_imp_pointwise_base_mini_test.yaml"
         train_config = load_yaml(conf_path, True)
         return train_config
 

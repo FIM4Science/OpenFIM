@@ -1,14 +1,10 @@
-# pylint: disable=missing-module-docstring
-# pylint: disable=missing-class-docstring
-# pylint: disable=missing-function-docstring
-# pylint: disable=line-too-long
-
+from pathlib import Path
 
 import pytest
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import FIMMJP, FIMSDE, FIMMJPConfig, FIMODEConfig, FIMSDEConfig
+from fim.models import FIMMJP, FIMODE, FIMSDE, FIMMJPConfig, FIMODEConfig, FIMSDEConfig
 from fim.models.blocks import ModelFactory
 from fim.trainers.trainer import Trainer, TrainLossTracker
 from fim.utils.helper import load_yaml
@@ -58,60 +54,46 @@ class TestLossTracker:
         assert epoch_losses["loss2"] == 1.2
 
 
-def test_trainer_fimode(tmp_path):
-    TRAIN_CONF = test_data_path / "config" / "fim_ode_mini_test.yaml"
-    config = load_yaml(TRAIN_CONF, True)
+@pytest.mark.parametrize(
+    "config_subpath, config_cls, model_cls, checkpoint_subpath",
+    [
+        (
+            Path("imputation") / "fim_imp_pointwise_base_mini_test.yaml",
+            FIMODEConfig,
+            FIMODE,
+            "DEBUG_fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model",
+        ),
+        (
+            Path("mjp") / "mjp_homogeneous_mini.yaml",
+            FIMMJPConfig,
+            FIMMJP,
+            "FIM_MJP_Homogeneous_Mini/checkpoints/best-model",
+        ),
+        (
+            Path("sde") / "sde_mini.yaml",
+            FIMSDEConfig,
+            FIMSDE,
+            "sde/checkpoints/best-model",
+        ),
+    ],
+    ids=["imputation", "mjp", "sde"],
+)
+def test_trainer_per_model(tmp_path, config_subpath, config_cls, model_cls, checkpoint_subpath):
+
+    train_conf = test_data_path / "config" / config_subpath
+    config = load_yaml(train_conf, True)
     config.trainer.experiment_dir = tmp_path
 
     dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-    model = ModelFactory.create(FIMODEConfig(**config.model.to_dict()))
+    model_config = config_cls(**config.model.to_dict())
+    model = ModelFactory.create(model_config)
 
     trainer = Trainer(model, dataloader, config)
-
-    trainer.train()
     assert trainer is not None
+    trainer.train()
 
+    checkpoint_path = tmp_path / checkpoint_subpath
+    loaded_model = model_cls.from_pretrained(checkpoint_path)
 
-class TestTrainMJP:
-    @pytest.fixture(scope="module")
-    def results_dir(self, tmp_path_factory):
-        return tmp_path_factory.mktemp("results")
-
-    def test_trainer_mjp(self, results_dir):
-        TRAIN_CONF = test_data_path / "config" / "mjp" / "mjp_homogeneous_mini.yaml"
-
-        config = load_yaml(TRAIN_CONF, True)
-        config.trainer.experiment_dir = results_dir
-        dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-
-        model = ModelFactory.create(FIMMJPConfig(**config.model.to_dict()))
-
-        trainer = Trainer(model, dataloader, config)
-
-        trainer.train()
-        assert trainer is not None
-        model = FIMMJP.from_pretrained(results_dir / "FIM_MJP_Homogeneous_Mini/checkpoints/best-model")
-        assert model is not None
-        assert isinstance(model, FIMMJP)
-
-
-class TestTrainSDE:
-    @pytest.fixture(scope="module")
-    def results_dir(self, tmp_path_factory):
-        return tmp_path_factory.mktemp("results")
-
-    def test_trainer_sde(self, results_dir):
-        TRAIN_CONF = test_data_path / "config" / "sde" / "sde_mini.yaml"
-
-        config = load_yaml(TRAIN_CONF, True)
-        config.trainer.experiment_dir = results_dir
-        dataloader = DataLoaderFactory.create(**config.dataset.to_dict())
-
-        model = ModelFactory.create(FIMSDEConfig(**config.model.to_dict()))
-        trainer = Trainer(model, dataloader, config)
-
-        trainer.train()
-        assert trainer is not None
-        model = FIMSDE.from_pretrained(results_dir / "sde/checkpoints/best-model")
-        assert model is not None
-        assert isinstance(model, FIMSDE)
+    assert loaded_model is not None
+    assert isinstance(loaded_model, model_cls)
