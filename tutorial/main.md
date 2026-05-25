@@ -45,14 +45,6 @@ Once (pre)trained
 
 **FIMs therefore amortize the inference of dynamical systems.**
 
-## About us: Deep Learning for Scientific Discovery Group
-The Deep Learning for Scientific Discovery (DL4SD) group at the Lamarr Institute is an interdisciplinary team working at the intersection of machine learning, natural language processing, statistical physics, and complexity science.
-
-At DL4SD, our aim is to tackle system identification problems across the natural and social sciences. This means that we develop artificial intelligence methods to infer dynamical systems — such as ordinary, partial, and stochastic differential equations — from noisy, sparse and high-dimensional data. These models deliver interpretable and predictive insights into the underlying mechanisms governing dynamic phenomena.
-
-Ultimately, our goal is to automate the formulation of scientific hypotheses, expressed as mathematical models derived directly from data, to better understand complex dynamic phenomena.
-
-
 ```{note}
 Take a deeper look at our [team](XX_about_us/active.md).
 ```

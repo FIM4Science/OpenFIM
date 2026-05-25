@@ -3,7 +3,7 @@ name: Deploy Tutorial to GitHub Pages
 on:
   push:
     branches:
-      - main  C
+      - main
     paths:
       - 'tutorial/**'
       - '.github/workflows/deploy_tutorial.yml'
@@ -43,6 +43,24 @@ jobs:
       - name: Build Jupyter Book HTML
         working-directory: tutorial
         run: uv run --project .. --group tutorial jupyter-book build --html --strict
+
+      - name: Create Legacy intro.html Redirect
+        working-directory: tutorial
+        run: |
+          cat << 'EOF' > _build/html/intro.html
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>Redirecting...</title>
+              <link rel="canonical" href="index.html">
+              <meta http-equiv="refresh" content="0; url=index.html">
+            </head>
+            <body>
+              <p>This page has moved. If you are not redirected automatically, follow this <a href="index.html">link to the new homepage</a>.</p>
+            </body>
+          </html>
+          EOF
 
       - name: Setup Pages
         uses: actions/configure-pages@v5 # Automatically detects your repo settings and configures routing
