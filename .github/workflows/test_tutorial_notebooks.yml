@@ -23,11 +23,20 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
-      - name: Install project
-        run: uv sync
+      - name: Install project and tutorial dependencies
+        run: uv sync --group tutorial
 
-      - name: Install nbmake
-        run: uv pip install nbmake
+      - name: Build Jupyter Book HTML and Check Links
+        working-directory: tutorial
+        run: uv run --project .. --group tutorial jupyter-book build --html --check-links --strict
 
-      - name: Test notebooks with pytest and nbmake
-        run: uv run pytest --nbmake tutorial/
+      - name: Test notebooks with pytest and nbmake # some of them take too long for github actions, but can run locally
+        env:
+            API_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          uv run --group tutorial pytest \
+            --nbmake \
+            --nbmake-timeout=300 \
+            --ignore=tutorial/05_sde/sde_tutorial.ipynb \
+            --ignore=tutorial/03_mjp/mjp_usage.ipynb \
+            tutorial/

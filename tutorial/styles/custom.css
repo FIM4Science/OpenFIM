@@ -1,0 +1,67 @@
+/* ==========================================================================
+   LAYOUT & ZOOM FIXES
+   ========================================================================== */
+
+/* Restrict the maximum expansion of the main text layout
+   so sidebars don't easily get pushed off-screen */
+.article-grid, main {
+    max-width: 1400px !important;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Fix the sidebar allocation so it doesn't crush the main text */
+:root {
+    --myst-sidebar-width: 260px;
+}
+
+/* ==========================================================================
+   TEXT SIZING & READABILITY ENHANCEMENTS
+   ========================================================================== */
+
+/* Target the core article prose text size */
+article, .prose, main p {
+    font-size: 1.125rem !important;  /* Increases body text size safely (approx 18px) */
+    line-height: 1.75 !important;    /* Adds breathing room between lines of text */
+}
+
+/* Target your headers so they scale proportionally with the larger text */
+h1, .h1 { font-size: 2.5rem !important; }
+h2, .h2 { font-size: 1.75rem !important; }
+h3, .h3 { font-size: 1.4rem !important; }
+
+/* Keep code snippet text matching the new layout size */
+pre, code {
+    font-size: 0.95rem !important;
+}
+
+/* ==========================================================================
+   TEXT Color
+   ========================================================================== */
+
+/* Target all regular inline links and citation anchors inside the main content text */
+main article a,
+main article a.citation,
+main article a.cite {
+    color: #0072B2 !important;
+    text-decoration: none !important; /* Removes default underline */
+    transition: opacity 0.2s ease-in-out; /* Smooth fade effect */
+}
+
+/* Apply the slight opaqueness on hover */
+main article a:hover,
+main article a.citation:hover,
+main article a.cite:hover {
+    opacity: 0.75 !important;
+    text-decoration: none !important; /* Ensures underlines don't reappear on hover */
+}
+
+/* Inline code */
+/* Targets ONLY inline code inside paragraphs, lists, and standard text elements */
+p > code,
+li > code,
+ol > code,
+ul > code,
+span.pre {
+    color: #CC79A7;
+}

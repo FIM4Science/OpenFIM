@@ -1,0 +1,53 @@
+version: 1
+project:
+  authors:
+    - name: Lamarr's DL4SD Group
+  github: FIM4Science/OpenFIM
+  bibliography:
+    - references.bib
+  toc:
+    - file: main.md
+    - title: Introduction
+      file: 01_introduction/tutorials.md
+    - title: FIM Library
+      file: 02_library/overview.md
+      children:
+        - file: 02_library/installation.md
+        - file: 02_library/configuration.md
+    - title: Inference of Markov Jump Processes
+      file: 03_mjp/mjp_crashcourse.md
+      children:
+        - file: 03_mjp/mjp_usage.ipynb
+        - file: 03_mjp/mjp_dfr_casestudy.ipynb
+    - title: Inference of Point Processes
+      file: 04_pp/pp_crashcourse.md
+      children:
+        - file: 04_pp/pp_tutorial.ipynb
+    - title: Inference of Stochastic Differential Equations
+      file: 05_sde/sde_crashcourse.md
+      children:
+        - file: 05_sde/sde_tutorial.ipynb
+    - title: Zero-Shot Imputation of Time Series
+      file: 06_imputation/imputation.ipynb
+      children:
+        - file: 06_imputation/imputation_point_wise.ipynb
+        - file: 06_imputation/imputation_temporal.ipynb
+    - title: About Us
+      file: XX_about_us/active.md
+      children:
+        - file: XX_about_us/publications.md
+site:
+  template: book-theme
+  options:
+    logo: imgs/logo.png
+    logo_text: "Foundation Inference Models"
+    favicon: imgs/favicon.png
+    folders: true
+    style: ./styles/custom.css
+    # UI Visibility toggles
+    outline_maxdepth: 2
+    hide_authors: true
+    hide_footer_links: true
+  parts:
+    # Overrides the badge with your own clean text or links
+    primary_sidebar_footer: "© 2026 Lamarr's DL4SD Group"
