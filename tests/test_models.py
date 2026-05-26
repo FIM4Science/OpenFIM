@@ -8,7 +8,7 @@ import torch
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import FIMMJP, FIMMJPConfig, FIMODEConfig
+from fim.models import FIMMJP, FIMImpPointBaseConfig, FIMMJPConfig
 from fim.models.blocks import AModel, ModelFactory
 from fim.utils.helper import GenericConfig, create_schedulers, load_yaml
 
@@ -30,7 +30,7 @@ class TestModelFactory:
         return train_config
 
     def test_init_fim(self, train_config: GenericConfig, device):
-        ode_config = FIMODEConfig(**train_config.model.to_dict())
+        ode_config = FIMImpPointBaseConfig(**train_config.model.to_dict())
         model = ModelFactory.create(config=ode_config)
         assert model is not None
         assert model.device == torch.device("cpu")
@@ -39,7 +39,7 @@ class TestModelFactory:
     @pytest.fixture
     def model(self, train_config):
         self.device_map = train_config.experiment.device_map
-        model = ModelFactory.create(FIMODEConfig(**train_config.model.to_dict()))
+        model = ModelFactory.create(FIMImpPointBaseConfig(**train_config.model.to_dict()))
 
         return model.to(self.device_map)
 

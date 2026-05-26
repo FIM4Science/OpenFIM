@@ -20,8 +20,8 @@ from ..utils.logging import RankLoggerAdapter
 from .blocks import AModel, ModelFactory
 
 
-class FIMODEConfig(PretrainedConfig):
-    model_type = "fimode"
+class FIMImpPointBaseConfig(PretrainedConfig):
+    model_type = "FIMImpPointBase"
 
     def __init__(
         self,
@@ -49,11 +49,11 @@ class FIMODEConfig(PretrainedConfig):
         super().__init__(**kwargs)
 
 
-class FIMODE(AModel):
-    config_class = FIMODEConfig
+class FIMImpPointBase(AModel):
+    config_class = FIMImpPointBaseConfig
 
-    def __init__(self, config: FIMODEConfig, **kwargs):
-        super(FIMODE, self).__init__(config, **kwargs)
+    def __init__(self, config: FIMImpPointBaseConfig, **kwargs):
+        super(FIMImpPointBase, self).__init__(config, **kwargs)
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
         if self.config.normalization_time is None:
@@ -133,7 +133,7 @@ class FIMODE(AModel):
             raise ValueError("fine_grid_concept_values must be provided for evaluation of loss.")
 
         if obs_values_origSpace.shape[-1] != 1:
-            raise ValueError("Process dimension must be 1 in FIMODE Base model.")
+            raise ValueError("Process dimension must be 1 in FIMImpPointBase Base model.")
 
         if obs_mask.all(dim=1).any():
             raise ValueError("Not allowed to have all values masked out.")
@@ -334,7 +334,7 @@ class FIMODE(AModel):
         fine_grid_grid: Tensor,
     ) -> dict:
         """
-        Compute the loss of the FIMODE model (in original space).
+        Compute the loss of the FIMImpPointBase model (in original space).
 
         The loss consists of supervised losses
             - negative log-likelihood of the vector field values at fine grid points
@@ -421,7 +421,7 @@ class FIMODE(AModel):
         """
         B, L = fine_grid.shape[:-1]
 
-        # need evaluations of FIMODE at fine grid points and one point in between each fine grid point -> add one point in between
+        # need evaluations of FIMImpPointBase at fine grid points and one point in between each fine grid point -> add one point in between
         # get mid points between fine grid points
         mid_points = (fine_grid[..., 1:, :] + fine_grid[..., :-1, :]) / 2  # Shape [B, L-1, 1]
         # concat alternating fine grid points and mid points
@@ -1283,7 +1283,7 @@ class StaticWindowing(Windowing):
             B, W, _ = windows_stats.eval_windows_slices.shape
             L = windows_stats.max_eval_window_size
 
-            # prefill with largest time in batch, important for FIMODE
+            # prefill with largest time in batch, important for FIMImpPointBase
             evaluation_times_windowed = einops.repeat(torch.amax(evaluation_times, dim=-2), "B X -> B w l X", w=W, l=L).contiguous()
 
             # double for loop could surely be replaced by complex torch operations
@@ -1338,23 +1338,26 @@ def no_denoising(obs_values: Tensor, obs_mask: Tensor) -> Tensor:
 no_windowing = StaticWindowing(windows_count=1, overlap_percentage=0)
 
 
-class FIMWindowed:
+class FIMImpPoint:
     """
-    Wrapper for FIMODE model to allow multidimensional and/or longer input sequences.
+    Wrapper for FIMImpPointBase model to allow multidimensional and/or longer input sequences.
 
     Denoising model is optional. If not provided, the input is not denoised.
 
-    If windowing scheme is specified, the class can handle longer trajectories than the pre-trained FIMODE.
+    If windowing scheme is specified, the class can handle longer trajectories than the pre-trained FIMImpPointBase.
 
-    If no denoising and no windowing scheme is specified, this regresses to FIMODE, if applied to one-dimensional input.
+    If no denoising and no windowing scheme is specified, this regresses to FIMImpPointBase, if applied to one-dimensional input.
     """
 
     def __init__(
-        self, fim_imp_pointwise_base: str | Path | FIMODE, windowing: Windowing | None = None, denoising_model: Callable | None = None
+        self,
+        fim_imp_pointwise_base: str | Path | FIMImpPointBase,
+        windowing: Windowing | None = None,
+        denoising_model: Callable | None = None,
     ):
 
-        self.fim_imp_pointwise_base: FIMODE = (
-            load_model_from_checkpoint(fim_imp_pointwise_base, module=FIMODE)
+        self.fim_imp_pointwise_base: FIMImpPointBase = (
+            load_model_from_checkpoint(fim_imp_pointwise_base, module=FIMImpPointBase)
             if isinstance(fim_imp_pointwise_base, (str, Path))
             else fim_imp_pointwise_base
         )
@@ -1379,7 +1382,7 @@ class FIMWindowed:
         """
 
         # general preprocessing
-        obs_times, obs_values, obs_mask = FIMWindowed.preprocess_inputs(obs_times, obs_values, obs_mask)
+        obs_times, obs_values, obs_mask = FIMImpPoint.preprocess_inputs(obs_times, obs_values, obs_mask)
 
         # denoising
         obs_values = self.denoising_model(obs_values, obs_mask)
@@ -1390,7 +1393,7 @@ class FIMWindowed:
             obs_values, obs_times, obs_mask, evaluation_times, windows_stats
         )
 
-        # FIMODE per dimension and window
+        # FIMImpPointBase per dimension and window
         imputation_concepts = self.apply_fim_imp_pointwise_base(obs_times, obs_values, obs_mask, evaluation_times)
 
         # combine outputs of windows (evaluation times is reconstructed, but could also be taken from input; should be the same)
@@ -1425,7 +1428,7 @@ class FIMWindowed:
             obs_mask (Tensor): Mask for padded observations. (0: value is observed, 1: value is masked out). Shape: [B, T, 1]
         where B: batch size, T: number of observations, G: number of evaluation points, D: dimensions
 
-        Returns: Preprocessed inputs for denoising and FIMODE model. Shapes: [B, T, D]
+        Returns: Preprocessed inputs for denoising and FIMImpPointBase model. Shapes: [B, T, D]
         """
 
         if obs_mask is None:
@@ -1444,14 +1447,14 @@ class FIMWindowed:
     @torch.profiler.record_function("fim_imp_pointwise_apply_fim_imp_pointwise_base")
     def apply_fim_imp_pointwise_base(self, obs_times: Tensor, obs_values: Tensor, obs_mask: Tensor, evaluation_times: Tensor):
         """
-        Apply pretrained FIMODE to each window and each dimension.
+        Apply pretrained FIMImpPointBase to each window and each dimension.
 
         Args:
             obs_...: Windowed inputs. Shape: [B, W, K, D/1]
             evaluation_times: Windowed evaluation times. Shape: [B, W, L, 1]
 
         Returns:
-            imputation_concepts (ImputationConcepts): FIMODE output per dimension and window.
+            imputation_concepts (ImputationConcepts): FIMImpPointBase output per dimension and window.
         """
         B, W, _, D = obs_values.shape
 
@@ -1479,5 +1482,5 @@ class FIMWindowed:
         )
 
 
-ModelFactory.register(FIMODEConfig.model_type, FIMODE)
-ModelFactory.register("FIMWindowed", FIMWindowed)
+ModelFactory.register(FIMImpPointBaseConfig.model_type, FIMImpPointBase)
+ModelFactory.register("FIMImpPoint", FIMImpPoint)

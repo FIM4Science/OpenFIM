@@ -6,20 +6,27 @@ import torch
 
 from fim import test_data_path
 from fim.models.blocks import ModelFactory
-from fim.models.ode import FIMODE, FIMODEConfig, FIMWindowed, ImputationConcepts, StaticWindowing, Windowing
+from fim.models.imputation_pointwise import (
+    FIMImpPoint,
+    FIMImpPointBase,
+    FIMImpPointBaseConfig,
+    ImputationConcepts,
+    StaticWindowing,
+    Windowing,
+)
 from fim.utils.helper import load_yaml
 
 
-class TestFIMWindowed:
+class TestFIMImpPoint:
     @pytest.fixture(scope="class")
-    def shared_fim_imp_pointwise_base(self) -> FIMODE:
+    def shared_fim_imp_pointwise_base(self) -> FIMImpPointBase:
 
         train_config = test_data_path / "config" / "imputation" / "fim_imp_pointwise_base_mini_test.yaml"
         train_config = load_yaml(train_config, True)
 
-        model_config = FIMODEConfig(**train_config.model.to_dict())
+        model_config = FIMImpPointBaseConfig(**train_config.model.to_dict())
 
-        fim_imp_pointwise_base: FIMODE = ModelFactory.create(model_config)
+        fim_imp_pointwise_base: FIMImpPointBase = ModelFactory.create(model_config)
         fim_imp_pointwise_base.eval()
 
         return fim_imp_pointwise_base
@@ -65,11 +72,11 @@ class TestFIMWindowed:
         return obs_values, obs_times, obs_mask, evaluation_times
 
     @pytest.fixture
-    def fim_imp_pointwise(self, shared_fim_imp_pointwise_base: FIMODE, windowing: Windowing, denoising_model: Callable):
-        return FIMWindowed(fim_imp_pointwise_base=shared_fim_imp_pointwise_base, windowing=windowing, denoising_model=denoising_model)
+    def fim_imp_pointwise(self, shared_fim_imp_pointwise_base: FIMImpPointBase, windowing: Windowing, denoising_model: Callable):
+        return FIMImpPoint(fim_imp_pointwise_base=shared_fim_imp_pointwise_base, windowing=windowing, denoising_model=denoising_model)
 
-    def test_forward(self, fim_imp_pointwise: FIMWindowed, data: tuple):
-        "Test FIMWindowed forward output and its shapes under multiple windowings and denoisings."
+    def test_forward(self, fim_imp_pointwise: FIMImpPoint, data: tuple):
+        "Test FIMImpPoint forward output and its shapes under multiple windowings and denoisings."
 
         obs_values, obs_times, obs_mask, evaluation_times = data
 
@@ -96,8 +103,8 @@ class TestFIMWindowed:
             pytest.param((4, 30, 100), id="more_evals_than_obs"),
         ],
     )
-    def test_fallback_to_fim_imputation_pointwise_base(self, shared_fim_imp_pointwise_base: FIMODE, sizes: tuple):
-        "Verify that, in single dimension data, with no windowing or denoising defined, FIMWindowed is simply FIMODE."
+    def test_fallback_to_fim_imputation_pointwise_base(self, shared_fim_imp_pointwise_base: FIMImpPointBase, sizes: tuple):
+        "Verify that, in single dimension data, with no windowing or denoising defined, FIMImpPoint is simply FIMImpPointBase."
 
         B, T, G = sizes
 
@@ -106,10 +113,10 @@ class TestFIMWindowed:
         obs_mask = torch.zeros(B, T, 1)
         evaluation_times = einops.repeat(torch.linspace(-1, 11, G).view(1, -1, 1), "1 G 1 -> b G 1", b=B)
 
-        fim_imp_pointwise = FIMWindowed(fim_imp_pointwise_base=shared_fim_imp_pointwise_base)  # no windowing, no denoising specified
+        fim_imp_pointwise = FIMImpPoint(fim_imp_pointwise_base=shared_fim_imp_pointwise_base)  # no windowing, no denoising specified
         fim_imp_pointwise_output: ImputationConcepts = fim_imp_pointwise.forward(obs_times, obs_values, evaluation_times, obs_mask)
 
-        obs_times, obs_values, obs_mask = FIMWindowed.preprocess_inputs(obs_times, obs_values, obs_mask)
+        obs_times, obs_values, obs_mask = FIMImpPoint.preprocess_inputs(obs_times, obs_values, obs_mask)
 
         fim_imp_pointwise_base_output = shared_fim_imp_pointwise_base(
             {

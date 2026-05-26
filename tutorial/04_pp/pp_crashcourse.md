@@ -76,7 +76,7 @@ For user-facing workflows, prefer the standardized Hugging Face path:
 ```python
 from transformers import AutoModel
 
-model = AutoModel.from_pretrained("FIM4Science/FIM-PP", trust_remote_code=True)
+model = AutoModel.from_pretrained("FIM4Science/fim-pp", trust_remote_code=True)
 ```
 
 This is the primary path documented in the companion tutorial notebook. The lower-level fallback `FIMHawkes.load_model(...)` remains useful for debugging local checkpoints.

@@ -1,4 +1,4 @@
-"""Evaluate FIMImputation on synthetic data. Compute metrics and save predictions."""
+"""Evaluate FIMImpTempBase on synthetic data. Compute metrics and save predictions."""
 
 import json
 import os
@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from fim.data.dataloaders import TimeSeriesDataLoaderTorch
-from fim.models.imputation import FIMImputation
+from fim.models.imputation_temporal import FIMImpTempBase
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.metrics import compute_metrics
 
@@ -33,7 +33,7 @@ def evaluate_one_configuration(model_checkpoint_path: str, dl: TimeSeriesDataLoa
     output_path = output_base_dir + model_abbr + "/"
     os.makedirs(output_path, exist_ok=True)
 
-    model = load_model_from_checkpoint(model_checkpoint_path, module=FIMImputation, for_eval=True)
+    model = load_model_from_checkpoint(model_checkpoint_path, module=FIMImpTempBase, for_eval=True)
     model = model.to(device)
     model.eval()
     predictions = {}
@@ -79,10 +79,10 @@ def evaluate_one_configuration(model_checkpoint_path: str, dl: TimeSeriesDataLoa
 
 if __name__ == "__main__":
     # data_path = "data/20k_ImputationDummy/"
-    # data_path = "data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
+    # data_path = "data/FIMImpTempBase/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
     data_path = "/cephfs_projects/foundation_models/data/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
 
-    output_base_dir = "reports/FIMImputation/SynthData/all/"
+    output_base_dir = "reports/FIMImpTempBase/SynthData/all/"
     # output_base_dir = "reports/FIMImpuation/DummyData_20k/"
 
     batch_size = 4096
@@ -114,16 +114,16 @@ if __name__ == "__main__":
     )
 
     model_chkpts = [
-        "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth",
-        # "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth"
-        # "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50-experiment-seed-4_10-01-1333/checkpoints/best-model/model-checkpoint.pth"
-        # "/cephfs_projects/foundation_models/models/FIMImputation/fim_imputation_5windows_minMax/model-checkpoint.pth"
-        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_3encBlocks_fp16-experiment-seed-10_09-08-2131/checkpoints/best-model/model-checkpoint.pth",
-        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1541/checkpoints/best-model/model-checkpoint.pth",
-        # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1549/checkpoints/best-model/model-checkpoint.pth",
-        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
-        # "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth"
-        # "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
+        "/cephfs_projects/foundation_models/models/FIMImpTempBase/fim_imputation_5windows_minMax/model-checkpoint.pth",
+        # "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth"
+        # "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImpTempBase/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50-experiment-seed-4_10-01-1333/checkpoints/best-model/model-checkpoint.pth"
+        # "/cephfs_projects/foundation_models/models/FIMImpTempBase/fim_imputation_5windows_minMax/model-checkpoint.pth"
+        # "results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_3encBlocks_fp16-experiment-seed-10_09-08-2131/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1541/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImpTempBase/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-09-1549/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
+        # "results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth"
+        # "results/FIMImpTempBase/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
     ]
     model_abbrs = [
         # "4_10-01-1333"
@@ -137,6 +137,6 @@ if __name__ == "__main__":
     ]
     for model_chkpt, model_abbr in zip(model_chkpts, model_abbrs):
         evaluate_one_configuration(model_chkpt, dl, output_base_dir, model_abbr=model_abbr)
-        # model = load_model_from_checkpoint(model_chkpt, module=FIMImputation, for_eval=True)
+        # model = load_model_from_checkpoint(model_chkpt, module=FIMImpTempBase, for_eval=True)
 
     print("done")

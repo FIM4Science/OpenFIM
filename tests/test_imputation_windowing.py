@@ -5,7 +5,7 @@ import pytest
 import torch
 from torch import Tensor
 
-from fim.models.ode import (
+from fim.models.imputation_pointwise import (
     StaticWindowing,
     Windowing,
     compress_contiguous_mask,

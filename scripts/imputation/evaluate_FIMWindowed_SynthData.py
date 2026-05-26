@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from fim.data.dataloaders import TimeSeriesDataLoaderTorch
-from fim.models.FIM_models import FIMWindowed
+from fim.models.FIM_models import FIMImpPoint
 from fim.utils.helper import load_yaml
 from fim.utils.metrics import compute_metrics
 
@@ -20,7 +20,7 @@ device_map = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 show_plots = False
 
-data_base_dir = "data/FIMImputation/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
+data_base_dir = "data/FIMImpTempBase/torch_500K_ode_centere_restricted_length_256_with_per_gps_no_imputation_mask/"
 
 
 def evaluate_hyperparameter_setting(
@@ -132,8 +132,8 @@ if __name__ == "__main__":
     denoising_model_name = config["model"].get("denoising_model", {}).get("name", None)
 
     model_names = [
-        "results/FIMImputation/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth",
-        "results/FIMImputation/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth",
+        "results/FIMImpTempBase/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth",
+        "results/FIMImpTempBase/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth",
     ]
     window_counts = [4, 8, 16]  # , 12, 16, 20]
     # overlaps = [0.1, 0.2, 0.3, 0.4, 0.5]
@@ -150,7 +150,7 @@ if __name__ == "__main__":
         if denoising_model_name is not None:
             config["model"]["denoising_model"]["name"] = denoising_model_name
 
-        model = FIMWindowed(**config["model"])
+        model = FIMImpPoint(**config["model"])
         model.to(device_map)
         model.eval()
 
@@ -163,7 +163,7 @@ if __name__ == "__main__":
             model_abbr = None
         # window_count = config["model"]["window_count"]
         overlap = config["model"]["overlap"]
-        output_folder_base = f"reports/FIMWindowed/SynthData_500k/{window_count}windows_{int(100 * overlap)}%overlap/{model_abbr}/"
+        output_folder_base = f"reports/FIMImpPoint/SynthData_500k/{window_count}windows_{int(100 * overlap)}%overlap/{model_abbr}/"
         os.makedirs(output_folder_base, exist_ok=True)
         evaluate_hyperparameter_setting(model, output_folder_base)
 

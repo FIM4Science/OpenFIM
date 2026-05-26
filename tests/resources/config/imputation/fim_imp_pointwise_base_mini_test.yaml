@@ -13,7 +13,7 @@ distributed:
   activation_chekpoint: false
 
 model:
-  name: FIMODE
+  name: FIMImpPointBase
   load_in_8bit: false
   use_bf16: false
 
