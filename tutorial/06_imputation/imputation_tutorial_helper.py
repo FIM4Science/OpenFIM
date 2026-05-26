@@ -292,29 +292,24 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None, num_windows=4
     return batch
 
 
-def visualize_prediction(ts, ys_true, ys_noisy, prediction, mask):
+def visualize_prediction(ts, ys_true, ys_noisy, mask, eval_times, prediction):
     plt.plot(ts[~mask], ys_noisy[~mask], label="Observed Values", c="grey", zorder=1)
     plt.plot(ts, ys_true, label="True Values", linestyle="dashed", c="black", zorder=5)
-    if ts.shape == prediction.shape:
-        plt.scatter(ts[mask], prediction[mask], label="Predicted Values", c="#0072B2", marker="x", s=50, zorder=10)
-    else:
-        plt.scatter(ts[mask], prediction, label="Predicted Values", c="#0072B2", marker="x", s=50, zorder=10)
+    plt.plot(eval_times, prediction, label="Predicted Values", c="#0072B2", zorder=10)
     plt.xlabel("t")
     plt.ylabel("x")
     plt.legend()
     plt.show()
 
 
-def plot_trajectories(ts, pred_x, obs_x, pred_v, obs_v, title_suffix=""):
+def plot_trajectories(eval_times, obs_times, pred_x, obs_x, pred_v, obs_v, title_suffix=""):
     fig = plt.figure(figsize=(12, 6))
     gs = fig.add_gridspec(1, 2, hspace=0.3, wspace=0.3)
 
-    t_steps = ts[0].flatten()
-
     ax1 = fig.add_subplot(gs[0, 0])
     for i in range(pred_x.shape[0]):
-        ax1.plot(t_steps, obs_x[i].flatten(), c="black", label="Observed" if i == 0 else None, zorder=1, linestyle="dashed")
-        ax1.plot(t_steps, pred_x[i].flatten(), c="#0072B2", label="Estimated" if i == 0 else None, zorder=5)
+        ax1.plot(obs_times[i].flatten(), obs_x[i].flatten(), c="black", label="Observed" if i == 0 else None, zorder=1, linestyle="dashed")
+        ax1.plot(eval_times[i].flatten(), pred_x[i].flatten(), c="#0072B2", label="Estimated" if i == 0 else None, zorder=5)
 
     ax1.set_title(f"Position {title_suffix}".strip())
     ax1.set_xlabel("Time [s]")
@@ -323,8 +318,8 @@ def plot_trajectories(ts, pred_x, obs_x, pred_v, obs_v, title_suffix=""):
 
     ax2 = fig.add_subplot(gs[0, 1])
     for i in range(pred_v.shape[0]):
-        ax2.plot(t_steps, obs_v[i].flatten(), c="black", label="True" if i == 0 else None, zorder=1, linestyle="dashed")
-        ax2.plot(t_steps, pred_v[i].flatten(), c="#0072B2", label="Estimated" if i == 0 else None, zorder=5)
+        ax2.plot(obs_times[i].flatten(), obs_v[i].flatten(), c="black", label="True" if i == 0 else None, zorder=1, linestyle="dashed")
+        ax2.plot(eval_times[i].flatten(), pred_v[i].flatten(), c="#0072B2", label="Estimated" if i == 0 else None, zorder=5)
 
     ax2.set_title(f"Velocity {title_suffix}".strip())
     ax2.set_xlabel("Time [s]")

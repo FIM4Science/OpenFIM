@@ -1,6 +1,6 @@
 # Our Publications
 
-> **Citation:** Find the bibtex entries for all publications in [publications.bib](https://github.com/FIM4Science/OpenFIM/blob/main/publications.bib).
+> **Citation:** Find the bibtex entries for all publications in [publications.bib](../../publications.bib).
 
 - ["Foundation Inference Models for Markov Jump Processes"](https://openreview.net/forum?id=f4v7cmm5sC) (NeurIPS 2024), David Berghaus, Kostadin Cvejoski, Patrick Seifner, César Ojeda, Ramsés J. Sánchez
 - ["Zero-shot Imputation with Foundation Inference Models for Dynamical Systems"](https://openreview.net/forum?id=NPSZ7V1CCY) (ICLR 2025), Patrick Seifner, Kostadin Cvejoski, Antonia Körner, Ramsés J. Sánchez

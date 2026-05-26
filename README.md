@@ -30,14 +30,6 @@ Check out the configuration under `.pre-commit-config.yaml`. The `-n, --no-verif
 
 Instructions on how to use the implemented models and configuration files are detailed on the [tutorial webpage](https://fim4science.github.io/OpenFIM/tutorials.html) and in [notebooks](notebooks/tutorials)
 
-## Lamarr’s DL4SD lab
-
-[Lamarr](https://lamarr-institute.org/)’s [Deep Learning for Scientific Discovery (DL4SD)](https://fim4science.github.io/OpenFIM/intro.html) lab is an interdisciplinary team of researchers working at the intersection of machine learning, statistical physics, and complexity science, to develop neural systems that automatically construct scientific hypotheses — articulated as mathematical models — to explain complex natural and social phenomena.
-
-To achieve this overarching goal, we design pre-trained neural recognition models that encode classical mathematical models commonly used in the natural and social sciences. And focus on mathematical models that are simple enough to remain approximately valid across a wide range of observation scales, from microscopic to coarse-grained.
-
-Fundamentally, these pre-trained neural recognition models enable the zero-shot inference of (the parameters defining) the mathematical equations they encode directly from data. We refer to these models as Foundation Inference Models (FIMs).
-
 ## Publications
 
 > **Citation:** Find the bibtex entries for all publications in [publications.bib](publications.bib).

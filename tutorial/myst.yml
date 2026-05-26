@@ -1,7 +1,7 @@
 version: 1
 project:
   authors:
-    - name: Lamarr's DL4SD Group
+    - name: DL4SD Group
   github: FIM4Science/OpenFIM
   bibliography:
     - references.bib
@@ -49,5 +49,4 @@ site:
     hide_authors: true
     hide_footer_links: true
   parts:
-    # Overrides the badge with your own clean text or links
-    primary_sidebar_footer: "© 2026 Lamarr's DL4SD Group"
+    primary_sidebar_footer: "© 2026 DL4SD Group"
