@@ -31,6 +31,10 @@ __all__ = [
 
 
 class AModel(PreTrainedModel, ABC):
+    # Transformers >=5 expects this mapping to exist on custom model classes,
+    # even when the model does not define any tied weights.
+    all_tied_weights_keys: dict[str, str] = {}
+
     def __init__(self, config: PretrainedConfig, **kwargs):
         super().__init__(config)
         self.config = config
