@@ -9,7 +9,7 @@
     - window size + overlap
 
 - proceedings:
-    - forward pass FIMWindowed
+    - forward pass FIMImpPoint
         - get predictions for each sample
     - compute metrics for each sample (need: target & prediction)
         - use script
@@ -30,7 +30,7 @@ import torch
 from tqdm import tqdm
 
 from fim.data.dataloaders import TimeSeriesDataLoaderTorch
-from fim.models.FIM_models import FIMWindowed
+from fim.models.FIM_models import FIMImpPoint
 from fim.utils.helper import load_yaml
 from fim.utils.metrics import compute_metrics
 
@@ -208,7 +208,7 @@ def get_overview_all_metrics(
     metrics: dict = {}
     for dim, sigma, rho in itertools.product(dims, sigmas, rhos):
         key = f"dim{dim}_sigma{sigma}_rho{rho}"
-        metrics[key] = json.load(open(f"reports/FIMWindowed/ODEBench/{key}/metrics.json"))
+        metrics[key] = json.load(open(f"reports/FIMImpPoint/ODEBench/{key}/metrics.json"))
     if print:
         print_dict_as_table(metrics)
     else:
@@ -268,7 +268,7 @@ if __name__ == "__main__":
         if denoising_model_name is not None:
             config["model"]["denoising_model"]["name"] = denoising_model_name
 
-        model = FIMWindowed(**config["model"])
+        model = FIMImpPoint(**config["model"])
         model.to(device_map)
         model.eval()
 
@@ -281,7 +281,7 @@ if __name__ == "__main__":
             model_abbr = None
         # window_count = config["model"]["window_count"]
         overlap = config["model"]["overlap"]
-        output_folder_base = f"reports/FIMWindowed/ODEBench/{window_count}windows_{int(100 * overlap)}%overlap/{model_abbr}/"
+        output_folder_base = f"reports/FIMImpPoint/ODEBench/{window_count}windows_{int(100 * overlap)}%overlap/{model_abbr}/"
         os.makedirs(output_folder_base, exist_ok=True)
         # print(f"Running evaluation for window_count={window_count}, model={model_abbr}")
         # use itertools.product to loop over all hyperparameters

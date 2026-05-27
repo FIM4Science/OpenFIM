@@ -146,7 +146,7 @@ def load_model_from_checkpoint(checkpoint_path: Union[str, Path], module: nn.Mod
 
     Args:
         checkpoint_path (Union[str, Path]): Path to the checkpoint. Expects key `model_state`. Further expects a `train_parameters.yaml` file two directories above the checkpoint.
-        module (nn.Module): Module to load. e.g `fim.models.FIMODE`.
+        module (nn.Module): Module to load. e.g `fim.models.FIMImpPointBase`.
         for_eval (bool): Whether to set the model to eval mode.
 
     Returns:
@@ -162,8 +162,8 @@ def load_model_from_checkpoint(checkpoint_path: Union[str, Path], module: nn.Mod
     params_dict = load_yaml(params_dict_dir)
     model_params = params_dict.get("model")
 
-    if (model_name := model_params.pop("name")) != "FIMODE" and model_name != "FIM_imputation":
-        logger.warning("Not tested for anything but FIMODE and FIMImputation!")
+    if (model_name := model_params.pop("name")) != "FIMImpPointBase" and model_name != "FIM_imputation":
+        logger.warning("Not tested for anything but FIMImpPointBase and FIMImpTempBase!")
     if isinstance(model_params, dict):
         model_params = module.config_class(**model_params)
     logger.info(f"Loading model with parameters: {model_params}")

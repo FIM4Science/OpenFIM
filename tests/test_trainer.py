@@ -4,7 +4,7 @@ import pytest
 
 from fim import test_data_path
 from fim.data.dataloaders import DataLoaderFactory
-from fim.models import FIMMJP, FIMODE, FIMSDE, FIMMJPConfig, FIMODEConfig, FIMSDEConfig
+from fim.models import FIMMJP, FIMSDE, FIMImpPointBase, FIMImpPointBaseConfig, FIMMJPConfig, FIMSDEConfig
 from fim.models.blocks import ModelFactory
 from fim.trainers.trainer import Trainer, TrainLossTracker
 from fim.utils.helper import load_yaml
@@ -59,8 +59,8 @@ class TestLossTracker:
     [
         (
             Path("imputation") / "fim_imp_pointwise_base_mini_test.yaml",
-            FIMODEConfig,
-            FIMODE,
+            FIMImpPointBaseConfig,
+            FIMImpPointBase,
             "DEBUG_fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model",
         ),
         (

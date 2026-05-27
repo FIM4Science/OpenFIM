@@ -11,13 +11,13 @@ from ..data.utils import make_multi_dim, make_single_dim, repeat_for_dim
 from ..utils.logging import RankLoggerAdapter
 from .blocks import AModel, ModelFactory
 from .blocks.normalization import MinMaxNormalization
-from .ode import FIMODE
+from .imputation_pointwise import FIMImpPointBase
 
 
-class FIMImputationConfig(PretrainedConfig):
+class FIMImpTempBaseConfig(PretrainedConfig):
     """
-    Configuration class for FIMImputation model.
-    This class is used to define the configuration parameters for the FIMImputation model.
+    Configuration class for FIMImpTempBase model.
+    This class is used to define the configuration parameters for the FIMImpTempBase model.
     It inherits from PretrainedConfig and allows for easy serialization and deserialization.
     """
 
@@ -34,12 +34,12 @@ class FIMImputationConfig(PretrainedConfig):
         self.loss_configs = kwargs.get("loss_configs", {})
 
 
-class FIMImputation(AModel):
-    """Imputation and forecasting model based on FIMODE."""
+class FIMImpTempBase(AModel):
+    """Imputation and forecasting model based on FIMImpPointBase."""
 
-    config_class = FIMImputationConfig
+    config_class = FIMImpTempBaseConfig
 
-    def __init__(self, config: FIMImputationConfig, **kwargs):
+    def __init__(self, config: FIMImpTempBaseConfig, **kwargs):
         super().__init__(config, **kwargs)
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
         # self._device_map = device_map
@@ -64,8 +64,8 @@ class FIMImputation(AModel):
 
     def _create_model(self):
         config = deepcopy(self.config)
-        self.fim_base = FIMODE.from_pretrained(config.fim_base)
-        # self.fim_base: FIMODE = load_model_from_checkpoint(config.fim_base, module=FIMODE)
+        self.fim_base = FIMImpPointBase.from_pretrained(config.fim_base)
+        # self.fim_base: FIMImpPointBase = load_model_from_checkpoint(config.fim_base, module=FIMImpPointBase)
 
         self.fim_base.apply_normalization = config.use_fim_normalization
         self.psi_2 = create_class_instance(config.psi_2.pop("name"), config.psi_2)
@@ -467,11 +467,11 @@ class FIMImputation(AModel):
         return self.peft is not None and self.peft["method"] is not None
 
 
-class FIMImputationWindowedConfig(FIMImputationConfig):
+class FIMImpTempConfig(FIMImpTempBaseConfig):
     """
-    Configuration class for FIMImputationWindowed model.
-    This class is used to define the configuration parameters for the FIMImputationWindowed model.
-    It inherits from FIMImputationConfig and allows for easy serialization and deserialization.
+    Configuration class for FIMImpTemp model.
+    This class is used to define the configuration parameters for the FIMImpTemp model.
+    It inherits from FIMImpTempBaseConfig and allows for easy serialization and deserialization.
     """
 
     model_type = "fim_imputation_windowed"
@@ -482,13 +482,13 @@ class FIMImputationWindowedConfig(FIMImputationConfig):
         self.denoising_model = denosing_model
 
 
-class FIMImputationWindowed(AModel):
-    """Imputation model based on FIMImputation with windowed input."""
+class FIMImpTemp(AModel):
+    """Imputation model based on FIMImpTempBase with windowed input."""
 
-    config_class = FIMImputationWindowedConfig
+    config_class = FIMImpTempConfig
 
-    def __init__(self, config: FIMImputationWindowedConfig, **kwargs):
-        super(FIMImputationWindowed, self).__init__(config=config, **kwargs)
+    def __init__(self, config: FIMImpTempConfig, **kwargs):
+        super(FIMImpTemp, self).__init__(config=config, **kwargs)
         self.logger = RankLoggerAdapter(logging.getLogger(self.__class__.__name__))
 
         self._create_model()
@@ -500,8 +500,8 @@ class FIMImputationWindowed(AModel):
         else:
             self.denoising_model = lambda x, mask: x
 
-        # self.fim_imputation: FIMImputation = load_model_from_checkpoint(config.fim_imputation, module=FIMImputation)
-        self.fim_imputation = FIMImputation.from_pretrained(config.fim_imputation)
+        # self.fim_imputation: FIMImpTempBase = load_model_from_checkpoint(config.fim_imputation, module=FIMImpTempBase)
+        self.fim_imputation = FIMImpTempBase.from_pretrained(config.fim_imputation)
 
     def forward(self, batch: dict, imputation_window_index: int = None) -> dict:
         """
@@ -620,11 +620,11 @@ class FIMImputationWindowed(AModel):
         raise NotImplementedError
 
 
-ModelFactory.register(FIMImputationConfig.model_type, FIMImputation)
-AutoConfig.register(FIMImputationConfig.model_type, FIMImputationConfig)
-AutoModel.register(FIMImputationConfig, FIMImputation)
+ModelFactory.register(FIMImpTempBaseConfig.model_type, FIMImpTempBase)
+AutoConfig.register(FIMImpTempBaseConfig.model_type, FIMImpTempBaseConfig)
+AutoModel.register(FIMImpTempBaseConfig, FIMImpTempBase)
 
 
-ModelFactory.register(FIMImputationWindowedConfig.model_type, FIMImputationWindowed)
-AutoConfig.register(FIMImputationWindowedConfig.model_type, FIMImputationWindowedConfig)
-AutoModel.register(FIMImputationWindowedConfig, FIMImputationWindowed)
+ModelFactory.register(FIMImpTempConfig.model_type, FIMImpTemp)
+AutoConfig.register(FIMImpTempConfig.model_type, FIMImpTempConfig)
+AutoModel.register(FIMImpTempConfig, FIMImpTemp)

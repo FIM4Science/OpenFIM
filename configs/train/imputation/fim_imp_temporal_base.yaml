@@ -1,5 +1,5 @@
 experiment:
-  name: FIMImputation/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50
+  name: FIMImpTempBase/SynthDataTrend_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window_5_50
   name_add_date: True # if true, the current date & time will be added to the experiment name
   seed: [4]
   device_map: cuda # auto, cuda, cpu
@@ -14,7 +14,7 @@ distributed:
 
 model:
   name: FIM_imputation # class name
-  fim_base: /cephfs_projects/foundation_models/models/FIMImputation/fim_ode_minMax/model-checkpoint.pth # results/FIMImputation/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMImputation/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
+  fim_base: /cephfs_projects/foundation_models/models/FIMImpTempBase/fim_ode_minMax/model-checkpoint.pth # results/FIMImpTempBase/fim_ode_noisy_RevIN-0-1-experiment-seed-10_08-23-1833/checkpoints/best-model/model-checkpoint.pth # results/FIMImpTempBase/fim_ode_noisy_MinMax-experiment-seed-10_08-23-1331/checkpoints/best-model/model-checkpoint.pth # checkpoint
   use_fim_normalization: true
 
   loss_configs:

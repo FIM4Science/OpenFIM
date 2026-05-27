@@ -8,7 +8,7 @@ import torch
 from tqdm import tqdm
 
 from fim.models.blocks import ModelFactory
-from fim.models.imputation import FIMImputationWindowedConfig
+from fim.models.imputation_temporal import FIMImpTempConfig
 from fim.utils.metrics import compute_metrics
 
 
@@ -17,11 +17,11 @@ device_map = "cpu"  # Use CPU for evaluation, change to "cuda:0" if GPU is avail
 pca_component_count = 3
 
 model_config = {
-    "model_type": FIMImputationWindowedConfig.model_type,
-    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth",
-    # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
-    # "fim_imputation": "results/FIMImputation/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
-    # "fim_imputation": "results/FIMImputation/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
+    "model_type": FIMImpTempConfig.model_type,
+    "fim_imputation": "/home/cvejoski/Projects/FoundationModels/FIM/results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks_varImpu_window-experiment-seed-4_09-26-2014/checkpoints/best-model/model-checkpoint.pth",
+    # "fim_imputation": "results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-22-2323/checkpoints/best-model/model-checkpoint.pth",
+    # "fim_imputation": "results/FIMImpTempBase/SynthData_all_5w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1636/checkpoints/best-model/model-checkpoint.pth",
+    # "fim_imputation": "results/FIMImpTempBase/SynthData_all_3w_MinMax_MinMax_nllh_sfvGlobNorm_LRcosAn_4encBlocks-experiment-seed-4_09-13-1635/checkpoints/best-model/model-checkpoint.pth",
     "denoising_model": None,
 }
 data_config = {
@@ -403,7 +403,7 @@ if __name__ == "__main__":
     model = ModelFactory.create(model_config)
     model.to(device_map)
     model_abbr = model_config["fim_imputation"].split("/")[-4].split("_")[-1]
-    output_dir_base = f"reports/FIMImputation/NavierStokes/{model_abbr}_overlap0-random_window-interpolated-10-30-soulution/"
+    output_dir_base = f"reports/FIMImpTempBase/NavierStokes/{model_abbr}_overlap0-random_window-interpolated-10-30-soulution/"
     os.makedirs(output_dir_base, exist_ok=True)
 
     print("saving at ", output_dir_base)

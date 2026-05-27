@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 import torch
 
-from fim.models.imputation import FIMImputationWindowed, FIMImputationWindowedConfig
+from fim.models.imputation_temporal import FIMImpTemp, FIMImpTempConfig
 from fim.utils.metrics import compute_metrics
 
 
@@ -13,8 +13,8 @@ device_map = "cuda:0" if torch.cuda.is_available() else "cpu"
 pca_component_count = 3
 
 model_config = {
-    "model_type": FIMImputationWindowedConfig.model_type,
-    "fim_imputation": "FIM4Science/fim-imputation",
+    "model_type": FIMImpTempConfig.model_type,
+    "fim_imputation": "FIM4Science/fim-imp-temporal-base",
     "denoising_model": None,
 }
 data_config = {
@@ -334,9 +334,9 @@ def evaluate_configuration(model, batch, output_path, pca_params: Optional[tuple
 
 
 if __name__ == "__main__":
-    model = FIMImputationWindowed.from_pretrained("FIM4Science/fim-windowed-imputation")
+    model = FIMImpTemp.from_pretrained("FIM4Science/fim-imp-temporal")
     model_abbr = "hf"
-    output_dir_base = f"reports/FIMImputation/MocapData/{model_abbr}_trend_overlap0-random_window-interpolated-5-50-soulution/"
+    output_dir_base = f"reports/FIMImpTempBase/MocapData/{model_abbr}_trend_overlap0-random_window-interpolated-5-50-soulution/"
     os.makedirs(output_dir_base, exist_ok=True)
 
     print("saving at ", output_dir_base)

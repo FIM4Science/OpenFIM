@@ -3,7 +3,7 @@ from copy import deepcopy
 import pytest
 import torch
 
-from fim.models.ode import ImputationConcepts
+from fim.models.imputation_pointwise import ImputationConcepts
 from fim.models.sde import MinMaxNormalization, Standardization
 
 

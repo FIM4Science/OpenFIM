@@ -191,7 +191,7 @@ def prepare_data(ts, values, mask=None, window_count=3, imp_start=65, imp_end=70
 
 def prepare_data_base(ts, values, mask=None, fine_grid_times=None):
     """
-    Prepare data for the base FIM-imputation-base model.
+    Prepare data for the base fim-imp-pointwise-base model.
 
     Args:
         ts: Time points tensor of shape [B, T, 1]
@@ -200,7 +200,7 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None):
         fine_grid_times: Fine grid for evaluation, if None uses same as ts
 
     Returns:
-        batch: Dictionary suitable for base FIM-imputation-base model
+        batch: Dictionary suitable for base fim-imp-pointwise-base model
     """
     if mask is None:
         mask = torch.zeros_like(ts).bool()  # If no mask is given, all data was observed
@@ -208,7 +208,7 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None):
     if fine_grid_times is None:
         fine_grid_times = ts.clone()
 
-    # The model FIM-imputation-base expects this format based on its forward method
+    # The model fim-imp-pointwise-base expects this format based on its forward method
     B, T, D = ts.shape
     assert T % 4 == 0, f"T dimension ({T}) must be divisible by 4"
 
@@ -226,7 +226,7 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None):
     mask_merged = mask_split.reshape(B * 4, T_chunk, D)
     fine_grid_times_merged = fine_grid_times_split.reshape(B * 4, T_chunk, D)
 
-    # The model FIM-imputation-base expects this format
+    # The model fim-imp-pointwise-base expects this format
     batch = {
         # Coarse grid (observations)
         "coarse_grid_noisy_sample_paths": values_merged,  # [B*4, T/4, 1]
@@ -242,7 +242,7 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None):
 
 def prepare_data_base(ts, values, mask=None, fine_grid_times=None, num_windows=4):
     """
-    Prepare data for the base FIM-imputation-base model.
+    Prepare data for the base fim-imp-pointwise-base model.
 
     Args:
         ts: Time points tensor of shape [B, T, 1]
@@ -252,7 +252,7 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None, num_windows=4
         num_windows: Number of windows to split data into (default: 4)
 
     Returns:
-        batch: Dictionary suitable for base FIM-imputation-base model
+        batch: Dictionary suitable for base fim-imp-pointwise-base model
     """
     if mask is None:
         mask = torch.zeros_like(ts).bool()  # If no mask is given, all data was observed
@@ -260,7 +260,7 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None, num_windows=4
     if fine_grid_times is None:
         fine_grid_times = ts.clone()
 
-    # The model FIM-imputation-base expects this format based on its forward method
+    # The model fim-imp-pointwise-base expects this format based on its forward method
     B, T, D = ts.shape
     assert T % num_windows == 0, f"T dimension ({T}) must be divisible by num_windows ({num_windows})"
 
@@ -278,7 +278,7 @@ def prepare_data_base(ts, values, mask=None, fine_grid_times=None, num_windows=4
     mask_merged = mask_split.reshape(B * num_windows, T_chunk, D)
     fine_grid_times_merged = fine_grid_times_split.reshape(B * num_windows, T_chunk, D)
 
-    # The model FIM-imputation-base expects this format
+    # The model fim-imp-pointwise-base expects this format
     batch = {
         # Coarse grid (observations)
         "coarse_grid_noisy_sample_paths": values_merged,  # [B*num_windows, T/num_windows, 1]

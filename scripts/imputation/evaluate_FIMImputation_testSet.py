@@ -12,7 +12,7 @@ import torch
 from tqdm import tqdm
 
 from fim.data.dataloaders import TimeSeriesDataLoaderTorch
-from fim.models.models import FIMODE
+from fim.models.models import FIMImpPointBase
 from fim.models.utils import load_model_from_checkpoint
 from fim.utils.metrics import compute_metrics
 
@@ -31,7 +31,7 @@ def evaluate_one_configuration(model_checkpoint_path: str, dl: TimeSeriesDataLoa
     output_path = output_base_dir + model_abbr + "/"
     os.makedirs(output_path, exist_ok=True)
 
-    model = load_model_from_checkpoint(model_checkpoint_path, module=FIMODE, for_eval=True)
+    model = load_model_from_checkpoint(model_checkpoint_path, module=FIMImpPointBase, for_eval=True)
 
     predictions = {}
     for id, batch in tqdm(enumerate(dl.test_it), desc=f"Evaluating {model_abbr}"):
