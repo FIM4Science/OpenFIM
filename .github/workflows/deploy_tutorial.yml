@@ -42,6 +42,8 @@ jobs:
 
       - name: Build Jupyter Book HTML
         working-directory: tutorial
+        env:
+          BASE_URL: /${{ github.event.repository.name }}
         run: uv run --project .. --group tutorial jupyter-book build --html --strict
 
       - name: Create Legacy intro.html Redirect
