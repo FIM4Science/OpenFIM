@@ -1,0 +1,25 @@
+# experiments/configs/finetune_fhn.yaml
+# Finetuning FIM-ODE on the FHN (FitzHugh-Nagumo) reference dataset.
+#
+# Context: multiple observed segments with a missing quadrant.
+# Each segment is used as-is; consecutive pairs within each segment
+# are integrated in parallel (segmented mode, no full-trajectory shooting).
+
+task: fhn
+data-dir: hedge_gp_odes_data
+
+mode: full_trajectory   # single-shoot from first obs through all 38 train points
+epochs: 200
+lr: 5.0e-6
+weight-decay: 1.0e-4
+integrator: improved_euler
+n-inner-steps: 20       # gap is 13x normal Δt; 20 steps → effective step ≈ 0.066 (O(Δt²))
+freeze-encoder: false
+
+eval-every: 5
+ckpt-every: 50
+log-every: 10
+run-dir: runs
+ckpt-dir: checkpoints/finetune
+
+device: cpu

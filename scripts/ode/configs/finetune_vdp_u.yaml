@@ -1,0 +1,21 @@
+# experiments/configs/finetune_vdp_u.yaml
+task: vdp-u
+data-dir: hedge_gp_odes_data
+
+# Training
+mode: full_trajectory
+epochs: 300
+lr: 5.0e-6
+weight-decay: 1.0e-4
+integrator: improved_euler
+n-inner-steps: 5        # 5 Heun sub-steps per Δt ≈ 0.143 → effective step ≈ 0.029 (O(Δt²))
+freeze-encoder: false   # update both encoder and decoder
+
+# Logging / saving
+eval-every: 5           # fine-grained to catch the optimum (~epoch 75)
+ckpt-every: 50          # periodic; best checkpoint saved automatically on improvement
+log-every: 10
+run-dir: runs
+ckpt-dir: checkpoints/finetune
+
+device: cpu

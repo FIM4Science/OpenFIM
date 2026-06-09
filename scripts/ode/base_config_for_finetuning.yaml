@@ -1,0 +1,134 @@
+
+dataset:
+  batch_size:
+    test: 1
+    train: 1
+    validation: 1
+  data_dirs:
+    test: !!python/tuple
+    - path_to_the_data (directory with the .h5 files)
+    train: !!python/tuple
+    - path_to_the_data (directory with the .h5 files)
+    validation: !!python/tuple
+    - path_to_the_data (directory with the .h5 files)
+  dataset_name:
+    test: HeterogeneousFIMSDEDataset
+    train: StreamingFIMSDEDataset
+    validation: StreamingFIMSDEDataset
+  files_to_load:
+    #drift_at_locations: drift_at_locations.h5
+    locations: locations.h5
+    obs_mask: obs_mask.h5
+    obs_times: obs_times.h5
+    obs_values: obs_values.h5
+  max_dim: 3
+  name: FIMSDEDataloaderIterableDataset
+  num_locations:
+    test: null
+    train: null
+    validation: null
+  num_observations:
+    test: null
+    train: null # !!python/tuple # kann auch null probieren
+    #- 49
+    #- 51
+    validation: null #!!python/tuple # kann auch null probieren
+    #- 49
+    #- 51
+  num_workers:
+    test: 0
+    train: 4
+    validation: 4
+  shard:
+    test: false
+    train: true
+    validation: true
+  shuffle_elements: true
+  shuffle_locations:
+    test: false
+    train: true
+    validation: true
+  shuffle_paths: true
+
+distributed:
+  activation_chekpoint: false
+  checkpoint_type: full_state
+  enabled: false
+  min_num_params: 1e5
+  sharding_strategy: NO_SHARD
+  wrap_policy: SIZE_BAZED
+
+experiment:
+  device_map: cpu
+  name: name_here
+  name_add_date: true
+  seed: 10
+
+model:
+  #base_model: results/base_model/checkpoints/best-model    # I think this doesnt work, better use -r
+  model_type: TrainingWrapper
+  model_config:
+    attention_map: softmax
+    attention_method: linear
+    dim_embed: 256
+    dim_feedforward: 1024
+    dim_ffn_u_model: 1024
+    dim_hidden_u_model: 256
+    dim_max_trajectory: 3
+    dropout: 0.1
+    num_context_encoder_layers: 2
+    num_heads: 8
+    num_res_layer_u_model: 6
+    num_res_layers_functional_decoder: 8
+    use_bias_for_projection: true
+    use_bias_in_attention: true
+    use_query_residual_in_attention: true
+
+  train_config:
+    train_with_normalized_head: true
+
+    # For trajectory reconstruction fine-tuning, we don't do data corruption
+    corruption_model_type: odeformer
+    max_sigma_trajectory_noise: 0.0
+    max_subsampling_ration: 0.0
+
+    loss_filter_nans: true
+    loss_type: l1   # or mse
+    only_final_points_for_loss: false
+
+    train_type: trajectory_reconstruction
+    traj_loss_steps: 15
+    random_initial_conditions: true
+    num_ic: 100     # i think on a GPU lots of ICs are fine as they are integrated in parallel
+
+    integrator_for_trajectory_training: improved_euler
+    intermediate_steps_per_step: 5     # dont need this when we use h_max
+    use_h_max: false
+    h_max: 0.02     # the frames in mocap are a time of 0.01 apart
+    # Stochastic regularization:
+    step_noise_scale: 0.0
+    ic_noise_scale: 0.0
+
+optimizers: !!python/tuple
+- optimizer_d:
+    gradient_norm_clipping: 1
+    lr: 1.e-05             # to counteract the larger weight decay   # dont remember max's value   # is used 2e-5 first
+    name: torch.optim.AdamW
+    weight_decay: 1.e-4 #1.e-3      # choosing it a bit larger to prevent overfitting: 1.e-3
+
+trainer:
+  best_metric: loss
+  debug_iterations: null
+  detect_anomaly: false
+  #epochs: 2500
+  epochs: 301
+  experiment_dir: results/ode/
+  gradient_accumulation_steps: 1
+  logging_format: RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s
+  name: Trainer
+  precision: fp32_policy #null # bf16mixed
+  save_every: 1
+  schedulers: !!python/tuple
+  - beta: 1.0
+    label: drift_loss_scale
+    name: fim.utils.param_scheduler.ConstantScheduler

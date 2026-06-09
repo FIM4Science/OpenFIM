@@ -1,0 +1,25 @@
+# experiments/configs/finetune_mocap_09_short.yaml
+# Finetuning FIM-ODE on MoCap subject 09 (short variant).
+#
+# Context : 6 training paths × 50 time steps (5-dim PCA).
+# Eval    : mean MSE over 2 test paths × 120 time steps (zero-shot forecasting).
+
+task: mocap
+subject: "09"
+variant: short
+
+mode: batch_trajectory
+epochs: 200
+lr: 1.0e-6
+weight-decay: 1.0e-4
+integrator: improved_euler
+n-inner-steps: 5
+freeze-encoder: false
+
+eval-every: 10
+ckpt-every: 50
+log-every: 10
+run-dir: runs
+ckpt-dir: checkpoints/finetune
+
+device: cpu
