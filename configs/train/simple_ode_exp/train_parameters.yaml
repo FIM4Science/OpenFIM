@@ -72,7 +72,7 @@ trainer:
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  experiment_dir: ./models/simple_ode_exp
+  experiment_dir: ./checkpoints/simple_ode_exp
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler
       label: drift_loss_scale
