@@ -1,0 +1,86 @@
+experiment:
+  name: simple_ode_exp
+  name_add_date: true
+  seed: 42
+  device_map: cpu   # change to cuda if GPU available
+
+distributed:
+  enabled: false
+  sharding_strategy: NO_SHARD
+  wrap_policy: SIZE_BAZED
+  min_num_params: 1e5
+  checkpoint_type: full_state
+  activation_chekpoint: false
+
+model:
+  model_type: FIMODE
+  model_config:
+    dim_max_trajectory: 3         # VDP/FHN are 2D (padded to 3), Lorenz is 3D
+    use_bias_for_projection: true
+    dim_embed: 40                 # must be divisible by 5 (features) and num_heads
+    num_context_encoder_layers: 2
+    attention_method: nn_multihead
+    attention_map: null
+    use_bias_in_attention: true
+    use_query_residual_in_attention: false
+    num_heads: 4                  # 40 / 4 = 10 head dim
+    dim_feedforward: 128
+    dropout: 0.1
+    num_res_layers_functional_decoder: 2
+    num_res_layer_u_model: 1
+    dim_hidden_u_model: 32
+    dim_ffn_u_model: 64
+    times_norm_on_deltas: true
+  train_config:
+    # Training mode
+    train_type: vector_field
+    train_with_normalized_head: true
+    loss_type: mse
+    loss_filter_nans: true
+    use_uncertainty_weighting: true
+    # Data corruption applied to context trajectories at training time
+    corruption_model_type: fim
+    survival_rate: 0.9            # keep 90% of time points on average
+    max_sigma_trajectory_noise: 0.05
+    additive_noise_distribution: uniform
+    same_noise_level_for_all_trajectories: true
+
+dataset:
+  name: SimpleODEDataLoader
+  max_dim: 3                      # pad VDP/FHN (D=2) to 3 so all systems share shape
+  # Lists of files per split are passed as YAML sequences (not expanded by expand_params)
+  paths:
+    train: !!python/tuple
+      - data/simple_ode/train/vdp.pt
+      - data/simple_ode/train/fhn.pt
+      - data/simple_ode/train/lorenz.pt
+    validation: !!python/tuple
+      - data/simple_ode/val/vdp.pt
+      - data/simple_ode/val/fhn.pt
+      - data/simple_ode/val/lorenz.pt
+  batch_size: 8
+  test_batch_size: 16
+  num_workers: 0
+
+trainer:
+  name: Trainer
+  epochs: 1
+  debug_iterations: null
+  precision: null               # no mixed precision (safe for CPU/MPS)
+  detect_anomaly: false
+  save_every: 1
+  gradient_accumulation_steps: 1
+  best_metric: loss
+  logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  experiment_dir: ./models/simple_ode_exp
+  schedulers: !!python/tuple
+    - name: fim.utils.param_scheduler.ConstantScheduler
+      label: drift_loss_scale
+      beta: 1.0
+
+optimizers: !!python/tuple
+  - optimizer_d:
+      name: torch.optim.AdamW
+      lr: 1.0e-4
+      weight_decay: 1.0e-4
+      gradient_norm_clipping: 10
