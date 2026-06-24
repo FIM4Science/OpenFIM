@@ -14,7 +14,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch
 
-from fim.models.fim_ode_trainer import DataCorruptionModel, FIMODETrainingConfig as TrainingConfig
+from fim.models.ode_trainer import DataCorruptionModel, FIMODETrainingConfig as TrainingConfig
 from utils.eval_models import OdeonEval, OdeFormerEval, PredictionModel
 from odebench.stat_calculator import R2VarianceWeighterStatCalculator
 from fim.data_generation.sde.lipschitz_systems import solve_ivp_one_step_method_with_delta_times

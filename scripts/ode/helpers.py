@@ -1,5 +1,5 @@
 """
-experiments/fim-ode.py
+scripts/ode/helpers.py
 ======================
 Shared library for FIM-ODE experiments.
 
@@ -2107,7 +2107,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--data-dir",  type=Path, required=True,
-                   help="Path to experiments/hedge_gp_odes_data/")
+                   help="Path to data/ode/hedge_gp_odes_data/")
     p.add_argument("--output-dir", type=Path, default=Path("results/fim-ode"),
                    help="Directory to save tables and figures")
     p.add_argument("--fmt", choices=["md", "tex"], default="md",

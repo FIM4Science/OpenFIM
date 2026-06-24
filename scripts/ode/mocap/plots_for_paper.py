@@ -1,11 +1,11 @@
 """
-experiments/mocap/plots_for_paper.py
+scripts/ode/mocap/plots_for_paper.py
 =====================================
 Paper-quality MoCap trajectory comparison plots: PCA 2D projections.
 
 Three figures (one per subject: 09-short, 35-short, 39-short), each 1×3
 with PCA projections PC0vPC1, PC0vPC2, PC1vPC2.  Style matches
-``experiments/odebench/plots_for_paper.py::plot_comparison_1x3``:
+``scripts/ode/odebench/plots_for_paper.py::plot_comparison_1x3``:
 
   - Gray streamplot vector field (model-inferred, conditioned on context)
   - Ground truth data shown as black "x" crosses
@@ -13,8 +13,7 @@ with PCA projections PC0vPC1, PC0vPC2, PC1vPC2.  Style matches
 
 Usage
 -----
-    cd experiments
-    python mocap/plots_for_paper.py [--mocap-dir ../data/mocap] [--ckpt-dir <dir>]
+    python scripts/ode/mocap/plots_for_paper.py [--mocap-dir data/mocap] [--ckpt-dir <dir>]
 
 Or import ``plot_mocap_subject`` / ``plot_all_mocap_subjects`` from a notebook.
 """
@@ -34,23 +33,22 @@ matplotlib.rcParams["pdf.fonttype"] = 42
 matplotlib.rcParams["ps.fonttype"] = 42
 
 # ── project root on sys.path ──────────────────────────────────────────────────
-_HERE = Path(__file__).resolve().parent          # experiments/mocap/
-_ROOT = _HERE.parent.parent                      # repo root
+_HERE = Path(__file__).resolve().parent          # scripts/ode/mocap/
+_ROOT = _HERE.parent.parent.parent               # repo root
 
-for _p in [str(_ROOT / "src"), str(_ROOT / "experiments")]:
+for _p in [str(_ROOT / "src"), str(_ROOT / "scripts" / "ode")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# fim-ode-finetune.py has a hyphen — load via importlib
-_ft_path = _ROOT / "experiments" / "fim-ode-finetune.py"
+from fim.models.ode import load_fim_ode_hf, load_fim_ode_local
+
+_ft_path = _ROOT / "scripts" / "ode" / "finetune.py"
 _ft_spec = importlib.util.spec_from_file_location("fim_ode_ft", _ft_path)
 _ft = importlib.util.module_from_spec(_ft_spec)
 _ft_spec.loader.exec_module(_ft)
 
 integrate_from_context  = _ft.integrate_from_context
 prepare_context_tensors = _ft.prepare_context_tensors
-load_fim_ode_hf         = _ft.load_fim_ode_hf
-load_fim_ode_local      = _ft.load_fim_ode_local
 load_mocap              = _ft.load_mocap
 
 # ── style constants (matches plot_comparison_1x3) ────────────────────────────
@@ -121,7 +119,7 @@ def plot_mocap_subject(
     Parameters
     ----------
     data          : dict returned by ``load_mocap``
-    model         : FimOdeonUnified (eval mode, on ``device``)
+    model         : FIMODE (eval mode, on ``device``)
     device        : "cpu" or "cuda"
     subject_label : figure suptitle, e.g. "Subject 09 – short"
     n_test        : number of test trajectories to draw

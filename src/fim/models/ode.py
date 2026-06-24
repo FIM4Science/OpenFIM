@@ -1,9 +1,7 @@
 """
 FIMODE — Foundation Inference Model for Ordinary Differential Equations.
 
-Single-class model (mirrors FIMSDE): preprocessing + encoder + decoder + training in one place.
-  - forward(data: dict) -> dict          training entry point
-  - model_forward(...) -> FIMODEOutput   inference entry point
+Architecture, trajectory encoders, model configuration, and preprocessing.
 
 Two encoder paths are supported (selected via model_config.encoder_type):
   "standard"  — 4-feature TrajectoryEncoder (x, Δx, Δx², Δt).
@@ -14,29 +12,24 @@ Two encoder paths are supported (selected via model_config.encoder_type):
 from __future__ import annotations
 
 import copy
-from typing import Any, Dict, Optional, Tuple
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Final, Literal, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torch import Tensor
-from transformers import AutoConfig, AutoModel
+from transformers import AutoConfig, AutoModel, PretrainedConfig
 
-from fim.models.blocks import AModel
-from fim.models.blocks.neural_operators import AttentionOperator
+from fim.models.blocks import AModel, ModelFactory
+from fim.models.blocks.neural_operators import ResidualEncoderLayer, AttentionOperator
 from fim.models.sde import Standardization, DeltaLogCentering
 
-from fim.models.fim_ode_concepts import (
+from fim.models.ode_trainer import (
     ODEConcepts,
-    TrajectoryFeatures,
-    AxialTrajectoryFeatures,
-    FIMODEModelConfig,
-    TrajectoryEncoder,
-    AxialTrajectoryEncoder,
     EncoderOutput,
     FIMODEOutput,
-    UncertaintyEstimator,
-)
-from fim.models.fim_ode_trainer import (
     FIMODEConfig,
     FIMODETrainingConfig,
     TrainingData,
@@ -44,6 +37,261 @@ from fim.models.fim_ode_trainer import (
     LossFactory,
     TrainIntegrator,
 )
+
+
+# ---------- Trajectory features ----------
+
+@dataclass
+class TrajectoryFeatures:
+    """
+    4-feature representation of observed trajectories (standard encoder).
+
+    Shapes: [B, T, N-1, *] where N-1 = time steps minus last.
+    """
+    x: Tensor               # state values
+    delta_x: Tensor         # forward increment:  x(t+h) - x(t)
+    delta_x_squared: Tensor # squared forward increment
+    delta_t: Tensor         # time increments  [B, T, N-1, 1]
+    feature_mask: Tensor    # valid-step mask   [B, T, N-1, 1]
+
+
+@dataclass
+class AxialTrajectoryFeatures:
+    """
+    5-feature representation for the Axial encoder (not yet trained).
+
+    Adds delta_x_back (backward difference) to TrajectoryFeatures.
+    Shapes: [B, T, N-2, *] — interior positions 1..N-2 only.
+    """
+    x: Tensor               # state values at interior positions
+    delta_x: Tensor         # forward increment:  x(t+h) - x(t)
+    delta_x_back: Tensor    # backward increment: x(t) - x(t-h)
+    delta_x_squared: Tensor # squared forward increment
+    delta_t: Tensor         # time increments  [B, T, N-2, 1]
+    feature_mask: Tensor    # valid-step mask   [B, T, N-2, 1]
+
+
+# ---------- Model configuration ----------
+
+@dataclass(kw_only=True)
+class FIMODEModelConfig(PretrainedConfig):
+    """Hyperparameters for the FIMODE model architecture."""
+
+    _ACTIVATION: Final[str] = "torch.nn.GELU"
+    model_type: str = "FIMODEModel"
+
+    dim_max_trajectory: int
+    use_bias_for_projection: bool
+    dim_embed: int
+
+    num_context_encoder_layers: int
+    attention_method: Literal["linear", "nn_multihead"]
+    attention_map: Optional[Literal["softmax", "elu"]]
+    use_bias_in_attention: Optional[bool]
+    use_query_residual_in_attention: Optional[bool]
+    num_heads: int
+    dim_feedforward: int
+    dropout: float
+
+    num_res_layers_functional_decoder: int
+    num_res_layer_u_model: int
+    dim_hidden_u_model: int
+    dim_ffn_u_model: int
+
+    times_norm_on_deltas: Optional[bool] = True
+
+    # "standard" → 4-feature TrajectoryEncoder (checkpoint-compatible)
+    # "axial"    → 5-feature AxialTrajectoryEncoder (future use)
+    encoder_type: str = "standard"
+
+    def get_attention_layer_config(self) -> Dict:
+        return {
+            "nhead": self.num_heads,
+            "dim_feedforward": self.dim_feedforward,
+            "dropout": self.dropout,
+            "activation": self._ACTIVATION,
+            "bias": self.use_bias_in_attention,
+            "query_residual": self.use_query_residual_in_attention,
+            "attn_method": self.attention_method,
+            "lin_feature_map": self.attention_map,
+            "lin_normalize": True,
+        }
+
+    def get_projection_config(self) -> Dict:
+        return {
+            "name": "fim.models.blocks.base.MLP",
+            "hidden_layers": (self.dim_embed, self.dim_embed),
+            "hidden_act": {"name": self._ACTIVATION},
+            "dropout": self.dropout,
+        }
+
+    def get_functional_decoder_config(self) -> Dict:
+        return {
+            "paths_block_attention": False,
+            "num_res_layers": self.num_res_layers_functional_decoder,
+            "attention": self.get_attention_layer_config(),
+            "projection": self.get_projection_config(),
+        }
+
+    def get_uncertainty_estimator_config(self) -> Dict:
+        cfg = self.get_functional_decoder_config()
+        cfg["num_res_layers"] = self.num_res_layer_u_model
+        cfg["projection"]["hidden_layers"] = (self.dim_hidden_u_model, self.dim_hidden_u_model)
+        cfg["attention"]["dim_feedforward"] = self.dim_ffn_u_model
+        return cfg
+
+
+# ---------- TrajectoryEncoder (4-feature, standard, checkpoint-compatible) ----------
+
+class TrajectoryEncoder(nn.Module):
+    """
+    4-feature context encoder: x, Δx, Δx², Δt.
+
+    Compatible with all pre-trained FIMODE checkpoints.
+    Requires dim_embed divisible by 4.
+    """
+
+    _NUM_FEATURES: Final[int] = 4
+
+    @dataclass
+    class Output:
+        D: Tensor
+
+    def __init__(self, config: FIMODEModelConfig):
+        super().__init__()
+        self.config = config
+        assert config.dim_embed % self._NUM_FEATURES == 0, (
+            f"dim_embed must be divisible by {self._NUM_FEATURES} for TrajectoryEncoder"
+        )
+        dim_proj = config.dim_embed // self._NUM_FEATURES
+
+        self.x_proj              = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_x_proj        = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_x_squared_proj = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_t_proj        = nn.Linear(1,                          dim_proj, bias=config.use_bias_for_projection)
+
+        layer = ResidualEncoderLayer(
+            d_model=config.dim_embed,
+            batch_first=True,
+            **config.get_attention_layer_config(),
+        )
+        self.context_encoder = nn.TransformerEncoder(
+            layer,
+            num_layers=config.num_context_encoder_layers,
+            enable_nested_tensor=False,
+        )
+
+    def forward(self, features: TrajectoryFeatures) -> "TrajectoryEncoder.Output":
+        x    = self.x_proj(features.x)
+        dx   = self.delta_x_proj(features.delta_x)
+        dx2  = self.delta_x_squared_proj(features.delta_x_squared)
+        dt   = self.delta_t_proj(features.delta_t)
+
+        feature_vector = torch.cat([dt, x, dx, dx2], dim=-1)
+        if self.config.use_bias_for_projection:
+            feature_vector = feature_vector * features.feature_mask
+
+        b, t, n, d = feature_vector.shape
+        feature_vector = feature_vector.view(b, t * n, d)
+        src_key_padding_mask = ~features.feature_mask.view(b, t * n, 1)
+
+        D = self.context_encoder(feature_vector, src_key_padding_mask=src_key_padding_mask)
+        D = D.view(b, t, n, d) * features.feature_mask
+
+        return self.Output(D=D)
+
+
+# ---------- AxialTrajectoryEncoder (5-feature, future use) ----------
+
+class AxialTrajectoryEncoder(nn.Module):
+    """
+    5-feature context encoder: x, Δx, Δx_back, Δx², Δt.
+
+    Adds a backward-difference feature (Δx_back) for improved handling of
+    irregular and subsampled trajectories. Not yet trained; use with new
+    checkpoints only.  Requires dim_embed divisible by 5.
+    """
+
+    _NUM_FEATURES: Final[int] = 5
+
+    @dataclass
+    class Output:
+        D: Tensor
+
+    def __init__(self, config: FIMODEModelConfig):
+        super().__init__()
+        self.config = config
+        assert config.dim_embed % self._NUM_FEATURES == 0, (
+            f"dim_embed must be divisible by {self._NUM_FEATURES} for AxialTrajectoryEncoder"
+        )
+        dim_proj = config.dim_embed // self._NUM_FEATURES
+
+        self.x_proj               = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_x_proj         = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_x_back_proj    = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_x_squared_proj = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_t_proj         = nn.Linear(1,                          dim_proj, bias=config.use_bias_for_projection)
+
+        layer = ResidualEncoderLayer(
+            d_model=config.dim_embed,
+            batch_first=True,
+            **config.get_attention_layer_config(),
+        )
+        self.context_encoder = nn.TransformerEncoder(
+            layer,
+            num_layers=config.num_context_encoder_layers,
+            enable_nested_tensor=False,
+        )
+
+    def forward(self, features: AxialTrajectoryFeatures) -> "AxialTrajectoryEncoder.Output":
+        x    = self.x_proj(features.x)
+        dx   = self.delta_x_proj(features.delta_x)
+        dx_b = self.delta_x_back_proj(features.delta_x_back)
+        dx2  = self.delta_x_squared_proj(features.delta_x_squared)
+        dt   = self.delta_t_proj(features.delta_t)
+
+        feature_vector = torch.cat([dt, x, dx, dx_b, dx2], dim=-1)
+        if self.config.use_bias_for_projection:
+            feature_vector = feature_vector * features.feature_mask
+
+        b, t, n, d = feature_vector.shape
+        feature_vector = feature_vector.view(b, t * n, d)
+        src_key_padding_mask = ~features.feature_mask.view(b, t * n, 1)
+
+        D = self.context_encoder(feature_vector, src_key_padding_mask=src_key_padding_mask)
+        D = D.view(b, t, n, d) * features.feature_mask
+
+        return self.Output(D=D)
+
+
+# ---------- Uncertainty estimator ----------
+
+class UncertaintyEstimator(nn.Module):
+    """
+    Predicts a per-location uncertainty scalar u from encoded locations and trajectory embedding.
+
+    Loss weighting: loss_weighted = loss * exp(-u) + u
+    """
+
+    def __init__(self, config: FIMODEModelConfig):
+        super().__init__()
+        self.functional_encoder = AttentionOperator(
+            embed_dim=config.dim_embed,
+            out_features=1,
+            **config.get_uncertainty_estimator_config(),
+        )
+
+    def forward(self, model_out: FIMODEOutput) -> Tensor:
+        u = self.functional_encoder(
+            model_out.encoded_locations,
+            model_out.D.D,
+            observations_padding_mask=~model_out.feature_mask,
+        )
+        return u.squeeze(dim=2)
+
+    @staticmethod
+    def apply_u_to_loss(loss: Tensor, u: Tensor) -> Tensor:
+        return loss * torch.exp(-u) + u
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -563,8 +811,61 @@ class FIMODE(AModel):
 
 # ---------- HuggingFace registration ----------
 
-from fim.models.blocks import ModelFactory
-
 ModelFactory.register(FIMODEConfig.model_type, FIMODE)
 AutoConfig.register(FIMODEConfig.model_type, FIMODEConfig)
 AutoModel.register(FIMODEConfig, FIMODE)
+
+
+# ---------- Model loading helpers ----------
+
+_HF_REPO_ID   = "FIM4Science/fim-ode"
+_HF_SUBFOLDER = "base_model/checkpoints/best-model"
+# Repo root is 4 levels up from src/fim/models/ode.py
+_REPO_ROOT    = Path(__file__).resolve().parents[3]
+_DEFAULT_HF_CACHE = _REPO_ROOT / "results" / "ode" / "pretrained"
+
+
+def _load_fimode_from_config_and_weights(config_path: Path, weights_path: Path, device: str) -> FIMODE:
+    from safetensors.torch import load_file
+    from fim.models.ode_trainer import FIMODEConfig as _Cfg
+
+    with open(config_path) as f:
+        config_dict = json.load(f)
+    config = _Cfg()
+    config.model_config = config_dict["model_config"]
+    config.train_config = config_dict["train_config"]
+
+    model = FIMODE(config)
+    state_dict = load_file(str(weights_path), device=device)
+    state_dict = {k.removeprefix("model."): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict)
+    return model.to(device)
+
+
+def load_fim_ode_hf(device: str = "cpu", cache_dir: Path = None) -> FIMODE:
+    """Download and load FIMODE from HuggingFace Hub (FIM4Science/fim-ode).
+
+    Files are cached in ``cache_dir`` (default: ``results/ode/pretrained/``
+    inside the repo root).  Both this function and the notebook use the same
+    default, so the model is only downloaded once.
+    """
+    from huggingface_hub import hf_hub_download
+
+    local_dir = Path(cache_dir) if cache_dir is not None else _DEFAULT_HF_CACHE
+    local_dir.mkdir(parents=True, exist_ok=True)
+
+    config_path  = Path(hf_hub_download(_HF_REPO_ID, f"{_HF_SUBFOLDER}/config.json",
+                                        local_dir=str(local_dir)))
+    weights_path = Path(hf_hub_download(_HF_REPO_ID, f"{_HF_SUBFOLDER}/model.safetensors",
+                                        local_dir=str(local_dir)))
+    return _load_fimode_from_config_and_weights(config_path, weights_path, device)
+
+
+def load_fim_ode_local(checkpoint_dir: Path, device: str = "cpu") -> FIMODE:
+    """Load FIMODE from a local safetensors checkpoint directory."""
+    checkpoint_dir = Path(checkpoint_dir)
+    return _load_fimode_from_config_and_weights(
+        checkpoint_dir / "config.json",
+        checkpoint_dir / "model.safetensors",
+        device,
+    )

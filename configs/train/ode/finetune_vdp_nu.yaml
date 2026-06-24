@@ -1,6 +1,6 @@
 # experiments/configs/finetune_vdp_nu.yaml
 task: vdp-nu
-data-dir: hedge_gp_odes_data
+data-dir: data/ode/hedge_gp_odes_data
 
 mode: full_trajectory
 epochs: 300
@@ -13,7 +13,7 @@ freeze-encoder: false
 eval-every: 5
 ckpt-every: 50
 log-every: 10
-run-dir: runs
-ckpt-dir: checkpoints/finetune
+run-dir: results/ode/logs
+ckpt-dir: results/ode/checkpoints/finetune
 
 device: cpu

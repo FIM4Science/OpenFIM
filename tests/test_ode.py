@@ -1,23 +1,25 @@
 """
-Tests for the FIMODE model (fim_ode.py, fim_ode_concepts.py, fim_ode_trainer.py).
+Tests for the FIMODE model (ode.py, ode_trainer.py).
 All tests are self-contained — no external data files or YAML configs required.
 """
 import copy
+import numpy as np
 import pytest
 import torch
 from torch import Tensor
+from scipy.integrate import solve_ivp
 
-from fim.models.fim_ode import FIMODE
-from fim.models.fim_ode_concepts import (
-    ODEConcepts,
+from fim.models.ode import (
+    FIMODE,
     TrajectoryFeatures,
     FIMODEModelConfig,
     TrajectoryEncoder,
-    EncoderOutput,
-    FIMODEOutput,
     UncertaintyEstimator,
 )
-from fim.models.fim_ode_trainer import (
+from fim.models.ode_trainer import (
+    ODEConcepts,
+    EncoderOutput,
+    FIMODEOutput,
     FIMODEConfig,
     FIMODETrainingConfig,
     TrainingData,
@@ -564,3 +566,125 @@ class TestFIMODE:
             out1 = model.model_forward(traj, times, locs, mask)
             out2 = model.model_forward(traj, times, locs, mask)
         assert torch.allclose(out1.predictions.drift, out2.predictions.drift)
+
+
+# ─────────────────────────────────────────────
+# 7. Integration: scipy reference systems
+# ─────────────────────────────────────────────
+
+def _integrate(f, y0, t_eval):
+    """Integrate ODE f(t,y) and return trajectory array [T, D]."""
+    sol = solve_ivp(f, (t_eval[0], t_eval[-1]), y0, t_eval=t_eval, dense_output=False)
+    return sol.y.T  # [T, D]
+
+
+def _make_model_eval():
+    cfg = make_fimode_config()
+    m = FIMODE(cfg)
+    m.eval()
+    return m
+
+
+def _to_batch(traj_np: np.ndarray, times_np: np.ndarray, locs_np: np.ndarray):
+    """Convert numpy arrays (no batch dim) into single-item batch tensors."""
+    T_len, D_d = traj_np.shape
+    traj  = torch.tensor(traj_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)   # [1,1,T,D]
+    times = torch.tensor(times_np, dtype=torch.float32).reshape(1, 1, T_len, 1)    # [1,1,T,1]
+    locs  = torch.tensor(locs_np, dtype=torch.float32).unsqueeze(0)                # [1,L,D]
+    mask  = torch.ones(1, 1, T_len, 1, dtype=torch.bool)
+    return traj, times, locs, mask
+
+
+class TestFIMODEIntegration:
+    """End-to-end shape/type tests using scipy reference trajectories."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        return _make_model_eval()
+
+    def test_vdp_trajectory_forward(self, model):
+        """Van der Pol trajectory can be passed through the model."""
+        mu = 1.0
+        def vdp(t, y): return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+        t_eval = np.linspace(0, 5, N)
+        traj_np = _integrate(vdp, [2.0, 0.0], t_eval)
+        locs_np = traj_np[:L]  # first L points as query locations
+        traj, times, locs, mask = _to_batch(traj_np, t_eval, locs_np)
+        with torch.no_grad():
+            out = model.model_forward(traj, times, locs, mask)
+        assert out.predictions.drift.shape == (1, L, D)
+
+    def test_fhn_trajectory_forward(self, model):
+        """FitzHugh-Nagumo trajectory passes through the model."""
+        a, b, tau, I_ext = 0.7, 0.8, 12.5, 0.5
+        def fhn(t, y):
+            v, w = y
+            return [v - v**3 / 3 - w + I_ext, (v + a - b * w) / tau]
+        t_eval = np.linspace(0, 20, N)
+        traj_np = _integrate(fhn, [-1.2, -0.6], t_eval)
+        locs_np = traj_np[:L]
+        traj, times, locs, mask = _to_batch(traj_np, t_eval, locs_np)
+        with torch.no_grad():
+            out = model.model_forward(traj, times, locs, mask)
+        assert out.predictions.drift.shape == (1, L, D)
+
+    def test_linear_ode_output_finite(self, model):
+        """Model produces finite outputs on a simple linear ODE."""
+        A = np.array([[-0.5, 1.0], [-1.0, -0.5]])
+        def linear(t, y): return A @ y
+        t_eval = np.linspace(0, 4, N)
+        traj_np = _integrate(linear, [1.0, 0.0], t_eval)
+        locs_np = traj_np[:L]
+        traj, times, locs, mask = _to_batch(traj_np, t_eval, locs_np)
+        with torch.no_grad():
+            out = model.model_forward(traj, times, locs, mask)
+        assert torch.isfinite(out.predictions.drift).all(), \
+            "Predictions should be finite for a well-conditioned linear ODE"
+
+    def test_training_batch_from_vdp(self, model):
+        """A batch assembled from VDP trajectories runs through training forward."""
+        mu = 1.0
+        def vdp(t, y): return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+        t_eval = np.linspace(0, 5, N)
+
+        trajs, times_list = [], []
+        for ic in [[2.0, 0.0], [1.0, 1.0]]:
+            tr = _integrate(vdp, ic, t_eval)
+            trajs.append(tr)
+            times_list.append(t_eval)
+
+        obs_values = torch.tensor(np.stack(trajs), dtype=torch.float32).unsqueeze(1)  # [2,1,N,D]
+        obs_times  = torch.tensor(np.stack(times_list), dtype=torch.float32).reshape(2, 1, N, 1)
+        obs_mask   = torch.ones(2, 1, N, 1, dtype=torch.bool)
+        locs       = obs_values[:, 0, :L, :]                                          # [2,L,D]
+        drift      = torch.randn(2, L, D)
+        drift_obs  = torch.randn(2, 1, N, D)
+        dim_mask   = torch.ones(2, 1, D, dtype=torch.bool)
+
+        batch = {
+            "obs_values":            obs_values,
+            "obs_times":             obs_times,
+            "obs_mask":              obs_mask,
+            "locations":             locs,
+            "drift_at_locations":    drift,
+            "drift_at_observations": drift_obs,
+            "dimension_mask":        dim_mask,
+        }
+        cfg = make_fimode_config()
+        m   = FIMODE(cfg)
+        m.train()
+        out = m(batch)
+        assert torch.isfinite(out["losses"]["loss"])
+
+    def test_lorenz_single_dim_query(self, model):
+        """Single-location query on a 2D projection of Lorenz returns correct shape."""
+        sigma, rho, beta = 10.0, 28.0, 8.0 / 3.0
+        # Project to 2D (x, y) to stay within D=2
+        def lorenz2d(t, y): return [sigma * (y[1] - y[0]), y[0] * (rho - 0.0) - y[1]]
+        t_eval = np.linspace(0, 2, N)
+        traj_np = _integrate(lorenz2d, [1.0, 1.0], t_eval)
+        locs_np = traj_np[[0]]  # single query location [1, D]
+        traj, times, locs, mask = _to_batch(traj_np, t_eval, locs_np)
+        with torch.no_grad():
+            out = model.model_forward(traj, times, locs, mask)
+        assert out.predictions.drift.shape == (1, 1, D)

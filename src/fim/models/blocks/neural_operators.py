@@ -274,37 +274,37 @@ class LinearAttention(Block):
         k = self.linear_K(key).reshape(B, Tk, self.num_heads, self.head_dim).transpose(1, 2)  # [B, num_heads, Tk, head_dim]
         v = self.linear_V(value).reshape(B, Tk, self.num_heads, self.head_dim).transpose(1, 2)  # [B, num_heads, Tk, head_dim]
 
-        if key_padding_mask is not None:
-            assert key_padding_mask.shape == (B, Tk), f"Got {key_padding_mask.shape}."
-
-            # masked keys and values will be multplied for v_
-            key_padding_mask = key_padding_mask.view(B, 1, Tk, 1).bool()
-            key_padding_mask = torch.broadcast_to(key_padding_mask, k.shape)
-            k = torch.where(key_padding_mask, -torch.finfo(k.dtype).max, k)
-            v = torch.where(key_padding_mask, 0, v)  # these values do not get used
-
         if self.feature_map == "softmax":
             q_ = q.softmax(dim=-1, dtype=torch.float32)
-            k_ = k.softmax(dim=-2, dtype=torch.float32)
+            k_ = k.softmax(dim=-1, dtype=torch.float32)
 
         else:  # elu
             q_ = torch.nn.functional.elu(q) + 1
             k_ = torch.nn.functional.elu(k) + 1
 
-        # normmaliztion coefficient
+        if key_padding_mask is not None:
+            assert key_padding_mask.shape == (B, Tk), f"Got {key_padding_mask.shape}."
+
+            # mask applied after feature map so masked keys contribute zero to kv
+            key_padding_mask = key_padding_mask.view(B, 1, Tk, 1).bool()
+            key_padding_mask = torch.broadcast_to(key_padding_mask, k_.shape)
+            k_ = torch.where(key_padding_mask, 0.0, k_)
+            v = torch.where(key_padding_mask, 0.0, v)
+
+        # normalization coefficient
         if self.normalize is True:
             k_summed = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)  # [B, num_heads, Tq, head_dim]
             norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)  # [B, num_heads, Tq, 1]
 
         else:
-            norm_coeff = q_.shape[-1] ** (0.5)
+            norm_coeff = 1
 
         # context
         kv = k_.transpose(-2, -1) @ v  # [B, num_heads, head_dim, head_dim]
         assert kv.shape == (B, self.num_heads, self.head_dim, self.head_dim), f"Got, {kv.shape}."
 
         # apply query
-        attn_output = (1 / norm_coeff) * q_ @ kv  # [B, num_heads, Tq, head_dim]
+        attn_output = (1 / (norm_coeff + 1e-8)) * q_ @ kv  # [B, num_heads, Tq, head_dim]
         attn_output = attn_output.transpose(1, 2).reshape(B, Tq, self.embed_dim)  # [B, Tq, embed_dim]
 
         return self.out_proj(attn_output), None  # same signature as nn.MultiheadAttention, returning None as attention output weights

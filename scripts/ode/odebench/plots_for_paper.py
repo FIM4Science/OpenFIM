@@ -25,7 +25,7 @@ import sys
 from utils.eval_models import OdeonEval, OdeFormerEval, PredictionModel
 
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
-from fim.models.fim_ode_trainer import DataCorruptionModel
+from fim.models.ode_trainer import DataCorruptionModel
 
 from itertools import product
 

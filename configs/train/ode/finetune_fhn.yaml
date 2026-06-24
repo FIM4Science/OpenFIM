@@ -6,7 +6,7 @@
 # are integrated in parallel (segmented mode, no full-trajectory shooting).
 
 task: fhn
-data-dir: hedge_gp_odes_data
+data-dir: data/ode/hedge_gp_odes_data
 
 mode: full_trajectory   # single-shoot from first obs through all 38 train points
 epochs: 200
@@ -19,7 +19,7 @@ freeze-encoder: false
 eval-every: 5
 ckpt-every: 50
 log-every: 10
-run-dir: runs
-ckpt-dir: checkpoints/finetune
+run-dir: results/ode/logs
+ckpt-dir: results/ode/checkpoints/finetune
 
 device: cpu

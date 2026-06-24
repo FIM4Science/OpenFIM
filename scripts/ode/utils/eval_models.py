@@ -17,8 +17,8 @@ from safetensors.torch import load_file
 from transformers import PretrainedConfig
 
 from fim.models.blocks import ModelFactory
-from fim.models.fim_ode import FIMODE
-from fim.models.fim_ode_trainer import FIMODEConfig as TrainingWrapperConfiguration
+from fim.models.ode import FIMODE
+from fim.models.ode_trainer import FIMODEConfig as TrainingWrapperConfiguration
 from fim.utils.helper import load_yaml
 
 

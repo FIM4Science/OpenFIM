@@ -1,6 +1,6 @@
 # experiments/configs/finetune_vdp_u.yaml
 task: vdp-u
-data-dir: hedge_gp_odes_data
+data-dir: data/ode/hedge_gp_odes_data
 
 # Training
 mode: full_trajectory
@@ -15,7 +15,7 @@ freeze-encoder: false   # update both encoder and decoder
 eval-every: 5           # fine-grained to catch the optimum (~epoch 75)
 ckpt-every: 50          # periodic; best checkpoint saved automatically on improvement
 log-every: 10
-run-dir: runs
-ckpt-dir: checkpoints/finetune
+run-dir: results/ode/logs
+ckpt-dir: results/ode/checkpoints/finetune
 
 device: cpu

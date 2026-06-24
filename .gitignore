@@ -30,6 +30,10 @@ checkpoints
 saved_evaluations
 evaluations
 
+# ODE notebook
+odeformer.pt
+notebooks/ode/odeformer.pt
+
 # Package files
 *.egg
 *.eggs/

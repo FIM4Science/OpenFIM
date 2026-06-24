@@ -51,13 +51,13 @@ dataset:
   # Lists of files per split are passed as YAML sequences (not expanded by expand_params)
   paths:
     train: !!python/tuple
-      - data/simple_ode/train/vdp.pt
-      - data/simple_ode/train/fhn.pt
-      - data/simple_ode/train/lorenz.pt
+      - data/ode/simple_ode/train/vdp.pt
+      - data/ode/simple_ode/train/fhn.pt
+      - data/ode/simple_ode/train/lorenz.pt
     validation: !!python/tuple
-      - data/simple_ode/val/vdp.pt
-      - data/simple_ode/val/fhn.pt
-      - data/simple_ode/val/lorenz.pt
+      - data/ode/simple_ode/val/vdp.pt
+      - data/ode/simple_ode/val/fhn.pt
+      - data/ode/simple_ode/val/lorenz.pt
   batch_size: 8
   test_batch_size: 16
   num_workers: 0
@@ -72,7 +72,7 @@ trainer:
   gradient_accumulation_steps: 1
   best_metric: loss
   logging_format: "RANK_%(rank)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  experiment_dir: ./results/simple_ode_exp
+  experiment_dir: ./results/ode/simple_ode_exp
   schedulers: !!python/tuple
     - name: fim.utils.param_scheduler.ConstantScheduler
       label: drift_loss_scale

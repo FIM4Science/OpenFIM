@@ -1,25 +1,173 @@
 """
-Training infrastructure for FIMODE: config, data corruption, loss functions, ODE integrator.
+Output containers, configs, and training infrastructure for FIMODE.
+
+ODEConcepts, EncoderOutput, and FIMODEOutput live here (rather than in ode.py)
+so that TrainIntegrator can reference them without a circular import.
 """
 from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Dict, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, Literal, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 from transformers import PretrainedConfig
 
-from fim.models.fim_ode_concepts import (
-    ODEConcepts,
-    EncoderOutput,
-    FIMODEModelConfig,
-)
+from fim.models.sde import InstanceNormalization
 
 if TYPE_CHECKING:
-    from fim.models.fim_ode import FIMODE
+    from fim.models.ode import FIMODE
+
+
+StateNorm = InstanceNormalization
+TimesNorm = InstanceNormalization
+StatesNormStat = Tuple[Tensor]
+TimesNormStat = Tuple[Tensor]
+
+
+# ---------- ODEConcepts ----------
+
+class ODEConcepts:
+    """
+    Container for the model's vector field predictions at query locations.
+    Holds locations and drift tensors, and handles normalization / renormalization.
+
+    For an ODE  dx/dt = f(x), the chain-rule transform under state normalization
+    ŷ = g(y) and time normalization t̂ = h(t) gives:
+
+        dŷ/dt̂ = g'(y) · f(y) · (dt/dt̂)    
+    """
+
+    def __init__(
+        self,
+        locations: Tensor,
+        drift: Tensor,
+        normalized: bool,
+        states_norm: StateNorm,
+        states_norm_stats: StatesNormStat,
+        times_norm: TimesNorm,
+        times_norm_stats: TimesNormStat,
+    ):
+        self.locations = locations
+        self.drift = drift
+        self.normalized = normalized
+        self.states_norm = states_norm
+        self.states_norm_stats = states_norm_stats
+        self.times_norm = times_norm
+        self.times_norm_stats = times_norm_stats
+
+    def normalize(self) -> None:
+        """Transform drift from physical to normalized coordinates."""
+        if self.normalized:
+            return
+        grad = self.states_norm.normalization_map(
+            self.locations, self.states_norm_stats, derivative_num=1
+        )
+        self.drift = self.drift * grad
+        dummy_t = torch.zeros_like(self.locations[..., 0:1])
+        t_inv_grad = self.times_norm.inverse_normalization_map(
+            dummy_t, self.times_norm_stats, derivative_num=1
+        )
+        self.drift = self.drift * t_inv_grad
+        self.locations = self.states_norm.normalization_map(
+            self.locations, self.states_norm_stats
+        )
+        self.normalized = True
+
+    def renormalize(self) -> None:
+        """Transform drift from normalized back to physical coordinates."""
+        if not self.normalized:
+            return
+        inv_grad = self.states_norm.inverse_normalization_map(
+            self.locations, self.states_norm_stats, derivative_num=1
+        )
+        self.drift = self.drift * inv_grad
+        dummy_t = torch.zeros_like(self.locations[..., 0:1])
+        t_grad = self.times_norm.normalization_map(
+            dummy_t, self.times_norm_stats, derivative_num=1
+        )
+        self.drift = self.drift * t_grad
+        self.locations = self.states_norm.inverse_normalization_map(
+            self.locations, self.states_norm_stats
+        )
+        self.normalized = False
+
+    @classmethod
+    def builder(cls) -> "ODEConcepts.ODEConceptsBuilder":
+        return ODEConcepts.ODEConceptsBuilder()
+
+    class ODEConceptsBuilder:
+        _locations: Tensor
+        _drift: Tensor
+        _normalized: bool
+        _states_norm: StateNorm
+        _states_norm_stats: StatesNormStat
+        _times_norm: TimesNorm
+        _times_norm_stats: TimesNormStat
+
+        def locations(self, v: Tensor) -> "ODEConcepts.ODEConceptsBuilder":
+            self._locations = v
+            return self
+
+        def drift(self, v: Tensor) -> "ODEConcepts.ODEConceptsBuilder":
+            self._drift = v
+            return self
+
+        def normalized(self, v: bool) -> "ODEConcepts.ODEConceptsBuilder":
+            self._normalized = v
+            return self
+
+        def states_norm(self, v: StateNorm) -> "ODEConcepts.ODEConceptsBuilder":
+            self._states_norm = v
+            return self
+
+        def times_norm(self, v: TimesNorm) -> "ODEConcepts.ODEConceptsBuilder":
+            self._times_norm = v
+            return self
+
+        def states_norm_stats(self, v: StatesNormStat) -> "ODEConcepts.ODEConceptsBuilder":
+            self._states_norm_stats = v
+            return self
+
+        def times_norm_stats(self, v: TimesNormStat) -> "ODEConcepts.ODEConceptsBuilder":
+            self._times_norm_stats = v
+            return self
+
+        def build(self) -> "ODEConcepts":
+            assert self._locations.shape[0] == self._drift.shape[0], "Batch size mismatch"
+            assert self._locations.shape[-1] == self._drift.shape[-1], "Dimension mismatch"
+            assert self._states_norm is not None and self._times_norm is not None
+            return ODEConcepts(
+                locations=self._locations,
+                drift=self._drift,
+                normalized=self._normalized,
+                states_norm=self._states_norm,
+                times_norm=self._times_norm,
+                states_norm_stats=self._states_norm_stats,
+                times_norm_stats=self._times_norm_stats,
+            )
+
+
+# ---------- Output containers ----------
+
+@dataclass
+class EncoderOutput:
+    """Wraps the trajectory embedding D returned by the encoder."""
+    D: Tensor
+
+    def detach(self) -> "EncoderOutput":
+        return EncoderOutput(D=self.D.detach())
+
+
+@dataclass
+class FIMODEOutput:
+    """Full model output: vector field predictions + intermediates needed for training."""
+    predictions: ODEConcepts
+    D: EncoderOutput
+    encoded_locations: Tensor
+    feature_mask: Tensor
 
 
 # ---------- Configs ----------

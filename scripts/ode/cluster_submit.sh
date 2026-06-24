@@ -59,7 +59,7 @@ tmux new-session -d -s "$SESSION" 2>/dev/null || true
 for i in "${!JOBS[@]}"; do
     JOB="${JOBS[$i]}"
     CONTAINER="fim_${JOB}"
-    CONFIG="$FIM_DIR/experiments/configs/finetune_mocap_${JOB}.yaml"
+    CONFIG="$FIM_DIR/configs/train/ode/finetune_mocap_${JOB}.yaml"
     MODEL_DIR="$FIMODE_DIR/mocap_${JOB}"
     CKPT_DIR="$MODEL_DIR/checkpoints"
     RUN_DIR="$MODEL_DIR/logging"
@@ -85,8 +85,8 @@ for i in "${!JOBS[@]}"; do
             cp ${FIMODE_DIR}/model_architecture.txt ${MODEL_DIR}/
             cp ${CONFIG} ${MODEL_DIR}/finetune_parameters.yaml
             source ${VENV}
-            cd ${FIM_DIR}/experiments
-            python3 fim-ode-finetune.py \
+            cd ${FIM_DIR}
+            python3 scripts/ode/finetune.py \
                 --config  ${CONFIG} \
                 --device  cuda \
                 --ckpt-dir ${CKPT_DIR} \

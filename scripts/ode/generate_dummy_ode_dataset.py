@@ -12,7 +12,7 @@ on-the-fly by DataCorruptionModel during training.
 
 Output
 ------
-experiments/dummy_data/{vdp,fhn,lorenz}.pt
+data/ode/<subdir>/{vdp,fhn,lorenz}.pt
 
 Each file is a dict with these keys (S plays the role of batch dim B at
 training time):
@@ -34,8 +34,8 @@ make this distinction clear.
 
 Usage
 -----
-    python experiments/generate_dummy_ode_dataset.py          # default settings
-    python experiments/generate_dummy_ode_dataset.py --help   # show options
+    python scripts/ode/generate_dummy_ode_dataset.py          # default settings
+    python scripts/ode/generate_dummy_ode_dataset.py --help   # show options
 """
 from __future__ import annotations
 
@@ -279,7 +279,7 @@ def main():
                         help="Random query locations per instance (L)")
     parser.add_argument("--seed",          type=int, default=42)
     parser.add_argument("--out_dir",       type=str,
-                        default=str(Path(__file__).parent / "dummy_data"))
+                        default=str(Path(__file__).resolve().parent.parent.parent / "data" / "ode"))
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)

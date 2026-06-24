@@ -15,7 +15,7 @@ freeze-encoder: false
 eval-every: 10
 ckpt-every: 50
 log-every: 10
-run-dir: runs
-ckpt-dir: checkpoints/finetune
+run-dir: results/ode/logs
+ckpt-dir: results/ode/checkpoints/finetune
 
 device: cpu

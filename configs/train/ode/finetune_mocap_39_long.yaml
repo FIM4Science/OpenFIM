@@ -1,6 +1,6 @@
-# experiments/configs/finetune_mocap_09_long.yaml
+# experiments/configs/finetune_mocap_39_long.yaml
 task: mocap
-subject: "09"
+subject: "39"
 variant: long
 
 mode: batch_trajectory
@@ -14,7 +14,7 @@ freeze-encoder: false
 eval-every: 10
 ckpt-every: 50
 log-every: 10
-run-dir: runs
-ckpt-dir: checkpoints/finetune
+run-dir: results/ode/logs
+ckpt-dir: results/ode/checkpoints/finetune
 
 device: cpu

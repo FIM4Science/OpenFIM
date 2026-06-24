@@ -7,9 +7,8 @@ from .imputation_temporal import FIMImpTemp, FIMImpTempBase
 from .latent_sde import LatentSDE, LatentSDEConfig
 from .mjp import FIMMJP, FIMMJPConfig
 from .sde import FIMSDE, FIMSDEConfig
-from .fim_ode import FIMODE
-from .fim_ode_concepts import FIMODEModelConfig, TrajectoryEncoder, AxialTrajectoryEncoder
-from .fim_ode_trainer import FIMODEConfig, FIMODETrainingConfig
+from .ode import FIMODE, FIMODEModelConfig, TrajectoryEncoder, AxialTrajectoryEncoder, load_fim_ode_hf, load_fim_ode_local
+from .ode_trainer import FIMODEConfig, FIMODETrainingConfig
 
 
 __all__ = [
@@ -35,4 +34,6 @@ __all__ = [
     "FIMODETrainingConfig",
     "TrajectoryEncoder",
     "AxialTrajectoryEncoder",
+    "load_fim_ode_hf",
+    "load_fim_ode_local",
 ]

@@ -14,12 +14,12 @@ source "$FIM_DIR/.venv/bin/activate"
 
 mkdir -p "$FIMODE_DIR/mocap_${TASK}/checkpoints"
 mkdir -p "$FIMODE_DIR/mocap_${TASK}/logging"
-cp "$FIM_DIR/experiments/configs/finetune_mocap_${TASK}.yaml" \
+cp "$FIM_DIR/configs/train/ode/finetune_mocap_${TASK}.yaml" \
    "$FIMODE_DIR/mocap_${TASK}/finetune_parameters.yaml"
 
-cd "$FIM_DIR/experiments"
-python3 fim-ode-finetune.py \
-    --config   "configs/finetune_mocap_${TASK}.yaml" \
+cd "$FIM_DIR"
+python3 scripts/ode/finetune.py \
+    --config   "configs/train/ode/finetune_mocap_${TASK}.yaml" \
     --device   cuda \
     --ckpt-dir "$FIMODE_DIR/mocap_${TASK}/checkpoints" \
     --run-dir  "$FIMODE_DIR/mocap_${TASK}/logging" \

@@ -1,15 +1,15 @@
 """
-experiments/mocap/eval_checkpoints.py
+scripts/ode/mocap/eval_checkpoints.py
 =======================================
 Evaluate finetuned MoCap checkpoints on the cluster and print an MSE table.
 
 Checkpoints are saved as ``{task_label}_best.pt`` files containing
-``model_state_dict``.  We load the base FimOdeonUnified architecture (from
+``model_state_dict``.  We load the base FIMODE architecture (from
 the local pretrained copy or HuggingFace) and inject the finetuned weights.
 
 Usage (inside a GPU container on the cluster):
     cd ~/FIM
-    python experiments/mocap/eval_checkpoints.py [--device cuda]
+    python scripts/ode/mocap/eval_checkpoints.py [--device cuda]
 """
 from __future__ import annotations
 
@@ -21,21 +21,20 @@ from pathlib import Path
 import torch
 
 # ── project root on sys.path ──────────────────────────────────────────────────
-_HERE = Path(__file__).resolve().parent          # experiments/mocap/
-_ROOT = _HERE.parent.parent                      # repo root
+_HERE = Path(__file__).resolve().parent          # scripts/ode/mocap/
+_ROOT = _HERE.parent.parent.parent               # repo root
 
-for _p in [str(_ROOT / "src"), str(_ROOT / "experiments")]:
+for _p in [str(_ROOT / "src"), str(_ROOT / "scripts" / "ode")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# fim-ode-finetune.py has a hyphen — load via importlib
-_ft_path = _ROOT / "experiments" / "fim-ode-finetune.py"
+from fim.models.ode import load_fim_ode_hf, load_fim_ode_local
+
+_ft_path = _ROOT / "scripts" / "ode" / "finetune.py"
 _ft_spec = importlib.util.spec_from_file_location("fim_ode_ft", _ft_path)
 _ft = importlib.util.module_from_spec(_ft_spec)
 _ft_spec.loader.exec_module(_ft)
 
-load_fim_ode_hf         = _ft.load_fim_ode_hf
-load_fim_ode_local      = _ft.load_fim_ode_local
 load_mocap              = _ft.load_mocap
 make_mocap_test_eval_fn = _ft.make_mocap_test_eval_fn
 
