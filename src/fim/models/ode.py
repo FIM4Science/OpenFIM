@@ -1,13 +1,12 @@
 """
 FIMODE — Foundation Inference Model for Ordinary Differential Equations.
 
-Architecture, trajectory encoders, model configuration, and preprocessing.
+Architecture, trajectory encoder, model configuration, and preprocessing.
 
-Two encoder paths are supported (selected via model_config.encoder_type):
-  "standard"  — 4-feature TrajectoryEncoder (x, Δx, Δx², Δt).
-                Compatible with all pre-trained checkpoints.
-  "axial"      — 5-feature AxialTrajectoryEncoder (x, Δx, Δx_back, Δx², Δt).
-                Requires dim_embed divisible by 5. Not yet trained.
+Published architecture (paper 1): 4-feature TrajectoryEncoder (x, Δx, Δx², Δt).
+Compatible with all pre-trained checkpoints.
+
+Extended axial-attention architecture (paper 2) lives in ode2.py.
 """
 from __future__ import annotations
 
@@ -55,22 +54,6 @@ class TrajectoryFeatures:
     feature_mask: Tensor    # valid-step mask   [B, T, N-1, 1]
 
 
-@dataclass
-class AxialTrajectoryFeatures:
-    """
-    5-feature representation for the Axial encoder (not yet trained).
-
-    Adds delta_x_back (backward difference) to TrajectoryFeatures.
-    Shapes: [B, T, N-2, *] — interior positions 1..N-2 only.
-    """
-    x: Tensor               # state values at interior positions
-    delta_x: Tensor         # forward increment:  x(t+h) - x(t)
-    delta_x_back: Tensor    # backward increment: x(t) - x(t-h)
-    delta_x_squared: Tensor # squared forward increment
-    delta_t: Tensor         # time increments  [B, T, N-2, 1]
-    feature_mask: Tensor    # valid-step mask   [B, T, N-2, 1]
-
-
 # ---------- Model configuration ----------
 
 @dataclass(kw_only=True)
@@ -99,10 +82,6 @@ class FIMODEModelConfig(PretrainedConfig):
     dim_ffn_u_model: int
 
     times_norm_on_deltas: Optional[bool] = True
-
-    # "standard" → 4-feature TrajectoryEncoder (checkpoint-compatible)
-    # "axial"    → 5-feature AxialTrajectoryEncoder (future use)
-    encoder_type: str = "standard"
 
     def get_attention_layer_config(self) -> Dict:
         return {
@@ -188,69 +167,6 @@ class TrajectoryEncoder(nn.Module):
         dt   = self.delta_t_proj(features.delta_t)
 
         feature_vector = torch.cat([dt, x, dx, dx2], dim=-1)
-        if self.config.use_bias_for_projection:
-            feature_vector = feature_vector * features.feature_mask
-
-        b, t, n, d = feature_vector.shape
-        feature_vector = feature_vector.view(b, t * n, d)
-        src_key_padding_mask = ~features.feature_mask.view(b, t * n, 1)
-
-        D = self.context_encoder(feature_vector, src_key_padding_mask=src_key_padding_mask)
-        D = D.view(b, t, n, d) * features.feature_mask
-
-        return self.Output(D=D)
-
-
-# ---------- AxialTrajectoryEncoder (5-feature, future use) ----------
-
-class AxialTrajectoryEncoder(nn.Module):
-    """
-    5-feature context encoder: x, Δx, Δx_back, Δx², Δt.
-
-    Adds a backward-difference feature (Δx_back) for improved handling of
-    irregular and subsampled trajectories. Not yet trained; use with new
-    checkpoints only.  Requires dim_embed divisible by 5.
-    """
-
-    _NUM_FEATURES: Final[int] = 5
-
-    @dataclass
-    class Output:
-        D: Tensor
-
-    def __init__(self, config: FIMODEModelConfig):
-        super().__init__()
-        self.config = config
-        assert config.dim_embed % self._NUM_FEATURES == 0, (
-            f"dim_embed must be divisible by {self._NUM_FEATURES} for AxialTrajectoryEncoder"
-        )
-        dim_proj = config.dim_embed // self._NUM_FEATURES
-
-        self.x_proj               = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
-        self.delta_x_proj         = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
-        self.delta_x_back_proj    = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
-        self.delta_x_squared_proj = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
-        self.delta_t_proj         = nn.Linear(1,                          dim_proj, bias=config.use_bias_for_projection)
-
-        layer = ResidualEncoderLayer(
-            d_model=config.dim_embed,
-            batch_first=True,
-            **config.get_attention_layer_config(),
-        )
-        self.context_encoder = nn.TransformerEncoder(
-            layer,
-            num_layers=config.num_context_encoder_layers,
-            enable_nested_tensor=False,
-        )
-
-    def forward(self, features: AxialTrajectoryFeatures) -> "AxialTrajectoryEncoder.Output":
-        x    = self.x_proj(features.x)
-        dx   = self.delta_x_proj(features.delta_x)
-        dx_b = self.delta_x_back_proj(features.delta_x_back)
-        dx2  = self.delta_x_squared_proj(features.delta_x_squared)
-        dt   = self.delta_t_proj(features.delta_t)
-
-        feature_vector = torch.cat([dt, x, dx, dx_b, dx2], dim=-1)
         if self.config.use_bias_for_projection:
             feature_vector = feature_vector * features.feature_mask
 
@@ -351,55 +267,6 @@ def _extract_features(
     return TrajectoryFeatures(x=X, delta_x=dX, delta_x_squared=dX2, delta_t=dt, feature_mask=mask)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Preprocessing — Axial 5-feature path (for AxialTrajectoryEncoder)
-#
-# Feature mask covers interior positions 1..N-2.
-# Uses both backward-fill (for forward diffs) and forward-fill (for backward diffs).
-# ─────────────────────────────────────────────────────────────────────────────
-
-@torch.no_grad()
-def _forward_fill(x: Tensor, mask: Tensor) -> Tensor:
-    """Forward-fill masked positions with the previous observed value."""
-    mask = torch.broadcast_to(mask, x.shape)
-    cumsum = torch.cumsum(mask.float(), dim=-2)
-    indices = torch.cummax(cumsum * mask, dim=-2)[1]
-    first_obs = torch.argmin(
-        torch.where(cumsum > 0, cumsum, torch.full_like(cumsum, float("inf"))),
-        dim=-2, keepdim=True,
-    )
-    indices = torch.where(cumsum == 0, first_obs, indices)
-    return torch.gather(x, dim=-2, index=indices)
-
-
-@torch.no_grad()
-def _backward_fill_and_axial_feature_mask(
-    trajectories: Tensor, times: Tensor, mask: Tensor
-) -> Tuple[Tensor, Tensor, Tensor]:
-    """Backward-fill; feature mask covers interior positions 1..N-2."""
-    assert mask.dtype == torch.bool
-    times        = mask * times
-    trajectories = mask * trajectories
-    times,        _ = _backward_fill(times, mask)
-    trajectories, _ = _backward_fill(trajectories, mask)
-    return trajectories, times, mask[:, :, 1:-1, :].contiguous()
-
-
-@torch.no_grad()
-def _extract_axial_features(
-    traj_bwd: Tensor, traj_fwd: Tensor, times: Tensor, mask: Tensor
-) -> AxialTrajectoryFeatures:
-    """Compute 5 features at interior positions 1..N-2."""
-    X    = traj_bwd[:, :, 1:-1, :] * mask
-    dX   = (traj_bwd[:, :, 2:,  :] - traj_bwd[:, :, 1:-1, :]) * mask
-    dX_b = (traj_fwd[:, :, 1:-1, :] - traj_fwd[:, :, :-2,  :]) * mask
-    dX2  = dX ** 2
-    dt   = (times[:, :, 2:, :] - times[:, :, 1:-1, :]) * mask
-    return AxialTrajectoryFeatures(
-        x=X, delta_x=dX, delta_x_back=dX_b, delta_x_squared=dX2, delta_t=dt, feature_mask=mask
-    )
-
-
 def _sanity_check(
     trajectories_shape: Tuple,
     times_shape: Tuple,
@@ -456,18 +323,10 @@ class FIMODE(AModel):
         self.model_config = model_config
         self.train_config = train_config
 
-        encoder_type = getattr(model_config, "encoder_type", "standard")
-
-        if encoder_type == "axial":
-            assert model_config.dim_embed % 5 == 0, (
-                "dim_embed must be divisible by 5 for AxialTrajectoryEncoder"
-            )
-            self.trajectory_encoder = AxialTrajectoryEncoder(model_config)
-        else:
-            assert model_config.dim_embed % 4 == 0, (
-                "dim_embed must be divisible by 4 for TrajectoryEncoder"
-            )
-            self.trajectory_encoder = TrajectoryEncoder(model_config)
+        assert model_config.dim_embed % 4 == 0, (
+            "dim_embed must be divisible by 4 for TrajectoryEncoder"
+        )
+        self.trajectory_encoder = TrajectoryEncoder(model_config)
 
         # Normalization
         self.spatial_norm  = Standardization()
@@ -555,22 +414,6 @@ class FIMODE(AModel):
         features = _extract_features(trajectories, times, feature_mask)
         return features, concept
 
-    @torch.no_grad()
-    def _prepare_axial_input_features(
-        self, trajectories: Tensor, times: Tensor, mask: Tensor
-    ) -> Tuple[AxialTrajectoryFeatures, ODEConcepts.ODEConceptsBuilder]:
-        """Axial 5-feature preprocessing (for AxialTrajectoryEncoder)."""
-        trajectories = self.pad_if_necessary(trajectories)
-        traj_bwd, times, feature_mask = _backward_fill_and_axial_feature_mask(
-            trajectories, times, copy.deepcopy(mask)
-        )
-        traj_fwd = _forward_fill(trajectories * mask, mask)
-        delta_mask = mask[:, :, :-1, :]
-        traj_bwd, times, concept = self._normalize(traj_bwd, times, mask, delta_mask)
-        traj_fwd = self.spatial_norm.normalization_map(traj_fwd, concept._states_norm_stats)
-        features = _extract_axial_features(traj_bwd, traj_fwd, times, feature_mask)
-        return features, concept
-
     # ---------- Encoder / decoder ----------
 
     def trajectory_encoding(
@@ -580,11 +423,7 @@ class FIMODE(AModel):
         mask: Tensor,
     ) -> Tuple[EncoderOutput, Tensor, ODEConcepts.ODEConceptsBuilder]:
         """Encode context trajectories -> (D, feature_mask, concept_builder)."""
-        encoder_type = getattr(self.model_config, "encoder_type", "standard")
-        if encoder_type == "axial":
-            features, concept = self._prepare_axial_input_features(trajectories, times, mask)
-        else:
-            features, concept = self._prepare_input_features(trajectories, times, mask)
+        features, concept = self._prepare_input_features(trajectories, times, mask)
         enc = self.trajectory_encoder(features)
         return EncoderOutput(D=enc.D), features.feature_mask, concept
 
