@@ -64,7 +64,7 @@ class Data:
 
 
 class MocapDataset(object):
-    def __init__(self, data_path="data/mocap/",
+    def __init__(self, data_path="data/ode/mocap/",
                  subject="09",
                  dt=0.01,
                  pca_components=-1,
@@ -82,7 +82,7 @@ class MocapDataset(object):
         self.subject = subject
 
         assert subject in ["09", "35", "39"], "Wrong subject passed"
-        fname = os.path.join(data_path, "mocap" + subject + ".npz") # e.g. "data/mocap/mocap09.npz"
+        fname = os.path.join(data_path, "mocap" + subject + ".npz") # e.g. "data/ode/mocap/mocap09.npz"
         mocap_data = np.load(fname) # <class 'numpy.lib.npyio.NpzFile'>
 
         xs_test = mocap_data["test"] # <class 'numpy.ndarray'>, shape (2,120,50) for mocap09.npz
@@ -179,7 +179,7 @@ class MocapDownloader:
     BASE_DATA_URL = "https://raw.githubusercontent.com/hegdepashupati/gaussian-process-odes/c084729817e09cb3910b45ec268eb4688e0a44f8/data/mocap"
     FILE_NAMES = ["mocap09.npz", "mocap35.npz", "mocap39.npz"]
 
-    def __init__(self, data_path="data/mocap/"):
+    def __init__(self, data_path="data/ode/mocap/"):
         self.data_path = data_path
         os.makedirs(self.data_path, exist_ok=True)
 
@@ -239,7 +239,7 @@ class MocapDownloader:
 
 class FimMocapDatasetBuilder:
     PCA_COMPONENTS = 3
-    MOCAP_DATA_PATH = Path('data/mocap/')
+    MOCAP_DATA_PATH = Path('data/ode/mocap/')
     DT = 0.1
 
     def build_train_dataset_for(self, subject: Literal["09", "35", "39"], seqlen: int):

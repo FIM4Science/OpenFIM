@@ -1,8 +1,8 @@
 """
 Generate mocap_dataset.pkl and h5 files for all (subject, variant) combinations.
 
-Reads the raw .npz files from data/mocap/ and writes to
-data/mocap/subject_XX/<variant>/:
+Reads the raw .npz files from data/ode/mocap/ and writes to
+data/ode/mocap/subject_XX/<variant>/:
   - mocap_dataset.pkl       — pickled MocapDataset (train/val/test)
   - obs_values.h5['data']   — (1, n_traj, seqlen, 5)  train trajectories
   - obs_times.h5['data']    — (1, n_traj, seqlen, 1)  time grid repeated per traj

@@ -636,7 +636,7 @@ if __name__ == "__main__":
 
     #print( vdp_task_1(model, Path("data/vanderpol/task1_uniform_grid/0"), plot=True) )
     #print( fhn_task(model, Path("data/fitzhughnagumo/missing_qudrants/0"), plot=True) )
-    #print( mocap_task(model, Path("data/mocap/subject_35/short"), plot=False, dim_left=3, left_only=True) )
+    #print( mocap_task(model, Path("data/ode/mocap/subject_35/short"), plot=False, dim_left=3, left_only=True) )
 
 
     #N_times_VDP_task_1(model, Path("data/vanderpol/task1_uniform_grid"), N_datasets=50, plot=False, verbose=False)
@@ -656,11 +656,11 @@ if __name__ == "__main__":
     for n_ctx_trajs in range(1,17):
         if n_ctx_trajs in [1,15,16]:
             for sublist in combinations(range(0,16), n_ctx_trajs):
-                results_dict[n_ctx_trajs].append( mocap_task(model, Path("data/mocap/subject_35/long"), plot=False, dim_left=3, left_only=True, sublist=sublist) )
+                results_dict[n_ctx_trajs].append( mocap_task(model, Path("data/ode/mocap/subject_35/long"), plot=False, dim_left=3, left_only=True, sublist=sublist) )
         else:
             for i in range(20):
                 sublist = random.sample(range(0,16), n_ctx_trajs)
-                results_dict[n_ctx_trajs].append( mocap_task(model, Path("data/mocap/subject_35/long"), plot=False, dim_left=3, left_only=True, sublist=sublist) )
+                results_dict[n_ctx_trajs].append( mocap_task(model, Path("data/ode/mocap/subject_35/long"), plot=False, dim_left=3, left_only=True, sublist=sublist) )
 
         print(f"Performance for {n_ctx_trajs} context trajectories ({len(results_dict[n_ctx_trajs])} sublists):")
 
