@@ -24,7 +24,7 @@ _ROOT = _HERE.parent.parent.parent
 sys.path.insert(0, str(_HERE))
 from data_gen_mocap import MocapDataset  # noqa: E402
 
-NPZ_DIR  = _HERE                          # mocap09.npz, mocap35.npz, mocap39.npz
+NPZ_DIR  = _ROOT / "data" / "mocap"       # mocap09.npz, mocap35.npz, mocap39.npz
 OUT_DIR  = _ROOT / "data" / "mocap"
 
 # seqlen values from Table 2, supplementary material (arxiv:2106.10905).

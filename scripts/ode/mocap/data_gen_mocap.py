@@ -2,8 +2,8 @@
 MoCap dataset class for FIMODE — adapted from:
   https://github.com/hegdepashupati/gaussian-process-odes/blob/main/src/datasets/mocap.py
 
-Source .npz files (mocap09.npz, mocap35.npz, mocap39.npz) live in the same
-directory as this file (scripts/ode/mocap/).  Each file contains three splits
+Source .npz files (mocap09.npz, mocap35.npz, mocap39.npz) live in data/mocap/.
+Each file contains three splits
 ("train", "validation", "test") with shape (N, T, 50) — N trajectories of
 T timesteps in 50D joint-angle space.
 
