@@ -59,6 +59,7 @@ class MocapDataset:
     ):
         self.data_path      = data_path
         self.dt             = dt
+        self.seqlen         = seqlen
         self.pca_components = pca_components
         self.data_normalize = data_normalize
         self.pca_normalize  = pca_normalize
