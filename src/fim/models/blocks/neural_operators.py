@@ -241,13 +241,42 @@ class ResidualAttentionLayer(Block):
 
 class LinearAttention(Block):
     """
-    Linear attention (Fast Autoregressive Transformers with Linear Attention, Katharopoulos 2020) variants.
-    If feature_map == elu and normalization == True, close to original idea.
-    If feature_map == softmax and normalization == True, close to  (GNOT: A General Neural Operator Transformer for Operator Learning, Hao 2023).
+    Linear attention with three mechanism variants, selected via `feature_map`:
+
+    "elu"  (default)
+        Katharopoulos et al. 2020 — φ(x) = elu(x)+1 applied per token;
+        normalised by φ(q_i)ᵀ Σ_j φ(k_j).  Used by FIMHawkes.
+
+    "softmax-gnot"
+        Hao et al. 2023 (GNOT) — softmax over the feature dim (dim=-1) for
+        both Q and K, applied per token; same normalisation as ELU variant.
+        Used by FIMODE.
+
+    "softmax-efficient"
+        Shen et al. 2021 (Efficient Attention) — softmax over features (dim=-1)
+        for Q; softmax over the sequence (dim=-2) for K; no normalisation term
+        (K already sums to 1 per feature).  Used by FIMSDE (future retraining).
+
+    "softmax" (deprecated)
+        Legacy alias that reproduces the exact training-time computation of the
+        published FIMSDE HuggingFace weights: K softmax over dim=-2, Q softmax
+        over dim=-1, division by sqrt(head_dim), -inf masking before K softmax.
+        Do not use for new models.
+
+    The `normalize` parameter is accepted for backwards compatibility but ignored;
+    normalisation is fully determined by the feature_map choice.
     """
 
+    _VALID = {"elu", "softmax-gnot", "softmax-efficient", "softmax"}
+
     def __init__(
-        self, embed_dim: int, num_heads: int, dropout: float = 0.0, bias: bool = True, feature_map: str = "elu", normalize: bool = True
+        self,
+        embed_dim: int,
+        num_heads: int,
+        dropout: float = 0.0,
+        bias: bool = True,
+        feature_map: str = "elu",
+        normalize: bool = True,  # kept for backwards compat, ignored
     ) -> None:
         super(LinearAttention, self).__init__()
         self.embed_dim = embed_dim
@@ -255,16 +284,22 @@ class LinearAttention(Block):
         assert self.embed_dim % self.num_heads == 0
         self.head_dim = embed_dim // num_heads
 
-        # no dropout in reference implementations
-
         self.linear_Q = nn.Linear(self.embed_dim, self.embed_dim, bias=bias)
         self.linear_K = nn.Linear(self.embed_dim, self.embed_dim, bias=bias)
         self.linear_V = nn.Linear(self.embed_dim, self.embed_dim, bias=bias)
         self.out_proj = nn.Linear(self.embed_dim, self.embed_dim, bias=bias)
 
-        assert feature_map in ["elu", "softmax"], f"Got {feature_map}."
+        assert feature_map in self._VALID, f"feature_map must be one of {self._VALID}, got '{feature_map}'."
+        if feature_map == "softmax":
+            import warnings
+            warnings.warn(
+                "feature_map='softmax' is deprecated and exists only to support published "
+                "FIMSDE HuggingFace weights.  Use 'softmax-gnot' or 'softmax-efficient' "
+                "for new models.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.feature_map = feature_map
-        self.normalize = normalize
 
     def forward(self, query: Tensor, key: Tensor, value: Tensor, key_padding_mask: Optional[Tensor] = None):
         B, Tq, _ = query.shape
@@ -274,40 +309,58 @@ class LinearAttention(Block):
         k = self.linear_K(key).reshape(B, Tk, self.num_heads, self.head_dim).transpose(1, 2)  # [B, num_heads, Tk, head_dim]
         v = self.linear_V(value).reshape(B, Tk, self.num_heads, self.head_dim).transpose(1, 2)  # [B, num_heads, Tk, head_dim]
 
-        if self.feature_map == "softmax":
+        if self.feature_map in ("softmax-efficient", "softmax"):
+            # K softmax over the sequence dim: masked positions set to -inf
+            # before softmax so they contribute zero to the context sum.
+            if key_padding_mask is not None:
+                assert key_padding_mask.shape == (B, Tk), f"Got {key_padding_mask.shape}."
+                pad = key_padding_mask.view(B, 1, Tk, 1).bool()
+                k = k.masked_fill(pad, float("-inf"))
+                v = v.masked_fill(pad, 0.0)
+
+            q_ = q.softmax(dim=-1, dtype=torch.float32)   # per token, across features
+            k_ = k.softmax(dim=-2, dtype=torch.float32)   # per feature, across sequence
+
+            # legacy: published FIMSDE weights were trained with sqrt(head_dim) scaling
+            norm_coeff = self.head_dim ** 0.5 if self.feature_map == "softmax" else 1
+
+        elif self.feature_map == "softmax-gnot":
+            # Per-token softmax across features for both Q and K (GNOT / Hao 2023).
             q_ = q.softmax(dim=-1, dtype=torch.float32)
             k_ = k.softmax(dim=-1, dtype=torch.float32)
 
-        else:  # elu
+            if key_padding_mask is not None:
+                assert key_padding_mask.shape == (B, Tk), f"Got {key_padding_mask.shape}."
+                pad = key_padding_mask.view(B, 1, Tk, 1).bool()
+                pad = torch.broadcast_to(pad, k_.shape)
+                k_ = torch.where(pad, 0.0, k_)
+                v  = v.masked_fill(key_padding_mask.view(B, 1, Tk, 1).bool(), 0.0)
+
+            k_summed   = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)  # [B, num_heads, Tq, head_dim]
+            norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)             # [B, num_heads, Tq, 1]
+
+        else:  # "elu" — Katharopoulos 2020
             q_ = torch.nn.functional.elu(q) + 1
             k_ = torch.nn.functional.elu(k) + 1
 
-        if key_padding_mask is not None:
-            assert key_padding_mask.shape == (B, Tk), f"Got {key_padding_mask.shape}."
+            if key_padding_mask is not None:
+                assert key_padding_mask.shape == (B, Tk), f"Got {key_padding_mask.shape}."
+                pad = key_padding_mask.view(B, 1, Tk, 1).bool()
+                pad = torch.broadcast_to(pad, k_.shape)
+                k_ = torch.where(pad, 0.0, k_)
+                v  = v.masked_fill(key_padding_mask.view(B, 1, Tk, 1).bool(), 0.0)
 
-            # mask applied after feature map so masked keys contribute zero to kv
-            key_padding_mask = key_padding_mask.view(B, 1, Tk, 1).bool()
-            key_padding_mask = torch.broadcast_to(key_padding_mask, k_.shape)
-            k_ = torch.where(key_padding_mask, 0.0, k_)
-            v = torch.where(key_padding_mask, 0.0, v)
+            k_summed   = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)
+            norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)
 
-        # normalization coefficient
-        if self.normalize is True:
-            k_summed = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)  # [B, num_heads, Tq, head_dim]
-            norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)  # [B, num_heads, Tq, 1]
-
-        else:
-            norm_coeff = 1
-
-        # context
+        # context vector
         kv = k_.transpose(-2, -1) @ v  # [B, num_heads, head_dim, head_dim]
-        assert kv.shape == (B, self.num_heads, self.head_dim, self.head_dim), f"Got, {kv.shape}."
+        assert kv.shape == (B, self.num_heads, self.head_dim, self.head_dim), f"Got {kv.shape}."
 
-        # apply query
         attn_output = (1 / (norm_coeff + 1e-8)) * q_ @ kv  # [B, num_heads, Tq, head_dim]
-        attn_output = attn_output.transpose(1, 2).reshape(B, Tq, self.embed_dim)  # [B, Tq, embed_dim]
+        attn_output = attn_output.transpose(1, 2).reshape(B, Tq, self.embed_dim)
 
-        return self.out_proj(attn_output), None  # same signature as nn.MultiheadAttention, returning None as attention output weights
+        return self.out_proj(attn_output), None  # same signature as nn.MultiheadAttention
 
 
 class ResidualEncoderLayer(Block):

@@ -88,7 +88,7 @@ experiment:
 
 model:
   model_config:
-    attention_map: softmax
+    attention_map: softmax-gnot
     attention_method: linear
     dim_embed: 256
     dim_feedforward: 1024
