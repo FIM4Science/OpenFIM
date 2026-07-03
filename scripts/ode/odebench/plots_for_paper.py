@@ -151,7 +151,7 @@ if False:
 
 
     def plot_all(max_odes: int, save_path: Path):
-        json_path = Path(__file__).parent / "data/strogatz_extended.json"
+        json_path = Path(__file__).parent.parent.parent.parent / "data" / "ode" / "odebench" / "strogatz_extended.json"
         # Load data
         with open(json_path, 'r') as f:
             ODEs = json.load(f)

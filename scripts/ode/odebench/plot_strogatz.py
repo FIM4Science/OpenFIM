@@ -228,7 +228,7 @@ def plot_strogatz(
     """
     # Default path
     if json_path is None:
-        json_path = Path(__file__).parent / "data/strogatz_extended.json"
+        json_path = Path(__file__).parent.parent.parent.parent / "data" / "ode" / "odebench" / "strogatz_extended.json"
     
     if not json_path.exists():
         raise FileNotFoundError(f"JSON file not found: {json_path}")

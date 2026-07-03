@@ -1613,7 +1613,7 @@ def autoregressive_predict(
 # 9. ODEBench utilities (fixed-point & stability analysis)
 # =============================================================================
 
-_ODEBENCH_JSON = Path(__file__).parent / "odebench" / "data" / "strogatz_extended.json"
+_ODEBENCH_JSON = Path(__file__).parent.parent.parent / "data" / "ode" / "odebench" / "strogatz_extended.json"
 
 
 def load_odebench_system(
