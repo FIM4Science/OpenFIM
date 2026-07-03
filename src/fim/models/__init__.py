@@ -8,7 +8,6 @@ from .latent_sde import LatentSDE, LatentSDEConfig
 from .mjp import FIMMJP, FIMMJPConfig
 from .sde import FIMSDE, FIMSDEConfig
 from .ode import FIMODE, FIMODEModelConfig, TrajectoryEncoder, load_fim_ode_hf, load_fim_ode_local
-from .ode2 import FIMODE2, FIMODE2Config, AxialTrajectoryEncoder
 from .ode_trainer import FIMODEConfig, FIMODETrainingConfig
 
 
@@ -36,7 +35,4 @@ __all__ = [
     "TrajectoryEncoder",
     "load_fim_ode_hf",
     "load_fim_ode_local",
-    "FIMODE2",
-    "FIMODE2Config",
-    "AxialTrajectoryEncoder",
 ]
