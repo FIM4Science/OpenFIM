@@ -7,13 +7,14 @@ Edit RUN_PATHS (and optionally SAVE_PATH, TITLE) below, then run:
 
 from pathlib import Path
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+
 
 # --- Configure here: paths to run dirs or task_loss.log files ---
 RUN_PATHS = [
     Path("models/vdp2/vdp2_01-29-0223"),
-    #Path("models/vdp2/vdp2_01-29-0139"),
+    # Path("models/vdp2/vdp2_01-29-0139"),
 ]
 SAVE_PATH = Path("experiments/task_loss.pdf")  # or None to only show
 TITLE = "Task loss vs epoch"

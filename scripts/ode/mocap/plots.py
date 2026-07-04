@@ -12,17 +12,18 @@ from typing import Literal
 
 import matplotlib
 import numpy as np
-from matplotlib import pyplot as plt
-
-from utils.data_models import trajectory, trajectory_list_from_h5_files
 from data_gen_mocap import MocapDataset
+from matplotlib import pyplot as plt
+from utils.data_models import trajectory, trajectory_list_from_h5_files
 
 # Pickles were saved with class path "data_gen_mocap.MocapDataset"; register alias for unpickling.
-sys.modules["data_gen_mocap"] = sys.modules["experiments.data_gen_mocap"]
 from utils.helpers import (
     load_odeon_model_from_checkpoint,
     predict_and_integrate_ode,
 )
+
+
+sys.modules["data_gen_mocap"] = sys.modules["experiments.data_gen_mocap"]
 # Plot styling (global vars)
 REF_SCALE = 2.0
 FONT_SIZE_TITLE = REF_SCALE * 14
@@ -47,14 +48,16 @@ title = {
 }
 
 matplotlib.rcParams["pdf.fonttype"] = 42
-matplotlib.rcParams.update({
-    "axes.titlesize": FONT_SIZE_TITLE,
-    "axes.labelsize": FONT_SIZE_LABEL,
-    "xtick.labelsize": TICK_LABELSIZE,
-    "ytick.labelsize": TICK_LABELSIZE,
-    "legend.fontsize": FONT_SIZE_LEGEND,
-    "axes.titlepad": AXES_TITLEPAD,
-})
+matplotlib.rcParams.update(
+    {
+        "axes.titlesize": FONT_SIZE_TITLE,
+        "axes.labelsize": FONT_SIZE_LABEL,
+        "xtick.labelsize": TICK_LABELSIZE,
+        "ytick.labelsize": TICK_LABELSIZE,
+        "legend.fontsize": FONT_SIZE_LEGEND,
+        "axes.titlepad": AXES_TITLEPAD,
+    }
+)
 
 # Default task name -> data path (train/5d)
 MOCAP_TASK_DATA_PATHS = {
@@ -99,10 +102,7 @@ def load_mocap_task_data(
     if data_path is None:
         data_path = MOCAP_TASK_DATA_PATHS.get(task_name)
         if data_path is None:
-            raise ValueError(
-                f"Unknown task {task_name!r}. Choose from {list(MOCAP_TASK_DATA_PATHS.keys())} "
-                "or pass data_path."
-            )
+            raise ValueError(f"Unknown task {task_name!r}. Choose from {list(MOCAP_TASK_DATA_PATHS.keys())} or pass data_path.")
     data_path = Path(data_path)
 
     ctx_trajs_5d: list[trajectory] = trajectory_list_from_h5_files(
@@ -114,10 +114,7 @@ def load_mocap_task_data(
     with open(data_path / "mocap_dataset.pkl", "rb") as f:
         dataset: MocapDataset = pickle.load(f)
 
-    test_trajs_5d = [
-        trajectory(dataset.tst.ys[i, :, :], dataset.tst.ts)
-        for i in range(dataset.tst.ys.shape[0])
-    ]
+    test_trajs_5d = [trajectory(dataset.tst.ys[i, :, :], dataset.tst.ts) for i in range(dataset.tst.ys.shape[0])]
     test_trajs_left, _ = _split_5d_to_left_right(test_trajs_5d)
     pred_ts = test_trajs_5d[0].ts
 
@@ -192,8 +189,8 @@ def plot_mocap_comparison(
         ax.set_ylabel("Comp 2")
         ax.set_zlabel("Comp 3")
         ax.legend(loc="lower left")
-        #ax.set_title(f"{title[task_name]}")
-        #fig.suptitle(f"{title[task_name]}", fontsize=FONT_SIZE_TITLE, fontweight="bold", y=1.02)
+        # ax.set_title(f"{title[task_name]}")
+        # fig.suptitle(f"{title[task_name]}", fontsize=FONT_SIZE_TITLE, fontweight="bold", y=1.02)
         fig.tight_layout()
 
     else:  # "2d" — three components vs time
@@ -215,7 +212,7 @@ def plot_mocap_comparison(
             ax.grid(True, alpha=0.3)
 
         axs[2].set_xlabel("Time")
-        #fig.suptitle(f"{title[task_name]}", fontsize=FONT_SIZE_TITLE, fontweight="bold", y=1.02)
+        # fig.suptitle(f"{title[task_name]}", fontsize=FONT_SIZE_TITLE, fontweight="bold", y=1.02)
         fig.tight_layout()
 
     if save_path is not None:

@@ -4,11 +4,12 @@ Output containers, configs, and training infrastructure for FIMODE.
 ODEConcepts, EncoderOutput, and FIMODEOutput live here (rather than in ode.py)
 so that TrainIntegrator can reference them without a circular import.
 """
+
 from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Dict, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Literal, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -16,6 +17,7 @@ from torch import Tensor
 from transformers import PretrainedConfig
 
 from fim.models.sde import InstanceNormalization
+
 
 if TYPE_CHECKING:
     from fim.models.ode import FIMODE
@@ -29,6 +31,7 @@ TimesNormStat = Tuple[Tensor]
 
 # ---------- ODEConcepts ----------
 
+
 class ODEConcepts:
     """
     Container for the model's vector field predictions at query locations.
@@ -37,7 +40,7 @@ class ODEConcepts:
     For an ODE  dx/dt = f(x), the chain-rule transform under state normalization
     ŷ = g(y) and time normalization t̂ = h(t) gives:
 
-        dŷ/dt̂ = g'(y) · f(y) · (dt/dt̂)    
+        dŷ/dt̂ = g'(y) · f(y) · (dt/dt̂)
     """
 
     def __init__(
@@ -62,36 +65,24 @@ class ODEConcepts:
         """Transform drift from physical to normalized coordinates."""
         if self.normalized:
             return
-        grad = self.states_norm.normalization_map(
-            self.locations, self.states_norm_stats, derivative_num=1
-        )
+        grad = self.states_norm.normalization_map(self.locations, self.states_norm_stats, derivative_num=1)
         self.drift = self.drift * grad
         dummy_t = torch.zeros_like(self.locations[..., 0:1])
-        t_inv_grad = self.times_norm.inverse_normalization_map(
-            dummy_t, self.times_norm_stats, derivative_num=1
-        )
+        t_inv_grad = self.times_norm.inverse_normalization_map(dummy_t, self.times_norm_stats, derivative_num=1)
         self.drift = self.drift * t_inv_grad
-        self.locations = self.states_norm.normalization_map(
-            self.locations, self.states_norm_stats
-        )
+        self.locations = self.states_norm.normalization_map(self.locations, self.states_norm_stats)
         self.normalized = True
 
     def renormalize(self) -> None:
         """Transform drift from normalized back to physical coordinates."""
         if not self.normalized:
             return
-        inv_grad = self.states_norm.inverse_normalization_map(
-            self.locations, self.states_norm_stats, derivative_num=1
-        )
+        inv_grad = self.states_norm.inverse_normalization_map(self.locations, self.states_norm_stats, derivative_num=1)
         self.drift = self.drift * inv_grad
         dummy_t = torch.zeros_like(self.locations[..., 0:1])
-        t_grad = self.times_norm.normalization_map(
-            dummy_t, self.times_norm_stats, derivative_num=1
-        )
+        t_grad = self.times_norm.normalization_map(dummy_t, self.times_norm_stats, derivative_num=1)
         self.drift = self.drift * t_grad
-        self.locations = self.states_norm.inverse_normalization_map(
-            self.locations, self.states_norm_stats
-        )
+        self.locations = self.states_norm.inverse_normalization_map(self.locations, self.states_norm_stats)
         self.normalized = False
 
     @classmethod
@@ -152,9 +143,11 @@ class ODEConcepts:
 
 # ---------- Output containers ----------
 
+
 @dataclass
 class EncoderOutput:
     """Wraps the trajectory embedding D returned by the encoder."""
+
     D: Tensor
 
     def detach(self) -> "EncoderOutput":
@@ -164,6 +157,7 @@ class EncoderOutput:
 @dataclass
 class FIMODEOutput:
     """Full model output: vector field predictions + intermediates needed for training."""
+
     predictions: ODEConcepts
     D: EncoderOutput
     encoded_locations: Tensor
@@ -171,6 +165,7 @@ class FIMODEOutput:
 
 
 # ---------- Configs ----------
+
 
 @dataclass(kw_only=True)
 class FIMODETrainingConfig:
@@ -219,6 +214,7 @@ class FIMODEConfig(PretrainedConfig):
     Top-level HuggingFace config for FIMODE.
     Holds model architecture and training hyperparameters as nested dicts.
     """
+
     model_type = "FIMODE"
 
     def __init__(self, model_config: Optional[dict] = None, train_config: Optional[dict] = None, **kwargs):
@@ -228,6 +224,7 @@ class FIMODEConfig(PretrainedConfig):
 
 
 # ---------- Training data ----------
+
 
 @dataclass(kw_only=True)
 class TrainingData:
@@ -244,18 +241,19 @@ class TrainingData:
     @dataclass(kw_only=True)
     class Trajectory:
         trajectories: Tensor  # [B, T, N, D]
-        times: Tensor         # [B, T, N, 1]
+        times: Tensor  # [B, T, N, 1]
 
-    locations: Tensor         # [B, L, D]
-    fx: Tensor                # [B, L, D]
-    mask: Tensor              # [B, T, N, 1]
-    dimension_mask: Tensor    # [B, L, D]
+    locations: Tensor  # [B, L, D]
+    fx: Tensor  # [B, L, D]
+    mask: Tensor  # [B, T, N, 1]
+    dimension_mask: Tensor  # [B, L, D]
 
     truth: Trajectory
     to_train: Optional[Trajectory] = None
 
 
 # ---------- Data corruption ----------
+
 
 class DataCorruptionModel:
     """
@@ -266,11 +264,11 @@ class DataCorruptionModel:
     def __init__(self, config: FIMODETrainingConfig):
         self.config = config
         _dispatch = {
-            "odeformer":      self._odeformer,
+            "odeformer": self._odeformer,
             "eval_odeformer": self._eval_odeformer,
-            "fim":            self._fim,
-            "flexible":       self._flexible,
-            None:             self._no_corruption,
+            "fim": self._fim,
+            "flexible": self._flexible,
+            None: self._no_corruption,
         }
         fn = _dispatch.get(config.corruption_model_type)
         if fn is None:
@@ -324,14 +322,10 @@ class DataCorruptionModel:
     def _eval_odeformer(self, trajectory: Tensor) -> "DataCorruptionModel.CorruptData":
         if self.config.max_sigma_trajectory_noise is not None:
             s = self.config.max_sigma_trajectory_noise
-            trajectory = DataCorruptionModel.add_multiplicative_noise(
-                trajectory, sigma_distribution="uniform", min_sigma=s, max_sigma=s
-            )
+            trajectory = DataCorruptionModel.add_multiplicative_noise(trajectory, sigma_distribution="uniform", min_sigma=s, max_sigma=s)
         if self.config.max_subsampling_ration is not None:
             r = self.config.max_subsampling_ration
-            mask = DataCorruptionModel.generate_subsample_points_mask(
-                trajectory, min_ratio=r, max_ratio=r
-            )
+            mask = DataCorruptionModel.generate_subsample_points_mask(trajectory, min_ratio=r, max_ratio=r)
         else:
             mask = torch.ones((*trajectory.shape[:-1], 1), dtype=torch.bool)
         return DataCorruptionModel.CorruptData(corrupt_trajectory=trajectory, mask=mask)
@@ -365,11 +359,7 @@ class DataCorruptionModel:
         b, t, n, d = tensor.shape
         device = tensor.device
 
-        sampling_ratios = (
-            torch.empty(b, 1, 1, 1, device=device)
-            .uniform_(min_ratio, max_ratio)
-            .expand(-1, t, -1, -1)
-        )
+        sampling_ratios = torch.empty(b, 1, 1, 1, device=device).uniform_(min_ratio, max_ratio).expand(-1, t, -1, -1)
         num_keep = torch.floor((1.0 - sampling_ratios) * n).long().clamp(min=1, max=n)
 
         use_random = (torch.rand(b, 1, 1, 1, device=device) < p_random).expand(b, t, n, 1)
@@ -444,6 +434,7 @@ class DataCorruptionModel:
 
 # ---------- Data preparation ----------
 
+
 class DataPreparation:
     """Applies DataCorruptionModel to produce corrupted training trajectories."""
 
@@ -457,17 +448,13 @@ class DataPreparation:
         if do_corruption:
             if self.config.num_nearest_points is not None:
                 nnp = self.config.num_nearest_points
-                batch_indices, nearest_indices = self.get_nearest_neigh_indices(
-                    trajectories, data.locations, nnp
-                )
+                batch_indices, nearest_indices = self.get_nearest_neigh_indices(trajectories, data.locations, nnp)
                 data.locations = data.locations[batch_indices, nearest_indices]
                 data.fx = data.fx[batch_indices, nearest_indices]
                 data.dimension_mask = data.dimension_mask[batch_indices, nearest_indices]
 
             corrupt = self.data_corruption.corrupt_data(trajectories)
-            data.to_train = TrainingData.Trajectory(
-                trajectories=corrupt.corrupt_trajectory, times=times
-            )
+            data.to_train = TrainingData.Trajectory(trajectories=corrupt.corrupt_trajectory, times=times)
             data.mask = corrupt.mask
         else:
             data.to_train = TrainingData.Trajectory(trajectories=trajectories, times=times)
@@ -475,18 +462,14 @@ class DataPreparation:
         return data
 
     @staticmethod
-    def get_dim_mask_for_traj_training(
-        trajectories: Tensor, dimension_mask: Tensor, config: FIMODETrainingConfig
-    ) -> Tensor:
+    def get_dim_mask_for_traj_training(trajectories: Tensor, dimension_mask: Tensor, config: FIMODETrainingConfig) -> Tensor:
         t = trajectories.size(1)
         b, _, d = dimension_mask.shape
         num_points = config.num_ic * config.traj_loss_steps * t
         return dimension_mask[:, :1, :].expand(b, num_points, d)
 
     @staticmethod
-    def get_nearest_neigh_indices(
-        trajectories: Tensor, locations: Tensor, num: int
-    ) -> Tuple[Tensor, Tensor]:
+    def get_nearest_neigh_indices(trajectories: Tensor, locations: Tensor, num: int) -> Tuple[Tensor, Tensor]:
         b, t, n, d = trajectories.shape
         targets = trajectories.view(b, t * n, d)
         batch, num_locations, _ = locations.shape
@@ -501,6 +484,7 @@ class DataPreparation:
 
 # ---------- Loss functions ----------
 
+
 class LossFactory:
     """Factory returning a masked loss function (estimated, target, dimension_mask) -> Tensor."""
 
@@ -510,27 +494,36 @@ class LossFactory:
             return LossFactory.mse_at_locations
         elif loss_type == "huber":
             hub = nn.HuberLoss(reduction="none")
-            def loss(e, t, m): return (hub(e * m, t) * m).sum(dim=-1)
+
+            def loss(e, t, m):
+                return (hub(e * m, t) * m).sum(dim=-1)
+
             return loss
         elif loss_type == "relative_l2":
             return LossFactory.relative_l2_loss_masked
         elif loss_type == "l1":
             l1 = nn.L1Loss(reduction="none")
+
             def loss(e, t, m):
                 lv = l1(e * m, t).sum(dim=-1)
                 return lv / torch.sum(m, dim=-1).clamp(min=1)
+
             return loss
         elif loss_type == "huber_mean_dim":
             huber = nn.HuberLoss(reduction="none")
+
             def loss(e, t, m):
                 lv = huber(e * m, t).sum(dim=-1)
                 return lv / torch.sum(m, dim=-1).clamp(min=1)
+
             return loss
         elif loss_type == "il_mse":
             return LossFactory.il_mse_at_locations
         elif loss_type == "cos_sim":
+
             def loss(e, t, m):
                 return 1 - torch.nn.functional.cosine_similarity(e * m, t * m, dim=-1)
+
             return loss
         else:
             raise ValueError(f"Unknown loss_type: {loss_type!r}")
@@ -545,9 +538,7 @@ class LossFactory:
         return se / count
 
     @staticmethod
-    def relative_l2_loss_masked(
-        estimated: Tensor, target: Tensor, dimension_mask: Tensor, eps: float = 1e-8
-    ) -> Tensor:
+    def relative_l2_loss_masked(estimated: Tensor, target: Tensor, dimension_mask: Tensor, eps: float = 1e-8) -> Tensor:
         err = (estimated - target) * dimension_mask
         return err.norm(2, dim=-1) / (target.norm(2, dim=-1) + eps)
 
@@ -567,6 +558,7 @@ class LossFactory:
 
 # ---------- ODE integrator ----------
 
+
 class TrainIntegrator:
     """
     Integrates the learned vector field during trajectory-reconstruction training.
@@ -578,9 +570,9 @@ class TrainIntegrator:
         assert config.intermediate_steps_per_step > 0
 
         integrators = {
-            "euler":          self.euler,
+            "euler": self.euler,
             "improved_euler": self.improved_euler,
-            "rk4":            self.runge_kutta_4,
+            "rk4": self.runge_kutta_4,
         }
         self.integrate = integrators[config.integrator_for_trajectory_training]
 
@@ -624,6 +616,7 @@ class TrainIntegrator:
         def f(y: Tensor) -> "TrainIntegrator.DriftAt":
             result = model.function_decoding(y, feature_mask, D, copy.deepcopy(concept))
             return self.DriftAt(drift=result.predictions.drift)
+
         return f
 
     def solve_ivp_for_random_initial_conditions(
@@ -645,10 +638,10 @@ class TrainIntegrator:
         b, t, n, d = data.truth.trajectories.shape
 
         last_idx = t // 2 if self.config.use_generalization_trajs else t
-        train_traj  = data.to_train.trajectories[:, :last_idx]
+        train_traj = data.to_train.trajectories[:, :last_idx]
         train_times = data.to_train.times[:, :last_idx]
-        train_mask  = data.mask[:, :last_idx]
-        truth_traj  = data.truth.trajectories
+        train_mask = data.mask[:, :last_idx]
+        truth_traj = data.truth.trajectories
         truth_times = data.truth.times
 
         D, feature_mask, concept = model.trajectory_encoding(train_traj, train_times, train_mask)
@@ -662,7 +655,7 @@ class TrainIntegrator:
         num_ic = self.config.num_ic
         intermediate_steps = self.config.intermediate_steps_per_step
         step_noise_scale = self.config.step_noise_scale
-        ic_noise_scale   = self.config.ic_noise_scale
+        ic_noise_scale = self.config.ic_noise_scale
 
         if self.config.random_initial_conditions:
             rand_vals = torch.rand(b, t, n - num_steps, 1, device=device)
@@ -682,18 +675,14 @@ class TrainIntegrator:
             y0 = y0 + ic_noise_scale * torch.randn_like(y0)
 
         target_indices = ic_indices.repeat(1, 1, num_steps, 1)
-        shift = (
-            torch.arange(1, num_steps + 1, device=device)
-            .repeat_interleave(num_ic)
-            .view(1, 1, num_steps * num_ic, 1)
-        )
+        shift = torch.arange(1, num_steps + 1, device=device).repeat_interleave(num_ic).view(1, 1, num_steps * num_ic, 1)
         target_indices = target_indices + shift
 
-        times      = model.temporal_norm.normalization_map(truth_times, concept._times_norm_stats)
+        times = model.temporal_norm.normalization_map(truth_times, concept._times_norm_stats)
         delta_times = times[:, :, 1:, :] - times[:, :, :-1, :]
         time_indices = target_indices.view(b, t, num_steps, num_ic, d) - 1
 
-        y  = y0.view(b, t * num_ic, d).clone()
+        y = y0.view(b, t * num_ic, d).clone()
         ys = []
 
         if self.config.use_h_max:
@@ -723,14 +712,9 @@ class TrainIntegrator:
 
         trajs = model.spatial_norm.normalization_map(truth_traj, concept._states_norm_stats)
         if not self.config.train_with_normalized_head:
-            concept = (
-                concept.locations(ys.view(b, t * num_ic * num_steps, d))
-                .drift(torch.empty((b, 1, d)))
-                .normalized(True)
-                .build()
-            )
+            concept = concept.locations(ys.view(b, t * num_ic * num_steps, d)).drift(torch.empty((b, 1, d))).normalized(True).build()
             concept.renormalize()
-            ys    = concept.locations.view(b, t, num_ic * num_steps, d)
+            ys = concept.locations.view(b, t, num_ic * num_steps, d)
             trajs = truth_traj
 
         corresponding_trajs = torch.gather(trajs, dim=2, index=target_indices)

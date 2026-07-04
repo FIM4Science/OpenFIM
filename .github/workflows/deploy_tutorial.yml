@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.repository == 'FIM4Science/OpenFIM'
     environment:
       name: github-pages # Ties this job to GitHub's internal Pages environment
       url: ${{ steps.deployment.outputs.page_url }}

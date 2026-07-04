@@ -27,11 +27,13 @@ project:
       file: 05_sde/sde_crashcourse.md
       children:
         - file: 05_sde/sde_tutorial.ipynb
+    - title: Inference of Ordinary Differential Equations
+      file: 06_ode/ode_tutorial.ipynb
     - title: Zero-Shot Imputation of Time Series
-      file: 06_imputation/imputation.ipynb
+      file: 07_imputation/imputation.ipynb
       children:
-        - file: 06_imputation/imputation_point_wise.ipynb
-        - file: 06_imputation/imputation_temporal.ipynb
+        - file: 07_imputation/imputation_point_wise.ipynb
+        - file: 07_imputation/imputation_temporal.ipynb
     - title: About Us
       file: XX_about_us/active.md
       children:

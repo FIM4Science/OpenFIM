@@ -2,30 +2,25 @@
 Tests for the FIMODE model (ode.py, ode_trainer.py).
 All tests are self-contained — no external data files or YAML configs required.
 """
-import copy
+
 import numpy as np
 import pytest
 import torch
-from torch import Tensor
 from scipy.integrate import solve_ivp
 
 from fim.models.ode import (
     FIMODE,
-    TrajectoryFeatures,
     FIMODEModelConfig,
     TrajectoryEncoder,
-    UncertaintyEstimator,
+    TrajectoryFeatures,
 )
 from fim.models.ode_trainer import (
-    ODEConcepts,
-    EncoderOutput,
-    FIMODEOutput,
-    FIMODEConfig,
-    FIMODETrainingConfig,
-    TrainingData,
     DataCorruptionModel,
-    DataPreparation,
+    FIMODEConfig,
+    FIMODEOutput,
+    FIMODETrainingConfig,
     LossFactory,
+    ODEConcepts,
 )
 
 
@@ -34,52 +29,52 @@ from fim.models.ode_trainer import (
 # ─────────────────────────────────────────────
 
 # Small but non-trivial dimensions so tests run fast
-B   = 2   # batch size (number of ODEs)
-T   = 3   # trajectories per ODE
-N   = 12  # time points per trajectory
-D   = 2   # state space dimension
-L   = 6   # query locations
+B = 2  # batch size (number of ODEs)
+T = 3  # trajectories per ODE
+N = 12  # time points per trajectory
+D = 2  # state space dimension
+L = 6  # query locations
 
-DIM_EMBED = 20   # must be divisible by 5 (features) and by NUM_HEADS
-DIM_MAX   = D    # dim_max_trajectory == D (standard usage; D < DIM_MAX is a known
-                 # limitation of the current ODEConcepts design — see test_model_forward_higher_dim)
-NUM_HEADS = 4    # must divide DIM_EMBED (20 / 4 = 5 ✓)
+DIM_EMBED = 20  # must be divisible by 5 (features) and by NUM_HEADS
+DIM_MAX = D  # dim_max_trajectory == D (standard usage; D < DIM_MAX is a known
+# limitation of the current ODEConcepts design — see test_model_forward_higher_dim)
+NUM_HEADS = 4  # must divide DIM_EMBED (20 / 4 = 5 ✓)
 
 
 def make_model_config() -> dict:
-    return dict(
-        dim_max_trajectory=DIM_MAX,
-        use_bias_for_projection=True,
-        dim_embed=DIM_EMBED,
-        num_context_encoder_layers=1,
-        attention_method="nn_multihead",
-        attention_map=None,
-        use_bias_in_attention=True,
-        use_query_residual_in_attention=False,
-        num_heads=NUM_HEADS,
-        dim_feedforward=64,
-        dropout=0.0,
-        num_res_layers_functional_decoder=1,
-        num_res_layer_u_model=1,
-        dim_hidden_u_model=16,
-        dim_ffn_u_model=32,
-        times_norm_on_deltas=True,
-    )
+    return {
+        "dim_max_trajectory": DIM_MAX,
+        "use_bias_for_projection": True,
+        "dim_embed": DIM_EMBED,
+        "num_context_encoder_layers": 1,
+        "attention_method": "nn_multihead",
+        "attention_map": None,
+        "use_bias_in_attention": True,
+        "use_query_residual_in_attention": False,
+        "num_heads": NUM_HEADS,
+        "dim_feedforward": 64,
+        "dropout": 0.0,
+        "num_res_layers_functional_decoder": 1,
+        "num_res_layer_u_model": 1,
+        "dim_hidden_u_model": 16,
+        "dim_ffn_u_model": 32,
+        "times_norm_on_deltas": True,
+    }
 
 
 def make_train_config(train_type: str = "vector_field") -> dict:
-    return dict(
-        train_with_normalized_head=True,
-        loss_filter_nans=True,
-        loss_type="mse",
-        train_type=train_type,
-        use_uncertainty_weighting=True,
-        corruption_model_type="fim",
-        survival_rate=0.9,
-        max_sigma_trajectory_noise=0.05,
-        additive_noise_distribution="uniform",
-        same_noise_level_for_all_trajectories=True,
-    )
+    return {
+        "train_with_normalized_head": True,
+        "loss_filter_nans": True,
+        "loss_type": "mse",
+        "train_type": train_type,
+        "use_uncertainty_weighting": True,
+        "corruption_model_type": "fim",
+        "survival_rate": 0.9,
+        "max_sigma_trajectory_noise": 0.05,
+        "additive_noise_distribution": "uniform",
+        "same_noise_level_for_all_trajectories": True,
+    }
 
 
 def make_fimode_config(train_type: str = "vector_field") -> FIMODEConfig:
@@ -93,21 +88,21 @@ def make_batch(b=B, t=T, n=N, d=D, locs=L) -> dict:
     """Synthetic training batch with all required keys."""
     obs_values = torch.randn(b, t, n, d)
     # monotone times: cumsum of small positive increments
-    obs_times  = torch.cumsum(torch.rand(b, t, n, 1) * 0.1 + 0.01, dim=2)
-    obs_mask   = torch.ones(b, t, n, 1, dtype=torch.bool)
-    locations  = torch.randn(b, locs, d)
-    drift_at_locations     = torch.randn(b, locs, d)
-    drift_at_observations  = torch.randn(b, t, n, d)   # [B, T, N, D]
+    obs_times = torch.cumsum(torch.rand(b, t, n, 1) * 0.1 + 0.01, dim=2)
+    obs_mask = torch.ones(b, t, n, 1, dtype=torch.bool)
+    locations = torch.randn(b, locs, d)
+    drift_at_locations = torch.randn(b, locs, d)
+    drift_at_observations = torch.randn(b, t, n, d)  # [B, T, N, D]
     dimension_mask = torch.ones(b, 1, d, dtype=torch.bool)
 
     return {
-        "obs_values":            obs_values,
-        "obs_times":             obs_times,
-        "obs_mask":              obs_mask,
-        "locations":             locations,
-        "drift_at_locations":    drift_at_locations,
+        "obs_values": obs_values,
+        "obs_times": obs_times,
+        "obs_mask": obs_mask,
+        "locations": locations,
+        "drift_at_locations": drift_at_locations,
         "drift_at_observations": drift_at_observations,
-        "dimension_mask":        dimension_mask,
+        "dimension_mask": dimension_mask,
     }
 
 
@@ -115,8 +110,8 @@ def make_batch(b=B, t=T, n=N, d=D, locs=L) -> dict:
 # 1. Config
 # ─────────────────────────────────────────────
 
-class TestFIMODEConfig:
 
+class TestFIMODEConfig:
     def test_model_config_fields(self):
         cfg = FIMODEModelConfig(**make_model_config())
         assert cfg.dim_embed == DIM_EMBED
@@ -152,11 +147,12 @@ class TestFIMODEConfig:
 # 2. ODEConcepts
 # ─────────────────────────────────────────────
 
-class TestODEConcepts:
 
+class TestODEConcepts:
     def _make_concepts(self, normalized: bool = True):
-        from fim.models.sde import Standardization, DeltaLogCentering
-        spatial  = Standardization()
+        from fim.models.sde import DeltaLogCentering, Standardization
+
+        spatial = Standardization()
         temporal = DeltaLogCentering()
 
         trajectories = torch.randn(B, T, N, D)
@@ -164,22 +160,26 @@ class TestODEConcepts:
         times = torch.cumsum(torch.rand(B, T, N, 1) * 0.1 + 0.01, dim=2)
 
         states_stats = spatial.get_norm_stats(trajectories, mask)
-        delta_times  = times[:, :, 1:, :] - times[:, :, :-1, :]
-        delta_mask   = mask[:, :, :-1, :]
-        times_stats  = temporal.get_norm_stats(delta_times, delta_mask)
+        delta_times = times[:, :, 1:, :] - times[:, :, :-1, :]
+        delta_mask = mask[:, :, :-1, :]
+        times_stats = temporal.get_norm_stats(delta_times, delta_mask)
 
         locations = torch.randn(B, L, D)
-        drift     = torch.randn(B, L, D)
+        drift = torch.randn(B, L, D)
 
-        return ODEConcepts(
-            locations=locations,
-            drift=drift,
-            normalized=normalized,
-            states_norm=spatial,
-            states_norm_stats=states_stats,
-            times_norm=temporal,
-            times_norm_stats=times_stats,
-        ), locations.clone(), drift.clone()
+        return (
+            ODEConcepts(
+                locations=locations,
+                drift=drift,
+                normalized=normalized,
+                states_norm=spatial,
+                states_norm_stats=states_stats,
+                times_norm=temporal,
+                times_norm_stats=times_stats,
+            ),
+            locations.clone(),
+            drift.clone(),
+        )
 
     def test_builder_produces_concepts(self):
         concepts, _, _ = self._make_concepts()
@@ -197,21 +197,20 @@ class TestODEConcepts:
         concepts, orig_locs, orig_drift = self._make_concepts(normalized=False)
         concepts.normalize()
         concepts.renormalize()
-        assert torch.allclose(concepts.drift, orig_drift, atol=1e-5), \
-            "Renormalize should recover the original drift"
-        assert torch.allclose(concepts.locations, orig_locs, atol=1e-5), \
-            "Renormalize should recover the original locations"
+        assert torch.allclose(concepts.drift, orig_drift, atol=1e-5), "Renormalize should recover the original drift"
+        assert torch.allclose(concepts.locations, orig_locs, atol=1e-5), "Renormalize should recover the original locations"
 
     def test_builder_pattern(self):
-        from fim.models.sde import Standardization, DeltaLogCentering
-        spatial  = Standardization()
+        from fim.models.sde import DeltaLogCentering, Standardization
+
+        spatial = Standardization()
         temporal = DeltaLogCentering()
         trajectories = torch.randn(B, T, N, D)
         mask = torch.ones(B, T, N, 1, dtype=torch.bool)
         times = torch.cumsum(torch.rand(B, T, N, 1) * 0.1 + 0.01, dim=2)
         states_stats = spatial.get_norm_stats(trajectories, mask)
-        delta_times  = times[:, :, 1:, :] - times[:, :, :-1, :]
-        times_stats  = temporal.get_norm_stats(delta_times, mask[:, :, :-1, :])
+        delta_times = times[:, :, 1:, :] - times[:, :, :-1, :]
+        times_stats = temporal.get_norm_stats(delta_times, mask[:, :, :-1, :])
 
         concepts = (
             ODEConcepts.builder()
@@ -232,8 +231,8 @@ class TestODEConcepts:
 # 3. TrajectoryEncoder
 # ─────────────────────────────────────────────
 
-class TestTrajectoryEncoder:
 
+class TestTrajectoryEncoder:
     @pytest.fixture
     def encoder(self):
         cfg = FIMODEModelConfig(**make_model_config())
@@ -253,7 +252,7 @@ class TestTrajectoryEncoder:
     def test_masking_zeros_out_masked_positions(self, encoder):
         """Positions where feature_mask=False should have D=0 (multiplied out at the end)."""
         mask = torch.ones(B, T, N - 1, 1, dtype=torch.bool)
-        mask[:, :, -3:, :] = False   # mask last 3 positions
+        mask[:, :, -3:, :] = False  # mask last 3 positions
 
         features = TrajectoryFeatures(
             x=torch.randn(B, T, N - 1, DIM_MAX),
@@ -264,51 +263,49 @@ class TestTrajectoryEncoder:
         )
         out = encoder(features)
         # Masked positions are zeroed by `D * feature_mask` at end of forward
-        assert torch.all(out.D[:, :, -3:, :] == 0.0), \
-            "Masked positions should be zeroed out in encoder output"
+        assert torch.all(out.D[:, :, -3:, :] == 0.0), "Masked positions should be zeroed out in encoder output"
 
 
 # ─────────────────────────────────────────────
 # 4. Loss functions
 # ─────────────────────────────────────────────
 
-class TestLossFactory:
 
+class TestLossFactory:
     @pytest.fixture(params=["mse", "huber", "relative_l2", "l1", "il_mse"])
     def loss_fn(self, request):
         return LossFactory.create(request.param), request.param
 
     def test_output_shape(self, loss_fn):
         fn, name = loss_fn
-        est    = torch.randn(B, L, D)
+        est = torch.randn(B, L, D)
         target = torch.randn(B, L, D)
-        mask   = torch.ones(B, L, D)
-        out    = fn(est, target, mask)
+        mask = torch.ones(B, L, D)
+        out = fn(est, target, mask)
         assert out.shape == (B, L), f"{name}: expected shape ({B}, {L}), got {out.shape}"
 
     def test_mse_zero_for_identical_inputs(self):
         fn = LossFactory.create("mse")
-        x  = torch.randn(B, L, D)
+        x = torch.randn(B, L, D)
         mask = torch.ones(B, L, D)
-        out  = fn(x, x, mask)
+        out = fn(x, x, mask)
         assert torch.allclose(out, torch.zeros_like(out), atol=1e-6)
 
     def test_mse_ignores_masked_dims(self):
         """Masked dimensions should not contribute to the squared error numerator."""
-        fn  = LossFactory.create("mse")
+        fn = LossFactory.create("mse")
         # dim 0: error = 1,  dim 1: error = 10
         est = torch.stack([torch.ones(B, L), 10 * torch.ones(B, L)], dim=-1)
         tgt = torch.zeros(B, L, D)
 
         mask_dim0 = torch.zeros(B, L, D)
-        mask_dim0[:, :, 0] = 1.0   # only dim 0 active  → MSE = 1
+        mask_dim0[:, :, 0] = 1.0  # only dim 0 active  → MSE = 1
         mask_dim1 = torch.zeros(B, L, D)
-        mask_dim1[:, :, 1] = 1.0   # only dim 1 active  → MSE = 100
+        mask_dim1[:, :, 1] = 1.0  # only dim 1 active  → MSE = 100
 
         loss_d0 = fn(est, tgt, mask_dim0).mean()
         loss_d1 = fn(est, tgt, mask_dim1).mean()
-        assert not torch.allclose(loss_d0, loss_d1), \
-            "MSE should differ when different (error-magnitude) dimensions are active"
+        assert not torch.allclose(loss_d0, loss_d1), "MSE should differ when different (error-magnitude) dimensions are active"
         assert loss_d0 < loss_d1, "Dim 1 has larger error so its MSE should be higher"
 
     def test_unknown_loss_raises(self):
@@ -320,8 +317,8 @@ class TestLossFactory:
 # 5. Data corruption
 # ─────────────────────────────────────────────
 
-class TestDataCorruption:
 
+class TestDataCorruption:
     def _make_config(self, corruption_type, **kwargs):
         return FIMODETrainingConfig(
             train_with_normalized_head=True,
@@ -332,45 +329,37 @@ class TestDataCorruption:
         )
 
     def test_fim_corruption_preserves_shape(self):
-        cfg = self._make_config("fim", survival_rate=0.8,
-                                max_sigma_trajectory_noise=0.1,
-                                additive_noise_distribution="uniform")
+        cfg = self._make_config("fim", survival_rate=0.8, max_sigma_trajectory_noise=0.1, additive_noise_distribution="uniform")
         model = DataCorruptionModel(cfg)
         traj = torch.randn(B, T, N, D)
-        out  = model.corrupt_data(traj)
+        out = model.corrupt_data(traj)
         assert out.corrupt_trajectory.shape == traj.shape
         assert out.mask.shape == (B, T, N, 1)
 
     def test_fim_mask_is_bool(self):
-        cfg = self._make_config("fim", survival_rate=0.8,
-                                max_sigma_trajectory_noise=None,
-                                additive_noise_distribution=None)
+        cfg = self._make_config("fim", survival_rate=0.8, max_sigma_trajectory_noise=None, additive_noise_distribution=None)
         model = DataCorruptionModel(cfg)
-        out   = model.corrupt_data(torch.randn(B, T, N, D))
+        out = model.corrupt_data(torch.randn(B, T, N, D))
         assert out.mask.dtype == torch.bool
 
     def test_odeformer_corruption(self):
-        cfg = self._make_config("odeformer",
-                                max_subsampling_ration=0.3,
-                                max_sigma_trajectory_noise=0.1)
+        cfg = self._make_config("odeformer", max_subsampling_ration=0.3, max_sigma_trajectory_noise=0.1)
         model = DataCorruptionModel(cfg)
-        traj  = torch.randn(B, T, N, D)
-        out   = model.corrupt_data(traj)
+        traj = torch.randn(B, T, N, D)
+        out = model.corrupt_data(traj)
         assert out.corrupt_trajectory.shape == traj.shape
 
     def test_no_corruption_returns_all_true_mask(self):
         cfg = self._make_config(None)
         model = DataCorruptionModel(cfg)
-        traj  = torch.randn(B, T, N, D)
-        out   = model.corrupt_data(traj)
+        traj = torch.randn(B, T, N, D)
+        out = model.corrupt_data(traj)
         assert out.mask.all()
 
     def test_subsample_mask_respects_ratio(self):
         traj = torch.randn(B, T, N, D)
         # with max_ratio=0 nothing is dropped
-        mask_full = DataCorruptionModel.generate_subsample_points_mask(
-            traj, min_ratio=0.0, max_ratio=0.0
-        )
+        mask_full = DataCorruptionModel.generate_subsample_points_mask(traj, min_ratio=0.0, max_ratio=0.0)
         assert mask_full.all()
 
     def test_unknown_corruption_type_raises(self):
@@ -382,18 +371,18 @@ class TestDataCorruption:
 # 6. Full FIMODE model
 # ─────────────────────────────────────────────
 
-class TestFIMODE:
 
+class TestFIMODE:
     @pytest.fixture
     def model(self):
-        cfg   = make_fimode_config()
+        cfg = make_fimode_config()
         model = FIMODE(cfg)
         model.eval()
         return model
 
     @pytest.fixture
     def model_train(self):
-        cfg   = make_fimode_config()
+        cfg = make_fimode_config()
         model = FIMODE(cfg)
         model.train()
         return model
@@ -406,7 +395,7 @@ class TestFIMODE:
     def test_has_required_submodules(self, model):
         assert hasattr(model, "trajectory_encoder")
         assert hasattr(model, "functional_decoder")
-        assert hasattr(model, "u_model")   # checkpoint-compatible attribute name
+        assert hasattr(model, "u_model")  # checkpoint-compatible attribute name
         assert hasattr(model, "location_proj")
         assert hasattr(model, "spatial_norm")
         assert hasattr(model, "temporal_norm")
@@ -414,7 +403,7 @@ class TestFIMODE:
     # ── preprocessing ──────────────────────────
 
     def test_pad_if_necessary_pads(self, model):
-        x      = torch.randn(B, T, N, D)   # D < DIM_MAX
+        x = torch.randn(B, T, N, D)  # D < DIM_MAX
         padded = model.pad_if_necessary(x)
         assert padded.shape[-1] == DIM_MAX
 
@@ -425,10 +414,10 @@ class TestFIMODE:
     # ── inference (model_forward) ───────────────
 
     def test_model_forward_output_shapes(self, model):
-        traj  = torch.randn(B, T, N, D)
+        traj = torch.randn(B, T, N, D)
         times = torch.cumsum(torch.rand(B, T, N, 1) * 0.1 + 0.01, dim=2)
-        locs  = torch.randn(B, L, D)
-        mask  = torch.ones(B, T, N, 1, dtype=torch.bool)
+        locs = torch.randn(B, L, D)
+        mask = torch.ones(B, T, N, 1, dtype=torch.bool)
 
         with torch.no_grad():
             out = model.model_forward(traj, times, locs, mask)
@@ -441,66 +430,68 @@ class TestFIMODE:
 
     def test_model_forward_single_trajectory(self, model):
         """Model should handle T=1 (single context trajectory)."""
-        traj  = torch.randn(B, 1, N, D)
+        traj = torch.randn(B, 1, N, D)
         times = torch.cumsum(torch.rand(B, 1, N, 1) * 0.1 + 0.01, dim=2)
-        locs  = torch.randn(B, L, D)
-        mask  = torch.ones(B, 1, N, 1, dtype=torch.bool)
+        locs = torch.randn(B, L, D)
+        mask = torch.ones(B, 1, N, 1, dtype=torch.bool)
 
         with torch.no_grad():
             out = model.model_forward(traj, times, locs, mask)
         assert out.predictions.drift.shape == (B, L, D)
 
-    @pytest.mark.xfail(reason=(
-        "D < DIM_MAX triggers a shape mismatch inside ODEConcepts.normalize(): "
-        "norm_stats are computed on padded data (DIM_MAX dims) but target locations "
-        "are unpadded (D dims). Known limitation to be resolved in the new axial-attention architecture."
-    ))
+    @pytest.mark.xfail(
+        reason=(
+            "D < DIM_MAX triggers a shape mismatch inside ODEConcepts.normalize(): "
+            "norm_stats are computed on padded data (DIM_MAX dims) but target locations "
+            "are unpadded (D dims). Known limitation to be resolved in the new axial-attention architecture."
+        )
+    )
     def test_model_forward_higher_dim(self, model):
         """Model should pad lower-D inputs up to dim_max_trajectory."""
         d_small = 1  # below DIM_MAX
-        traj  = torch.randn(B, T, N, d_small)
+        traj = torch.randn(B, T, N, d_small)
         times = torch.cumsum(torch.rand(B, T, N, 1) * 0.1 + 0.01, dim=2)
-        locs  = torch.randn(B, L, d_small)
-        mask  = torch.ones(B, T, N, 1, dtype=torch.bool)
+        locs = torch.randn(B, L, d_small)
+        mask = torch.ones(B, T, N, 1, dtype=torch.bool)
 
         with torch.no_grad():
             out = model.model_forward(traj, times, locs, mask)
         assert out.predictions.drift.shape == (B, L, d_small)
 
     def test_uncertainty_estimator_output_shape(self, model):
-        traj  = torch.randn(B, T, N, D)
+        traj = torch.randn(B, T, N, D)
         times = torch.cumsum(torch.rand(B, T, N, 1) * 0.1 + 0.01, dim=2)
-        locs  = torch.randn(B, L, D)
-        mask  = torch.ones(B, T, N, 1, dtype=torch.bool)
+        locs = torch.randn(B, L, D)
+        mask = torch.ones(B, T, N, 1, dtype=torch.bool)
 
         with torch.no_grad():
             out = model.model_forward(traj, times, locs, mask)
-            u   = model.u_model(out)
+            u = model.u_model(out)
         assert u.shape == (B, L), f"Expected ({B}, {L}), got {u.shape}"
 
     # ── training forward ───────────────────────
 
     def test_training_forward_returns_loss_dict(self, model_train):
         batch = make_batch()
-        out   = model_train(batch)
+        out = model_train(batch)
         assert isinstance(out, dict)
         assert "losses" in out
         assert "loss" in out["losses"]
 
     def test_training_forward_loss_is_scalar(self, model_train):
         batch = make_batch()
-        out   = model_train(batch)
-        loss  = out["losses"]["loss"]
+        out = model_train(batch)
+        loss = out["losses"]["loss"]
         assert loss.ndim == 0, f"Loss should be a scalar, got shape {loss.shape}"
 
     def test_training_forward_loss_is_finite(self, model_train):
         batch = make_batch()
-        out   = model_train(batch)
+        out = model_train(batch)
         assert torch.isfinite(out["losses"]["loss"]), "Training loss should be finite"
 
     def test_training_forward_includes_stats(self, model_train):
-        batch  = make_batch()
-        out    = model_train(batch)
+        batch = make_batch()
+        out = model_train(batch)
         losses = out["losses"]
         assert "mse" in losses or "uncertainty_estimate" in losses or "loss" in losses
 
@@ -518,13 +509,13 @@ class TestFIMODE:
         assert torch.isfinite(out["losses"]["loss"])
 
     def test_get_prediction_for_eval(self, model):
-        traj  = torch.randn(B, T, N, D)
+        traj = torch.randn(B, T, N, D)
         times = torch.cumsum(torch.rand(B, T, N, 1) * 0.1 + 0.01, dim=2)
-        locs  = torch.randn(B, L, D)
-        mask  = torch.ones(B, T, N, 1, dtype=torch.bool)
+        locs = torch.randn(B, L, D)
+        mask = torch.ones(B, T, N, 1, dtype=torch.bool)
 
         with torch.no_grad():
-            out  = model.model_forward(traj, times, locs, mask)
+            out = model.model_forward(traj, times, locs, mask)
             pred = model.get_prediction_for_eval(out)
         assert pred.shape == (B, L, D)
         assert not pred.requires_grad
@@ -533,12 +524,12 @@ class TestFIMODE:
 
     def test_backward_pass_runs(self):
         """Loss should be differentiable and produce gradients."""
-        cfg   = make_fimode_config()
+        cfg = make_fimode_config()
         model = FIMODE(cfg)
         model.train()
         batch = make_batch()
-        out   = model(batch)
-        loss  = out["losses"]["loss"]
+        out = model(batch)
+        loss = out["losses"]["loss"]
         loss.backward()
         grads = [p.grad for p in model.parameters() if p.grad is not None]
         assert len(grads) > 0, "No gradients were computed"
@@ -548,19 +539,17 @@ class TestFIMODE:
     def test_save_and_load(self, model, tmp_path):
         model.save_pretrained(tmp_path)
         loaded = FIMODE.from_pretrained(tmp_path)
-        for (name, p_orig), (_, p_load) in zip(
-            model.named_parameters(), loaded.named_parameters()
-        ):
+        for (name, p_orig), (_, p_load) in zip(model.named_parameters(), loaded.named_parameters()):
             assert torch.allclose(p_orig, p_load), f"Parameter {name} differs after reload"
 
     # ── consistency ────────────────────────────
 
     def test_same_input_same_output_in_eval(self, model):
         """Deterministic output in eval mode."""
-        traj  = torch.randn(B, T, N, D)
+        traj = torch.randn(B, T, N, D)
         times = torch.cumsum(torch.rand(B, T, N, 1) * 0.1 + 0.01, dim=2)
-        locs  = torch.randn(B, L, D)
-        mask  = torch.ones(B, T, N, 1, dtype=torch.bool)
+        locs = torch.randn(B, L, D)
+        mask = torch.ones(B, T, N, 1, dtype=torch.bool)
 
         with torch.no_grad():
             out1 = model.model_forward(traj, times, locs, mask)
@@ -571,6 +560,7 @@ class TestFIMODE:
 # ─────────────────────────────────────────────
 # 7. Integration: scipy reference systems
 # ─────────────────────────────────────────────
+
 
 def _integrate(f, y0, t_eval):
     """Integrate ODE f(t,y) and return trajectory array [T, D]."""
@@ -588,10 +578,10 @@ def _make_model_eval():
 def _to_batch(traj_np: np.ndarray, times_np: np.ndarray, locs_np: np.ndarray):
     """Convert numpy arrays (no batch dim) into single-item batch tensors."""
     T_len, D_d = traj_np.shape
-    traj  = torch.tensor(traj_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)   # [1,1,T,D]
-    times = torch.tensor(times_np, dtype=torch.float32).reshape(1, 1, T_len, 1)    # [1,1,T,1]
-    locs  = torch.tensor(locs_np, dtype=torch.float32).unsqueeze(0)                # [1,L,D]
-    mask  = torch.ones(1, 1, T_len, 1, dtype=torch.bool)
+    traj = torch.tensor(traj_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)  # [1,1,T,D]
+    times = torch.tensor(times_np, dtype=torch.float32).reshape(1, 1, T_len, 1)  # [1,1,T,1]
+    locs = torch.tensor(locs_np, dtype=torch.float32).unsqueeze(0)  # [1,L,D]
+    mask = torch.ones(1, 1, T_len, 1, dtype=torch.bool)
     return traj, times, locs, mask
 
 
@@ -605,7 +595,10 @@ class TestFIMODEIntegration:
     def test_vdp_trajectory_forward(self, model):
         """Van der Pol trajectory can be passed through the model."""
         mu = 1.0
-        def vdp(t, y): return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
+        def vdp(t, y):
+            return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
         t_eval = np.linspace(0, 5, N)
         traj_np = _integrate(vdp, [2.0, 0.0], t_eval)
         locs_np = traj_np[:L]  # first L points as query locations
@@ -617,9 +610,11 @@ class TestFIMODEIntegration:
     def test_fhn_trajectory_forward(self, model):
         """FitzHugh-Nagumo trajectory passes through the model."""
         a, b, tau, I_ext = 0.7, 0.8, 12.5, 0.5
+
         def fhn(t, y):
             v, w = y
             return [v - v**3 / 3 - w + I_ext, (v + a - b * w) / tau]
+
         t_eval = np.linspace(0, 20, N)
         traj_np = _integrate(fhn, [-1.2, -0.6], t_eval)
         locs_np = traj_np[:L]
@@ -631,20 +626,25 @@ class TestFIMODEIntegration:
     def test_linear_ode_output_finite(self, model):
         """Model produces finite outputs on a simple linear ODE."""
         A = np.array([[-0.5, 1.0], [-1.0, -0.5]])
-        def linear(t, y): return A @ y
+
+        def linear(t, y):
+            return A @ y
+
         t_eval = np.linspace(0, 4, N)
         traj_np = _integrate(linear, [1.0, 0.0], t_eval)
         locs_np = traj_np[:L]
         traj, times, locs, mask = _to_batch(traj_np, t_eval, locs_np)
         with torch.no_grad():
             out = model.model_forward(traj, times, locs, mask)
-        assert torch.isfinite(out.predictions.drift).all(), \
-            "Predictions should be finite for a well-conditioned linear ODE"
+        assert torch.isfinite(out.predictions.drift).all(), "Predictions should be finite for a well-conditioned linear ODE"
 
     def test_training_batch_from_vdp(self, model):
         """A batch assembled from VDP trajectories runs through training forward."""
         mu = 1.0
-        def vdp(t, y): return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
+        def vdp(t, y):
+            return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
         t_eval = np.linspace(0, 5, N)
 
         trajs, times_list = [], []
@@ -654,33 +654,36 @@ class TestFIMODEIntegration:
             times_list.append(t_eval)
 
         obs_values = torch.tensor(np.stack(trajs), dtype=torch.float32).unsqueeze(1)  # [2,1,N,D]
-        obs_times  = torch.tensor(np.stack(times_list), dtype=torch.float32).reshape(2, 1, N, 1)
-        obs_mask   = torch.ones(2, 1, N, 1, dtype=torch.bool)
-        locs       = obs_values[:, 0, :L, :]                                          # [2,L,D]
-        drift      = torch.randn(2, L, D)
-        drift_obs  = torch.randn(2, 1, N, D)
-        dim_mask   = torch.ones(2, 1, D, dtype=torch.bool)
+        obs_times = torch.tensor(np.stack(times_list), dtype=torch.float32).reshape(2, 1, N, 1)
+        obs_mask = torch.ones(2, 1, N, 1, dtype=torch.bool)
+        locs = obs_values[:, 0, :L, :]  # [2,L,D]
+        drift = torch.randn(2, L, D)
+        drift_obs = torch.randn(2, 1, N, D)
+        dim_mask = torch.ones(2, 1, D, dtype=torch.bool)
 
         batch = {
-            "obs_values":            obs_values,
-            "obs_times":             obs_times,
-            "obs_mask":              obs_mask,
-            "locations":             locs,
-            "drift_at_locations":    drift,
+            "obs_values": obs_values,
+            "obs_times": obs_times,
+            "obs_mask": obs_mask,
+            "locations": locs,
+            "drift_at_locations": drift,
             "drift_at_observations": drift_obs,
-            "dimension_mask":        dim_mask,
+            "dimension_mask": dim_mask,
         }
         cfg = make_fimode_config()
-        m   = FIMODE(cfg)
+        m = FIMODE(cfg)
         m.train()
         out = m(batch)
         assert torch.isfinite(out["losses"]["loss"])
 
     def test_lorenz_single_dim_query(self, model):
         """Single-location query on a 2D projection of Lorenz returns correct shape."""
-        sigma, rho, beta = 10.0, 28.0, 8.0 / 3.0
+        sigma, rho = 10.0, 28.0
+
         # Project to 2D (x, y) to stay within D=2
-        def lorenz2d(t, y): return [sigma * (y[1] - y[0]), y[0] * (rho - 0.0) - y[1]]
+        def lorenz2d(t, y):
+            return [sigma * (y[1] - y[0]), y[0] * (rho - 0.0) - y[1]]
+
         t_eval = np.linspace(0, 2, N)
         traj_np = _integrate(lorenz2d, [1.0, 1.0], t_eval)
         locs_np = traj_np[[0]]  # single query location [1, D]

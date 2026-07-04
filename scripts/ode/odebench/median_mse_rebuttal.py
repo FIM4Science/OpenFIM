@@ -19,6 +19,7 @@ from typing import Any, Iterator
 
 import numpy as np
 
+
 _ROOT = Path(__file__).resolve().parent
 _MAX_PATH = _ROOT / "results" / "max" / "all_mse_stats.json"
 _ODEFORMER_PATH = _ROOT / "results" / "odeformer" / "all_mse_stats.json"
@@ -35,18 +36,14 @@ _DIMENSION_GROUPS: tuple[tuple[str, range], ...] = (
 )
 
 
-def _iter_leaf_mse_lists_for_task(
-    tree: dict[str, Any], task: str
-) -> Iterator[list[float]]:
+def _iter_leaf_mse_lists_for_task(tree: dict[str, Any], task: str) -> Iterator[list[float]]:
     """Yield each leaf MSE vector for one task (all ρ, σ)."""
     for rho in tree[task]:
         for sigma in tree[task][rho]:
             yield tree[task][rho][sigma]
 
 
-def _collect_group_rows(
-    tree: dict[str, Any], task: str, rows: range
-) -> np.ndarray:
+def _collect_group_rows(tree: dict[str, Any], task: str, rows: range) -> np.ndarray:
     """All MSE values for fixed flat indices over every leaf of that task."""
     out: list[float] = []
     for leaf in _iter_leaf_mse_lists_for_task(tree, task):

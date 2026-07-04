@@ -1178,10 +1178,7 @@ class SimpleODEDataset(torch.utils.data.Dataset):
             if d < max_dim:
                 data[key] = torch.nn.functional.pad(t, (0, max_dim - d), mode="constant", value=0)
             elif d > max_dim:
-                raise ValueError(
-                    f"Tensor '{key}' has state dim {d} > max_dim={max_dim}. "
-                    "Increase max_dim or remove this system."
-                )
+                raise ValueError(f"Tensor '{key}' has state dim {d} > max_dim={max_dim}. Increase max_dim or remove this system.")
         return data
 
     def __len__(self) -> int:
@@ -1220,9 +1217,7 @@ class SimpleODEDataLoader(BaseDataLoader):
         max_dim: Optional[int] = None,
     ):
         super().__init__(
-            loader_kwargs={"num_workers": num_workers,
-                           "batch_size": batch_size,
-                           "test_batch_size": test_batch_size},
+            loader_kwargs={"num_workers": num_workers, "batch_size": batch_size, "test_batch_size": test_batch_size},
         )
 
         for split, split_paths in paths.items():

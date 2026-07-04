@@ -3,14 +3,10 @@ This file generates data for the VDP and FHN experiments like in the GP-ODE pape
 The reason we have this is to generate data with the exact same noise as in GP-ODE which we need for comparing properly.
 """
 
-
+import h5py
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import odeint
-
-import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
-
-import h5py
 
 
 class Data:
@@ -26,13 +22,16 @@ class Data:
 
 
 class VanderPol(object):
-    def __init__(self,
-                 S_train=30, T_train=6.0,
-                 S_test=None, T_test=None,
-                 noise_var=0.1,
-                 x0=np.array([[-1.5, 2.5]]),  # np.array([[-0.5, 2.5]]),
-                 mu=0.5,
-                 ):
+    def __init__(
+        self,
+        S_train=30,
+        T_train=6.0,
+        S_test=None,
+        T_test=None,
+        noise_var=0.1,
+        x0=np.array([[-1.5, 2.5]]),  # np.array([[-0.5, 2.5]]),
+        mu=0.5,
+    ):
         noise_rng = np.random.RandomState(121)
         init_rng = np.random.RandomState(123)
         S_test = S_test if S_test is not None else S_train
@@ -50,7 +49,7 @@ class VanderPol(object):
         xs_test, ts_test = self.generate_sequence(x0=self.x0, sequence_length=S_test, T=T_test)
         xs_new_x0, ts_new_x0 = self.generate_sequence(x0=self.new_x0, sequence_length=S_train, T=T_train)
 
-        xs_train = xs_train + noise_rng.normal(size=xs_train.shape) * (self.noise_var ** 0.5)
+        xs_train = xs_train + noise_rng.normal(size=xs_train.shape) * (self.noise_var**0.5)
 
         self.trn = Data(ys=xs_train, ts=ts_train)
         self.tst = Data(ys=xs_test, ts=ts_test)
@@ -71,13 +70,16 @@ class VanderPol(object):
 
 
 class VanderPolNonUniform(object):
-    def __init__(self,
-                 S_train=25, T_train=7.0,
-                 S_test=None, T_test=None,
-                 noise_var=0.1,
-                 x0=np.array([[-1.5, 2.5]]),
-                 mu=0.5,
-                 ):
+    def __init__(
+        self,
+        S_train=25,
+        T_train=7.0,
+        S_test=None,
+        T_test=None,
+        noise_var=0.1,
+        x0=np.array([[-1.5, 2.5]]),
+        mu=0.5,
+    ):
         noise_rng = np.random.RandomState(121)
         ts_rng = np.random.RandomState(122)
         S_test = S_test if S_test is not None else S_train
@@ -90,17 +92,13 @@ class VanderPolNonUniform(object):
         self.x0 = x0
         self.noise_var = noise_var
 
-        ts_train = self.generate_random_ts(sequence_length=S_train,
-                                           time_range=(0.0, T_train),
-                                           rng=ts_rng)
+        ts_train = self.generate_random_ts(sequence_length=S_train, time_range=(0.0, T_train), rng=ts_rng)
         ts_train[0] = 0.0
-        ts_test = self.generate_random_ts(sequence_length=S_test,
-                                          time_range=(T_train, T_test),
-                                          rng=ts_rng)
+        ts_test = self.generate_random_ts(sequence_length=S_test, time_range=(T_train, T_test), rng=ts_rng)
         xs_train = self.generate_sequence(x0=self.x0, ts=ts_train)
         xs_test = self.generate_sequence(x0=self.x0, ts=np.insert(ts_test, 0, 0))[:, 1:]
 
-        xs_train = xs_train + noise_rng.normal(size=xs_train.shape) * (self.noise_var ** 0.5)
+        xs_train = xs_train + noise_rng.normal(size=xs_train.shape) * (self.noise_var**0.5)
         self.trn = Data(ys=xs_train, ts=ts_train)
         self.tst = Data(ys=xs_test, ts=ts_test)
 
@@ -124,9 +122,9 @@ class VanderPolNonUniform(object):
 def plot_data_and_fhn():
     """Plot FHN integral curve and training data from experiments/fhn/data_gpode in the same diagram."""
     from pathlib import Path
-    from scipy.integrate import solve_ivp
 
     from ODEs import FHN_ode
+    from scipy.integrate import solve_ivp
 
     data_dir = Path("experiments/fhn/data_gpode")
 
@@ -141,8 +139,8 @@ def plot_data_and_fhn():
             obs_times = None
     else:
         npz = np.load(data_dir / "fhn_interpolation.npz")
-        obs_values = npz["test_ys"]   # (1, T, 2)
-        obs_times = npz["test_ts"]    # (T,)
+        obs_values = npz["test_ys"]  # (1, T, 2)
+        obs_times = npz["test_ts"]  # (T,)
 
     # Squeeze to (T, 2) for a single trajectory
     while obs_values.ndim > 2:
@@ -171,9 +169,10 @@ def plot_data_and_fhn():
     ax.set_aspect("equal", adjustable="box")
     plt.tight_layout()
     plt.savefig("experiments/fhn/data_gpode/fhn_integral_curve_and_training_data.pdf")
-    #plt.show()
+    # plt.show()
 
-#plot_data_and_fhn()
+
+# plot_data_and_fhn()
 
 
 if __name__ == "__main__":
@@ -186,45 +185,49 @@ if __name__ == "__main__":
     plt.show()
     """
 
-    vdp1_npz = np.load("experiments/vdp1/data_gpode/vdp1.npz")           # keys: train_ts, train_ys, test_ts, test_ys, obs_noise_var, x0, mu
+    vdp1_npz = np.load("experiments/vdp1/data_gpode/vdp1.npz")  # keys: train_ts, train_ys, test_ts, test_ys, obs_noise_var, x0, mu
     vdp2_npz = np.load("experiments/vdp2/data_gpode/vdp2.npz")
-    fhn_small_npz = np.load("experiments/fhn/data_gpode/fhn_interpolation_small.npz")   # keys: 'full_ys', 'full_ts', 'train_ts', 'train_ys', 'interpolation_ts', 'interpolation_ys', 'interpolation_mask', 'obs_noise_var', 'x0'
-    fhn_npz = np.load("experiments/fhn/data_gpode/fhn_interpolation.npz") # keys: 'full_ys', 'full_ts', 'train_ts', 'train_ys', 'interpolation_ts', 'interpolation_ys', 'interpolation_mask', 'obs_noise_var', 'x0'
+    fhn_small_npz = np.load(
+        "experiments/fhn/data_gpode/fhn_interpolation_small.npz"
+    )  # keys: 'full_ys', 'full_ts', 'train_ts', 'train_ys', 'interpolation_ts', 'interpolation_ys', 'interpolation_mask', 'obs_noise_var', 'x0'
+    fhn_npz = np.load(
+        "experiments/fhn/data_gpode/fhn_interpolation.npz"
+    )  # keys: 'full_ys', 'full_ts', 'train_ts', 'train_ys', 'interpolation_ts', 'interpolation_ys', 'interpolation_mask', 'obs_noise_var', 'x0'
 
-    #print(list(vdp1_npz.keys()))
-    #print(list(vdp2_npz.keys()))
-    #print(list(fhn_small_npz.keys()))
-    #print(list(fhn_npz.keys()))
+    # print(list(vdp1_npz.keys()))
+    # print(list(vdp2_npz.keys()))
+    # print(list(fhn_small_npz.keys()))
+    # print(list(fhn_npz.keys()))
 
-    #print(vdp1_npz['obs_noise_var'])    # 0.05
-    #print(vdp1_npz['x0'])               # array([[-1.5,  2.5]])
-    #print(vdp1_npz['mu'])               # 0.5
+    # print(vdp1_npz['obs_noise_var'])    # 0.05
+    # print(vdp1_npz['x0'])               # array([[-1.5,  2.5]])
+    # print(vdp1_npz['mu'])               # 0.5
 
     for task in ["vdp1", "vdp2"]:
         npz = np.load(f"experiments/{task}/data_gpode/{task}.npz")
-        
+
         # turn them into .h5 files
-        obs_times = npz['train_ts']        # (50,)
-        obs_values = npz['train_ys']        # (1,50,2)
-        obs_mask = np.ones_like(obs_times)       # (50,)
+        obs_times = npz["train_ts"]  # (50,)
+        obs_values = npz["train_ys"]  # (1,50,2)
+        obs_mask = np.ones_like(obs_times)  # (50,)
 
-        obs_times = obs_times.reshape(1,1,50,1)
-        obs_values = obs_values.reshape(1,1,50,2)
-        obs_mask = obs_mask.reshape(1,1,50,1)
+        obs_times = obs_times.reshape(1, 1, 50, 1)
+        obs_values = obs_values.reshape(1, 1, 50, 2)
+        obs_mask = obs_mask.reshape(1, 1, 50, 1)
 
-        #print(obs_times)
+        # print(obs_times)
 
-        with h5py.File(f"experiments/{task}/data_gpode/obs_times.h5", 'w') as hf:
+        with h5py.File(f"experiments/{task}/data_gpode/obs_times.h5", "w") as hf:
             hf.create_dataset("data", data=obs_times)
-        with h5py.File(f"experiments/{task}/data_gpode/obs_values.h5", 'w') as hf:
+        with h5py.File(f"experiments/{task}/data_gpode/obs_values.h5", "w") as hf:
             hf.create_dataset("data", data=obs_values)
-        with h5py.File(f"experiments/{task}/data_gpode/obs_mask.h5", 'w') as hf:
+        with h5py.File(f"experiments/{task}/data_gpode/obs_mask.h5", "w") as hf:
             hf.create_dataset("data", data=obs_mask)
-        
+
         """ Lastly, must generate locations.h5 because the model always needs locations, even if unused. """
-        with h5py.File(f"experiments/{task}/data_gpode/locations.h5", 'w') as hf:
-            hf.create_dataset("data", data=np.ndarray((1,1,1)))   # we need at least one location
-        
+        with h5py.File(f"experiments/{task}/data_gpode/locations.h5", "w") as hf:
+            hf.create_dataset("data", data=np.ndarray((1, 1, 1)))  # we need at least one location
+
         """
         xs, ts = vdp1_npz['test_ys'], vdp1_npz['test_ts']
         print(xs.shape, ts.shape)   # (50,2) (50,)
@@ -232,7 +235,7 @@ if __name__ == "__main__":
         plt.legend()
         plt.show()
         """
-    
+
     # print()
     # print(fhn_small_npz["full_ts"].shape)        # (25,)
     # print(fhn_small_npz["full_ys"].shape)        # (1,25,2)
@@ -255,58 +258,59 @@ if __name__ == "__main__":
     # print(fhn_npz["obs_noise_var"])                # 0.025
     # print(fhn_npz["x0"])                           # [-1. -1.]
 
-
     print()
     print("OBS")
-    npz = np.load(f"experiments/fhn/data_gpode/fhn_interpolation_small.npz")
+    npz = np.load("experiments/fhn/data_gpode/fhn_interpolation_small.npz")
     obs_ys = npz["full_ys"]
     print(obs_ys.shape)
-    mask = (obs_ys[..., 0] >= 0) & (obs_ys[..., 1] <= 0)   # shape (1, 25)
+    mask = (obs_ys[..., 0] >= 0) & (obs_ys[..., 1] <= 0)  # shape (1, 25)
     print(mask.shape)
-    obs_ys = obs_ys[~mask].reshape(1,1,20,2)
+    obs_ys = obs_ys[~mask].reshape(1, 1, 20, 2)
     print(obs_ys.shape)
-    #print(obs_ys)
+    # print(obs_ys)
 
-    obs_ts = npz["full_ts"][~mask[0,:]].reshape(1,1,20,1)
+    obs_ts = npz["full_ts"][~mask[0, :]].reshape(1, 1, 20, 1)
     print(obs_ts.shape)
-    #print(obs_ts)
+    # print(obs_ts)
 
     obs_mask = np.ones_like(obs_ys)
     print(obs_mask.shape)
 
     print()
     print("TEST")
-    test_ys = npz["interpolation_ys"][:,1:].reshape(1,1,5,2)      # I am throwing out the first point because it's the same as the last point of the observations!! Not sure if I should do this...
+    test_ys = npz["interpolation_ys"][:, 1:].reshape(
+        1, 1, 5, 2
+    )  # I am throwing out the first point because it's the same as the last point of the observations!! Not sure if I should do this...
     print(test_ys.shape)
-    test_ts = npz["interpolation_ts"][1:].reshape(1,1,5,1)
+    test_ts = npz["interpolation_ts"][1:].reshape(1, 1, 5, 1)
     print(test_ts.shape)
     test_mask = np.ones_like(test_ys)
     print(test_mask.shape)
 
     print()
 
-    with h5py.File(f"experiments/fhn/data_gpode/obs_times.h5", 'w') as hf:
+    with h5py.File("experiments/fhn/data_gpode/obs_times.h5", "w") as hf:
         hf.create_dataset("data", data=obs_ts)
-    with h5py.File(f"experiments/fhn/data_gpode/obs_values.h5", 'w') as hf:
+    with h5py.File("experiments/fhn/data_gpode/obs_values.h5", "w") as hf:
         hf.create_dataset("data", data=obs_ys)
-    with h5py.File(f"experiments/fhn/data_gpode/obs_mask.h5", 'w') as hf:
+    with h5py.File("experiments/fhn/data_gpode/obs_mask.h5", "w") as hf:
         hf.create_dataset("data", data=obs_mask)
-    
-    with h5py.File(f"experiments/fhn/data_gpode/test_times.h5", 'w') as hf:
+
+    with h5py.File("experiments/fhn/data_gpode/test_times.h5", "w") as hf:
         hf.create_dataset("data", data=test_ts)
-    with h5py.File(f"experiments/fhn/data_gpode/test_values.h5", 'w') as hf:
+    with h5py.File("experiments/fhn/data_gpode/test_values.h5", "w") as hf:
         hf.create_dataset("data", data=test_ys)
-    with h5py.File(f"experiments/fhn/data_gpode/test_mask.h5", 'w') as hf:
+    with h5py.File("experiments/fhn/data_gpode/test_mask.h5", "w") as hf:
         hf.create_dataset("data", data=test_mask)
-    
+
     # Lastly, must generate locations.h5 because the model always needs locations, even if unused.
-    with h5py.File(f"experiments/fhn/data_gpode/locations.h5", 'w') as hf:
-        hf.create_dataset("data", data=np.ndarray((1,1,1)))   # we need at least one location
+    with h5py.File("experiments/fhn/data_gpode/locations.h5", "w") as hf:
+        hf.create_dataset("data", data=np.ndarray((1, 1, 1)))  # we need at least one location
 
     """
     # generate .h5 files for fhn_interpolation_small (which was used in GP-ODE)
     npz = np.load(f"experiments/fhn/data_gpode/fhn_interpolation_small.npz")
-        
+
     print(npz["interpolation_mask"])
     print(npz["interpolation_mask"].shape)
 
@@ -325,7 +329,7 @@ if __name__ == "__main__":
         hf.create_dataset("data", data=obs_values)
     with h5py.File(f"experiments/fhn/data_gpode/obs_mask.h5", 'w') as hf:
         hf.create_dataset("data", data=obs_mask)
-    
+
     test_times = npz['interpolation_ts']        # (6,)
     test_values = npz['interpolation_ys']        # (1,6,2)
     #print(test_values)
@@ -346,8 +350,8 @@ if __name__ == "__main__":
         hf.create_dataset("data", data=test_values)
     with h5py.File(f"experiments/fhn/data_gpode/test_mask.h5", 'w') as hf:
         hf.create_dataset("data", data=test_mask)
-    
-    
+
+
     # Lastly, must generate locations.h5 because the model always needs locations, even if unused.
     with h5py.File(f"experiments/fhn/data_gpode/locations.h5", 'w') as hf:
         hf.create_dataset("data", data=np.ndarray((1,1,1)))   # we need at least one location

@@ -3,7 +3,7 @@ import pickle
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Literal, Dict, Callable, Final, Tuple
+from typing import Callable, Dict, Final, List, Literal, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,11 +13,12 @@ from matplotlib import gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
 from matplotlib.patches import FancyBboxPatch
-
-from fim.models.ode_trainer import DataCorruptionModel, FIMODETrainingConfig as TrainingConfig
-from utils.eval_models import OdeonEval, OdeFormerEval, PredictionModel
 from odebench.stat_calculator import R2VarianceWeighterStatCalculator
+from utils.eval_models import OdeFormerEval, OdeonEval, PredictionModel
+
 from fim.data_generation.sde.lipschitz_systems import solve_ivp_one_step_method_with_delta_times
+from fim.models.ode_trainer import DataCorruptionModel
+from fim.models.ode_trainer import FIMODETrainingConfig as TrainingConfig
 
 
 @dataclass(kw_only=True)
@@ -52,7 +53,8 @@ class OdeData:
 
 
 class OdeBench:
-    """ Used to evaluate both FIMOdeon and ODEFormer on the ODEBench dataset """
+    """Used to evaluate both FIMOdeon and ODEFormer on the ODEBench dataset"""
+
     MAX_POINTS_ODE_BENCH: Final[int] = 200
 
     def __init__(self, data_path: Path, results_base_path: Optional[Path] = None, device: str = "cuda"):
@@ -85,7 +87,7 @@ class OdeBench:
     def get_ode_bench_trajectories(self, max_dim: int = 3) -> List[OdeData]:
         device = self.device
 
-        with open(self.data_path / 'strogatz_extended.json', 'r') as file:
+        with open(self.data_path / "strogatz_extended.json", "r") as file:
             data_list = json.load(file)
 
         data: List[OdeData] = []
@@ -105,16 +107,16 @@ class OdeBench:
                 constants = sol["consts"]
                 metadata["constants"] = constants
 
-                traj = torch.tensor(sol["y"]).T.unsqueeze(0)                    # (T,D) -> (1,T,D)
-                time = torch.tensor(sol["t"]).unsqueeze(dim=-1).unsqueeze(0)    # (T,)  -> (1,T,1)
+                traj = torch.tensor(sol["y"]).T.unsqueeze(0)  # (T,D) -> (1,T,D)
+                time = torch.tensor(sol["t"]).unsqueeze(dim=-1).unsqueeze(0)  # (T,)  -> (1,T,1)
 
-                idxs = torch.linspace(0, time.shape[1] - 1, self.MAX_POINTS_ODE_BENCH).long()   # time.shape[1] is always 512, more than MAX_POINTS_ODE_BENCH
-                traj = traj[:, idxs, :].to(device)                                              # (1,T,D) -> (1,MAX_POINTS_ODE_BENCH,D)
-                time = time[:, idxs, :].to(device)                                              # (1,T,1) -> (1,MAX_POINTS_ODE_BENCH,1)
+                idxs = torch.linspace(
+                    0, time.shape[1] - 1, self.MAX_POINTS_ODE_BENCH
+                ).long()  # time.shape[1] is always 512, more than MAX_POINTS_ODE_BENCH
+                traj = traj[:, idxs, :].to(device)  # (1,T,D) -> (1,MAX_POINTS_ODE_BENCH,D)
+                time = time[:, idxs, :].to(device)  # (1,T,1) -> (1,MAX_POINTS_ODE_BENCH,1)
 
-                d = OdeData(truth=OdeData.Data(trajectories=traj, times=time),
-                            name=item["eq_description"],
-                            metadata=metadata)
+                d = OdeData(truth=OdeData.Data(trajectories=traj, times=time), name=item["eq_description"], metadata=metadata)
 
                 data.append(d)
 
@@ -137,14 +139,13 @@ class OdeBench:
     def provide_data(self, config: OdeBenchConfig) -> Dict[int, Dict[str, torch.Tensor | List[str]]]:
         data = self.get_ode_bench_trajectories(config.max_dim)
 
-        ode_per_dim = {i: {"tr": [], "tr_corrupted": [], "ti": [], "na": [], "mask": None} for i in
-                       range(1, config.max_dim + 1)}
+        ode_per_dim = {i: {"tr": [], "tr_corrupted": [], "ti": [], "na": [], "mask": None} for i in range(1, config.max_dim + 1)}
 
         for item in data:
             dim_data = ode_per_dim.get(item.metadata["dim"])
             tr_dim = dim_data["tr"]
             ti_dim = dim_data["ti"]
-            na_dim = dim_data["na"] # list of equation names/descriptions
+            na_dim = dim_data["na"]  # list of equation names/descriptions
 
             tr = item.truth.trajectories
             ti = item.truth.times
@@ -165,7 +166,9 @@ class OdeBench:
             ode_data["mask"] = corrupted_data.mask
 
             ode_data["ti"] = torch.cat(ode_data["ti"], dim=0).unsqueeze(dim=1)
-            ode_data["na"] = [n if len(n) <= 35 else n[:35] + '...' for n in ode_data["na"]]    # truncates equation names/descriptions to 35 characters for display
+            ode_data["na"] = [
+                n if len(n) <= 35 else n[:35] + "..." for n in ode_data["na"]
+            ]  # truncates equation names/descriptions to 35 characters for display
 
         return ode_per_dim
 
@@ -190,9 +193,9 @@ class OdeBench:
 
         raise ValueError(f"Unknown model type: {config.model_type}. Supported types are 'fimodeon' and 'odeformer'.")
 
-    def create_f(self, config: OdeBenchConfig, trajs: torch.Tensor, times: torch.Tensor, mask: torch.Tensor,
-                 names: List[str],
-                 model: PredictionModel) -> Callable:
+    def create_f(
+        self, config: OdeBenchConfig, trajs: torch.Tensor, times: torch.Tensor, mask: torch.Tensor, names: List[str], model: PredictionModel
+    ) -> Callable:
         """
         predicts the vector field from the observed trajectory
         """
@@ -213,14 +216,16 @@ class OdeBench:
 
             for i, (name, eq) in enumerate(zip(names, model.symbolic_predictions)):
                 ax = fig.add_subplot(gs[i])
-                ax.axis('off')  # hide axes
-                ax.text(0, 1, f"{name}\n{eq}", fontsize=11, va='top')
+                ax.axis("off")  # hide axes
+                ax.text(0, 1, f"{name}\n{eq}", fontsize=11, va="top")
 
             return model.system
 
         raise ValueError(f"Unknown model type: {config.model_type}")
 
-    def do_test(self, ode_per_dim: Dict[int, torch.Tensor | str], model: PredictionModel, config: OdeBenchConfig) -> Dict[int, Dict[str, torch.Tensor | List[str]]]:
+    def do_test(
+        self, ode_per_dim: Dict[int, torch.Tensor | str], model: PredictionModel, config: OdeBenchConfig
+    ) -> Dict[int, Dict[str, torch.Tensor | List[str]]]:
         res = {}
 
         for dim in range(1, config.max_dim + 1):
@@ -231,7 +236,6 @@ class OdeBench:
             mask = data_dim["mask"]
             times = data_dim["ti"]
             names = data_dim["na"]
-
 
             if config.test_type == "generalization":
                 corrupted_traj = corrupted_traj.view(-1, 2, *corrupted_traj.shape[1:]).flip(dims=[1]).flatten(0, 1)
@@ -257,23 +261,23 @@ class OdeBench:
             times = times.squeeze(dim=1)
             self.plot_trajectories(ys, trajs, ts, corrupted_traj, mask, times, names)
 
-            res[dim] = {
-                "tr": trajs.cpu(),
-                "ys": ys.cpu(),
-                "ts": ts.cpu(),
-                "mask": mask.cpu(),
-                "times": times.cpu(),
-                "names": names
-            }
+            res[dim] = {"tr": trajs.cpu(), "ys": ys.cpu(), "ts": ts.cpu(), "mask": mask.cpu(), "times": times.cpu(), "names": names}
 
         return res
 
     def r2_score(self, y_true: torch.Tensor, y_pred: torch.Tensor, variance_weighted: bool = True) -> torch.Tensor:
         return self.r2_calculator.r2_score(y_true, y_pred, variance_weighted)
 
-    def plot_trajectories(self, pred_traj: torch.Tensor, truth_traj: torch.Tensor, pred_times: torch.Tensor,
-                          input_traj: torch.Tensor, input_mask: torch.Tensor, input_times: torch.Tensor,
-                          names: List[str]):
+    def plot_trajectories(
+        self,
+        pred_traj: torch.Tensor,
+        truth_traj: torch.Tensor,
+        pred_times: torch.Tensor,
+        input_traj: torch.Tensor,
+        input_mask: torch.Tensor,
+        input_times: torch.Tensor,
+        names: List[str],
+    ):
         """
         creates a visualization comparing predicted vs. ground truth trajectories for multiple ODE systems
         """
@@ -305,15 +309,21 @@ class OdeBench:
 
             for dim in range(truth_tr.shape[1]):
                 ax.scatter(input_ts_masked[:, 0], input_tr[:, dim], alpha=0.2, color=self.palette[dim])
-                ax.plot(input_ts[:, 0], truth_tr[:, dim], linewidth=13, alpha=0.15, color=self.palette[dim],)
+                ax.plot(
+                    input_ts[:, 0],
+                    truth_tr[:, dim],
+                    linewidth=13,
+                    alpha=0.15,
+                    color=self.palette[dim],
+                )
 
-                ax.plot(pred_ts, pred_tr[:, dim], linewidth=6, alpha=0.4,  color="white")
-                ax.plot(pred_ts, pred_tr[:, dim], linewidth=3, alpha=0.9, label=f"Prediction $R^2$: {r2[dim]:.2f}", color= self.palette[dim])
+                ax.plot(pred_ts, pred_tr[:, dim], linewidth=6, alpha=0.4, color="white")
+                ax.plot(pred_ts, pred_tr[:, dim], linewidth=3, alpha=0.9, label=f"Prediction $R^2$: {r2[dim]:.2f}", color=self.palette[dim])
 
             ax.set_title(names[i])
             ax.legend()
-            ax.tick_params(axis='y', which='both', left=False, labelleft=False)
-            ax.set_xlabel('Time $t$')
+            ax.tick_params(axis="y", which="both", left=False, labelleft=False)
+            ax.set_xlabel("Time $t$")
 
         # Remove unused subplots
         for j in range(num_plots, len(axes)):
@@ -322,16 +332,15 @@ class OdeBench:
         plt.tight_layout()
         return fig
 
-
     def plot_r2_distribution(self, r2s: List[float], prefix: str = ""):
         """
         creates a histogram of R2 scores for a provided list of scores
         """
-        
+
         fig, ax = plt.subplots(1, 1, figsize=(15, 10))
 
         data = np.array(r2s)
-        data = np.nan_to_num(data, nan=-1000., neginf=-1000.)
+        data = np.nan_to_num(data, nan=-1000.0, neginf=-1000.0)
         limit = 0
         bin_width = (1 - limit) / 25
         mask = data > limit
@@ -339,16 +348,16 @@ class OdeBench:
         percent_show = np.round(np.sum(mask) / len(data), 4) * 100
 
         bins = np.arange(limit, 1 + bin_width, bin_width)
-        counts, bins, patches = ax.hist(filtered_data, bins=bins, edgecolor='black')
+        counts, bins, patches = ax.hist(filtered_data, bins=bins, edgecolor="black")
 
-        ax.bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                     padding=3, fontsize=10)
+        ax.bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
 
         ax.set_title(
-            f'{prefix}, $R^2$ Scores (Variance Weighted)\n'
-            f'{percent_show:.2f}\\% of $R^2$ values are shown, {100 - percent_show:.2f}\\% are smaller than {limit:.1f}')
-        ax.set_xlabel('$R^2$ Score')
-        ax.set_ylabel('Frequency')
+            f"{prefix}, $R^2$ Scores (Variance Weighted)\n"
+            f"{percent_show:.2f}\\% of $R^2$ values are shown, {100 - percent_show:.2f}\\% are smaller than {limit:.1f}"
+        )
+        ax.set_xlabel("$R^2$ Score")
+        ax.set_ylabel("Frequency")
         ax.set_xlim(0, 1.1)
 
         plt.tight_layout()
@@ -407,7 +416,7 @@ class OdeBench:
             "noise_level": config.noise_level,
             "test_type": config.test_type,
             "timestamp": datetime.now().isoformat(),
-            "device": str(self.device)
+            "device": str(self.device),
         }
 
         with open(result_folder / "config.json", "w") as f:
@@ -432,11 +441,17 @@ class OdeBench:
             fig_nums = plt.get_fignums()
             figs = [plt.figure(n) for n in fig_nums]
             for fig in figs:
-                fig.savefig(pdf, format='pdf')
+                fig.savefig(pdf, format="pdf")
                 plt.close(fig)
 
-    def plot_r2_accuracy(self, all_r2_stats: Dict, r2_threshold: float = 0.9, test_type: str = "reconstruction",
-            model_order: Optional[List[str]] = None, model_names: Optional[Dict[str, str]] = {}):
+    def plot_r2_accuracy(
+        self,
+        all_r2_stats: Dict,
+        r2_threshold: float = 0.9,
+        test_type: str = "reconstruction",
+        model_order: Optional[List[str]] = None,
+        model_names: Optional[Dict[str, str]] = {},
+    ):
         # I think this is for figures 6.8 and 6.9 in Max's thesis
 
         # 1. Dynamically discover models, subsample rates, and noise levels from the data
@@ -458,8 +473,8 @@ class OdeBench:
             for rate in model_data:
                 noises_found.update(model_data[rate].keys())
 
-        plot_subsample_rates = sorted(list(subsample_rates_found))
-        all_noises = sorted(list(noises_found))
+        plot_subsample_rates = sorted(subsample_rates_found)
+        all_noises = sorted(noises_found)
 
         if not plot_subsample_rates or not all_noises:
             print("No subsample rates or noise levels found in the data for the selected models. Skipping plot.")
@@ -477,8 +492,8 @@ class OdeBench:
 
         # 3. Define Plot Elements
         # Use the user-specified list of potential markers
-        potential_markers = ['|', '1', '2', '3', '4', '+', 'x', 'd']
-        markers = potential_markers[:len(all_noises)]
+        potential_markers = ["|", "1", "2", "3", "4", "+", "x", "d"]
+        markers = potential_markers[: len(all_noises)]
         colors = plt.cm.magma(np.linspace(0.15, 0.95, len(all_noises)))
 
         marker_map = dict(zip(all_noises, markers))
@@ -492,14 +507,19 @@ class OdeBench:
         gs_main = gridspec.GridSpec(2, 1, height_ratios=[1.5, 10], hspace=0.01, figure=fig)
         gs_plots = gridspec.GridSpecFromSubplotSpec(1, n_cols, subplot_spec=gs_main[1], wspace=0.1)
 
-        axes = [fig.add_subplot(gs_plots[0, i], ) for i in range(n_cols)]
+        axes = [
+            fig.add_subplot(
+                gs_plots[0, i],
+            )
+            for i in range(n_cols)
+        ]
         legend_ax = fig.add_subplot(gs_main[0])
 
         # Share y-axis and hide labels/ticks for all but the first plot
         for ax in axes[1:]:
             ax.sharey(axes[0])
             # Hide the y-axis ticks (the lines) and their labels for a cleaner look
-            ax.tick_params(axis='y', left=False, labelleft=False)
+            ax.tick_params(axis="y", left=False, labelleft=False)
 
         # 5. Populate the Subplots
         y_positions = np.arange(len(all_models))
@@ -511,42 +531,52 @@ class OdeBench:
 
             # Create and add the new rounded border
             p_fancy = FancyBboxPatch(
-                (0, 0), 1, 1,  # (x, y) position, width, height
+                (0, 0),
+                1,
+                1,  # (x, y) position, width, height
                 boxstyle="round,pad=0.0,rounding_size=0.015",
                 transform=ax.transAxes,  # Use axes coordinates
-                facecolor='none',
-                edgecolor='black',
+                facecolor="none",
+                edgecolor="black",
                 linewidth=1,
                 clip_on=False,  # Allow drawing outside the axes area
-                zorder=0.9  # Draw behind grid lines but on top of background
+                zorder=0.9,  # Draw behind grid lines but on top of background
             )
             ax.add_patch(p_fancy)
-
 
             for y_pos, model_id in zip(y_positions, all_models):
                 for noise in all_noises:
                     acc = plot_data[model_id][p_rate][noise]
                     if not np.isnan(acc):
-                        ax.plot(acc, y_pos,
-                                marker=marker_map.get(noise, 'o'),
-                                color=color_map.get(noise, 'black'),
-                                markersize=25,
-                                markeredgewidth=3,
-                                linestyle='None')
+                        ax.plot(
+                            acc,
+                            y_pos,
+                            marker=marker_map.get(noise, "o"),
+                            color=color_map.get(noise, "black"),
+                            markersize=25,
+                            markeredgewidth=3,
+                            linestyle="None",
+                        )
 
-            text_label = fr"$\boldsymbol{{\rho = {p_rate}}}$"
+            text_label = rf"$\boldsymbol{{\rho = {p_rate}}}$"
 
-            ax.text(0.06, 0.95, text_label, transform=ax.transAxes, fontsize=20,
-                    fontweight='bold',  # Makes non-math text bold
-                    verticalalignment='top', horizontalalignment='left',
-                    bbox=dict(facecolor='white', edgecolor='white', boxstyle='round,pad=0.0'))
+            ax.text(
+                0.06,
+                0.95,
+                text_label,
+                transform=ax.transAxes,
+                fontsize=20,
+                fontweight="bold",  # Makes non-math text bold
+                verticalalignment="top",
+                horizontalalignment="left",
+                bbox={"facecolor": "white", "edgecolor": "white", "boxstyle": "round,pad=0.0"},
+            )
 
-            
             ax.set_xlabel(f"\\% Accuracy ($R^2 > {r2_threshold}$)", fontsize=18, labelpad=12)
             ax.set_xlim(-5, 105)
             ax.set_xticks(np.arange(0, 101, 20))
-            ax.grid(True, which='both', linestyle='-', linewidth=0.5)
-            ax.tick_params(axis='both', which='major', labelsize=16)
+            ax.grid(True, which="both", linestyle="-", linewidth=0.5)
+            ax.tick_params(axis="both", which="major", labelsize=16)
 
         # Configure y-axis on the leftmost plot
         axes[0].set_yticks(y_positions)
@@ -560,15 +590,25 @@ class OdeBench:
         margin = 1  # Adjust this value to increase/decrease margin
         axes[0].set_ylim(-margin, len(all_models) - 1 + margin)
 
-
         # 6. Create the Legend
-        legend_ax.axis('off')
-        legend_handles = [Line2D([0], [0], marker=marker_map.get(n, 'o'), color=color_map.get(n),
-                                 label=f'$\\sigma={n}$', linestyle='None', markersize=20,
-                                 markeredgewidth=3) for n in all_noises]
+        legend_ax.axis("off")
+        legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                marker=marker_map.get(n, "o"),
+                color=color_map.get(n),
+                label=f"$\\sigma={n}$",
+                linestyle="None",
+                markersize=20,
+                markeredgewidth=3,
+            )
+            for n in all_noises
+        ]
 
-        legend_ax.legend(handles=legend_handles, ncol=len(all_noises), loc='center', frameon=False,
-                         fontsize=18, handletextpad=0.1, columnspacing=1.5)
+        legend_ax.legend(
+            handles=legend_handles, ncol=len(all_noises), loc="center", frameon=False, fontsize=18, handletextpad=0.1, columnspacing=1.5
+        )
 
         # fig.suptitle(f"Testmode: {test_type.capitalize()}", fontsize=16)
 
@@ -616,24 +656,23 @@ class OdeBench:
                 pickle.dump(results, f)
 
             self.save_figures_to_folder(result_folder, "trajectories")
-            plt.close('all')
+            plt.close("all")
 
             r2s = self.plot_r2_dist(results)
             self.add_r2s(all_r2_stats, config, r2s)
 
             self.save_figures_to_folder(result_folder, "r2_distributions")
-            plt.close('all')
+            plt.close("all")
 
             with open(result_folder / "r2.json", "w") as f:
                 json.dump(r2s, f, indent=4)
-            
+
             # Clear GPU memory before next config -- not sure if this is right...
             del ode_per_dim, model, results, r2s
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             print(f"Completed config: {benchmark_name}, cleared GPU cache")
             print()
-
 
         # Create accuracy comparison plots and save to batch folder
         for test_type in ["reconstruction", "generalization"]:
@@ -642,7 +681,7 @@ class OdeBench:
 
         if plt.get_fignums():
             self.save_figures_to_folder(batch_folder, "accuracy_comparison")
-            plt.close('all')
+            plt.close("all")
 
         # Save aggregated R2 statistics
         with open(batch_folder / "all_r2_stats.json", "w") as f:
@@ -702,6 +741,7 @@ def CLI_entry_point():
     print("sdfjk")
 
     import argparse
+
     parser = argparse.ArgumentParser(description="Run ODEBench")
     parser.add_argument("model_path", type=Path, help="Relative path to the model checkpoints inside the results folder.")
     parser.add_argument("--epoch", type=int, default=None, help="Epoch of the model to evaluate.")
@@ -719,7 +759,7 @@ def CLI_entry_point():
     # really it should now also print a summary of the benchmark results...
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """
     To evaluate FIMOdeon and ODEFormer on the ODEBench dataset, we need:
     - strogatz_extended.json in your data directory
@@ -731,68 +771,66 @@ if __name__ == '__main__':
 
     quit()
 
-    # For OdeFormer
-    config = OdeBenchConfig(
-        model_type="odeformer",
-        max_dim=3,
-        test_type="reconstruction",
-        noise_level=0.0,
-        subsample_rate=0.5
-    )
-
-    benchmark_runner.run([config])
-
-    quit()
-
-    p1 = Path("/home/teddev/Downloads/odebench_odeformer-vs-big/odeformer/all_r2_stats.json")
-    p2 = Path("/home/teddev/Downloads/odebench_odeformer-vs-big/big/all_r2_stats.json")
-
-    plt.rcParams['font.family'] = 'TeX Gyre Pagella'
-    plt.rcParams.update({
-        "text.usetex": True,
-        "text.latex.preamble": r"\usepackage{amsmath}",
-    })
-
-    benchmark_runner = OdeBench(Path("scripts/fimodeon_scripts/exploration_new"))
-
-    with open(p1, "r") as f:
-        of_all_r2_stats = json.load(f)
-    with open(p2, "r") as f:
-        big_all_r2_stats = json.load(f)
-
-    all_r2_stats = {**of_all_r2_stats, **big_all_r2_stats}
-
-    names = {"odeformer": "ODEFormer", "big_model_l1_600k_examples_07-29-1659_ckpt-200": "FIM"}
-
-    benchmark_runner.plot_r2_accuracy(all_r2_stats, r2_threshold=0.8, test_type="generalization", model_names=names)
-
-    # plt.show()
-    plt.savefig("odebench_generalization_08_threshold.pdf")
-
-
-    quit()
-
-    benchmark_runner = OdeBench(Path(
-        # "/lustre/mlnvme/data/s78mmaue_hpc-demo2/fim_training/FIM2/scripts/fimodeon_scripts/exploration_new"
-        "/home/teddev/PycharmProjects/FIM/scripts/fimodeon_scripts/exploration_new"
-    ))
-
-    benchmark_runner.run_for_odeformer_model()
-    quit()
-
-    models = [
-        ("new_data_hub_5kpoints_05-17-1706", 55)
-    ]
-
-    benchmark_runner.run_for_odeon_model(Path(
-        # f"/lustre/mlnvme/data/s78mmaue_hpc-demo2/fim_training/FIM2/results"
-        "/home/teddev/PycharmProjects/FIM/scripts/results"
-    ), models)
-
-    # config = OdeBenchConfig(
-    #     model_type="odeformer",
-    #     max_dim=3,
-    #     test_type="reconstruction",
-    # )
+    # # For OdeFormer
+    # config = OdeBenchConfig(model_type="odeformer", max_dim=3, test_type="reconstruction", noise_level=0.0, subsample_rate=0.5)
     #
     # benchmark_runner.run([config])
+    #
+    # quit()
+    #
+    # p1 = Path("/home/teddev/Downloads/odebench_odeformer-vs-big/odeformer/all_r2_stats.json")
+    # p2 = Path("/home/teddev/Downloads/odebench_odeformer-vs-big/big/all_r2_stats.json")
+    #
+    # plt.rcParams["font.family"] = "TeX Gyre Pagella"
+    # plt.rcParams.update(
+    #     {
+    #         "text.usetex": True,
+    #         "text.latex.preamble": r"\usepackage{amsmath}",
+    #     }
+    # )
+    #
+    # benchmark_runner = OdeBench(Path("scripts/fimodeon_scripts/exploration_new"))
+    #
+    # with open(p1, "r") as f:
+    #     of_all_r2_stats = json.load(f)
+    # with open(p2, "r") as f:
+    #     big_all_r2_stats = json.load(f)
+    #
+    # all_r2_stats = {**of_all_r2_stats, **big_all_r2_stats}
+    #
+    # names = {"odeformer": "ODEFormer", "big_model_l1_600k_examples_07-29-1659_ckpt-200": "FIM"}
+    #
+    # benchmark_runner.plot_r2_accuracy(all_r2_stats, r2_threshold=0.8, test_type="generalization", model_names=names)
+    #
+    # # plt.show()
+    # plt.savefig("odebench_generalization_08_threshold.pdf")
+    #
+    # quit()
+    #
+    # benchmark_runner = OdeBench(
+    #     Path(
+    #         # "/lustre/mlnvme/data/s78mmaue_hpc-demo2/fim_training/FIM2/scripts/fimodeon_scripts/exploration_new"
+    #         "/home/teddev/PycharmProjects/FIM/scripts/fimodeon_scripts/exploration_new"
+    #     )
+    # )
+    #
+    # benchmark_runner.run_for_odeformer_model()
+    # quit()
+    #
+    # models = [("new_data_hub_5kpoints_05-17-1706", 55)]
+    #
+    # benchmark_runner.run_for_odeon_model(
+    #     Path(
+    #         # f"/lustre/mlnvme/data/s78mmaue_hpc-demo2/fim_training/FIM2/results"
+    #         "/home/teddev/PycharmProjects/FIM/scripts/results"
+    #     ),
+    #     models,
+    # )
+    #
+    # # config = OdeBenchConfig(
+    # #     model_type="odeformer",
+    # #     max_dim=3,
+    # #     test_type="reconstruction",
+    # # )
+    # #
+    # # benchmark_runner.run([config])

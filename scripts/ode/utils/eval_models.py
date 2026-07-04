@@ -3,12 +3,13 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Optional, OrderedDict, Tuple, List
+from typing import List, Optional, OrderedDict, Tuple
 
-import numpy as np
 import sympy as sp
 import torch
 from jedi.inference.gradual.typing import Callable
+
+
 try:
     from odeformer.model import SymbolicTransformerRegressor
 except ImportError:
@@ -32,7 +33,7 @@ class PredictionModel:
         pass
 
     def system(self, location: torch.Tensor) -> torch.Tensor:
-        """ Evaluates the predicted vector field (based on the context trajectories) at the given locations. """
+        """Evaluates the predicted vector field (based on the context trajectories) at the given locations."""
         pass
 
     def is_fitted(self) -> bool:
@@ -43,7 +44,7 @@ class PredictionModel:
 
 
 class OdeonEval(PredictionModel):
-    """ This class actually loads model checkpoint and can predict vector field at arbitrary locations, over and over again. """
+    """This class actually loads model checkpoint and can predict vector field at arbitrary locations, over and over again."""
 
     model: FIMODE
 
@@ -51,7 +52,7 @@ class OdeonEval(PredictionModel):
     epoch: int
 
     def __init__(self, path_to_checkpoints_dir: Path, epoch: Optional[int] = None):
-        """ Loads the checkpoint etc. """
+        """Loads the checkpoint etc."""
 
         config = load_yaml(path_to_checkpoints_dir / ".." / "train_parameters.yaml")
         self._model_path = path_to_checkpoints_dir
@@ -72,10 +73,9 @@ class OdeonEval(PredictionModel):
         if safetensors_path.exists():
             weights = load_file(path / "model.safetensors")
         elif pth_path.exists():
-            weights = torch.load(pth_path, map_location=torch.device('cpu'))
+            weights = torch.load(pth_path, map_location=torch.device("cpu"))
         else:
-            raise FileNotFoundError(
-                f"Model weights not found in {path}. Expected 'model.safetensors' or 'model-checkpoint.pth'.")
+            raise FileNotFoundError(f"Model weights not found in {path}. Expected 'model.safetensors' or 'model-checkpoint.pth'.")
 
         class_training_wrapper = ModelFactory.model_types[model_type]
         training_wrapper = class_training_wrapper(config)
@@ -99,13 +99,13 @@ class OdeonEval(PredictionModel):
         print(self.title)
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        #device = torch.device("cpu")
+        # device = torch.device("cpu")
         self.device = device
         self.model.to(device)
         self.u_model.to(device)
 
     def map_old_to_new_state_dict(self, weights):
-        """ I guess this is backward compatibility function for loading old model checkpoints. """
+        """I guess this is backward compatibility function for loading old model checkpoints."""
 
         def map_old_to_new_keys(old_key):
             key = old_key.replace("context_encoder.layers", "trajectory_encoder.context_encoder.layers")
@@ -127,14 +127,13 @@ class OdeonEval(PredictionModel):
 
     @torch.no_grad()
     def fit(self, traj: torch.Tensor, times: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        self.traj = traj    # (b,t,n,d)
+        self.traj = traj  # (b,t,n,d)
         self.times = times
-        self.mask = mask if mask is not None else torch.ones_like(self.traj[..., :1], dtype=torch.bool,
-                                                                  device=traj.device)
+        self.mask = mask if mask is not None else torch.ones_like(self.traj[..., :1], dtype=torch.bool, device=traj.device)
 
         # cache the trajectory encoding: this requires changes to system() too...
         # self.traj_encoding = self.model.trajectory_encoding(self.traj, self.times, self.mask)
-        
+
         return torch.arange(0, traj.shape[0], dtype=torch.long, device=traj.device)
 
     @torch.no_grad()
@@ -142,16 +141,16 @@ class OdeonEval(PredictionModel):
         # out = self.model.forward(self.traj, self.times, location, self.mask, torch.ones((1, 1, 3), dtype=torch.bool))
         out = self.model.forward(self.traj, self.times, location, self.mask)
         res = self.model.get_prediction_for_eval(out)
-        res = res[..., :location.shape[-1]]
+        res = res[..., : location.shape[-1]]
         return res.detach()
 
     @torch.no_grad()
     def system_with_u(self, location: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """ Like system, but with uncertainty quantification. """
-        
+        """Like system, but with uncertainty quantification."""
+
         out = self.model.forward(self.traj, self.times, location, self.mask)
         y = self.model.get_prediction_for_eval(out)
-        y = y[..., :location.shape[-1]]
+        y = y[..., : location.shape[-1]]
 
         u = self.u_model.forward(out)
         u = u.detach()
@@ -165,21 +164,25 @@ class OdeonEval(PredictionModel):
         return self.title
 
 
-
 # Patch torch.load to default weights_only=False for ODEFormer compatibility
 # This fixes the PyTorch 2.6+ default weights_only=True issue.
 # Uses function-local scope so the captured original can never be overwritten
 # by a subsequent import or reload, preventing recursive closure bugs.
 def _apply_torch_load_patch():
-    if getattr(torch.load, '_weights_only_patched', False):
+    if getattr(torch.load, "_weights_only_patched", False):
         return
     _orig = torch.load
+
     def _patched(*args, **kwargs):
-        kwargs.setdefault('weights_only', False)
+        kwargs.setdefault("weights_only", False)
         return _orig(*args, **kwargs)
+
     _patched._weights_only_patched = True
     torch.load = _patched
+
+
 _apply_torch_load_patch()
+
 
 class OdeFormerEval(PredictionModel):
     def __init__(self, device: str = "cuda"):
@@ -192,10 +195,10 @@ class OdeFormerEval(PredictionModel):
             self.device = torch.device("mps")
         else:
             raise ValueError(f"Invalid ODEFormerdevice: {device}")
-            
+
         self.dtype = torch.float64
 
-        dstr.set_model_args({'beam_size': 50, 'beam_temperature': 0.1})
+        dstr.set_model_args({"beam_size": 50, "beam_temperature": 0.1})
         """
         if torch.cuda.is_available():
             print("calling .cuda()")
@@ -217,41 +220,39 @@ class OdeFormerEval(PredictionModel):
         # picked out the relevant operations from: list(self.model.model.decoder.id2word.values())
 
         return {
-        # operators
-            'Add': torch.add,
-            'Mul': torch.mul,
-            'Pow': torch.pow,
-            'Sub': torch.sub,
-            'Div': torch.div,
-            
+            # operators
+            "Add": torch.add,
+            "Mul": torch.mul,
+            "Pow": torch.pow,
+            "Sub": torch.sub,
+            "Div": torch.div,
             # functions
-            'abs': torch.abs,
-            'add': torch.add,
-            'arccos': torch.arccos,
-            'arcsin': torch.arcsin,
-            'arctan': torch.arctan,
-            'cos': torch.cos,
-            'div': torch.div,
-            'exp': torch.exp,
-            'id': lambda x: x,
-            'inv': torch.reciprocal,  # 1/x
-            'log': torch.log,
-            'mul': torch.mul,
-            'pow': torch.pow,
-            'pow2': lambda x: torch.pow(x, 2),
-            'pow3': lambda x: torch.pow(x, 3),
-            'rand': torch.rand,
-            'sin': torch.sin,
-            'sqrt': torch.sqrt,
-            'sub': torch.sub,
+            "abs": torch.abs,
+            "add": torch.add,
+            "arccos": torch.arccos,
+            "arcsin": torch.arcsin,
+            "arctan": torch.arctan,
+            "cos": torch.cos,
+            "div": torch.div,
+            "exp": torch.exp,
+            "id": lambda x: x,
+            "inv": torch.reciprocal,  # 1/x
+            "log": torch.log,
+            "mul": torch.mul,
+            "pow": torch.pow,
+            "pow2": lambda x: torch.pow(x, 2),
+            "pow3": lambda x: torch.pow(x, 3),
+            "rand": torch.rand,
+            "sin": torch.sin,
+            "sqrt": torch.sqrt,
+            "sub": torch.sub,
             # dont know what t is supposed to be
             # 't': torch.t,
-            'tan': torch.tan,
-
+            "tan": torch.tan,
             # constants
-            'e': math.e,
-            'euler_gamma': float(sp.EulerGamma.evalf()),
-            'pi': math.pi,
+            "e": math.e,
+            "euler_gamma": float(sp.EulerGamma.evalf()),
+            "pi": math.pi,
         }
 
     def _create_callable_func(self, expr, symbols):
@@ -288,8 +289,8 @@ class OdeFormerEval(PredictionModel):
             trs.append(tr.cpu().numpy())
             tms.append(ti.cpu().numpy())
 
-        #print(trs[0].shape)     # (6,50,3)
-        #print(tms[0].shape)     # (300,)
+        # print(trs[0].shape)     # (6,50,3)
+        # print(tms[0].shape)     # (300,)
         prediction = self.model.fit(trajectories=trs, times=tms)
 
         D = traj.size(-1)
@@ -308,7 +309,7 @@ class OdeFormerEval(PredictionModel):
                 print(f"Expected {D} predicted equations, but got {len(equation_per_dim)}: {eq}")
                 continue
 
-            vars_found = set(int(num) for num in re.findall(r"x_(\d+)", eq))
+            vars_found = {int(num) for num in re.findall(r"x_(\d+)", eq)}
             if len(vars_found) > D:
                 print(f"Expected variables x_0 to x_{D - 1}, but found more in predicted equation: {eq}")
                 continue
@@ -351,7 +352,6 @@ class OdeFormerEval(PredictionModel):
 
         return torch.tensor(valid_predictions_at).long().to(traj.device)
 
-
     def system(self, location: torch.Tensor) -> torch.Tensor:
         return self.f(location)
 
@@ -369,13 +369,13 @@ class FimOdeHFEval(PredictionModel):
     ``function_decoding`` is called at each integration step in ``system()``.
     """
 
-    _REPO_ID   = "FIM4Science/fim-ode"
+    _REPO_ID = "FIM4Science/fim-ode"
     _SUBFOLDER = "base_model/checkpoints/best-model"
 
     def __init__(self, device: str = "cpu"):
         from huggingface_hub import hf_hub_download
 
-        config_path  = hf_hub_download(self._REPO_ID, f"{self._SUBFOLDER}/config.json")
+        config_path = hf_hub_download(self._REPO_ID, f"{self._SUBFOLDER}/config.json")
         weights_path = hf_hub_download(self._REPO_ID, f"{self._SUBFOLDER}/model.safetensors")
 
         with open(config_path) as f:
@@ -393,10 +393,10 @@ class FimOdeHFEval(PredictionModel):
 
         self._fim = fim_model
         self.device = torch.device(device)
-        self._wrapped_D    = None
+        self._wrapped_D = None
         self._feature_mask = None
-        self._concept      = None
-        self._D_in         = None
+        self._concept = None
+        self._D_in = None
 
     @torch.no_grad()
     def fit(self, traj: torch.Tensor, times: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -408,10 +408,10 @@ class FimOdeHFEval(PredictionModel):
 
     @torch.no_grad()
     def system(self, location: torch.Tensor) -> torch.Tensor:
-        loc      = self._fim.pad_if_necessary(location)
+        loc = self._fim.pad_if_necessary(location)
         loc_norm = self._fim.spatial_norm.normalization_map(loc, self._concept._states_norm_stats)
-        out      = self._fim.function_decoding(loc_norm, self._feature_mask, self._wrapped_D, self._concept)
-        return self._fim.get_prediction_for_eval(out)[..., :self._D_in]
+        out = self._fim.function_decoding(loc_norm, self._feature_mask, self._wrapped_D, self._concept)
+        return self._fim.get_prediction_for_eval(out)[..., : self._D_in]
 
     def is_fitted(self) -> bool:
         return self._wrapped_D is not None
@@ -420,6 +420,6 @@ class FimOdeHFEval(PredictionModel):
         return "FimOdeHFEval"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     odeon = OdeonEval(Path("models/base_model/checkpoints"))
     odeformer = OdeFormerEval()

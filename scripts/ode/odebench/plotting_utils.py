@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -7,22 +7,24 @@ import numpy as np
 import seaborn as sns
 import torch
 from cycler import cycler
+from dataProvider import FimDataloader
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.interpolate import griddata
 
-from dataProvider import FimDataloader
 
-plt.rcParams.update({
-    'axes.titlepad': 20,
-    'figure.titlesize': 28,
-    'font.size': 18,
-    'axes.titlesize': 22,
-    'axes.labelsize': 20,
-    'xtick.labelsize': 16,
-    'ytick.labelsize': 16,
-    'image.cmap': 'viridis',
-    'axes.prop_cycle': cycler('color', sns.color_palette("colorblind"))
-})
+plt.rcParams.update(
+    {
+        "axes.titlepad": 20,
+        "figure.titlesize": 28,
+        "font.size": 18,
+        "axes.titlesize": 22,
+        "axes.labelsize": 20,
+        "xtick.labelsize": 16,
+        "ytick.labelsize": 16,
+        "image.cmap": "viridis",
+        "axes.prop_cycle": cycler("color", sns.color_palette("colorblind")),
+    }
+)
 
 
 def streamplot_with_alpha(axs: plt.Axes, x, y, u, v, alpha=0.5, **kwargs):
@@ -35,8 +37,7 @@ def streamplot_with_alpha(axs: plt.Axes, x, y, u, v, alpha=0.5, **kwargs):
     return stream
 
 
-def contourplot(axs: plt.Axes, x: np.ndarray, y: np.ndarray, magnitude: np.ndarray,
-                alphas: Tuple[float, float] = (0.9, 0.5), **kwargs):
+def contourplot(axs: plt.Axes, x: np.ndarray, y: np.ndarray, magnitude: np.ndarray, alphas: Tuple[float, float] = (0.9, 0.5), **kwargs):
     a_line, a_fill = alphas
     cont = axs.contour(x, y, magnitude, alpha=a_line, linewidths=5, **kwargs)
     contf = axs.contourf(x, y, magnitude, alpha=a_fill, **kwargs)
@@ -58,8 +59,8 @@ def interpolate_vector_field(fx: np.ndarray, coords: np.ndarray, scale: float = 
     yi = np.linspace(y_min, y_max, resolution)
     xi_mg, yi_mg = np.meshgrid(xi, yi)
 
-    u = griddata(coords, fx[:, 0], (xi_mg, yi_mg), method='cubic')
-    v = griddata(coords, fx[:, 1], (xi_mg, yi_mg), method='cubic')
+    u = griddata(coords, fx[:, 0], (xi_mg, yi_mg), method="cubic")
+    v = griddata(coords, fx[:, 1], (xi_mg, yi_mg), method="cubic")
 
     cut_off_percent = 0.02
     n_rows, n_cols = xi_mg.shape
@@ -82,12 +83,12 @@ def plot_2d_trajectories(ax: plt.Axes, trajectories: np.ndarray):
     for i in range(len(trajectories)):
         t = trajectories[i]
         # line, = ax.plot(t[:, 0], t[:, 1], color="w", alpha=0.3, linewidth=8)
-        line, = ax.plot(t[:, 0], t[:, 1], alpha=0.9, color="white", linewidth=27, solid_capstyle='round', zorder=999)
-        line, = ax.plot(t[:, 0], t[:, 1], alpha=0.5, linewidth=21, solid_capstyle='round', zorder=1000)
-        ax.scatter(t[:, 0], t[:, 1], s=120, color="black", alpha=0.7, zorder=1002, edgecolors='lightgrey', linewidths=2 )
+        (line,) = ax.plot(t[:, 0], t[:, 1], alpha=0.9, color="white", linewidth=27, solid_capstyle="round", zorder=999)
+        (line,) = ax.plot(t[:, 0], t[:, 1], alpha=0.5, linewidth=21, solid_capstyle="round", zorder=1000)
+        ax.scatter(t[:, 0], t[:, 1], s=120, color="black", alpha=0.7, zorder=1002, edgecolors="lightgrey", linewidths=2)
         # ax.scatter(t[:, 0], t[:, 1], s=100, color="white", alpha=0.7, zorder=1001)
-        ax.scatter(t[0, 0], t[0, 1], alpha=0.95, s=500, marker="s", edgecolors='black', zorder=1003)
-        ax.text(t[0, 0], t[0, 1], f"{i}", fontsize=18, ha='center', va='center', color='white', fontweight='bold', zorder=1004)
+        ax.scatter(t[0, 0], t[0, 1], alpha=0.95, s=500, marker="s", edgecolors="black", zorder=1003)
+        ax.text(t[0, 0], t[0, 1], f"{i}", fontsize=18, ha="center", va="center", color="white", fontweight="bold", zorder=1004)
 
 
 def plot_2d_flow_field(ax: plt.Axes, fig: plt.Figure, x, y, u, v, magnitude, trajectories, **kwargs):
@@ -95,14 +96,14 @@ def plot_2d_flow_field(ax: plt.Axes, fig: plt.Figure, x, y, u, v, magnitude, tra
     plot_2d_trajectories(ax, trajectories)
     ax.set_title("Flow Field")
 
-    fig.colorbar(strm.lines, ax=ax, label='Magnitude', location='right')
+    fig.colorbar(strm.lines, ax=ax, label="Magnitude", location="right")
 
     for spine in ax.spines.values():
         spine.set_visible(False)
 
 
 def calculate_magnitude(u: np.ndarray, v: np.ndarray):
-    magnitude = np.sqrt(u ** 2 + v ** 2)
+    magnitude = np.sqrt(u**2 + v**2)
     return np.nan_to_num(magnitude, 0)
 
 
@@ -110,16 +111,20 @@ def plot_magnitude_filed(ax: plt.Axes, fig: plt.Figure, x, y, mag, **kwargs):
     cont, contf = contourplot(ax, x, y, mag, (0.9, 0.5), **kwargs)
     ax.set_title("Magnitude Field")
 
-    fig.colorbar(contf, ax=ax, label='Magnitude', location='right')
+    fig.colorbar(contf, ax=ax, label="Magnitude", location="right")
 
     for spine in ax.spines.values():
         spine.set_visible(False)
 
 
-def plot_compare_vector_fields(fx: np.ndarray, pred_fx: np.ndarray, coords: np.ndarray,
-                               trajectories: Optional[np.ndarray] = None,
-                               pred_trajectories: Optional[np.ndarray] = None,
-                               title_extension: Optional[str] = ""):
+def plot_compare_vector_fields(
+    fx: np.ndarray,
+    pred_fx: np.ndarray,
+    coords: np.ndarray,
+    trajectories: Optional[np.ndarray] = None,
+    pred_trajectories: Optional[np.ndarray] = None,
+    title_extension: Optional[str] = "",
+):
     factor = 1.0
     for i in range(10):
         try:
@@ -143,18 +148,18 @@ def plot_compare_vector_fields(fx: np.ndarray, pred_fx: np.ndarray, coords: np.n
 
             row_labels = ["Truth", "Prediction"]
             for i, label in enumerate(row_labels):
-                fig.text(0.05, 0.75 - i * 0.45, label, va='center', ha='left', fontsize=22, weight='bold', rotation=90)
+                fig.text(0.05, 0.75 - i * 0.45, label, va="center", ha="left", fontsize=22, weight="bold", rotation=90)
 
             fig.suptitle("Vector Field Visualization " + title_extension)
 
             return
 
-        except ValueError as e:
+        except ValueError:
             print("retrying", i)
             plt.close(fig)
             factor = 1 + torch.rand(1).item() * (i / 10)
 
-    raise ValueError("Failed to plot after 10 retries") from e
+    raise ValueError("Failed to plot after 10 retries")
 
 
 # def save_all_figures_to_pdf(name: str):
@@ -165,6 +170,7 @@ def plot_compare_vector_fields(fx: np.ndarray, pred_fx: np.ndarray, coords: np.n
 #             fig.savefig(pdf, format='pdf')
 #             plt.close(fig)
 #
+
 
 def save_all_figures_to_pdf(name: str, close_figures: bool = True):
     with PdfPages(name) as pdf:
@@ -181,11 +187,11 @@ def save_all_figures_to_pdf(name: str, close_figures: bool = True):
                 plt.close(fig)
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     path = Path(
-        f"/home/teddev/PycharmProjects/pytorch_stuff/foundation_models_dynamical_systems/data_local/fim-data-more-path/0/data/processed/train/30k_drift_deg_3_ablation_studies/degree_and_monomial_survival_uniform/train/train_deg_2")
-        # "/home/teddev/Downloads/val_deg_2")
+        "/home/teddev/PycharmProjects/pytorch_stuff/foundation_models_dynamical_systems/data_local/fim-data-more-path/0/data/processed/train/30k_drift_deg_3_ablation_studies/degree_and_monomial_survival_uniform/train/train_deg_2"
+    )
+    # "/home/teddev/Downloads/val_deg_2")
     data = FimDataloader(path).load_dataset()
     assert data.is_loaded_and_dims_match
     data.filter_funcs_by_range((0, 1), idx_paths=(0, 8))
@@ -194,7 +200,6 @@ if __name__ == '__main__':
 
     x, y, u, v = interpolate_vector_field(data.fx[0], data.coordinates[0], scale=1.0)
     mag = calculate_magnitude(u, v)
-
 
     plot_2d_flow_field(ax, fig, x, y, u, v, mag, data.trajectories[0])
     # strm = streamplot_with_alpha(ax, x, y, u, v, alpha=1, density=0.9, arrowsize=2, linewidth=4, color=mag, zorder=1)
