@@ -1,12 +1,13 @@
 import numpy as np
 
+
 def VDP_ode(t, y):
     """Van der Pol ODE: dx1/dt = x2, dx2/dt = -x1 + 0.5*x2*(1 - x1^2).
-    
+
     Args:
         t: Time (not used, but required by scipy.integrate.solve_ivp)
         y: State vector [x1, x2] of shape (2,)
-    
+
     Returns:
         np.ndarray: Derivative vector [dx1/dt, dx2/dt] of shape (2,)
     """
@@ -18,11 +19,11 @@ def VDP_ode(t, y):
 
 def FHN_ode(t, y):
     """FitzHugh-Nagumo ODE: dx1/dt = 3*(x1 - x1^3/3 + x2), dx2/dt = 0.2 - 3*x1 - 0.2*x2.
-    
+
     Args:
         t: Time (not used, but required by scipy.integrate.solve_ivp)
         y: State vector [x1, x2] of shape (2,)
-    
+
     Returns:
         np.ndarray: Derivative vector [dx1/dt, dx2/dt] of shape (2,)
     """

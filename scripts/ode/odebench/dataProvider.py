@@ -6,6 +6,7 @@ import h5py
 import numpy as np
 import torch
 
+
 Vec = torch.Tensor | np.ndarray
 
 
@@ -31,11 +32,11 @@ class FimDataset:
     @property
     def is_loaded_and_dims_match(self):
         is_loaded = (
-                self.coordinates is not None and
-                self.trajectories is not None and
-                self.fx is not None and
-                self.times is not None and
-                self.trajectories is not None
+            self.coordinates is not None
+            and self.trajectories is not None
+            and self.fx is not None
+            and self.times is not None
+            and self.trajectories is not None
         )
 
         if not is_loaded:
@@ -46,11 +47,13 @@ class FimDataset:
         bf, pf, df = self.fx.shape
         bc, pc, dc = self.coordinates.shape
 
-        dims_match = (bt == bts == bf == bc and  # batches match
-                      tt == tts and  # number of trajectory
-                      nt == nts and  # number of trajectory points match
-                      pf == pc and  # number of coords match number of function points
-                      dt == df == dc)  # dim of trajectories and fx and coords match
+        dims_match = (
+            bt == bts == bf == bc  # batches match
+            and tt == tts  # number of trajectory
+            and nt == nts  # number of trajectory points match
+            and pf == pc  # number of coords match number of function points
+            and dt == df == dc
+        )  # dim of trajectories and fx and coords match
 
         return dims_match
 
@@ -87,30 +90,30 @@ class FimDataloader:
         self.torch_dtype = torch_dtype
 
     def _get_h5_file_contents(self, filename: str):
-        with h5py.File(self.base_path / filename, 'r') as h5file:
+        with h5py.File(self.base_path / filename, "r") as h5file:
             keys = list(h5file.keys())
-            assert len(keys) == 1 and keys[0] == 'data'
+            assert len(keys) == 1 and keys[0] == "data"
 
             # astype as we have problems with package versions regarding dtype versions
-            data = h5file['data'].astype(np.float32)[:]
+            data = h5file["data"].astype(np.float32)[:]
 
             return torch.tensor(data, dtype=self.torch_dtype)
 
     def _load_locations(self):
-        self.data.coordinates = self._get_h5_file_contents('locations.h5')
+        self.data.coordinates = self._get_h5_file_contents("locations.h5")
 
     def _load_drift_at_locations(self):
-        self.data.fx = self._get_h5_file_contents('drift_at_locations.h5')
+        self.data.fx = self._get_h5_file_contents("drift_at_locations.h5")
 
     def _load_obs_times(self):
-        self.data.times = self._get_h5_file_contents('obs_times.h5')
+        self.data.times = self._get_h5_file_contents("obs_times.h5")
 
     def _load_obs_values(self):
-        self.data.trajectories = self._get_h5_file_contents('obs_values.h5')
+        self.data.trajectories = self._get_h5_file_contents("obs_values.h5")
 
     def _load_drift_at_obs_values(self):
         try:
-            self.data.fx_at_obs_values = self._get_h5_file_contents('drift_at_observations.h5')
+            self.data.fx_at_obs_values = self._get_h5_file_contents("drift_at_observations.h5")
         except FileNotFoundError:
             print("drift_at_observations.h5 not found, using drift at locations instead.")
             self.data.fx_at_obs_values = self.data.fx
@@ -165,8 +168,9 @@ class SpecificDimFimDataset(torch.utils.data.Dataset):
         self.data_path = data_path
 
         self._load_data()
-        assert self.dataset.trajectories.shape[
-                   -1] == expected_dim, f"Expected dimension {expected_dim}, but got {self.dataset.trajectories.shape[-1]}"
+        assert self.dataset.trajectories.shape[-1] == expected_dim, (
+            f"Expected dimension {expected_dim}, but got {self.dataset.trajectories.shape[-1]}"
+        )
 
     def _load_data(self):
         dl = FimDataloader(self.data_path)
@@ -184,4 +188,3 @@ class SpecificDimFimDataset(torch.utils.data.Dataset):
         fx, co, tr, ts = d.fx[idx], d.coordinates[idx], d.trajectories[idx], d.times[idx]
 
         return fx, co, tr, ts
-

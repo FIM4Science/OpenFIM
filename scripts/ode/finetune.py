@@ -33,6 +33,7 @@ Usage
     # Monitor in another terminal:
     tensorboard --logdir results/ode/logs
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,6 +49,9 @@ import torch.nn.functional as F
 from scipy.integrate import solve_ivp
 from torch.optim import Adam
 
+from fim.models.ode import FIMODE, load_fim_ode_hf, load_fim_ode_local
+
+
 # ── project root on sys.path ──────────────────────────────────────────────────
 _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent.parent
@@ -56,12 +60,11 @@ if str(_ROOT / "src") not in sys.path:
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from fim.models.ode import FIMODE, load_fim_ode_hf, load_fim_ode_local
-from fim.models.ode_trainer import FIMODEConfig
 
 # ── optional TensorBoard ──────────────────────────────────────────────────────
 try:
     from torch.utils.tensorboard import SummaryWriter
+
     _TB_AVAILABLE = True
 except ImportError:
     _TB_AVAILABLE = False
@@ -72,12 +75,13 @@ except ImportError:
 # 1. Tensor preparation helpers
 # =============================================================================
 
+
 def _t(arr: np.ndarray, device: str, dtype=torch.float32) -> torch.Tensor:
     return torch.tensor(arr, dtype=dtype, device=device)
 
 
 def prepare_context_tensors(
-    traj: np.ndarray,   # (n_paths, T, D)  or  (T, D) for single path
+    traj: np.ndarray,  # (n_paths, T, D)  or  (T, D) for single path
     times: np.ndarray,  # (T,) shared across paths
     device: str,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -95,17 +99,15 @@ def prepare_context_tensors(
     n_paths, T, D = traj.shape
 
     traj_t = _t(traj, device).unsqueeze(0)
-    time_t = (_t(times, device)
-              .unsqueeze(0).unsqueeze(0).unsqueeze(-1)
-              .expand(1, n_paths, T, 1).contiguous())
+    time_t = _t(times, device).unsqueeze(0).unsqueeze(0).unsqueeze(-1).expand(1, n_paths, T, 1).contiguous()
     mask_t = torch.ones(1, n_paths, T, 1, dtype=torch.bool, device=device)
     return traj_t, time_t, mask_t
 
 
 def prepare_context_tensors_segmented(
-    traj: np.ndarray,   # (n_segs, max_len, D)
+    traj: np.ndarray,  # (n_segs, max_len, D)
     times: np.ndarray,  # (n_segs, max_len)
-    mask: np.ndarray,   # (n_segs, max_len) bool
+    mask: np.ndarray,  # (n_segs, max_len) bool
     device: str,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -127,6 +129,7 @@ def prepare_context_tensors_segmented(
 # 2. Core integration helpers (mirroring TrainIntegrator, no config needed)
 # =============================================================================
 
+
 def _euler(f, h: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """One Euler step: y + h · f(y)."""
     return y + h * f(y)
@@ -134,7 +137,7 @@ def _euler(f, h: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 def _improved_euler(f, h: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """One improved-Euler step: y + h · f(y + h/2 · f(y))."""
-    f0    = f(y)
+    f0 = f(y)
     y_mid = y + (h / 2) * f0
     return y + h * f(y_mid)
 
@@ -154,16 +157,18 @@ def _make_f(
     Gradients flow through function_decoding into both the trajectory encoder
     (via D_enc) and the functional decoder.
     """
+
     def f(y: torch.Tensor) -> torch.Tensor:
         result = model.function_decoding(y, feature_mask, D_enc, copy.deepcopy(concept))
         return result.predictions.drift
+
     return f
 
 
 def _collect_consecutive_pairs(
     traj_norm_padded: torch.Tensor,  # (1, n_segs, max_len, D_pad)
-    time_norm: torch.Tensor,         # (1, n_segs, max_len, 1)
-    mask: torch.Tensor,              # (1, n_segs, max_len, 1)  bool
+    time_norm: torch.Tensor,  # (1, n_segs, max_len, 1)
+    mask: torch.Tensor,  # (1, n_segs, max_len, 1)  bool
     D_orig: int,
     device: str,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -176,7 +181,7 @@ def _collect_consecutive_pairs(
     y_tgt_batch  : (1, N_pairs, D_pad)  — normalised end points
     h_batch      : (1, N_pairs, 1)      — Δt in normalised time
     """
-    n_segs  = traj_norm_padded.shape[1]
+    n_segs = traj_norm_padded.shape[1]
     max_len = traj_norm_padded.shape[2]
 
     y0_list, yt_list, h_list = [], [], []
@@ -186,7 +191,7 @@ def _collect_consecutive_pairs(
         # valid consecutive pairs: both endpoints must be observed
         for i in range(max_len - 1):
             if m[i] and m[i + 1]:
-                y0_list.append(traj_norm_padded[0, s, i])      # (D_pad,)
+                y0_list.append(traj_norm_padded[0, s, i])  # (D_pad,)
                 yt_list.append(traj_norm_padded[0, s, i + 1])  # (D_pad,)
                 dt = time_norm[0, s, i + 1, 0] - time_norm[0, s, i, 0]
                 h_list.append(dt)
@@ -194,9 +199,9 @@ def _collect_consecutive_pairs(
     if not y0_list:
         raise ValueError("No valid consecutive pairs found in context.")
 
-    y0  = torch.stack(y0_list, dim=0).unsqueeze(0)  # (1, N_pairs, D_pad)
-    yt  = torch.stack(yt_list, dim=0).unsqueeze(0)  # (1, N_pairs, D_pad)
-    h   = torch.stack(h_list).view(1, -1, 1)        # (1, N_pairs, 1)
+    y0 = torch.stack(y0_list, dim=0).unsqueeze(0)  # (1, N_pairs, D_pad)
+    yt = torch.stack(yt_list, dim=0).unsqueeze(0)  # (1, N_pairs, D_pad)
+    h = torch.stack(h_list).view(1, -1, 1)  # (1, N_pairs, 1)
 
     return y0, yt, h
 
@@ -204,6 +209,7 @@ def _collect_consecutive_pairs(
 # =============================================================================
 # 3. Finetuner
 # =============================================================================
+
 
 class Finetuner:
     """
@@ -239,14 +245,13 @@ class Finetuner:
         integrator: str = "euler",
         n_inner_steps: int = 5,
     ):
-        self.model         = model
-        self.device        = device
+        self.model = model
+        self.device = device
         self.n_inner_steps = n_inner_steps
         self._integrate_step = _euler if integrator == "euler" else _improved_euler
 
         if freeze_encoder:
-            params = (list(model.functional_decoder.parameters()) +
-                      list(model.location_proj.parameters()))
+            params = list(model.functional_decoder.parameters()) + list(model.location_proj.parameters())
         else:
             params = list(model.parameters())
 
@@ -258,8 +263,8 @@ class Finetuner:
 
     def step(
         self,
-        traj_np: np.ndarray,    # (T, D)  or  (n_paths, T, D)
-        times_np: np.ndarray,   # (T,)  shared across paths
+        traj_np: np.ndarray,  # (T, D)  or  (n_paths, T, D)
+        times_np: np.ndarray,  # (T,)  shared across paths
     ) -> float:
         """
         One gradient step on a single (or multi-path) contiguous context.
@@ -267,7 +272,7 @@ class Finetuner:
         All consecutive observation pairs are integrated in parallel.
         """
         if traj_np.ndim == 2:
-            traj_np = traj_np[np.newaxis]           # (1, T, D)
+            traj_np = traj_np[np.newaxis]  # (1, T, D)
         n_paths, T, D = traj_np.shape
 
         traj_t, time_t, mask_t = prepare_context_tensors(traj_np, times_np, self.device)
@@ -276,28 +281,20 @@ class Finetuner:
         self.optimizer.zero_grad()
 
         # ── Encode context (once) ─────────────────────────────────────
-        D_enc, feature_mask, concept = self.model.trajectory_encoding(
-            traj_t, time_t, mask_t
-        )
+        D_enc, feature_mask, concept = self.model.trajectory_encoding(traj_t, time_t, mask_t)
 
         # ── Normalise trajectory & times (same stats as encoding) ──────
         # _prepare_input_features pads THEN normalises, so we must do the same:
         # pad first → norm stats were computed on padded D
-        x_padded = self.model.pad_if_necessary(traj_t)   # (1, n_paths, T, D_pad)
-        x_norm   = self.model.spatial_norm.normalization_map(
-            x_padded, concept._states_norm_stats
-        )                                                  # (1, n_paths, T, D_pad)
+        x_padded = self.model.pad_if_necessary(traj_t)  # (1, n_paths, T, D_pad)
+        x_norm = self.model.spatial_norm.normalization_map(x_padded, concept._states_norm_stats)  # (1, n_paths, T, D_pad)
 
-        t_norm = self.model.temporal_norm.normalization_map(
-            time_t, concept._times_norm_stats
-        )                                                  # (1, n_paths, T, 1)
+        t_norm = self.model.temporal_norm.normalization_map(time_t, concept._times_norm_stats)  # (1, n_paths, T, 1)
 
         # ── Collect all consecutive pairs ─────────────────────────────
         # mask: all ones for contiguous trajectory
         full_mask = torch.ones(1, n_paths, T, 1, dtype=torch.bool, device=self.device)
-        y0_batch, y_tgt_batch, h_batch = _collect_consecutive_pairs(
-            x_norm, t_norm, full_mask, D, self.device
-        )
+        y0_batch, y_tgt_batch, h_batch = _collect_consecutive_pairs(x_norm, t_norm, full_mask, D, self.device)
 
         # ── Integrate one step per pair (in parallel) ─────────────────
         f = _make_f(self.model, D_enc, feature_mask, concept)
@@ -318,8 +315,8 @@ class Finetuner:
 
     def step_full_trajectory(
         self,
-        traj_np: np.ndarray,    # (T, D)
-        times_np: np.ndarray,   # (T,)
+        traj_np: np.ndarray,  # (T, D)
+        times_np: np.ndarray,  # (T,)
     ) -> float:
         """
         Single-shooting trajectory reconstruction over the full training window.
@@ -350,42 +347,38 @@ class Finetuner:
         T, D = traj_np.shape
 
         traj_t, time_t, mask_t = prepare_context_tensors(
-            traj_np[np.newaxis], times_np, self.device   # (1, 1, T, D)
+            traj_np[np.newaxis],
+            times_np,
+            self.device,  # (1, 1, T, D)
         )
 
         self.model.train()
         self.optimizer.zero_grad()
 
         # ── Encode context (once) ─────────────────────────────────────
-        D_enc, feature_mask, concept = self.model.trajectory_encoding(
-            traj_t, time_t, mask_t
-        )
+        D_enc, feature_mask, concept = self.model.trajectory_encoding(traj_t, time_t, mask_t)
 
         # ── Normalise trajectory & times ──────────────────────────────
-        x_padded = self.model.pad_if_necessary(traj_t)    # (1, 1, T, D_pad)
-        x_norm   = self.model.spatial_norm.normalization_map(
-            x_padded, concept._states_norm_stats
-        )                                                  # (1, 1, T, D_pad)
-        t_norm   = self.model.temporal_norm.normalization_map(
-            time_t, concept._times_norm_stats
-        )                                                  # (1, 1, T, 1)
+        x_padded = self.model.pad_if_necessary(traj_t)  # (1, 1, T, D_pad)
+        x_norm = self.model.spatial_norm.normalization_map(x_padded, concept._states_norm_stats)  # (1, 1, T, D_pad)
+        t_norm = self.model.temporal_norm.normalization_map(time_t, concept._times_norm_stats)  # (1, 1, T, 1)
 
         # ── Build ODE right-hand side ─────────────────────────────────
         f = _make_f(self.model, D_enc, feature_mask, concept)
 
         # ── Single-shoot from x_0 through all T observations ─────────
-        y = x_norm[0, 0, 0].unsqueeze(0).unsqueeze(0)     # (1, 1, D_pad)
+        y = x_norm[0, 0, 0].unsqueeze(0).unsqueeze(0)  # (1, 1, D_pad)
         preds: List[torch.Tensor] = []
 
         for i in range(T - 1):
-            dt = (t_norm[0, 0, i + 1, 0] - t_norm[0, 0, i, 0])
-            h  = (dt / self.n_inner_steps).view(1, 1, 1)  # (1, 1, 1)
+            dt = t_norm[0, 0, i + 1, 0] - t_norm[0, 0, i, 0]
+            h = (dt / self.n_inner_steps).view(1, 1, 1)  # (1, 1, 1)
             for _ in range(self.n_inner_steps):
-                y = self._integrate_step(f, h, y)          # (1, 1, D_pad)
-            preds.append(y[0, 0, :D])                      # (D,)
+                y = self._integrate_step(f, h, y)  # (1, 1, D_pad)
+            preds.append(y[0, 0, :D])  # (D,)
 
-        preds_t  = torch.stack(preds, dim=0)               # (T-1, D)
-        targets  = x_norm[0, 0, 1:, :D]                   # (T-1, D)
+        preds_t = torch.stack(preds, dim=0)  # (T-1, D)
+        targets = x_norm[0, 0, 1:, :D]  # (T-1, D)
 
         loss = F.l1_loss(preds_t, targets)
         loss.backward()
@@ -400,9 +393,9 @@ class Finetuner:
 
     def step_segmented(
         self,
-        traj_np: np.ndarray,    # (n_segs, max_len, D)
-        times_np: np.ndarray,   # (n_segs, max_len)
-        mask_np: np.ndarray,    # (n_segs, max_len) bool
+        traj_np: np.ndarray,  # (n_segs, max_len, D)
+        times_np: np.ndarray,  # (n_segs, max_len)
+        mask_np: np.ndarray,  # (n_segs, max_len) bool
     ) -> float:
         """
         Gradient step for gappy / segmented context.
@@ -412,32 +405,22 @@ class Finetuner:
         """
         n_segs, max_len, D = traj_np.shape
 
-        traj_t, time_t, mask_t = prepare_context_tensors_segmented(
-            traj_np, times_np, mask_np, self.device
-        )
+        traj_t, time_t, mask_t = prepare_context_tensors_segmented(traj_np, times_np, mask_np, self.device)
 
         self.model.train()
         self.optimizer.zero_grad()
 
         # ── Encode full segmented context ─────────────────────────────
-        D_enc, feature_mask, concept = self.model.trajectory_encoding(
-            traj_t, time_t, mask_t
-        )
+        D_enc, feature_mask, concept = self.model.trajectory_encoding(traj_t, time_t, mask_t)
 
         # ── Normalise using shared stats (pad first, then normalise) ──
         x_padded = self.model.pad_if_necessary(traj_t)
-        x_norm   = self.model.spatial_norm.normalization_map(
-            x_padded, concept._states_norm_stats
-        )
+        x_norm = self.model.spatial_norm.normalization_map(x_padded, concept._states_norm_stats)
 
-        t_norm = self.model.temporal_norm.normalization_map(
-            time_t, concept._times_norm_stats
-        )
+        t_norm = self.model.temporal_norm.normalization_map(time_t, concept._times_norm_stats)
 
         # ── Collect valid consecutive pairs across all segments ────────
-        y0_batch, y_tgt_batch, h_batch = _collect_consecutive_pairs(
-            x_norm, t_norm, mask_t, D, self.device
-        )
+        y0_batch, y_tgt_batch, h_batch = _collect_consecutive_pairs(x_norm, t_norm, mask_t, D, self.device)
 
         # ── Integrate & loss ──────────────────────────────────────────
         f = _make_f(self.model, D_enc, feature_mask, concept)
@@ -457,8 +440,8 @@ class Finetuner:
 
     def step_full_trajectory_batch(
         self,
-        traj_np: np.ndarray,    # (n_paths, T, D)
-        times_np: np.ndarray,   # (T,) shared across paths
+        traj_np: np.ndarray,  # (n_paths, T, D)
+        times_np: np.ndarray,  # (T,) shared across paths
     ) -> float:
         """
         Single-shooting trajectory reconstruction over all n_paths simultaneously.
@@ -482,36 +465,30 @@ class Finetuner:
         self.optimizer.zero_grad()
 
         # ── Encode all paths as shared context ────────────────────────
-        D_enc, feature_mask, concept = self.model.trajectory_encoding(
-            traj_t, time_t, mask_t
-        )
+        D_enc, feature_mask, concept = self.model.trajectory_encoding(traj_t, time_t, mask_t)
 
         # ── Normalise ─────────────────────────────────────────────────
-        x_padded = self.model.pad_if_necessary(traj_t)     # (1, n_paths, T, D_pad)
-        x_norm   = self.model.spatial_norm.normalization_map(
-            x_padded, concept._states_norm_stats
-        )
-        t_norm   = self.model.temporal_norm.normalization_map(
-            time_t, concept._times_norm_stats
-        )
+        x_padded = self.model.pad_if_necessary(traj_t)  # (1, n_paths, T, D_pad)
+        x_norm = self.model.spatial_norm.normalization_map(x_padded, concept._states_norm_stats)
+        t_norm = self.model.temporal_norm.normalization_map(time_t, concept._times_norm_stats)
 
         # ── Build ODE RHS ─────────────────────────────────────────────
         f = _make_f(self.model, D_enc, feature_mask, concept)
 
         # ── Initialise all paths at their first observation ───────────
-        y = x_norm[0, :, 0, :].unsqueeze(0)               # (1, n_paths, D_pad)
+        y = x_norm[0, :, 0, :].unsqueeze(0)  # (1, n_paths, D_pad)
         preds: List[torch.Tensor] = []
 
         for i in range(T - 1):
             # All paths share the same time grid → same dt
             dt = t_norm[0, 0, i + 1, 0] - t_norm[0, 0, i, 0]
-            h  = (dt / self.n_inner_steps).view(1, 1, 1)
+            h = (dt / self.n_inner_steps).view(1, 1, 1)
             for _ in range(self.n_inner_steps):
-                y = self._integrate_step(f, h, y)          # (1, n_paths, D_pad)
-            preds.append(y[0, :, :D])                      # (n_paths, D)
+                y = self._integrate_step(f, h, y)  # (1, n_paths, D_pad)
+            preds.append(y[0, :, :D])  # (n_paths, D)
 
-        preds_t = torch.stack(preds, dim=0)                # (T-1, n_paths, D)
-        targets = x_norm[0, :, 1:, :D].permute(1, 0, 2)   # (T-1, n_paths, D)
+        preds_t = torch.stack(preds, dim=0)  # (T-1, n_paths, D)
+        targets = x_norm[0, :, 1:, :D].permute(1, 0, 2)  # (T-1, n_paths, D)
 
         loss = F.l1_loss(preds_t, targets)
         loss.backward()
@@ -567,7 +544,7 @@ class Finetuner:
         segmented = mask_np is not None
         history: Dict[str, List] = {"train_loss": [], "eval_mse": [], "eval_epochs": []}
 
-        best_mse       = float("inf")
+        best_mse = float("inf")
         best_ckpt_path = None
 
         for epoch in range(n_epochs):
@@ -598,17 +575,13 @@ class Finetuner:
                 if improved:
                     best_mse = mse
                     if ckpt_dir is not None:
-                        best_ckpt_path = self.save_checkpoint(
-                            ckpt_dir, epoch + 1, task_label, suffix="best"
-                        )
+                        best_ckpt_path = self.save_checkpoint(ckpt_dir, epoch + 1, task_label, suffix="best")
 
                 marker = "  ★" if improved else ""
                 if (epoch + 1) % log_every == 0 or improved:
-                    print(f"[{task_label}] epoch {epoch+1:>5d}/{n_epochs}  "
-                          f"loss={loss:.5e}  eval_mse={mse:.5e}{marker}")
+                    print(f"[{task_label}] epoch {epoch + 1:>5d}/{n_epochs}  loss={loss:.5e}  eval_mse={mse:.5e}{marker}")
             elif (epoch + 1) % log_every == 0:
-                print(f"[{task_label}] epoch {epoch+1:>5d}/{n_epochs}  "
-                      f"loss={loss:.5e}")
+                print(f"[{task_label}] epoch {epoch + 1:>5d}/{n_epochs}  loss={loss:.5e}")
 
             if ckpt_dir is not None and (epoch + 1) % ckpt_every == 0:
                 self.save_checkpoint(ckpt_dir, epoch + 1, task_label)
@@ -616,8 +589,8 @@ class Finetuner:
         if ckpt_dir is not None:
             self.save_checkpoint(ckpt_dir, n_epochs, task_label, suffix="final")
 
-        history["best_mse"]        = best_mse
-        history["best_ckpt_path"]  = str(best_ckpt_path) if best_ckpt_path else None
+        history["best_mse"] = best_mse
+        history["best_ckpt_path"] = str(best_ckpt_path) if best_ckpt_path else None
 
         return history
 
@@ -644,8 +617,8 @@ class Finetuner:
         torch.save(
             {
                 "epoch": epoch,
-                "task":  task_label,
-                "model_state_dict":     self.model.state_dict(),
+                "task": task_label,
+                "model_state_dict": self.model.state_dict(),
                 "optimizer_state_dict": self.optimizer.state_dict(),
             },
             path,
@@ -664,21 +637,22 @@ class Finetuner:
 # 4. Evaluation helpers (integration + MSE)
 # =============================================================================
 
+
 def integrate_from_context(
     model: FIMODE,
-    ctx_traj: np.ndarray,    # (n_paths, T_ctx, D)
-    ctx_times: np.ndarray,   # (T_ctx,)
-    y0: np.ndarray,          # (D,)
-    t_eval: np.ndarray,      # (L,)
+    ctx_traj: np.ndarray,  # (n_paths, T_ctx, D)
+    ctx_times: np.ndarray,  # (T_ctx,)
+    y0: np.ndarray,  # (D,)
+    t_eval: np.ndarray,  # (L,)
     device: str = "cpu",
-) -> np.ndarray:             # (L, D)
+) -> np.ndarray:  # (L, D)
     """Encode context, integrate from y0, return trajectory of shape (L, D)."""
     model.eval()
     traj_t, time_t, mask_t = prepare_context_tensors(ctx_traj, ctx_times, device)
 
     @torch.no_grad()
     def fim_fn(t: float, y: np.ndarray) -> np.ndarray:
-        D   = y.shape[0]
+        D = y.shape[0]
         loc = torch.tensor(y, dtype=torch.float32, device=device).view(1, 1, D)
         out = model.model_forward(traj_t, time_t, loc, mask_t)
         return model.get_prediction_for_eval(out).squeeze().cpu().numpy()[:D]
@@ -688,7 +662,9 @@ def integrate_from_context(
         t_span=(float(t_eval[0]), float(t_eval[-1])),
         y0=np.asarray(y0, dtype=float),
         t_eval=t_eval,
-        method="RK45", rtol=1e-4, atol=1e-6,
+        method="RK45",
+        rtol=1e-4,
+        atol=1e-6,
     )
     if not sol.success:
         raise RuntimeError(f"Integration failed: {sol.message}")
@@ -698,14 +674,14 @@ def integrate_from_context(
 def make_vdp_eval_fn(data: Dict, device: str) -> Callable:
     """Eval on test window — integrates over full window, returns test-window MSE."""
     train_ts = data["train_ts"]
-    ctx_traj = data["train_ys"][0][np.newaxis]   # (1, T_train, D)
-    x0       = data["x0"]
-    test_ts  = data["test_ts"]
-    test_ys  = data["test_ys"]                   # (1, T_test, D)
-    t_full   = np.sort(np.concatenate([train_ts, test_ts]))
+    ctx_traj = data["train_ys"][0][np.newaxis]  # (1, T_train, D)
+    x0 = data["x0"]
+    test_ts = data["test_ts"]
+    test_ys = data["test_ys"]  # (1, T_test, D)
+    t_full = np.sort(np.concatenate([train_ts, test_ts]))
 
     def eval_fn(model: FIMODE) -> float:
-        pred     = integrate_from_context(model, ctx_traj, train_ts, x0, t_full, device)
+        pred = integrate_from_context(model, ctx_traj, train_ts, x0, t_full, device)
         idx_test = np.searchsorted(t_full, test_ts)
         return float(np.mean((pred[idx_test] - test_ys[0]) ** 2))
 
@@ -722,16 +698,16 @@ def make_fhn_eval_fn(data: Dict, device: str) -> Callable:
     that preprocessing avoids a spurious large Δy/Δt transition at the gap for
     a model that has not been adapted to this data distribution.
     """
-    train_ts  = data["train_ts"]
-    ctx_traj  = data["train_ys"][0][np.newaxis]    # (1, 38, D)
-    x0        = data["x0"]
-    full_ts   = data["full_ts"]
+    train_ts = data["train_ts"]
+    ctx_traj = data["train_ys"][0][np.newaxis]  # (1, 38, D)
+    x0 = data["x0"]
+    full_ts = data["full_ts"]
     interp_ts = data["interpolation_ts"]
-    interp_ys = data["interpolation_ys"][0]        # (12, D)
+    interp_ys = data["interpolation_ys"][0]  # (12, D)
 
     def eval_fn(model: FIMODE) -> float:
         pred = integrate_from_context(model, ctx_traj, train_ts, x0, full_ts, device)
-        idx  = np.searchsorted(full_ts, interp_ts)
+        idx = np.searchsorted(full_ts, interp_ts)
         return float(np.mean((pred[idx] - interp_ys) ** 2))
 
     return eval_fn
@@ -741,16 +717,17 @@ def make_fhn_eval_fn(data: Dict, device: str) -> Callable:
 # 5. Dataset loaders
 # =============================================================================
 
+
 def load_vdp_uniform(data_dir: Path) -> Dict:
     ref = np.load(data_dir / "vdp_uniform.npz")
     # raw test covers [0,14] with 100 pts; keep last 50 = [7,14]
     return {
         "train_ts": ref["train_ts"],
-        "train_ys": ref["train_ys"],        # (1, T_train, D)
-        "x0":       ref["x0"],
-        "test_ts":  ref["test_ts"][-50:],
-        "test_ys":  ref["test_ys"][:, -50:],
-        "label":    "VDP-uniform",
+        "train_ys": ref["train_ys"],  # (1, T_train, D)
+        "x0": ref["x0"],
+        "test_ts": ref["test_ts"][-50:],
+        "test_ys": ref["test_ys"][:, -50:],
+        "label": "VDP-uniform",
     }
 
 
@@ -761,10 +738,10 @@ def load_vdp_nonuniform(data_dir: Path, seed: int = 0) -> Dict:
     return {
         "train_ts": ref["train_ts"],
         "train_ys": ref["train_ys"],
-        "x0":       ref["x0"],
-        "test_ts":  ref["test_ts"][idx],
-        "test_ys":  ref["test_ys"][:, idx],
-        "label":    "VDP-nonuniform",
+        "x0": ref["x0"],
+        "test_ts": ref["test_ts"][idx],
+        "test_ys": ref["test_ys"][:, idx],
+        "label": "VDP-nonuniform",
     }
 
 
@@ -776,32 +753,35 @@ def load_fhn(data_dir: Path) -> Dict:
     """
     ref = np.load(data_dir / "fhn_interpolation.npz")
     return {
-        "train_ts":          ref["train_ts"],             # (38,)
-        "train_ys":          ref["train_ys"],             # (1, 38, 2)
-        "x0":                ref["x0"],                   # (2,)
-        "full_ts":           ref["full_ts"],              # (50,)
-        "full_ys":           ref["full_ys"],              # (1, 50, 2)
-        "interpolation_ts":  ref["interpolation_ts"],     # (12,)
-        "interpolation_ys":  ref["interpolation_ys"],     # (1, 12, 2)
+        "train_ts": ref["train_ts"],  # (38,)
+        "train_ys": ref["train_ys"],  # (1, 38, 2)
+        "x0": ref["x0"],  # (2,)
+        "full_ts": ref["full_ts"],  # (50,)
+        "full_ys": ref["full_ys"],  # (1, 50, 2)
+        "interpolation_ts": ref["interpolation_ts"],  # (12,)
+        "interpolation_ys": ref["interpolation_ys"],  # (1, 12, 2)
         "interpolation_mask": ref["interpolation_mask"],  # (50,) bool — True = missing
-        "label":             "FHN",
+        "label": "FHN",
     }
 
 
 def _load_mocap_pickle(pkl_path: Path):
     """Load MoCap pickle with the class shims needed for unpickling."""
     sys.path.insert(0, str(_HERE))
-    from data_gen_mocap import MocapDataset, Normalize, Data
+    from data_gen_mocap import Data, MocapDataset, Normalize
+
     import __main__
-    __main__.Normalize    = Normalize
-    __main__.Data         = Data
+
+    __main__.Normalize = Normalize
+    __main__.Data = Data
     __main__.MocapDataset = MocapDataset
     import pickle
+
     with open(pkl_path, "rb") as fh:
         return pickle.load(fh)
 
 
-N_PCA_DIMS = 3   # FIM-ODE was trained on systems up to dimension 3
+N_PCA_DIMS = 3  # FIM-ODE was trained on systems up to dimension 3
 
 
 def _pca_to_50d(traj_norm_3d: np.ndarray, pca, pca_normalize) -> np.ndarray:
@@ -813,12 +793,12 @@ def _pca_to_50d(traj_norm_3d: np.ndarray, pca, pca_normalize) -> np.ndarray:
     """
     single = traj_norm_3d.ndim == 2
     if single:
-        traj_norm_3d = traj_norm_3d[np.newaxis]    # (1, T, 3)
+        traj_norm_3d = traj_norm_3d[np.newaxis]  # (1, T, 3)
     n, T, _ = traj_norm_3d.shape
     pad = np.zeros((n, T, 5 - N_PCA_DIMS), dtype=traj_norm_3d.dtype)
-    norm_5d  = np.concatenate([traj_norm_3d, pad], axis=-1)     # (n, T, 5)
-    pca_5d   = pca_normalize.inverse(norm_5d)                    # (n, T, 5)
-    out_50d  = pca.inverse_transform(pca_5d.reshape(-1, 5)).reshape(n, T, 50)
+    norm_5d = np.concatenate([traj_norm_3d, pad], axis=-1)  # (n, T, 5)
+    pca_5d = pca_normalize.inverse(norm_5d)  # (n, T, 5)
+    out_50d = pca.inverse_transform(pca_5d.reshape(-1, 5)).reshape(n, T, 50)
     return out_50d[0] if single else out_50d
 
 
@@ -828,7 +808,7 @@ def _gt_to_50d(traj_norm_5d: np.ndarray, pca, pca_normalize) -> np.ndarray:
     if single:
         traj_norm_5d = traj_norm_5d[np.newaxis]
     n, T, _ = traj_norm_5d.shape
-    pca_5d  = pca_normalize.inverse(traj_norm_5d)
+    pca_5d = pca_normalize.inverse(traj_norm_5d)
     out_50d = pca.inverse_transform(pca_5d.reshape(-1, 5)).reshape(n, T, 50)
     return out_50d[0] if single else out_50d
 
@@ -860,12 +840,12 @@ def load_mocap(data_dir: Path, subject: str = "09", variant: str = "short") -> D
 
     dataset = _load_mocap_pickle(pkl_path)
 
-    trn_ys_5d = np.asarray(dataset.trn.ys, dtype=np.float32)    # (n_trn, T_trn, 5)
-    trn_ts    = np.asarray(dataset.trn.ts, dtype=np.float32)
-    val_ys_5d = np.asarray(dataset.val.ys, dtype=np.float32)    # (n_val, T_val, 5)
-    val_ts    = np.asarray(dataset.val.ts, dtype=np.float32)
-    tst_ys_5d = np.asarray(dataset.tst.ys, dtype=np.float32)    # (n_tst, T_tst, 5)
-    tst_ts    = np.asarray(dataset.tst.ts, dtype=np.float32)
+    trn_ys_5d = np.asarray(dataset.trn.ys, dtype=np.float32)  # (n_trn, T_trn, 5)
+    trn_ts = np.asarray(dataset.trn.ts, dtype=np.float32)
+    val_ys_5d = np.asarray(dataset.val.ys, dtype=np.float32)  # (n_val, T_val, 5)
+    val_ts = np.asarray(dataset.val.ts, dtype=np.float32)
+    tst_ys_5d = np.asarray(dataset.tst.ys, dtype=np.float32)  # (n_tst, T_tst, 5)
+    tst_ts = np.asarray(dataset.tst.ts, dtype=np.float32)
 
     if trn_ts.ndim == 2:
         trn_ts = trn_ts[0]
@@ -875,17 +855,17 @@ def load_mocap(data_dir: Path, subject: str = "09", variant: str = "short") -> D
         tst_ts = tst_ts[0]
 
     return {
-        "trn_ys":    trn_ys_5d[:, :, :N_PCA_DIMS],    # (n_trn, T_trn, 3)
-        "trn_ts":    trn_ts,
-        "val_ys":    val_ys_5d[:, :, :N_PCA_DIMS],    # (n_val, T_val, 3)
-        "val_ys_5d": val_ys_5d,                        # (n_val, T_val, 5) for 50D eval
-        "val_ts":    val_ts,
-        "tst_ys":    tst_ys_5d[:, :, :N_PCA_DIMS],    # (n_tst, T_tst, 3)
-        "tst_ys_5d": tst_ys_5d,                        # (n_tst, T_tst, 5) for 50D eval
-        "tst_ts":    tst_ts,
-        "pca":       dataset.pca,
-        "pca_norm":  dataset.pca_normalize,
-        "label":     f"mocap-{subject}-{variant}",
+        "trn_ys": trn_ys_5d[:, :, :N_PCA_DIMS],  # (n_trn, T_trn, 3)
+        "trn_ts": trn_ts,
+        "val_ys": val_ys_5d[:, :, :N_PCA_DIMS],  # (n_val, T_val, 3)
+        "val_ys_5d": val_ys_5d,  # (n_val, T_val, 5) for 50D eval
+        "val_ts": val_ts,
+        "tst_ys": tst_ys_5d[:, :, :N_PCA_DIMS],  # (n_tst, T_tst, 3)
+        "tst_ys_5d": tst_ys_5d,  # (n_tst, T_tst, 5) for 50D eval
+        "tst_ts": tst_ts,
+        "pca": dataset.pca,
+        "pca_norm": dataset.pca_normalize,
+        "label": f"mocap-{subject}-{variant}",
     }
 
 
@@ -900,21 +880,19 @@ def make_mocap_eval_fn(data: Dict, device: str) -> Callable:
     -------
     eval_fn : model → float  (mean 50D MSE over all val trajectories)
     """
-    trn_ys    = data["trn_ys"]      # (n_trn, T_trn, 3)
-    trn_ts    = data["trn_ts"]
-    val_ys    = data["val_ys"]      # (n_val, T_val, 3) — 3D IC for integration
-    val_ys_5d = data["val_ys_5d"]   # (n_val, T_val, 5) — GT for 50D eval
-    val_ts    = data["val_ts"]
-    pca       = data["pca"]
-    pca_norm  = data["pca_norm"]
+    trn_ys = data["trn_ys"]  # (n_trn, T_trn, 3)
+    trn_ts = data["trn_ts"]
+    val_ys = data["val_ys"]  # (n_val, T_val, 3) — 3D IC for integration
+    val_ys_5d = data["val_ys_5d"]  # (n_val, T_val, 5) — GT for 50D eval
+    val_ts = data["val_ts"]
+    pca = data["pca"]
+    pca_norm = data["pca_norm"]
 
     def eval_fn(model: FIMODE) -> float:
         mses = []
         for i in range(len(val_ys)):
-            y0   = val_ys[i, 0].astype(float)
-            pred = integrate_from_context(
-                model, trn_ys, trn_ts, y0, val_ts, device
-            )                                          # (T_val, 3)
+            y0 = val_ys[i, 0].astype(float)
+            pred = integrate_from_context(model, trn_ys, trn_ts, y0, val_ts, device)  # (T_val, 3)
             pred_50d = _pca_to_50d(pred, pca, pca_norm)
             true_50d = _gt_to_50d(val_ys_5d[i], pca, pca_norm)
             mses.append(float(np.mean((pred_50d - true_50d) ** 2)))
@@ -930,21 +908,19 @@ def make_mocap_test_eval_fn(data: Dict, device: str) -> Callable:
     -------
     eval_fn : model → float  (mean 50D MSE over all tst trajectories)
     """
-    trn_ys    = data["trn_ys"]      # (n_trn, T_trn, 3)
-    trn_ts    = data["trn_ts"]
-    tst_ys    = data["tst_ys"]      # (n_tst, T_tst, 3)
-    tst_ys_5d = data["tst_ys_5d"]   # (n_tst, T_tst, 5)
-    tst_ts    = data["tst_ts"]
-    pca       = data["pca"]
-    pca_norm  = data["pca_norm"]
+    trn_ys = data["trn_ys"]  # (n_trn, T_trn, 3)
+    trn_ts = data["trn_ts"]
+    tst_ys = data["tst_ys"]  # (n_tst, T_tst, 3)
+    tst_ys_5d = data["tst_ys_5d"]  # (n_tst, T_tst, 5)
+    tst_ts = data["tst_ts"]
+    pca = data["pca"]
+    pca_norm = data["pca_norm"]
 
     def eval_fn(model: FIMODE) -> float:
         mses = []
         for i in range(len(tst_ys)):
-            y0   = tst_ys[i, 0].astype(float)
-            pred = integrate_from_context(
-                model, trn_ys, trn_ts, y0, tst_ts, device
-            )                                          # (T_tst, 3)
+            y0 = tst_ys[i, 0].astype(float)
+            pred = integrate_from_context(model, trn_ys, trn_ts, y0, tst_ts, device)  # (T_tst, 3)
             pred_50d = _pca_to_50d(pred, pca, pca_norm)
             true_50d = _gt_to_50d(tst_ys_5d[i], pca, pca_norm)
             mses.append(float(np.mean((pred_50d - true_50d) ** 2)))
@@ -965,57 +941,58 @@ def parse_args():
         description="Finetune FIM-ODE via trajectory reconstruction.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--config", default=None,
-                   help="YAML config file; CLI flags override config values.")
-    p.add_argument("--task",      choices=TASKS, default="vdp-u")
-    p.add_argument("--data-dir",  default=str(_ROOT / "data" / "ode" / "hedge_gp_odes_data"),
-                   help="Directory containing vdp_uniform.npz etc.")
-    p.add_argument("--ckpt-dir",  default=str(_ROOT / "results" / "ode" / "checkpoints" / "finetune"),
-                   help="Directory to save checkpoints.")
-    p.add_argument("--run-dir",   default=str(_ROOT / "results" / "ode" / "logs"),
-                   help="TensorBoard logdir root.")
-    p.add_argument("--mode",
-                   choices=["full_trajectory", "batch_trajectory", "consecutive"],
-                   default="full_trajectory",
-                   help="full_trajectory: single-shoot from x0 through entire "
-                        "training window. batch_trajectory: same but over all "
-                        "n_paths simultaneously (MoCap). consecutive: parallel "
-                        "1-step pairs.")
-    p.add_argument("--epochs",         type=int,   default=500)
-    p.add_argument("--lr",             type=float, default=1e-5)
-    p.add_argument("--weight-decay",   type=float, default=1e-4)
-    p.add_argument("--n-inner-steps",  type=int,   default=5,
-                   help="Sub-steps between consecutive observations (Euler "
-                        "sub-division, reduces discretisation error).")
-    p.add_argument("--freeze-encoder", action="store_true",
-                   help="Only update functional decoder (less forgetting).")
-    p.add_argument("--integrator",     choices=["euler", "improved_euler"],
-                   default="euler",
-                   help="ODE integrator for reconstruction.")
-    p.add_argument("--eval-every",     type=int,   default=25)
-    p.add_argument("--ckpt-every",     type=int,   default=100)
-    p.add_argument("--log-every",      type=int,   default=25)
-    p.add_argument("--device",         default="cpu")
-    p.add_argument("--local-ckpt",     default=None,
-                   help="Path to local checkpoint directory (skips HF download).")
-    p.add_argument("--label", default=None,
-                   help="Custom run label used for checkpoint filenames and TensorBoard. "
-                        "Defaults to the task name (or mocap-{subject}-{variant}). "
-                        "Use this to distinguish runs with different hyperparameters.")
+    p.add_argument("--config", default=None, help="YAML config file; CLI flags override config values.")
+    p.add_argument("--task", choices=TASKS, default="vdp-u")
+    p.add_argument(
+        "--data-dir", default=str(_ROOT / "data" / "ode" / "hedge_gp_odes_data"), help="Directory containing vdp_uniform.npz etc."
+    )
+    p.add_argument("--ckpt-dir", default=str(_ROOT / "results" / "ode" / "checkpoints" / "finetune"), help="Directory to save checkpoints.")
+    p.add_argument("--run-dir", default=str(_ROOT / "results" / "ode" / "logs"), help="TensorBoard logdir root.")
+    p.add_argument(
+        "--mode",
+        choices=["full_trajectory", "batch_trajectory", "consecutive"],
+        default="full_trajectory",
+        help="full_trajectory: single-shoot from x0 through entire "
+        "training window. batch_trajectory: same but over all "
+        "n_paths simultaneously (MoCap). consecutive: parallel "
+        "1-step pairs.",
+    )
+    p.add_argument("--epochs", type=int, default=500)
+    p.add_argument("--lr", type=float, default=1e-5)
+    p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument(
+        "--n-inner-steps",
+        type=int,
+        default=5,
+        help="Sub-steps between consecutive observations (Euler sub-division, reduces discretisation error).",
+    )
+    p.add_argument("--freeze-encoder", action="store_true", help="Only update functional decoder (less forgetting).")
+    p.add_argument("--integrator", choices=["euler", "improved_euler"], default="euler", help="ODE integrator for reconstruction.")
+    p.add_argument("--eval-every", type=int, default=25)
+    p.add_argument("--ckpt-every", type=int, default=100)
+    p.add_argument("--log-every", type=int, default=25)
+    p.add_argument("--device", default="cpu")
+    p.add_argument("--local-ckpt", default=None, help="Path to local checkpoint directory (skips HF download).")
+    p.add_argument(
+        "--label",
+        default=None,
+        help="Custom run label used for checkpoint filenames and TensorBoard. "
+        "Defaults to the task name (or mocap-{subject}-{variant}). "
+        "Use this to distinguish runs with different hyperparameters.",
+    )
     p.add_argument("--no-tb", action="store_true", help="Disable TensorBoard.")
     # MoCap-specific
-    p.add_argument("--subject",  default="09", choices=["09", "35", "39"],
-                   help="MoCap subject ID (only used when --task mocap).")
-    p.add_argument("--variant",  default="short", choices=["short", "long"],
-                   help="MoCap dataset variant (only used when --task mocap).")
-    p.add_argument("--mocap-dir", default=str(_ROOT / "data" / "mocap"),
-                   help="Base directory for MoCap pickle files "
-                        "(parent of subject_XX/).")
+    p.add_argument("--subject", default="09", choices=["09", "35", "39"], help="MoCap subject ID (only used when --task mocap).")
+    p.add_argument("--variant", default="short", choices=["short", "long"], help="MoCap dataset variant (only used when --task mocap).")
+    p.add_argument(
+        "--mocap-dir", default=str(_ROOT / "data" / "mocap"), help="Base directory for MoCap pickle files (parent of subject_XX/)."
+    )
     args = p.parse_args()
 
     # ── Merge YAML config (CLI overrides YAML) ────────────────────────────────
     if args.config is not None:
         import yaml
+
         with open(args.config) as fh:
             cfg = yaml.safe_load(fh)
         # Only apply YAML values where the CLI still has its default
@@ -1029,11 +1006,11 @@ def parse_args():
 
 
 def main():
-    args     = parse_args()
-    device   = args.device
+    args = parse_args()
+    device = args.device
     data_dir = Path(args.data_dir)
     ckpt_dir = Path(args.ckpt_dir)
-    run_dir  = Path(args.run_dir)
+    run_dir = Path(args.run_dir)
 
     # ── Load model ───────────────────────────────────────────────────────────
     print("Loading FIM-ODE model …")
@@ -1050,7 +1027,7 @@ def main():
         base_label = f"mocap-{args.subject}-{args.variant}"
     else:
         base_label = args.task
-    ts_str     = time.strftime("%Y%m%d_%H%M%S")
+    ts_str = time.strftime("%Y%m%d_%H%M%S")
     task_label = f"{base_label}_{ts_str}"
 
     # ── TensorBoard writer + config snapshot ────────────────────────────────
@@ -1058,7 +1035,10 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Save config into the run directory so every run is self-contained
-    import yaml, shutil
+    import shutil
+
+    import yaml
+
     if args.config is not None:
         shutil.copy(args.config, log_dir / "config.yaml")
     with open(log_dir / "args.yaml", "w") as fh:
@@ -1077,33 +1057,33 @@ def main():
     segmented = False
 
     if args.task == "vdp-u":
-        data         = load_vdp_uniform(data_dir)
-        traj_np      = data["train_ys"][0]              # (T, D)
-        times_np     = data["train_ts"]
-        eval_fn      = make_vdp_eval_fn(data, device)
+        data = load_vdp_uniform(data_dir)
+        traj_np = data["train_ys"][0]  # (T, D)
+        times_np = data["train_ts"]
+        eval_fn = make_vdp_eval_fn(data, device)
         test_eval_fn = eval_fn
 
     elif args.task == "vdp-nu":
-        data         = load_vdp_nonuniform(data_dir)
-        traj_np      = data["train_ys"][0]
-        times_np     = data["train_ts"]
-        eval_fn      = make_vdp_eval_fn(data, device)
+        data = load_vdp_nonuniform(data_dir)
+        traj_np = data["train_ys"][0]
+        times_np = data["train_ts"]
+        eval_fn = make_vdp_eval_fn(data, device)
         test_eval_fn = eval_fn
 
     elif args.task == "fhn":
-        data         = load_fhn(data_dir)
-        traj_np      = data["train_ys"][0]              # (38, D)
-        times_np     = data["train_ts"]                 # (38,)
-        eval_fn      = make_fhn_eval_fn(data, device)
+        data = load_fhn(data_dir)
+        traj_np = data["train_ys"][0]  # (38, D)
+        times_np = data["train_ts"]  # (38,)
+        eval_fn = make_fhn_eval_fn(data, device)
         test_eval_fn = eval_fn
 
     elif args.task == "mocap":
-        mocap_dir    = Path(args.mocap_dir)
-        data         = load_mocap(mocap_dir, subject=args.subject, variant=args.variant)
-        traj_np      = data["trn_ys"]                   # (n_trn, T_trn, 3)
-        times_np     = data["trn_ts"]                   # (T_trn,)
-        eval_fn      = make_mocap_eval_fn(data, device)      # val set  (checkpoint selection)
-        test_eval_fn = make_mocap_test_eval_fn(data, device) # test set (final report)
+        mocap_dir = Path(args.mocap_dir)
+        data = load_mocap(mocap_dir, subject=args.subject, variant=args.variant)
+        traj_np = data["trn_ys"]  # (n_trn, T_trn, 3)
+        times_np = data["trn_ts"]  # (T_trn,)
+        eval_fn = make_mocap_eval_fn(data, device)  # val set  (checkpoint selection)
+        test_eval_fn = make_mocap_test_eval_fn(data, device)  # test set (final report)
         # Override mode to batch_trajectory when multiple paths are present
         if args.mode == "full_trajectory" and traj_np.ndim == 3:
             args.mode = "batch_trajectory"
@@ -1128,13 +1108,13 @@ def main():
 
     # ── Finetuner ────────────────────────────────────────────────────────────
     finetuner = Finetuner(
-        model          = model,
-        device         = device,
-        lr             = args.lr,
-        weight_decay   = args.weight_decay,
-        freeze_encoder = args.freeze_encoder,
-        integrator     = args.integrator,
-        n_inner_steps  = args.n_inner_steps,
+        model=model,
+        device=device,
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        freeze_encoder=args.freeze_encoder,
+        integrator=args.integrator,
+        n_inner_steps=args.n_inner_steps,
     )
 
     mode_str = "segmented-consecutive" if segmented else args.mode
@@ -1145,18 +1125,18 @@ def main():
     print(f"  freeze_enc   : {args.freeze_encoder}")
 
     history = finetuner.finetune(
-        traj_np    = traj_np,
-        times_np   = times_np,
-        n_epochs   = args.epochs,
-        mask_np    = None,
-        mode       = args.mode,
-        eval_fn    = eval_fn,
-        eval_every = args.eval_every,
-        writer     = writer,
-        ckpt_dir   = ckpt_dir,
-        ckpt_every = args.ckpt_every,
-        log_every  = args.log_every,
-        task_label = task_label,
+        traj_np=traj_np,
+        times_np=times_np,
+        n_epochs=args.epochs,
+        mask_np=None,
+        mode=args.mode,
+        eval_fn=eval_fn,
+        eval_every=args.eval_every,
+        writer=writer,
+        ckpt_dir=ckpt_dir,
+        ckpt_every=args.ckpt_every,
+        log_every=args.log_every,
+        task_label=task_label,
     )
 
     if writer:
@@ -1166,7 +1146,7 @@ def main():
     print("\n── Finetuning complete ────────────────────────────────────────────")
     print(f"  final train loss : {history['train_loss'][-1]:.5e}")
     if history["eval_mse"]:
-        best_mse   = history["best_mse"]
+        best_mse = history["best_mse"]
         best_epoch = history["eval_epochs"][history["eval_mse"].index(best_mse)]
         print(f"  best val/train MSE : {best_mse:.5e}  (epoch {best_epoch})")
         if history.get("best_ckpt_path"):
@@ -1180,7 +1160,7 @@ def main():
                 mse_final_test = test_eval_fn(model)
             print(f"  final test MSE: {mse_final_test:.5e}")
             if writer:
-                writer.add_scalar(f"{task_label}/eval_test_mse", mse_final_test, history['eval_epochs'][-1])
+                writer.add_scalar(f"{task_label}/eval_test_mse", mse_final_test, history["eval_epochs"][-1])
 
     return history
 

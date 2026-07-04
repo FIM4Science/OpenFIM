@@ -1,5 +1,6 @@
-import h5py
 from pathlib import Path
+
+import h5py
 
 
 def get_shape_of_h5(path: str):
@@ -11,7 +12,7 @@ def get_shape_of_h5(path: str):
     with h5py.File(path, "r") as f:
         data = f["data"][:]
         _ = data.shape
-    
+
     return _
 
 
@@ -24,7 +25,7 @@ def get_dtype_of_h5(path: str):
     with h5py.File(path, "r") as f:
         data = f["data"][:]
         _ = data.dtype
-    
+
     return _
 
 
@@ -37,7 +38,7 @@ def get_type_of_h5(path: str):
     with h5py.File(path, "r") as f:
         data = f["data"][:]
         _ = type(data)
-    
+
     return _
 
 
@@ -49,7 +50,7 @@ def parse_h5(path: str):
 
     with h5py.File(path, "r") as f:
         data = f["data"][:]
-    
+
     return data
 
 

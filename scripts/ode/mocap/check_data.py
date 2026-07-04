@@ -1,7 +1,8 @@
-from pathlib import Path
-import h5py
 import pickle
-from data_gen_mocap import Normalize, Data, MocapDataset
+from pathlib import Path
+
+import h5py
+from data_gen_mocap import MocapDataset
 
 
 # 5D
@@ -20,7 +21,7 @@ for task in ["mocap09short", "mocap09long", "mocap35short", "mocap35long", "moca
         print()
 
     # now for the .pkl (only exists in 5d directory)
-    with open(data_path / "mocap_dataset.pkl", 'rb') as f:
+    with open(data_path / "mocap_dataset.pkl", "rb") as f:
         print("mocap_dataset.pkl")
         mocap_dataset: MocapDataset = pickle.load(f)
 
@@ -32,6 +33,6 @@ for task in ["mocap09short", "mocap09long", "mocap35short", "mocap35long", "moca
 
         print("val.ys")
         print(mocap_dataset.val.ys.shape)
-    
+
     print()
     print()

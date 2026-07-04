@@ -1,29 +1,26 @@
 import pickle
-from dataclasses import dataclass, is_dataclass, fields
-from operator import truth
+from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
-from typing import Final, List, Optional, Dict
+from typing import Dict, Final, List, Optional
 
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from odebench.dataProvider import SpecificDimFimDataset
+from odebench.plotting_utils import save_all_figures_to_pdf
 from torch import Tensor
 from tqdm import tqdm
+from utils.eval_models import OdeFormerEval, PredictionModel
 
-from fim.data_generation.sde.lipschitz_systems import solve_ivp_one_step_method, \
-    solve_ivp_one_step_method_with_delta_times
-from utils.eval_models import OdeonEval, PredictionModel, OdeFormerEval
-from odebench.plotting_utils import save_all_figures_to_pdf
-from odebench.dataProvider import FimDataloader, SpecificDimFimDataset
+from fim.data_generation.sde.lipschitz_systems import solve_ivp_one_step_method_with_delta_times
 
 
 @dataclass(kw_only=True)
 class StatAtom:
     name: Final[str]
 
-    def join(self, other: 'StatAtom') -> 'StatAtom':
+    def join(self, other: "StatAtom") -> "StatAtom":
         pass
-
 
     def visualize(self, title_extension: Optional[str] = ""):
         pass
@@ -45,7 +42,7 @@ class RMSEStatCalculator(VFStatCalculator):
         name: Final[str] = "RMSE"
         mean_over_all_locations: Tensor
 
-        def join(self, other: 'RMSEStat') -> 'RMSEStat':
+        def join(self, other):
             if not isinstance(other, RMSEStatCalculator.RMSEStat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
@@ -55,12 +52,11 @@ class RMSEStatCalculator(VFStatCalculator):
         def visualize(self, title_extension: Optional[str] = ""):
             fig, ax = plt.subplots(1, 1, figsize=(15, 10))
 
-            counts, bins, patches = ax.hist(self.mean_over_all_locations.cpu().numpy(), edgecolor='black')
-            ax.bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                         padding=3, fontsize=10)
+            counts, bins, patches = ax.hist(self.mean_over_all_locations.cpu().numpy(), edgecolor="black")
+            ax.bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
             ax.set_title(f"RMSE Mean over all locations for all batches\n{title_extension}")
-            ax.set_xlabel('RMSE')
-            ax.set_ylabel('Frequency')
+            ax.set_xlabel("RMSE")
+            ax.set_ylabel("Frequency")
 
             plt.tight_layout()
 
@@ -86,7 +82,7 @@ class MAEStatCalculator(VFStatCalculator):
         name: Final[str] = "MAE"
         mean_over_all_locations: Tensor
 
-        def join(self, other: 'MAEStat') -> 'MAEStat':
+        def join(self, other):
             if not isinstance(other, MAEStatCalculator.MAEStat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
@@ -113,7 +109,7 @@ class RelativeL2StatCalculator(VFStatCalculator):
         name: Final[str] = "Relative L2"
         mean_over_all_locations: Tensor
 
-        def join(self, other: 'RelativeL2Stat') -> 'RelativeL2Stat':
+        def join(self, other):
             if not isinstance(other, RelativeL2StatCalculator.RelativeL2Stat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
@@ -123,17 +119,15 @@ class RelativeL2StatCalculator(VFStatCalculator):
         def visualize(self, title_extension: Optional[str] = ""):
             fig, ax = plt.subplots(1, 1, figsize=(15, 10))
 
-            counts, bins, patches = ax.hist(self.mean_over_all_locations.cpu().numpy(), edgecolor='black')
-            ax.bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                         padding=3, fontsize=10)
+            counts, bins, patches = ax.hist(self.mean_over_all_locations.cpu().numpy(), edgecolor="black")
+            ax.bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
             ax.set_title(f"Relative L2 Mean over all locations for all batches\n{title_extension}")
-            ax.set_xlabel('Relative L2')
-            ax.set_ylabel('Frequency')
+            ax.set_xlabel("Relative L2")
+            ax.set_ylabel("Frequency")
 
             plt.tight_layout()
 
-    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor,
-                  dim_mask: Tensor) -> RelativeL2Stat:
+    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor, dim_mask: Tensor) -> RelativeL2Stat:
         estimated_drift = estimated_drift * dim_mask
         truth_drift = truth_drift * dim_mask
 
@@ -156,7 +150,7 @@ class PercentStatCalculator(VFStatCalculator):
         name: Final[str] = "Percent"
         percent_over_all_locations: Tensor
 
-        def join(self, other: 'PercentStat') -> 'PercentStat':
+        def join(self, other):
             if not isinstance(other, PercentStatCalculator.PercentStat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
@@ -166,17 +160,15 @@ class PercentStatCalculator(VFStatCalculator):
         def visualize(self, title_extension: Optional[str] = ""):
             fig, ax = plt.subplots(1, 1, figsize=(15, 10))
 
-            counts, bins, patches = ax.hist(self.percent_over_all_locations.cpu().numpy(), edgecolor='black')
-            ax.bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                         padding=3, fontsize=10)
+            counts, bins, patches = ax.hist(self.percent_over_all_locations.cpu().numpy(), edgecolor="black")
+            ax.bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
             ax.set_title(f"Percent of locations with l1_norm > truth_magnitude\n{title_extension}")
-            ax.set_xlabel('Percent')
-            ax.set_ylabel('Frequency')
+            ax.set_xlabel("Percent")
+            ax.set_ylabel("Frequency")
 
             plt.tight_layout()
 
-    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor,
-                  dim_mask: Tensor) -> PercentStat:
+    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor, dim_mask: Tensor) -> PercentStat:
         mae = torch.nn.functional.l1_loss(estimated_drift, truth_drift, reduction="none")
         mae = mae * dim_mask
 
@@ -197,7 +189,7 @@ class CosineSimStatCalculator(VFStatCalculator):
         name: Final[str] = "Cosine Similarity"
         mean_over_all_locations: Tensor
 
-        def join(self, other: 'CosineSimilarityStat') -> 'CosineSimilarityStat':
+        def join(self, other):
             if not isinstance(other, CosineSimStatCalculator.CosineSimilarityStat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
@@ -207,17 +199,15 @@ class CosineSimStatCalculator(VFStatCalculator):
         def visualize(self, title_extension: Optional[str] = ""):
             fig, ax = plt.subplots(1, 1, figsize=(15, 10))
 
-            counts, bins, patches = ax.hist(self.mean_over_all_locations.cpu().numpy(), edgecolor='black')
-            ax.bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                         padding=3, fontsize=10)
+            counts, bins, patches = ax.hist(self.mean_over_all_locations.cpu().numpy(), edgecolor="black")
+            ax.bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
             ax.set_title(f"Cosine Similarity Mean over all location for all batches\n{title_extension}")
-            ax.set_xlabel('Cosine Similarity')
-            ax.set_ylabel('Frequency')
+            ax.set_xlabel("Cosine Similarity")
+            ax.set_ylabel("Frequency")
 
             plt.tight_layout()
 
-    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor,
-                  dim_mask: Tensor) -> CosineSimilarityStat:
+    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor, dim_mask: Tensor) -> CosineSimilarityStat:
         estimated_drift = estimated_drift * dim_mask
         truth_drift = truth_drift * dim_mask
 
@@ -234,15 +224,14 @@ class MagnitudeErrorStatCalculator(VFStatCalculator):
         name: Final[str] = "Magnitude Error"
         mean_over_all_locations: Tensor
 
-        def join(self, other: 'MagnitudeErrorStat') -> 'MagnitudeErrorStat':
+        def join(self, other):
             if not isinstance(other, MagnitudeErrorStatCalculator.MagnitudeErrorStat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
             val = torch.cat([self.mean_over_all_locations, other.mean_over_all_locations], dim=0)
             return MagnitudeErrorStatCalculator.MagnitudeErrorStat(mean_over_all_locations=val)
 
-    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor,
-                  dim_mask: Tensor) -> MagnitudeErrorStat:
+    def calc_stat(self, location: Tensor, estimated_drift: Tensor, truth_drift: Tensor, dim_mask: Tensor) -> MagnitudeErrorStat:
         estimated_drift = estimated_drift * dim_mask
         truth_drift = truth_drift * dim_mask
 
@@ -265,20 +254,18 @@ class R2VarianceWeighterStatCalculator(TrajStatCalculator):
         number_of_r2_above_threshold: Dict[float, float]
         num_trajectories: int
 
-        def join(self, other: 'R2VarianceWeightedStat') -> 'R2VarianceWeightedStat':
+        def join(self, other):
             if not isinstance(other, R2VarianceWeighterStatCalculator.R2VarianceWeightedStat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
-            combined_thresholds = set(self.number_of_r2_above_threshold.keys()).union(
-                other.number_of_r2_above_threshold.keys())
+            combined_thresholds = set(self.number_of_r2_above_threshold.keys()).union(other.number_of_r2_above_threshold.keys())
             combined_results = {
-                threshold: self.number_of_r2_above_threshold.get(threshold, 0) + other.number_of_r2_above_threshold.get(
-                    threshold, 0)
-                for threshold in combined_thresholds}
+                threshold: self.number_of_r2_above_threshold.get(threshold, 0) + other.number_of_r2_above_threshold.get(threshold, 0)
+                for threshold in combined_thresholds
+            }
 
             return R2VarianceWeighterStatCalculator.R2VarianceWeightedStat(
-                number_of_r2_above_threshold=combined_results,
-                num_trajectories=self.num_trajectories + other.num_trajectories
+                number_of_r2_above_threshold=combined_results, num_trajectories=self.num_trajectories + other.num_trajectories
             )
 
         def visualize(self, title_extension: Optional[str] = ""):
@@ -288,17 +275,16 @@ class R2VarianceWeighterStatCalculator(TrajStatCalculator):
             values = np.array(list(self.number_of_r2_above_threshold.values())) / self.num_trajectories
             values = np.round(values, 2)
 
-            bars = ax.bar(labels, values, width=0.025, edgecolor='black')
+            bars = ax.bar(labels, values, width=0.025, edgecolor="black")
             ax.bar_label(bars)
 
             ax.set_title(f"Percent of trajectories with R2 > threshold\n{title_extension}")
-            ax.set_xlabel('Threshold')
-            ax.set_ylabel('Frequency')
+            ax.set_xlabel("Threshold")
+            ax.set_ylabel("Frequency")
 
             plt.tight_layout()
 
-    def calc_stat(self, estimated_trajectory: Tensor, truth_trajectory: Tensor,
-                  dim: int) -> R2VarianceWeightedStat:
+    def calc_stat(self, estimated_trajectory: Tensor, truth_trajectory: Tensor, dim: int) -> R2VarianceWeightedStat:
         estimated_trajectory = estimated_trajectory[..., :dim]
         truth_trajectory = truth_trajectory[..., :dim]
 
@@ -367,7 +353,7 @@ class R2VarianceWeighterStatCalculator(TrajStatCalculator):
         final_weights = torch.where(
             batch_has_nonzero.unsqueeze(1),  # Broadcast to (b, 1)
             variance_weights / (variance_weights.sum(dim=1, keepdim=True) + 1e-15),  # Normalized variance weights
-            uniform_weights  # Uniform weights fallback
+            uniform_weights,  # Uniform weights fallback
         )
 
         # Variance-weighted average across dimensions
@@ -382,26 +368,23 @@ class TrajL1Calculator(TrajStatCalculator):
         name: Final[str] = "Trajectory L1"
         mean_over_all_trajectories_per_batch: Tensor
 
-        def join(self, other: 'TrajL1Stat') -> 'TrajL1Stat':
+        def join(self, other):
             if not isinstance(other, TrajL1Calculator.TrajL1Stat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
-            val = torch.cat([self.mean_over_all_trajectories_per_batch, other.mean_over_all_trajectories_per_batch],
-                            dim=0)
+            val = torch.cat([self.mean_over_all_trajectories_per_batch, other.mean_over_all_trajectories_per_batch], dim=0)
             return TrajL1Calculator.TrajL1Stat(mean_over_all_trajectories_per_batch=val)
 
         def visualize(self, title_extension: Optional[str] = ""):
             fig, ax = plt.subplots(1, 1, figsize=(15, 10))
 
-            counts, bins, patches = ax.hist(self.mean_over_all_trajectories_per_batch, edgecolor='black')
-            ax.bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                            padding=3, fontsize=10)
+            counts, bins, patches = ax.hist(self.mean_over_all_trajectories_per_batch, edgecolor="black")
+            ax.bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
             ax.set_title(f"L1 Distribution over all trajectories in batch\n{title_extension}")
-            ax.set_xlabel('L1')
-            ax.set_ylabel('Frequency')
+            ax.set_xlabel("L1")
+            ax.set_ylabel("Frequency")
 
             plt.tight_layout()
-
 
     def calc_stat(self, estimated_trajectory: Tensor, truth_trajectory: Tensor, dim: int) -> TrajL1Stat:
         estimated_trajectory = estimated_trajectory[..., :dim]
@@ -427,36 +410,32 @@ class msMAPEStatCalculator(TrajStatCalculator):
         mean_dim_msmape_per_batch: Tensor
         median_dim_msmape_per_batch: Tensor
 
-        def join(self, other: 'msMAPEStat') -> 'msMAPEStat':
+        def join(self, other):
             if not isinstance(other, msMAPEStatCalculator.msMAPEStat):
                 raise TypeError(f"Cannot join with {type(other)}")
 
             mean_val = torch.cat([self.mean_dim_msmape_per_batch, other.mean_dim_msmape_per_batch], dim=0)
             median_val = torch.cat([self.median_dim_msmape_per_batch, other.median_dim_msmape_per_batch], dim=0)
-            return msMAPEStatCalculator.msMAPEStat(mean_dim_msmape_per_batch=mean_val,
-                                                   median_dim_msmape_per_batch=median_val)
+            return msMAPEStatCalculator.msMAPEStat(mean_dim_msmape_per_batch=mean_val, median_dim_msmape_per_batch=median_val)
 
         def visualize(self, title_extension: Optional[str] = ""):
             fig, ax = plt.subplots(2, 1, figsize=(15, 20))
 
-            counts, bins, patches = ax[0].hist(self.mean_dim_msmape_per_batch, edgecolor='black')
-            ax[0].bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                         padding=3, fontsize=10)
+            counts, bins, patches = ax[0].hist(self.mean_dim_msmape_per_batch, edgecolor="black")
+            ax[0].bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
             ax[0].set_title(f"Mean msMAPE over dim per function (over all trajectories in batch)\n{title_extension}")
-            ax[0].set_xlabel('Mean msMAPE')
-            ax[0].set_ylabel('Frequency')
+            ax[0].set_xlabel("Mean msMAPE")
+            ax[0].set_ylabel("Frequency")
 
-            counts, bins, patches = ax[1].hist(self.median_dim_msmape_per_batch, edgecolor='black')
-            ax[1].bar_label(patches, labels=[f'{int(c)}' if c > 0 else '' for c in counts],
-                            padding=3, fontsize=10)
+            counts, bins, patches = ax[1].hist(self.median_dim_msmape_per_batch, edgecolor="black")
+            ax[1].bar_label(patches, labels=[f"{int(c)}" if c > 0 else "" for c in counts], padding=3, fontsize=10)
             ax[1].set_title(f"Median msMAPE over dim per function (over all trajectories in batch)\n{title_extension}")
-            ax[1].set_xlabel('Meadian msMAPE')
-            ax[1].set_ylabel('Frequency')
+            ax[1].set_xlabel("Meadian msMAPE")
+            ax[1].set_ylabel("Frequency")
 
             plt.tight_layout()
 
-    def calc_stat(self, estimated_trajectory: Tensor, truth_trajectory: Tensor,
-                  dim: int) -> msMAPEStat:
+    def calc_stat(self, estimated_trajectory: Tensor, truth_trajectory: Tensor, dim: int) -> msMAPEStat:
         est_traj = estimated_trajectory[..., :dim]
         truth_traj = truth_trajectory[..., :dim]
 
@@ -479,7 +458,6 @@ class msMAPEStatCalculator(TrajStatCalculator):
 
 
 class StatCalculationRunner:
-
     @dataclass
     class ResultContainer:
         stats: List[StatAtom]
@@ -500,14 +478,10 @@ class StatCalculationRunner:
             # RelativeL2StatCalculator(),
             # PercentStatCalculator(),
             CosineSimStatCalculator(),
-            MagnitudeErrorStatCalculator()
+            MagnitudeErrorStatCalculator(),
         ]
 
-        self.traj_calculators = [
-            R2VarianceWeighterStatCalculator(),
-            TrajL1Calculator(),
-            msMAPEStatCalculator()
-        ]
+        self.traj_calculators = [R2VarianceWeighterStatCalculator(), TrajL1Calculator(), msMAPEStatCalculator()]
 
     def _get_dataloader(self, data_path: Path, dim: int) -> torch.utils.data.DataLoader:
         train_dataset = SpecificDimFimDataset(data_path=data_path, expected_dim=dim)
@@ -518,13 +492,15 @@ class StatCalculationRunner:
             shuffle=False,
             num_workers=self.num_workers,
             prefetch_factor=self.prefetch_factor,
-            pin_memory=True
+            pin_memory=True,
         )
 
         return tqdm(data, desc=f"Loading data for dim {dim}", unit="batch")
 
     @torch.no_grad()
-    def run_vf_stats(self, data_path: Path, dim: int, max_num_traj: Optional[int] = None, num_equispaced_points: Optional[int] = None) -> List[StatAtom]:
+    def run_vf_stats(
+        self, data_path: Path, dim: int, max_num_traj: Optional[int] = None, num_equispaced_points: Optional[int] = None
+    ) -> List[StatAtom]:
         acc_results = []
 
         for i, (fx, coord, traj, time) in enumerate(self._get_dataloader(data_path, dim)):
@@ -552,7 +528,9 @@ class StatCalculationRunner:
         return acc_results
 
     @torch.no_grad()
-    def run_reconstruction_traj_stats(self, data_path: Path, dim: int, max_num_traj: Optional[int] = None, num_equispaced_points: Optional[int] = None) -> ResultContainer:
+    def run_reconstruction_traj_stats(
+        self, data_path: Path, dim: int, max_num_traj: Optional[int] = None, num_equispaced_points: Optional[int] = None
+    ) -> ResultContainer:
         acc_results = []
 
         num_preds_total = 0
@@ -574,7 +552,7 @@ class StatCalculationRunner:
             valid_predictions = self.model.fit(fit_traj, fit_time)
 
             num_preds_total += traj.size(0)
-            num_invalid_preds += (traj.size(0) - len(valid_predictions))
+            num_invalid_preds += traj.size(0) - len(valid_predictions)
             traj = traj[valid_predictions, ...]
             time = time[valid_predictions, ...]
 
@@ -594,9 +572,15 @@ class StatCalculationRunner:
 
         return self.ResultContainer(stats=acc_results, num_predictions_total=num_preds_total, num_invalid_predictions=num_invalid_preds)
 
-
     @torch.no_grad()
-    def run_generalization_traj_stats(self, data_path: Path, dim: int, num_model_input_traj: int, max_num_traj: Optional[int] = None, num_equispaced_points: Optional[int] = None) -> ResultContainer:
+    def run_generalization_traj_stats(
+        self,
+        data_path: Path,
+        dim: int,
+        num_model_input_traj: int,
+        max_num_traj: Optional[int] = None,
+        num_equispaced_points: Optional[int] = None,
+    ) -> ResultContainer:
         acc_results = []
 
         num_preds_total = 0
@@ -619,7 +603,7 @@ class StatCalculationRunner:
             valid_predictions = self.model.fit(fit_traj, fit_time)
 
             num_preds_total += traj.size(0)
-            num_invalid_preds += (traj.size(0) - len(valid_predictions))
+            num_invalid_preds += traj.size(0) - len(valid_predictions)
             traj = traj[valid_predictions, ...]
             time = time[valid_predictions, ...]
 
@@ -654,26 +638,24 @@ class StatCalculationRunner:
             for f in fields(obj):
                 setattr(obj, f.name, StatCalculationRunner.move_to_cpu(getattr(obj, f.name)))
         return obj
-    
+
     def save_results_to_file(self, results: List[StatAtom], file_path: Path):
-        with open(file_path.with_suffix('.pkl'), 'wb') as f:
+        with open(file_path.with_suffix(".pkl"), "wb") as f:
             res = self.move_to_cpu(results)
             pickle.dump(res, f)
 
         for res in results:
             res.visualize(title_extension=f"{file_path.name}")
 
-        save_all_figures_to_pdf(str(file_path.with_suffix('.pdf')))
-
+        save_all_figures_to_pdf(str(file_path.with_suffix(".pdf")))
 
     def save_result_container_to_file(self, results: ResultContainer, file_path: Path):
-        with open(file_path.with_suffix('.pkl'), 'wb') as f:
+        with open(file_path.with_suffix(".pkl"), "wb") as f:
             results.stats = self.move_to_cpu(results.stats)
             pickle.dump(results, f)
 
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     # with open("/home/teddev/Downloads/res/plots/generalization_stats_FIM-37-normal_model_9path.pkl", "rb") as f:
     #     res = pickle.load(f)
     #
@@ -683,18 +665,15 @@ if __name__ == '__main__':
     #     plt.show()
     #
     #     print(res)
-    
-    
-    
-    
-    
+
     batch_size = 2
     num_workers = 1
     prefetch_factor = 2
 
     dim = 2
     path = Path(
-        f"/home/teddev/PycharmProjects/pytorch_stuff/foundation_models_dynamical_systems/data_local/fim-data-more-path/0/data/processed/train/30k_drift_deg_3_ablation_studies/degree_and_monomial_survival_uniform/train/train_deg_{dim}")
+        f"/home/teddev/PycharmProjects/pytorch_stuff/foundation_models_dynamical_systems/data_local/fim-data-more-path/0/data/processed/train/30k_drift_deg_3_ablation_studies/degree_and_monomial_survival_uniform/train/train_deg_{dim}"
+    )
 
     # model = OdeonEval(
     #     Path("/home/teddev/PycharmProjects/FIM/scripts/results/new_data_hub_5kpoints_05-18-1922/checkpoints"))

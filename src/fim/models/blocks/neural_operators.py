@@ -292,6 +292,7 @@ class LinearAttention(Block):
         assert feature_map in self._VALID, f"feature_map must be one of {self._VALID}, got '{feature_map}'."
         if feature_map == "softmax":
             import warnings
+
             warnings.warn(
                 "feature_map='softmax' is deprecated and exists only to support published "
                 "FIMSDE HuggingFace weights.  Use 'softmax-gnot' or 'softmax-efficient' "
@@ -318,11 +319,11 @@ class LinearAttention(Block):
                 k = k.masked_fill(pad, float("-inf"))
                 v = v.masked_fill(pad, 0.0)
 
-            q_ = q.softmax(dim=-1, dtype=torch.float32)   # per token, across features
-            k_ = k.softmax(dim=-2, dtype=torch.float32)   # per feature, across sequence
+            q_ = q.softmax(dim=-1, dtype=torch.float32)  # per token, across features
+            k_ = k.softmax(dim=-2, dtype=torch.float32)  # per feature, across sequence
 
             # legacy: published FIMSDE weights were trained with sqrt(head_dim) scaling
-            norm_coeff = self.head_dim ** 0.5 if self.feature_map == "softmax" else 1
+            norm_coeff = self.head_dim**0.5 if self.feature_map == "softmax" else 1
 
         elif self.feature_map == "softmax-gnot":
             # Per-token softmax across features for both Q and K (GNOT / Hao 2023).
@@ -334,10 +335,10 @@ class LinearAttention(Block):
                 pad = key_padding_mask.view(B, 1, Tk, 1).bool()
                 pad = torch.broadcast_to(pad, k_.shape)
                 k_ = torch.where(pad, 0.0, k_)
-                v  = v.masked_fill(key_padding_mask.view(B, 1, Tk, 1).bool(), 0.0)
+                v = v.masked_fill(key_padding_mask.view(B, 1, Tk, 1).bool(), 0.0)
 
-            k_summed   = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)  # [B, num_heads, Tq, head_dim]
-            norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)             # [B, num_heads, Tq, 1]
+            k_summed = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)  # [B, num_heads, Tq, head_dim]
+            norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)  # [B, num_heads, Tq, 1]
 
         else:  # "elu" — Katharopoulos 2020
             q_ = torch.nn.functional.elu(q) + 1
@@ -348,9 +349,9 @@ class LinearAttention(Block):
                 pad = key_padding_mask.view(B, 1, Tk, 1).bool()
                 pad = torch.broadcast_to(pad, k_.shape)
                 k_ = torch.where(pad, 0.0, k_)
-                v  = v.masked_fill(key_padding_mask.view(B, 1, Tk, 1).bool(), 0.0)
+                v = v.masked_fill(key_padding_mask.view(B, 1, Tk, 1).bool(), 0.0)
 
-            k_summed   = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)
+            k_summed = k_.sum(dim=-2, keepdim=True).expand(-1, -1, Tq, -1)
             norm_coeff = (q_ * k_summed).sum(dim=-1, keepdim=True)
 
         # context vector

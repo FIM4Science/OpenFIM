@@ -37,6 +37,7 @@ Usage
     python scripts/ode/generate_dummy_ode_dataset.py          # default settings
     python scripts/ode/generate_dummy_ode_dataset.py --help   # show options
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,6 +53,7 @@ from scipy.integrate import solve_ivp
 # ─────────────────────────────────────────────────────────────
 # Vector field definitions  (all accept extra params via args)
 # ─────────────────────────────────────────────────────────────
+
 
 def _vdp(t: float, y: np.ndarray, mu: float) -> np.ndarray:
     """Van der Pol.  dx1/dt = x2,  dx2/dt = mu*(1-x1²)*x2 - x1."""
@@ -83,8 +85,8 @@ def _sample_fhn_params(rng: np.random.Generator) -> dict:
     tau — timescale separation        (larger = slower recovery)
     """
     return {
-        "a":   float(rng.uniform(0.5,  1.5)),
-        "b":   float(rng.uniform(0.1,  0.8)),
+        "a": float(rng.uniform(0.5, 1.5)),
+        "b": float(rng.uniform(0.1, 0.8)),
         "tau": float(rng.uniform(8.0, 20.0)),
     }
 
@@ -92,33 +94,33 @@ def _sample_fhn_params(rng: np.random.Generator) -> dict:
 def _sample_lorenz_params(rng: np.random.Generator) -> dict:
     """Sample Lorenz-63 parameters around the classic chaotic regime."""
     return {
-        "sigma": float(rng.uniform(8.0,  12.0)),
-        "rho":   float(rng.uniform(24.0, 32.0)),
-        "beta":  float(rng.uniform(2.0,   3.0)),
+        "sigma": float(rng.uniform(8.0, 12.0)),
+        "rho": float(rng.uniform(24.0, 32.0)),
+        "beta": float(rng.uniform(2.0, 3.0)),
     }
 
 
 SYSTEMS: Dict[str, dict] = {
     "vdp": {
-        "fn":            _vdp,
+        "fn": _vdp,
         "sample_params": _sample_vdp_params,
-        "dim":           2,
-        "ic_scale":      2.0,
-        "t_max":         10.0,
+        "dim": 2,
+        "ic_scale": 2.0,
+        "t_max": 10.0,
     },
     "fhn": {
-        "fn":            _fhn,
+        "fn": _fhn,
         "sample_params": _sample_fhn_params,
-        "dim":           2,
-        "ic_scale":      1.5,
-        "t_max":         20.0,
+        "dim": 2,
+        "ic_scale": 1.5,
+        "t_max": 20.0,
     },
     "lorenz": {
-        "fn":            _lorenz,
+        "fn": _lorenz,
         "sample_params": _sample_lorenz_params,
-        "dim":           3,
-        "ic_scale":      5.0,
-        "t_max":         5.0,
+        "dim": 3,
+        "ic_scale": 5.0,
+        "t_max": 5.0,
     },
 }
 
@@ -126,6 +128,7 @@ SYSTEMS: Dict[str, dict] = {
 # ─────────────────────────────────────────────────────────────
 # Core generation
 # ─────────────────────────────────────────────────────────────
+
 
 def _solve_and_sample(
     fn: Callable,
@@ -149,13 +152,12 @@ def _solve_and_sample(
     states : (N, D) clean state values at those times
     """
     t_dense = np.linspace(0, t_max, max(1000, n_obs * 20))
-    sol = solve_ivp(fn, [0, t_max], ic, t_eval=t_dense, method="RK45",
-                    rtol=1e-7, atol=1e-9, dense_output=False)
+    sol = solve_ivp(fn, [0, t_max], ic, t_eval=t_dense, method="RK45", rtol=1e-7, atol=1e-9, dense_output=False)
     if not sol.success:
         raise RuntimeError(f"ODE integration failed: {sol.message}")
 
     idx = np.sort(rng.choice(len(t_dense), size=n_obs, replace=False))
-    return t_dense[idx], sol.y[:, idx].T   # (N,), (N, D)
+    return t_dense[idx], sol.y[:, idx].T  # (N,), (N, D)
 
 
 def generate_dataset(
@@ -181,30 +183,30 @@ def generate_dataset(
     num_locations    : L — random query locations per instance
     seed             : RNG seed for reproducibility
     """
-    cfg      = SYSTEMS[system]
-    D        = cfg["dim"]
-    t_max    = cfg["t_max"]
+    cfg = SYSTEMS[system]
+    D = cfg["dim"]
+    t_max = cfg["t_max"]
     ic_scale = cfg["ic_scale"]
 
     rng = np.random.default_rng(seed)
 
-    obs_values_list            = []
-    obs_times_list             = []
-    drift_at_trajectory_list   = []   # drift at clean trajectory states
-    locations_list             = []
-    drift_at_locations_list    = []
+    obs_values_list = []
+    obs_times_list = []
+    drift_at_trajectory_list = []  # drift at clean trajectory states
+    locations_list = []
+    drift_at_locations_list = []
 
     for _ in range(num_samples):
         # Each sample is a distinct ODE: draw parameters independently
         params = cfg["sample_params"](rng)
-        fn     = partial(cfg["fn"], **params)
+        fn = partial(cfg["fn"], **params)
 
         # Sample T initial conditions for this instance
         ics = rng.normal(0, ic_scale, size=(num_trajectories, D))
 
-        traj_obs    = []   # (T, N, D)  noisy observations
-        traj_times  = []   # (T, N)     observation times
-        drift_traj  = []   # (T, N, D)  drift at clean trajectory states
+        traj_obs = []  # (T, N, D)  noisy observations
+        traj_times = []  # (T, N)     observation times
+        drift_traj = []  # (T, N, D)  drift at clean trajectory states
 
         for ic in ics:
             times, states = _solve_and_sample(fn, ic, t_max, num_obs, rng)
@@ -220,14 +222,14 @@ def generate_dataset(
             traj_times.append(times)
             drift_traj.append(drift)
 
-        obs_arr    = np.stack(traj_obs,   axis=0)   # (T, N, D)
-        times_arr  = np.stack(traj_times, axis=0)   # (T, N)
-        drift_arr  = np.stack(drift_traj, axis=0)   # (T, N, D)
+        obs_arr = np.stack(traj_obs, axis=0)  # (T, N, D)
+        times_arr = np.stack(traj_times, axis=0)  # (T, N)
+        drift_arr = np.stack(drift_traj, axis=0)  # (T, N, D)
 
         # Query locations: uniformly sampled from the bounding box of observed states
         flat_states = obs_arr.reshape(-1, D)
         lo, hi = flat_states.min(axis=0), flat_states.max(axis=0)
-        locs   = rng.uniform(lo, hi, size=(num_locations, D))
+        locs = rng.uniform(lo, hi, size=(num_locations, D))
         drift_locs = np.stack([fn(0.0, locs[i]) for i in range(num_locations)])
 
         obs_values_list.append(obs_arr)
@@ -239,24 +241,24 @@ def generate_dataset(
     def _t(a, dtype=torch.float32):
         return torch.tensor(np.stack(a, axis=0), dtype=dtype)
 
-    obs_values = _t(obs_values_list)                         # [S, T, N, D]
-    obs_times  = _t(obs_times_list).unsqueeze(-1)            # [S, T, N, 1]
-    drift_traj = _t(drift_at_trajectory_list)                # [S, T, N, D]
-    locations  = _t(locations_list)                          # [S, L, D]
-    drift_locs = _t(drift_at_locations_list)                 # [S, L, D]
+    obs_values = _t(obs_values_list)  # [S, T, N, D]
+    obs_times = _t(obs_times_list).unsqueeze(-1)  # [S, T, N, 1]
+    drift_traj = _t(drift_at_trajectory_list)  # [S, T, N, D]
+    locations = _t(locations_list)  # [S, L, D]
+    drift_locs = _t(drift_at_locations_list)  # [S, L, D]
 
     S, T, N, _ = obs_values.shape
-    obs_mask       = torch.ones(S, T, N, 1, dtype=torch.bool)
-    dimension_mask = torch.ones(S, 1, D,   dtype=torch.bool)
+    obs_mask = torch.ones(S, T, N, 1, dtype=torch.bool)
+    dimension_mask = torch.ones(S, 1, D, dtype=torch.bool)
 
     return {
-        "obs_values":            obs_values,
-        "obs_times":             obs_times,
-        "obs_mask":              obs_mask,
-        "locations":             locations,
-        "drift_at_locations":    drift_locs,
-        "drift_at_observations": drift_traj,   # key follows FIM codebase convention
-        "dimension_mask":        dimension_mask,
+        "obs_values": obs_values,
+        "obs_times": obs_times,
+        "obs_mask": obs_mask,
+        "locations": locations,
+        "drift_at_locations": drift_locs,
+        "drift_at_observations": drift_traj,  # key follows FIM codebase convention
+        "dimension_mask": dimension_mask,
     }
 
 
@@ -264,22 +266,21 @@ def generate_dataset(
 # Entry point
 # ─────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="Generate dummy FIMODE training data.")
-    parser.add_argument("--systems",       nargs="+", default=["vdp", "fhn", "lorenz"],
-                        choices=list(SYSTEMS), help="Systems to generate")
-    parser.add_argument("--num_samples",   type=int, default=200,
-                        help="Independent ODE instances per system — each gets its "
-                             "own randomly drawn parameters (S)")
-    parser.add_argument("--num_traj",      type=int, default=5,
-                        help="Trajectories per instance, same params different ICs (T)")
-    parser.add_argument("--num_obs",       type=int, default=32,
-                        help="Observation time points per trajectory (N)")
-    parser.add_argument("--num_locations", type=int, default=16,
-                        help="Random query locations per instance (L)")
-    parser.add_argument("--seed",          type=int, default=42)
-    parser.add_argument("--out_dir",       type=str,
-                        default=str(Path(__file__).resolve().parent.parent.parent / "data" / "ode"))
+    parser.add_argument("--systems", nargs="+", default=["vdp", "fhn", "lorenz"], choices=list(SYSTEMS), help="Systems to generate")
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        default=200,
+        help="Independent ODE instances per system — each gets its own randomly drawn parameters (S)",
+    )
+    parser.add_argument("--num_traj", type=int, default=5, help="Trajectories per instance, same params different ICs (T)")
+    parser.add_argument("--num_obs", type=int, default=32, help="Observation time points per trajectory (N)")
+    parser.add_argument("--num_locations", type=int, default=16, help="Random query locations per instance (L)")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--out_dir", type=str, default=str(Path(__file__).resolve().parent.parent.parent / "data" / "ode"))
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -290,7 +291,8 @@ def main():
         print(
             f"Generating {system} ({cfg['dim']}D, randomised params) — "
             f"{args.num_samples} samples × {args.num_traj} traj × {args.num_obs} obs …",
-            end=" ", flush=True,
+            end=" ",
+            flush=True,
         )
         data = generate_dataset(
             system=system,

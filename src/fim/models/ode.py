@@ -8,6 +8,7 @@ Compatible with all pre-trained checkpoints.
 
 Extended axial-attention architecture (paper 2) lives in ode2.py.
 """
+
 from __future__ import annotations
 
 import copy
@@ -22,23 +23,23 @@ from torch import Tensor
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 
 from fim.models.blocks import AModel, ModelFactory
-from fim.models.blocks.neural_operators import ResidualEncoderLayer, AttentionOperator
-from fim.models.sde import Standardization, DeltaLogCentering
-
+from fim.models.blocks.neural_operators import AttentionOperator, ResidualEncoderLayer
 from fim.models.ode_trainer import (
-    ODEConcepts,
-    EncoderOutput,
-    FIMODEOutput,
-    FIMODEConfig,
-    FIMODETrainingConfig,
-    TrainingData,
     DataPreparation,
+    EncoderOutput,
+    FIMODEConfig,
+    FIMODEOutput,
+    FIMODETrainingConfig,
     LossFactory,
+    ODEConcepts,
+    TrainingData,
     TrainIntegrator,
 )
+from fim.models.sde import DeltaLogCentering, Standardization
 
 
 # ---------- Trajectory features ----------
+
 
 @dataclass
 class TrajectoryFeatures:
@@ -47,14 +48,16 @@ class TrajectoryFeatures:
 
     Shapes: [B, T, N-1, *] where N-1 = time steps minus last.
     """
-    x: Tensor               # state values
-    delta_x: Tensor         # forward increment:  x(t+h) - x(t)
-    delta_x_squared: Tensor # squared forward increment
-    delta_t: Tensor         # time increments  [B, T, N-1, 1]
-    feature_mask: Tensor    # valid-step mask   [B, T, N-1, 1]
+
+    x: Tensor  # state values
+    delta_x: Tensor  # forward increment:  x(t+h) - x(t)
+    delta_x_squared: Tensor  # squared forward increment
+    delta_t: Tensor  # time increments  [B, T, N-1, 1]
+    feature_mask: Tensor  # valid-step mask   [B, T, N-1, 1]
 
 
 # ---------- Model configuration ----------
+
 
 @dataclass(kw_only=True)
 class FIMODEModelConfig(PretrainedConfig):
@@ -122,6 +125,7 @@ class FIMODEModelConfig(PretrainedConfig):
 
 # ---------- TrajectoryEncoder (4-feature, standard, checkpoint-compatible) ----------
 
+
 class TrajectoryEncoder(nn.Module):
     """
     4-feature context encoder: x, Δx, Δx², Δt.
@@ -139,15 +143,13 @@ class TrajectoryEncoder(nn.Module):
     def __init__(self, config: FIMODEModelConfig):
         super().__init__()
         self.config = config
-        assert config.dim_embed % self._NUM_FEATURES == 0, (
-            f"dim_embed must be divisible by {self._NUM_FEATURES} for TrajectoryEncoder"
-        )
+        assert config.dim_embed % self._NUM_FEATURES == 0, f"dim_embed must be divisible by {self._NUM_FEATURES} for TrajectoryEncoder"
         dim_proj = config.dim_embed // self._NUM_FEATURES
 
-        self.x_proj              = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
-        self.delta_x_proj        = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.x_proj = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
+        self.delta_x_proj = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
         self.delta_x_squared_proj = nn.Linear(config.dim_max_trajectory, dim_proj, bias=config.use_bias_for_projection)
-        self.delta_t_proj        = nn.Linear(1,                          dim_proj, bias=config.use_bias_for_projection)
+        self.delta_t_proj = nn.Linear(1, dim_proj, bias=config.use_bias_for_projection)
 
         layer = ResidualEncoderLayer(
             d_model=config.dim_embed,
@@ -161,10 +163,10 @@ class TrajectoryEncoder(nn.Module):
         )
 
     def forward(self, features: TrajectoryFeatures) -> "TrajectoryEncoder.Output":
-        x    = self.x_proj(features.x)
-        dx   = self.delta_x_proj(features.delta_x)
-        dx2  = self.delta_x_squared_proj(features.delta_x_squared)
-        dt   = self.delta_t_proj(features.delta_t)
+        x = self.x_proj(features.x)
+        dx = self.delta_x_proj(features.delta_x)
+        dx2 = self.delta_x_squared_proj(features.delta_x_squared)
+        dt = self.delta_t_proj(features.delta_t)
 
         feature_vector = torch.cat([dt, x, dx, dx2], dim=-1)
         if self.config.use_bias_for_projection:
@@ -181,6 +183,7 @@ class TrajectoryEncoder(nn.Module):
 
 
 # ---------- Uncertainty estimator ----------
+
 
 class UncertaintyEstimator(nn.Module):
     """
@@ -217,17 +220,16 @@ class UncertaintyEstimator(nn.Module):
 # This is the exact preprocessing used to train all published checkpoints.
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @torch.no_grad()
 def _backward_fill(x: Tensor, mask: Tensor) -> Tuple[Tensor, Tensor]:
     """Backward-fill masked positions with next observed value. Returns (filled_x, last_obs_idx)."""
     mask = torch.broadcast_to(mask, x.shape)
     mask = torch.flip(mask, dims=(-2,))
-    x    = torch.flip(x,    dims=(-2,))
+    x = torch.flip(x, dims=(-2,))
     mask_cumsum = torch.cumsum(mask, dim=-2)
     indices = torch.cummax(mask_cumsum * mask, dim=-2)[1]
-    first_obs = torch.argmin(
-        torch.where(mask_cumsum == 0, torch.inf, mask_cumsum), dim=-2, keepdim=True
-    )
+    first_obs = torch.argmin(torch.where(mask_cumsum == 0, torch.inf, mask_cumsum), dim=-2, keepdim=True)
     indices = torch.where(mask_cumsum == 0, first_obs, indices)
     x = torch.gather(x, dim=-2, index=indices)
     _, _, n, _ = x.shape
@@ -235,18 +237,16 @@ def _backward_fill(x: Tensor, mask: Tensor) -> Tuple[Tensor, Tensor]:
 
 
 @torch.no_grad()
-def _backward_fill_and_feature_mask(
-    trajectories: Tensor, times: Tensor, mask: Tensor
-) -> Tuple[Tensor, Tensor, Tensor]:
+def _backward_fill_and_feature_mask(trajectories: Tensor, times: Tensor, mask: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
     """
     Backward-fill trajectories/times; zero out the last observed step in the mask.
     Feature mask covers positions 0..N-2 excluding the last observed position.
     """
     assert mask.dtype == torch.bool
-    times        = mask * times
+    times = mask * times
     trajectories = mask * trajectories
-    times,        last_obs_idx = _backward_fill(times, mask)
-    trajectories, _             = _backward_fill(trajectories, mask)
+    times, last_obs_idx = _backward_fill(times, mask)
+    trajectories, _ = _backward_fill(trajectories, mask)
     mask = mask.scatter(
         dim=2,
         index=last_obs_idx,
@@ -256,14 +256,12 @@ def _backward_fill_and_feature_mask(
 
 
 @torch.no_grad()
-def _extract_features(
-    trajectories: Tensor, times: Tensor, mask: Tensor
-) -> TrajectoryFeatures:
+def _extract_features(trajectories: Tensor, times: Tensor, mask: Tensor) -> TrajectoryFeatures:
     """Compute x, Δx, Δx², Δt at positions 0..N-2 (standard 4-feature path)."""
-    X   = trajectories[:, :, :-1, :] * mask
-    dX  = (trajectories[:, :, 1:, :] - trajectories[:, :, :-1, :]) * mask
-    dX2 = dX ** 2
-    dt  = (times[:, :, 1:, :] - times[:, :, :-1, :]) * mask
+    X = trajectories[:, :, :-1, :] * mask
+    dX = (trajectories[:, :, 1:, :] - trajectories[:, :, :-1, :]) * mask
+    dX2 = dX**2
+    dt = (times[:, :, 1:, :] - times[:, :, :-1, :]) * mask
     return TrajectoryFeatures(x=X, delta_x=dX, delta_x_squared=dX2, delta_t=dt, feature_mask=mask)
 
 
@@ -285,6 +283,7 @@ def _sanity_check(
 # ─────────────────────────────────────────────────────────────────────────────
 # Main model
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class FIMODE(AModel):
     """
@@ -323,22 +322,18 @@ class FIMODE(AModel):
         self.model_config = model_config
         self.train_config = train_config
 
-        assert model_config.dim_embed % 4 == 0, (
-            "dim_embed must be divisible by 4 for TrajectoryEncoder"
-        )
+        assert model_config.dim_embed % 4 == 0, "dim_embed must be divisible by 4 for TrajectoryEncoder"
         self.trajectory_encoder = TrajectoryEncoder(model_config)
 
         # Normalization
-        self.spatial_norm  = Standardization()
+        self.spatial_norm = Standardization()
         self.temporal_norm = DeltaLogCentering()
 
         # Decoder: locations + D -> drift
         self.location_proj = nn.Sequential(
-            nn.Linear(model_config.dim_max_trajectory, model_config.dim_embed,
-                      bias=model_config.use_bias_for_projection),
+            nn.Linear(model_config.dim_max_trajectory, model_config.dim_embed, bias=model_config.use_bias_for_projection),
             nn.ReLU(),
-            nn.Linear(model_config.dim_embed, model_config.dim_embed,
-                      bias=model_config.use_bias_for_projection),
+            nn.Linear(model_config.dim_embed, model_config.dim_embed, bias=model_config.use_bias_for_projection),
         )
         self.functional_decoder = AttentionOperator(
             embed_dim=model_config.dim_embed,
@@ -351,10 +346,10 @@ class FIMODE(AModel):
 
         # Training utilities
         self.data_preparation = DataPreparation(train_config)
-        self.integrator       = TrainIntegrator(train_config)
-        self._criterion       = LossFactory.create(train_config.loss_type)
+        self.integrator = TrainIntegrator(train_config)
+        self._criterion = LossFactory.create(train_config.loss_type)
 
-        self._relative_epoch    = -1
+        self._relative_epoch = -1
         self._is_training_manual = False
 
         if device_map is not None:
@@ -405,12 +400,8 @@ class FIMODE(AModel):
     ) -> Tuple[TrajectoryFeatures, ODEConcepts.ODEConceptsBuilder]:
         """Standard 4-feature preprocessing (checkpoint-compatible)."""
         trajectories = self.pad_if_necessary(trajectories)
-        trajectories, times, feature_mask = _backward_fill_and_feature_mask(
-            trajectories, times, copy.deepcopy(mask)
-        )
-        trajectories, times, concept = self._normalize(
-            trajectories, times, mask, feature_mask
-        )
+        trajectories, times, feature_mask = _backward_fill_and_feature_mask(trajectories, times, copy.deepcopy(mask))
+        trajectories, times, concept = self._normalize(trajectories, times, mask, feature_mask)
         features = _extract_features(trajectories, times, feature_mask)
         return features, concept
 
@@ -472,7 +463,7 @@ class FIMODE(AModel):
 
     def summary(self, x: dict):
         num_params = sum(p.numel() for p in self.parameters())
-        trainable  = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
         return f"FIMODE — total params: {num_params:,}  trainable: {trainable:,}"
 
     def loss(self, *inputs: Any) -> Dict[str, Any]:
@@ -492,13 +483,13 @@ class FIMODE(AModel):
         data: dict,
         is_validation_batch: bool = False,
     ) -> Dict[str, Any]:
-        trajectories   = data["obs_values"]
-        times          = data["obs_times"]
-        locations      = data["locations"]
-        mask           = data["obs_mask"].bool()
+        trajectories = data["obs_values"]
+        times = data["obs_times"]
+        locations = data["locations"]
+        mask = data["obs_mask"].bool()
         dimension_mask = data["dimension_mask"].bool()
-        fx             = data.get("drift_at_locations")
-        fx_at_traj     = data.get("drift_at_observations")
+        fx = data.get("drift_at_locations")
+        fx_at_traj = data.get("drift_at_observations")
 
         b, t, n, d = trajectories.shape
 
@@ -507,13 +498,11 @@ class FIMODE(AModel):
             num_loc = locations.shape[1]
             idx = torch.round(torch.linspace(0, num_obs - 1, 2 * num_loc)).long()
             locations = torch.cat(
-                [locations,
-                 trajectories.flatten(start_dim=1, end_dim=2)[:, idx, :]],
+                [locations, trajectories.flatten(start_dim=1, end_dim=2)[:, idx, :]],
                 dim=1,
             )
             fx = torch.cat(
-                [fx,
-                 fx_at_traj.flatten(start_dim=1, end_dim=2)[:, idx, :]],
+                [fx, fx_at_traj.flatten(start_dim=1, end_dim=2)[:, idx, :]],
                 dim=1,
             )
             dimension_mask = dimension_mask[:, :1, :].expand(fx.shape)
@@ -540,18 +529,14 @@ class FIMODE(AModel):
         elif self.train_config.train_type == "vf_plus_traj":
             vf_loss, vf_stats = self._vector_field_step(training_data)
             tr_loss, tr_stats = self._trajectory_reconstruction_step(training_data, is_validation_batch)
-            loss  = vf_loss + tr_loss
-            stats = {**vf_stats, **tr_stats,
-                     "vector_field_loss": vf_loss.detach(),
-                     "trajectory_loss":   tr_loss.detach()}
+            loss = vf_loss + tr_loss
+            stats = {**vf_stats, **tr_stats, "vector_field_loss": vf_loss.detach(), "trajectory_loss": tr_loss.detach()}
         else:
             raise ValueError(f"Unknown train_type: {self.train_config.train_type!r}")
 
         return self._assemble_stats(loss, stats)
 
-    def _vector_field_step(
-        self, data: TrainingData
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
+    def _vector_field_step(self, data: TrainingData) -> Tuple[Tensor, Dict[str, Tensor]]:
         b, t, n, d = data.to_train.trajectories.shape
         vf_cfg = self.train_config.vector_field_training or {}
         last_idx = t // 2 if vf_cfg.get("with_reconstruction_trajectories", False) else t
@@ -597,53 +582,43 @@ class FIMODE(AModel):
 
         stats = {
             self.train_config.loss_type: loss_at_locations.detach().mean(),
-            "uncertainty_estimate":      u.detach().mean(),
+            "uncertainty_estimate": u.detach().mean(),
         }
         return loss, stats
 
-    def _trajectory_reconstruction_step(
-        self, data: TrainingData, is_validation_batch: bool = False
-    ) -> Tuple[Tensor, Dict[str, Tensor]]:
+    def _trajectory_reconstruction_step(self, data: TrainingData, is_validation_batch: bool = False) -> Tuple[Tensor, Dict[str, Tensor]]:
         result = self.integrator.solve_ivp_for_random_initial_conditions(
             model=self,
             data=data,
             relative_epoch=self._relative_epoch,
             is_validation_batch=is_validation_batch,
         )
-        pred   = result.prediction
+        pred = result.prediction
         target = result.truth
 
         if self.train_config.loss_filter_nans:
-            pred   = torch.nan_to_num(pred)
+            pred = torch.nan_to_num(pred)
             target = torch.nan_to_num(target)
 
         b, t, n, d = data.truth.trajectories.shape
         num_steps = self.train_config.traj_loss_steps
-        num_ic    = self.train_config.num_ic
-        pred      = pred.view(b, t * num_ic * num_steps, d)
-        target    = target.view(b, t * num_ic * num_steps, d)
-        dim_mask  = DataPreparation.get_dim_mask_for_traj_training(
-            data.to_train.trajectories, data.dimension_mask, self.train_config
-        )
+        num_ic = self.train_config.num_ic
+        pred = pred.view(b, t * num_ic * num_steps, d)
+        target = target.view(b, t * num_ic * num_steps, d)
+        dim_mask = DataPreparation.get_dim_mask_for_traj_training(data.to_train.trajectories, data.dimension_mask, self.train_config)
 
         if self.train_config.only_final_points_for_loss:
-            pred     = pred[:, num_steps - 1 :: num_steps, :]
-            target   = target[:, num_steps - 1 :: num_steps, :]
+            pred = pred[:, num_steps - 1 :: num_steps, :]
+            target = target[:, num_steps - 1 :: num_steps, :]
             dim_mask = dim_mask[:, num_steps - 1 :: num_steps, :]
 
         loss = self._criterion(pred, target, dim_mask).mean()
         return loss, {}
 
-    def _assemble_stats(
-        self, loss: Tensor, stats: Dict[str, Tensor]
-    ) -> Dict[str, Dict[str, Tensor]]:
-        stats["weight_norm_model"] = torch.norm(
-            torch.stack([p.detach().norm(2) for p in self.parameters()]), 2
-        )
+    def _assemble_stats(self, loss: Tensor, stats: Dict[str, Tensor]) -> Dict[str, Dict[str, Tensor]]:
+        stats["weight_norm_model"] = torch.norm(torch.stack([p.detach().norm(2) for p in self.parameters()]), 2)
         if self.train_config.train_type != "trajectory_reconstruction":
-            stats["weight_norm_u"] = torch.norm(
-                torch.stack([p.detach().norm(2) for p in self.u_model.parameters()]), 2
-            )
+            stats["weight_norm_u"] = torch.norm(torch.stack([p.detach().norm(2) for p in self.u_model.parameters()]), 2)
         stats["loss"] = loss
         return {"losses": stats}
 
@@ -657,15 +632,10 @@ AutoModel.register(FIMODEConfig, FIMODE)
 
 # ---------- Model loading helpers ----------
 
-_HF_REPO_ID   = "FIM4Science/fim-ode"
-_HF_SUBFOLDER = "base_model/checkpoints/best-model"
-# Repo root is 4 levels up from src/fim/models/ode.py
-_REPO_ROOT    = Path(__file__).resolve().parents[3]
-_DEFAULT_HF_CACHE = _REPO_ROOT / "results" / "ode" / "pretrained"
-
 
 def _load_fimode_from_config_and_weights(config_path: Path, weights_path: Path, device: str) -> FIMODE:
     from safetensors.torch import load_file
+
     from fim.models.ode_trainer import FIMODEConfig as _Cfg
 
     with open(config_path) as f:
@@ -690,13 +660,17 @@ def load_fim_ode_hf(device: str = "cpu", cache_dir: Path = None) -> FIMODE:
     """
     from huggingface_hub import hf_hub_download
 
+    _HF_REPO_ID = "FIM4Science/fim-ode"
+    _HF_SUBFOLDER = "base_model/checkpoints/best-model"
+    # Repo root is 4 levels up from src/fim/models/ode.py
+    _REPO_ROOT = Path(__file__).resolve().parents[3]
+    _DEFAULT_HF_CACHE = _REPO_ROOT / "results" / "ode" / "pretrained"
+
     local_dir = Path(cache_dir) if cache_dir is not None else _DEFAULT_HF_CACHE
     local_dir.mkdir(parents=True, exist_ok=True)
 
-    config_path  = Path(hf_hub_download(_HF_REPO_ID, f"{_HF_SUBFOLDER}/config.json",
-                                        local_dir=str(local_dir)))
-    weights_path = Path(hf_hub_download(_HF_REPO_ID, f"{_HF_SUBFOLDER}/model.safetensors",
-                                        local_dir=str(local_dir)))
+    config_path = Path(hf_hub_download(_HF_REPO_ID, f"{_HF_SUBFOLDER}/config.json", local_dir=str(local_dir)))
+    weights_path = Path(hf_hub_download(_HF_REPO_ID, f"{_HF_SUBFOLDER}/model.safetensors", local_dir=str(local_dir)))
     return _load_fimode_from_config_and_weights(config_path, weights_path, device)
 
 
