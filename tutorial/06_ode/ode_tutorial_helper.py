@@ -352,7 +352,7 @@ def plot_mocap_pca(
     PROJ_XLABELS = ["PC 1", "PC 1", "PC 2"]
     PROJ_YLABELS = ["PC 2", "PC 3", "PC 3"]
     PROJ_TITLES  = ["PC 1 vs PC 2", "PC 1 vs PC 3", "PC 2 vs PC 3"]
-    COLOR_PRED   = "#2ca02c"
+    COLOR_PRED   = "#56B4E9"
 
     n_test = min(n_test, tst_ys.shape[0])
     fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
