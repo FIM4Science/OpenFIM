@@ -6,6 +6,7 @@ Our released FIMs include:
 - FIMs for Markov Jump Processes (@fim_mjp, [huggingface](https://huggingface.co/FIM4Science/fim-mjp))
 - FIMs for Point Processes (@fim_pp, [huggingface](https://huggingface.co/FIM4Science/fim-pp))
 - FIMs for Stochastic Differential Equations (@fim_sde, [huggingface](https://huggingface.co/FIM4Science/fim-sde))
+- FIMs for Ordinary Differential Equations (@fim_ode, [huggingface](https://huggingface.co/FIM4Science/fim-ode))
 - FIMs for Zero-shot Time Series Imputation (@fim_imputation, [huggingface](https://huggingface.co/FIM4Science/fim-imp-temporal-base))
 
 ```{note}
@@ -13,7 +14,6 @@ Take a look at our [tutorials](01_introduction/tutorials.md)!
 ```
 
 Currently, we are working on releasing
-- FIMs for Ordinary Differential Equations (@fim_ode)
 - FIMs for Accelerating Coarse-graining and Equation Discovery (@fim_eqdisc)
 
 

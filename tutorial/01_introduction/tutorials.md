@@ -10,7 +10,8 @@ These currently include FIMs for:
 - [Markov Jump Processes](../03_mjp/mjp_crashcourse.md)
 - [Point Processes](../04_pp/pp_crashcourse.md)
 - [Stochastic Differential Equations](../05_sde/sde_crashcourse.md)
-- [Zero-shot Time Series Imputation](../06_imputation/imputation.ipynb)
+- [Ordinary Differential Equations](../06_ode/ode_tutorial.ipynb)
+- [Zero-shot Time Series Imputation](../07_imputation/imputation.ipynb)
 
 Note that if you are interested in training your own model [the installation section](../02_library/overview.md) contains a step by step
 description on how to build you training configuration file. If you are primarily interested in using our models you can safely skip to the chapter
