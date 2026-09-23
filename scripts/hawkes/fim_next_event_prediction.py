@@ -23,7 +23,7 @@ from tqdm import tqdm
 # SCRIPT CONFIGURATION
 # ===================================================================
 # Set the path to your trained FIM-Hawkes model checkpoint directory.
-MODEL_CHECKPOINT_PATH = "results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-23-1809/checkpoints/best-model"
+MODEL_CHECKPOINT_PATH = "FIM4Science/fim-pp"
 
 # Flag to control dataset source
 # If True: Load from EasyTPP HuggingFace repository
@@ -915,11 +915,13 @@ def run_next_event_evaluation(
     # For bootstrap CIs, collect per-event and per-sequence stats
     model_abs_errors: list = []
     model_sq_errors: list = []
+    model_smape_terms: list = []
     model_correct_flags: list = []
     model_seq_loglikes: list = []  # per-sequence average loglike
 
     baseline_abs_errors: list = []
     baseline_sq_errors: list = []
+    baseline_smape_terms: list = []
     baseline_correct_flags: list = []
     # Error flags (1 for incorrect type prediction)
     model_error_flags: list = []
@@ -928,6 +930,7 @@ def run_next_event_evaluation(
     if ground_truth_available:
         gt_abs_errors: list = []
         gt_sq_errors: list = []
+        gt_smape_terms: list = []
         gt_correct_flags: list = []
         gt_error_flags: list = []
         gt_seq_loglikes: list = []
@@ -1008,6 +1011,10 @@ def run_next_event_evaluation(
                 # Collect per-event stats for bootstrap
                 model_abs_errors.extend(torch.abs(pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
                 model_sq_errors.extend(((pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
+                p_m = pred_dtimes[mask].float()
+                a_m = true_dtimes[mask].float()
+                denom_m = p_m.abs() + a_m.abs() + 1e-9
+                model_smape_terms.extend((200.0 * (p_m - a_m).abs() / denom_m).view(-1).tolist())
                 correct_flags_tensor = (pred_types[mask] == true_types[mask]).to(torch.float32).view(-1)
                 model_correct_flags.extend(correct_flags_tensor.tolist())
                 model_error_flags.extend((1.0 - correct_flags_tensor).tolist())
@@ -1026,6 +1033,10 @@ def run_next_event_evaluation(
                 # Collect baseline per-event stats for bootstrap
                 baseline_abs_errors.extend(torch.abs(seq_pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
                 baseline_sq_errors.extend(((seq_pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
+                p_b = seq_pred_dtimes[mask].float()
+                a_b = true_dtimes[mask].float()
+                denom_b = p_b.abs() + a_b.abs() + 1e-9
+                baseline_smape_terms.extend((200.0 * (p_b - a_b).abs() / denom_b).view(-1).tolist())
                 baseline_correct_tensor = (seq_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1)
                 baseline_correct_flags.extend(baseline_correct_tensor.tolist())
                 baseline_error_flags.extend((1.0 - baseline_correct_tensor).tolist())
@@ -1043,6 +1054,10 @@ def run_next_event_evaluation(
                     # Collect GT per-event stats for bootstrap
                     gt_abs_errors.extend(torch.abs(gt_pred_dtimes[mask] - true_dtimes[mask]).view(-1).tolist())
                     gt_sq_errors.extend(((gt_pred_dtimes[mask] - true_dtimes[mask]) ** 2).view(-1).tolist())
+                    p_gt = gt_pred_dtimes[mask].float()
+                    a_gt = true_dtimes[mask].float()
+                    denom_gt = p_gt.abs() + a_gt.abs() + 1e-9
+                    gt_smape_terms.extend((200.0 * (p_gt - a_gt).abs() / denom_gt).view(-1).tolist())
                     gt_correct_tensor = (gt_pred_types[mask] == true_types[mask]).to(torch.float32).view(-1)
                     gt_correct_flags.extend(gt_correct_tensor.tolist())
                     gt_error_flags.extend((1.0 - gt_correct_tensor).tolist())
@@ -1068,11 +1083,13 @@ def run_next_event_evaluation(
     # Aggregate
     final_mae = total_mae / total_events if total_events > 0 else 0.0
     final_rmse = float(np.sqrt(total_sq_err / total_events)) if total_events > 0 else 0.0
+    final_smape = float(np.mean(model_smape_terms)) if model_smape_terms else 0.0
     final_acc = total_acc / total_events if total_events > 0 else 0.0
     final_ll_model = -total_nll_model / num_inference_sequences if num_inference_sequences > 0 else 0.0
 
     baseline_final_mae = baseline_total_mae / baseline_total_events if baseline_total_events > 0 else 0.0
     baseline_final_rmse = float(np.sqrt(baseline_total_sq_err / baseline_total_events)) if baseline_total_events > 0 else 0.0
+    baseline_final_smape = float(np.mean(baseline_smape_terms)) if baseline_smape_terms else 0.0
     baseline_final_acc = baseline_total_acc / baseline_total_events if baseline_total_events > 0 else 0.0
 
     # Compute bootstrap CIs (95%)
@@ -1081,6 +1098,9 @@ def run_next_event_evaluation(
     )
     rmse_ci_lower, rmse_ci_upper = (
         _bootstrap_ci(np.array(model_sq_errors), lambda x: np.sqrt(np.mean(x)), num_bootstrap_samples) if total_events > 0 else (None, None)
+    )
+    smape_ci_lower, smape_ci_upper = (
+        _bootstrap_ci(np.array(model_smape_terms), np.mean, num_bootstrap_samples) if model_smape_terms else (None, None)
     )
     # Compute CI directly on error rate (not as 1 - accuracy)
     type_error_ci_lower, type_error_ci_upper = (
@@ -1101,6 +1121,9 @@ def run_next_event_evaluation(
     baseline_type_error_ci_lower, baseline_type_error_ci_upper = (
         _bootstrap_ci(np.array(baseline_error_flags), np.mean, num_bootstrap_samples) if baseline_total_events > 0 else (None, None)
     )
+    baseline_smape_ci_lower, baseline_smape_ci_upper = (
+        _bootstrap_ci(np.array(baseline_smape_terms), np.mean, num_bootstrap_samples) if baseline_smape_terms else (None, None)
+    )
 
     if ground_truth_available:
         gt_mae_ci_lower, gt_mae_ci_upper = (
@@ -1117,9 +1140,15 @@ def run_next_event_evaluation(
         gt_loglike_ci_lower, gt_loglike_ci_upper = (
             _bootstrap_ci(np.array(gt_seq_loglikes), np.mean, num_bootstrap_samples) if len(gt_seq_loglikes) > 0 else (None, None)
         )
+        gt_smape_ci_lower, gt_smape_ci_upper = (
+            _bootstrap_ci(np.array(gt_smape_terms), np.mean, num_bootstrap_samples) if gt_smape_terms else (None, None)
+        )
+        gt_final_smape = float(np.mean(gt_smape_terms)) if gt_smape_terms else 0.0
     else:
         gt_mae_ci_lower = gt_mae_ci_upper = gt_rmse_ci_lower = gt_rmse_ci_upper = None
         gt_type_error_ci_lower = gt_type_error_ci_upper = gt_loglike_ci_lower = gt_loglike_ci_upper = None
+        gt_smape_ci_lower = gt_smape_ci_upper = None
+        gt_final_smape = 0.0
 
     result = {
         "dataset": dataset_id if use_easytpp else dataset,
@@ -1133,6 +1162,8 @@ def run_next_event_evaluation(
             "model": {
                 "mae": float(final_mae),
                 "rmse": float(final_rmse),
+                "smape": float(final_smape),
+                "smape_std": (None if smape_ci_lower is None or smape_ci_upper is None else float(0.5 * (smape_ci_upper - smape_ci_lower))),
                 "type_error": float(100.0 * (1.0 - final_acc)),
                 "loglike": float(final_ll_model),
                 "mae_ci_error": (None if mae_ci_lower is None or mae_ci_upper is None else float(0.5 * (mae_ci_upper - mae_ci_lower))),
@@ -1149,6 +1180,12 @@ def run_next_event_evaluation(
             "baseline": {
                 "mae": float(baseline_final_mae),
                 "rmse": float(baseline_final_rmse),
+                "smape": float(baseline_final_smape),
+                "smape_std": (
+                    None
+                    if baseline_smape_ci_lower is None or baseline_smape_ci_upper is None
+                    else float(0.5 * (baseline_smape_ci_upper - baseline_smape_ci_lower))
+                ),
                 "type_error": float(100.0 * (1.0 - baseline_final_acc)),
                 "loglike": None,
                 "mae_ci_error": (
@@ -1180,6 +1217,10 @@ def run_next_event_evaluation(
         result["metrics"]["ground_truth"] = {
             "mae": float(gt_final_mae),
             "rmse": float(gt_final_rmse),
+            "smape": float(gt_final_smape),
+            "smape_std": (
+                None if gt_smape_ci_lower is None or gt_smape_ci_upper is None else float(0.5 * (gt_smape_ci_upper - gt_smape_ci_lower))
+            ),
             "type_error": float(100.0 * (1.0 - gt_final_acc)),
             "loglike": float(final_ll_gt),
             "mae_ci_error": (

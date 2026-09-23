@@ -11,16 +11,16 @@ Key differences vs next-event prediction:
 - We run the full generation loop multiple times (ensembles) and aggregate the
   trajectories (mean of inter-arrival times, majority vote for types).
 
-CLI usage (invoked by the benchmark runner):
-python /cephfs/users/berghaus/FoundationModels/FIM/scripts/hawkes/fim_long_horizon_prediction.py \
-  --checkpoint results/FIM_Hawkes_10-22st_nll_mc_only_2000_paths_mixed_100_events_mixed-experiment-seed-10-dataset-dataset_kwargs-field_name_for_dimension_grouping-base_intensity_functions_09-23-1809/checkpoints/best-model \
-  --dataset data/external/CDiff_dataset/taobao \
-  --run-dir /cephfs/users/berghaus/FoundationModels/FIM/results/tmp \
-  --forecast-horizon-size 10 \
+CLI usage (usually invoked by scripts/hawkes/fim_benchmark.py, see scripts/hawkes/REPRODUCE_FIM_PP.md):
+python scripts/hawkes/fim_long_horizon_prediction.py \
+  --checkpoint FIM4Science/fim-pp \
+  --dataset taxi \
+  --run-dir results/tmp \
+  --forecast-horizon-size 20 \
   --context-size 2000 \
-  --inference-size 1 \
-  --plot-event-predictions \
-  --plot-path-index 0
+  --max-num-events 100 \
+  --num-ensemble-trajectories 5 \
+  --num-trials 3
 """
 
 from __future__ import annotations

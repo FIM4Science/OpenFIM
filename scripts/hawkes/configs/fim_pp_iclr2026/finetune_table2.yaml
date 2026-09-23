@@ -1,0 +1,29 @@
+# Re-run the fine-tuning behind Table 2 (f) on the EasyTPP train splits, starting from the Table 2 zero-shot checkpoint.
+# Run: python scripts/hawkes/fim_benchmark.py --config scripts/hawkes/configs/fim_pp_iclr2026/finetune_table2.yaml
+datasets:
+  - taxi
+  - taobao
+
+checkpoints:
+  - FIM4Science/fim-pp-paper-checkpoints/table2-zero-shot
+
+# Evaluation protocol (identical to the runs behind the paper numbers)
+task: next_event
+sampling_method: thinning
+context_size: 2000          # first min(2000, |train|) train sequences are the context
+inference_size: null        # all test sequences
+max_num_events: 100
+sample_idx: 0
+num_integration_points: 5000
+nll_method: monte_carlo
+num_bootstrap_samples: 1000 # the reported +- is the half-width of the 95% bootstrap CI over events (single run)
+parallel: 1
+fine_tune: true
+finetune_config: configs/train/hawkes/david.yaml
+fine_tune_lr: 5e-5
+fine_tune_epochs: 20000
+finetune_val_every: 500
+finetune_max_paths: 2000
+finetune_max_events: 100
+
+results_root: results/fim_pp_iclr2026/finetune_table2

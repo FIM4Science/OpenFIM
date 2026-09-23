@@ -18,6 +18,26 @@ from .positional_encodings import DeltaTimeEncoding, SineTimeEncoding
 
 
 logger = RankLoggerAdapter(logging.getLogger(__name__))
+
+
+def resolve_checkpoint_dir(model_path) -> Path:
+    """Return a local checkpoint directory, downloading it from the Hugging Face Hub if needed.
+
+    A path that does not exist locally is interpreted as "<org>/<repo>" (e.g. "FIM4Science/fim-pp")
+    or "<org>/<repo>/<subfolder>" (e.g. "FIM4Science/fim-pp-paper-checkpoints/table1-finetuned/taxi").
+    """
+    model_path = Path(model_path)
+    if model_path.exists() or model_path.is_absolute() or len(model_path.parts) < 2:
+        return model_path
+    from huggingface_hub import snapshot_download
+
+    repo_id = "/".join(model_path.parts[:2])
+    subfolder = "/".join(model_path.parts[2:])
+    prefix = f"{subfolder}/" if subfolder else ""
+    local_repo = snapshot_download(repo_id=repo_id, allow_patterns=[f"{prefix}config.json", f"{prefix}model-checkpoint.pth"])
+    return Path(local_repo) / subfolder
+
+
 __all__ = [
     MLP,
     SineTimeEncoding,
@@ -67,7 +87,8 @@ class AModel(PreTrainedModel, ABC):
 
     @classmethod
     def load_model(cls, model_path: Path):
-        model_path = Path(model_path)
+        """Load a model from a local checkpoint directory or from the Hugging Face Hub (see `resolve_checkpoint_dir`)."""
+        model_path = resolve_checkpoint_dir(model_path)
         config_path = model_path / "config.json"
         try:
             model_config = AutoConfig.from_pretrained(config_path)

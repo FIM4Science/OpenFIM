@@ -44,7 +44,7 @@ parallel: 5
 # Fine-tuning (optional). If enabled, model is fine-tuned per dataset before evaluation
 # - For next_event: HF EasyTPP dataset id is used for fine-tune (e.g., easytpp/taobao)
 # - For long_horizon: local CDiff dataset path is used (resolved from data/external/CDiff_dataset/<name> if needed)
-# - The best validation checkpoint (best-model) is automatically selected for evaluation
+# - The checkpoint with the lowest training loss (best-model) is automatically selected for evaluation
 # - Each dataset starts fine-tune from the base checkpoint again (no carry-over)
 fine_tune: false
 # Required when fine_tune: true — path to a train YAML used by fim_finetune.py

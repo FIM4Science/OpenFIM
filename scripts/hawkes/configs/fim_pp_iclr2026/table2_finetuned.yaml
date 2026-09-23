@@ -1,0 +1,23 @@
+# Table 2, row FIM-PP (f): next-event prediction with the fine-tuned checkpoints that produced the paper numbers.
+# Run: python scripts/hawkes/fim_benchmark.py --config scripts/hawkes/configs/fim_pp_iclr2026/table2_finetuned.yaml
+datasets:
+  - taxi
+  - taobao
+
+checkpoints:
+  - FIM4Science/fim-pp-paper-checkpoints/table2-finetuned/{dataset}
+
+# Evaluation protocol (identical to the runs behind the paper numbers)
+task: next_event
+sampling_method: thinning
+context_size: 2000          # first min(2000, |train|) train sequences are the context
+inference_size: null        # all test sequences
+max_num_events: 100
+sample_idx: 0
+num_integration_points: 5000
+nll_method: monte_carlo
+num_bootstrap_samples: 1000 # the reported +- is the half-width of the 95% bootstrap CI over events (single run)
+parallel: 1
+fine_tune: false
+
+results_root: results/fim_pp_iclr2026/table2_finetuned
