@@ -36,6 +36,17 @@ pre, code {
 }
 
 /* ==========================================================================
+   PAGE ACTIONS
+   ========================================================================== */
+
+/* Enlarge the GitHub and edit-page icons from the theme's 1.25rem default. */
+.myst-fm-github-icon,
+.myst-fm-edit-icon {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+/* ==========================================================================
    TEXT Color
    ========================================================================== */
 
@@ -43,7 +54,7 @@ pre, code {
 main article a,
 main article a.citation,
 main article a.cite {
-    color: #0072B2 !important;
+    color: #1980b9 !important;
     text-decoration: none !important; /* Removes default underline */
     transition: opacity 0.2s ease-in-out; /* Smooth fade effect */
 }

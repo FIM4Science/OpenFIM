@@ -1,13 +1,17 @@
 # The Foundation Inference Model Program
 
-Foundation Inference Models (FIMs) are pretrained deep neural network models that  perform zero-shot (or in-context) inference of dynamical systems from noisy time series data, and can easily be fine-tuned to specific tasks.
+Foundation Inference Models (FIMs) are pretrained deep neural network models that perform zero-shot (or in-context) inference of dynamical systems from noisy time series data, and can easily be fine-tuned to specific tasks.
+
+Implementations of FIMs are available in the [OpenFIM GitHub repository](https://github.com/FIM4Science/OpenFIM).
+
+Pretrained model weights are available on the [FIM4Science Hugging Face page](https://huggingface.co/FIM4Science).
 
 Our released FIMs include:
-- FIMs for Markov Jump Processes (@fim_mjp, [huggingface](https://huggingface.co/FIM4Science/fim-mjp))
-- FIMs for Point Processes (@fim_pp, [huggingface](https://huggingface.co/FIM4Science/fim-pp))
-- FIMs for Stochastic Differential Equations (@fim_sde, [huggingface](https://huggingface.co/FIM4Science/fim-sde))
-- FIMs for Ordinary Differential Equations (@fim_ode, [huggingface](https://huggingface.co/FIM4Science/fim-ode))
-- FIMs for Zero-shot Time Series Imputation (@fim_imputation, [huggingface](https://huggingface.co/FIM4Science/fim-imp-temporal-base))
+- FIMs for Markov Jump Processes (@fim_mjp)
+- FIMs for Point Processes (@fim_pp)
+- FIMs for Stochastic Differential Equations (@fim_sde)
+- FIMs for Ordinary Differential Equations (@fim_ode)
+- FIMs for Zero-shot Time Series Imputation (@fim_imputation)
 
 ```{note}
 Take a look at our [tutorials](01_introduction/tutorials.md)!

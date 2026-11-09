@@ -8,8 +8,9 @@
   </a>
 </div>
 
-The Foundation Inference Model (FIM) library offers a streamlined implementation of the FIM methodology, including models, training procedures, and example inference scripts. Built on PyTorch, the library simplifies the process of training and evaluating FIMs. Instead of writing models and training routines from scratch, users can define configurations in a simple .yaml file, enabling quick experimentation to tackle complex problems.
-The library originates from the FIM series of papers ([References](#references)). Pretrained models that replicate the results from these publications are available on [Hugging Face](https://huggingface.co/FIM4Science). A [tutorial](https://fim4science.github.io/OpenFIM/tutorials.html) is also provided to guide users through these features.
+The Foundation Inference Model (FIM) library offers a streamlined implementation of the FIM methodology, including models, training procedures, and example inference scripts. Built on PyTorch, the library simplifies the process of training and evaluating FIMs. Instead of writing models and training routines from scratch, users can define configurations in a simple .yaml file, enabling quick experimentation to tackle complex problems. A [tutorial](https://fim4science.github.io/OpenFIM/introduction/tutorials/) guides users through these features.
+
+The library originates from the FIM series of papers ([Publications](#publications)). Pretrained models that replicate the results from these publications are available on [Hugging Face](https://huggingface.co/FIM4Science). The [FIM website](https://fim4science.github.io/OpenFIM/) demonstrates the application of these pretrained models.
 
 ## Installation
 
@@ -28,7 +29,7 @@ Check out the configuration under `.pre-commit-config.yaml`. The `-n, --no-verif
 
 ## Tutorial
 
-Instructions on how to use the implemented models and configuration files are detailed on the [tutorial webpage](https://fim4science.github.io/OpenFIM/tutorials.html) and in [notebooks](notebooks/tutorials)
+Instructions on how to use the implemented models and configuration files are detailed on the [tutorial webpage](https://fim4science.github.io/OpenFIM/tutorials.html) and in [notebooks](notebooks)
 
 ## Publications
 
