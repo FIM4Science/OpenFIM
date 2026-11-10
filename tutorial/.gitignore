@@ -1,2 +1,5 @@
 # MyST build outputs
 _build
+
+# Keep tutorial images despite the repository-wide PNG ignore rule.
+!imgs/**/*.png
