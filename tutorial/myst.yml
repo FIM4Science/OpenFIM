@@ -51,4 +51,5 @@ site:
     hide_authors: true
     hide_footer_links: true
   parts:
-    primary_sidebar_footer: "© 2026 DL4SD Group"
+    # primary_sidebar_footer: "© 2026 DL4SD Group"
+    primary_sidebar_footer: sidebar_footer.md
