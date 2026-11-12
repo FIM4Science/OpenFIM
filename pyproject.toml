@@ -60,7 +60,7 @@ dependencies = [
 
 [dependency-groups]
 tutorial = [
-    "jupyter-book==2.1.5",
+    "jupyter-book==2.1.7",
     "huggingface_hub==0.36.2", # because of transformers==4.56.2
     "nbmake==1.5.5"
 ]

@@ -1,5 +1,9 @@
 version: 1
 project:
+  error_rules:
+    # Notebook cell IDs may repeat across pages; we do not reference them.
+    - rule: identifier-is-unique
+      severity: ignore
   authors:
     - name: DL4SD Group
   github: FIM4Science/OpenFIM
