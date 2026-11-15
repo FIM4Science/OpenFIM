@@ -38,7 +38,7 @@ from safetensors.torch import save_file as save_safetensors
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 
-from fim.models.blocks import ModelFactory
+from fim.models.blocks import ModelFactory, resolve_checkpoint_dir
 from fim.utils.helper import GenericConfig, expand_params, load_yaml
 from fim.utils.logging import RankLoggerAdapter, setup_logging
 
@@ -289,7 +289,12 @@ def _load_easytpp_split(dataset: str, split: str) -> Dict[str, List]:
         "like 'easytpp/retweet' (or just 'retweet')."
     ),
 )
-@click.option("--resume_model", default=None, type=click.Path(exists=True), help="Path to model-checkpoint.pth to load")
+@click.option(
+    "--resume_model",
+    default=None,
+    type=str,
+    help="Checkpoint directory or model-checkpoint.pth to load, or a Hugging Face Hub id such as FIM4Science/fim-pp",
+)
 @click.option("--epochs", default=1000, type=int, help="Fine-tuning epochs")
 @click.option("--lr", default=5e-5, type=float, help="Learning rate")
 @click.option("--weight_decay", default=1e-4, type=float, help="Weight decay")
@@ -334,7 +339,7 @@ def main(
     # but fall back to YAML config when the checkpoint config is missing fields
     # like 'model_type'. This improves robustness for older checkpoints.
     if resume_model is not None:
-        resume_path = Path(resume_model)
+        resume_path = resolve_checkpoint_dir(resume_model)
         ckpt_dir = resume_path if resume_path.is_dir() else resume_path.parent
         ckpt_config_path = ckpt_dir / "config.json"
         if not ckpt_config_path.exists():
@@ -359,7 +364,7 @@ def main(
     # Track which weights file was actually loaded (for metadata)
     loaded_weights_path: Optional[Path] = None
     if resume_model is not None:
-        resume_path = Path(resume_model)
+        resume_path = resolve_checkpoint_dir(resume_model)
         logger.info("Loading model weights from %s", resume_path)
         state = None
         if resume_path.is_dir():

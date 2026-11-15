@@ -1,0 +1,30 @@
+# Table 1 (and appendix Tables for N=5/10), row FIM-PP (zs): multi-event forecasting on the CDiff splits.
+# Run: python scripts/hawkes/fim_benchmark.py --config scripts/hawkes/configs/fim_pp_iclr2026/table1_zero_shot.yaml
+# Data: data/external/CDiff_dataset/<name>/{train,dev,test}.pkl (see scripts/hawkes/REPRODUCE_FIM_PP.md)
+datasets:
+  - taxi
+  - taobao
+  - stackoverflow
+  - amazon
+  - retweet
+
+checkpoints:
+  - FIM4Science/fim-pp   # pretrained model, epoch 36 of the pretraining run
+
+# Evaluation protocol (identical to the runs behind the paper numbers)
+task: long_horizon
+sampling_method: thinning
+context_size: 2000          # first min(2000, |train|) train sequences are the context, identical for every test sequence
+inference_size: null        # all test sequences
+max_num_events: 100         # truncate context and test sequences to 100 events before the history/horizon split
+sample_idx: 0
+num_integration_points: 5000
+nll_method: monte_carlo
+forecast_horizon_size: 20   # N; use 5 or 10 for the appendix tables
+num_ensemble_trajectories: 5  # rollouts per test sequence, aggregated to one forecast (mean dt, majority-vote mark)
+num_trials: 3               # the paper numbers use 3 trials (seeds 0,1,2); the captions wrongly state 10
+base_seed: 0
+parallel: 1                 # datasets evaluated concurrently (each run uses one GPU process)
+fine_tune: false
+
+results_root: results/fim_pp_iclr2026/table1_zero_shot

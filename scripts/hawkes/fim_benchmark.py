@@ -35,15 +35,26 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _is_hub_checkpoint(p: Path) -> bool:
+    """A non-existing relative path "<org>/<repo>[/<subfolder>]" is treated as a Hugging Face Hub checkpoint."""
+    return not p.exists() and not p.is_absolute() and len(p.parts) >= 2
+
+
 def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     """Run one evaluation and return a tuple identifying the result.
 
     Returns (dataset, checkpoint_name, result_dir, return_code)
     """
     dataset = cfg["dataset"]
+    # "{dataset}" in a checkpoint entry is replaced by the dataset name, e.g. for per-dataset fine-tuned checkpoints
+    if cfg.get("checkpoint"):
+        cfg = {**cfg, "checkpoint": str(cfg["checkpoint"]).format(dataset=Path(str(dataset)).name)}
     checkpoint: Path = Path(cfg["checkpoint"]) if cfg.get("checkpoint") else Path("")
     # Human-friendly label when no checkpoint is provided
-    checkpoint_name = checkpoint.name or (str(cfg.get("checkpoint")) if cfg.get("checkpoint") else "scratch")
+    if _is_hub_checkpoint(checkpoint):
+        checkpoint_name = "-".join(checkpoint.parts[1:])
+    else:
+        checkpoint_name = checkpoint.name or (str(cfg.get("checkpoint")) if cfg.get("checkpoint") else "scratch")
     results_root: Path = cfg["results_root"]
     task = str(cfg.get("task", "next_event"))
 
@@ -124,6 +135,8 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         return candidates[0][1]
 
     def _is_valid_checkpoint_dir(p: Path) -> bool:
+        if _is_hub_checkpoint(p):
+            return True
         try:
             return p.is_dir() and (
                 (p / "config.json").exists()
@@ -169,7 +182,7 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
         if not bool(cfg.get("fine_tune", False)):
             # If no checkpoint was provided and fine-tuning is disabled, we cannot proceed.
             # Downstream loaders require a valid checkpoint directory.
-            if not (str(checkpoint) and Path(str(checkpoint)).exists()):
+            if not (str(checkpoint) and (Path(str(checkpoint)).exists() or _is_hub_checkpoint(checkpoint))):
                 raise ValueError("No checkpoint provided and fine_tune is False; cannot initialize model from scratch for evaluation.")
             return checkpoint
 
@@ -344,7 +357,7 @@ def run_single(cfg: Dict) -> Tuple[str, str, Path, int]:
     else:
         env["PYTHONPATH"] = repo_src
 
-    with run_log.open("w") as log_f:
+    with run_log.open("a") as log_f:
         for idx, cmd in enumerate(commands, start=1):
             log_f.write(f"\n===== [RUNNING COMMAND {idx}/{len(commands)}] =====\n{' '.join(cmd)}\n\n")
             log_f.flush()
@@ -499,7 +512,7 @@ def write_matrices(results_root: Path, rows: List[Dict]) -> None:
             csv.writer(fh).writerows(matrix)
 
     metrics_to_write = {
-        "next_event": ["mae", "rmse", "type_error", "loglike"],
+        "next_event": ["mae", "rmse", "smape", "type_error", "loglike"],
         "long_horizon": [
             "rmsex_plus",
             "rmsex_plus_std",
@@ -539,7 +552,12 @@ def write_latex_row_next_event_fim(results_root: Path, rows: List[Dict]) -> Path
 
     # Determine if fine-tuned checkpoints are used for next_event (any row contains '_finetune')
     is_finetuned = any(
-        (r.get("task") == "next_event" and r.get("source") == "model" and "_finetune" in str(r.get("checkpoint", ""))) for r in rows
+        (
+            r.get("task") == "next_event"
+            and r.get("source") == "model"
+            and ("_finetune" in str(r.get("checkpoint", "")) or "finetuned" in str(r.get("checkpoint", "")))
+        )
+        for r in rows
     )
 
     cells: List[str] = []
@@ -583,7 +601,7 @@ def write_latex_rows_long_horizon_fim(results_root: Path, rows: List[Dict]) -> P
 
     # Determine if this is a fine-tuned or zero-shot benchmark
     # (all results in a single run will be one or the other)
-    has_finetuned = any("_finetune" in str(r.get("checkpoint", "")) for r in lh_model_rows)
+    has_finetuned = any(("_finetune" in str(r.get("checkpoint", "")) or "finetuned" in str(r.get("checkpoint", ""))) for r in lh_model_rows)
     method_label = "\\FIMfine" if has_finetuned else "\\FIMzeroshot"
 
     # Group rows by dataset (normalize dataset names)
